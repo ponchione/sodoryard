@@ -1,0 +1,104 @@
+# sirtopham configuration
+# Copy this file to sirtopham.yaml and uncomment/edit values as needed.
+
+# --- Server ---
+server:
+  # port: 8090                         # HTTP server listen port
+
+# --- Provider Routing (doc 03) ---
+routing:
+  default:
+    # provider: anthropic               # Default LLM provider
+    # model: claude-sonnet-4-6          # Default model identifier
+  fallback:
+    # provider: local                   # Fallback when default is unavailable
+    # model: qwen2.5-coder-7b
+
+# providers:
+#   local:
+#     type: openai-compatible
+#     base_url: http://localhost:8080/v1
+#     model: qwen2.5-coder-7b
+#   openrouter:
+#     type: openai-compatible
+#     base_url: https://openrouter.ai/api/v1
+#     api_key_env: OPENROUTER_API_KEY
+#     model: anthropic/claude-sonnet-4
+
+# --- Code Intelligence & RAG (doc 04) ---
+index:
+  # include:                            # File globs to index
+  #   - "**/*.go"
+  #   - "**/*.sql"
+  #   - "**/*.md"
+  # exclude:                            # File globs to skip
+  #   - "**/.git/**"
+  #   - "**/vendor/**"
+  #   - "**/node_modules/**"
+  # max_rag_results: 30                 # Maximum RAG search results
+  # max_tree_lines: 200                 # Maximum file tree lines in context
+  # auto_reindex: true                  # Re-index on file changes
+  # max_file_size_bytes: 51200          # 50KB per file limit
+  # max_total_file_size_bytes: 524288   # 512KB total context limit
+
+# --- Agent Loop (doc 05) ---
+agent:
+  # max_iterations_per_turn: 50         # Hard stop for runaway loops
+  # loop_detection_threshold: 3         # Same tool+args failures before nudge
+  # tool_output_max_tokens: 50000       # Truncation limit per tool result
+  # shell_timeout_seconds: 120          # Shell command timeout
+  # shell_denylist:                     # Rejected shell command patterns
+  #   - "rm -rf /"
+  #   - "git push --force"
+  # extended_thinking: true             # Enable Claude extended thinking
+  # cache_system_prompt: true           # Prompt caching (Anthropic)
+  # cache_assembled_context: true
+  # cache_conversation_history: true
+
+# --- Context Assembly (doc 06) ---
+context:
+  # Budget
+  # max_assembled_tokens: 30000         # Hard cap on injected context
+  # max_chunks: 25                      # Maximum code chunks from RAG
+  # max_explicit_files: 5               # Maximum directly-fetched files
+  # max_brain_tokens: 8000              # Max tokens for brain content
+  # convention_budget_tokens: 3000      # Token reservation for conventions
+  # git_context_budget_tokens: 2000     # Token reservation for git context
+
+  # Quality
+  # relevance_threshold: 0.35           # Minimum cosine similarity for code RAG
+  # brain_relevance_threshold: 0.30     # Minimum cosine similarity for brain
+  # structural_hop_depth: 1             # Call graph expansion depth
+  # structural_hop_budget: 10           # Max chunks from graph expansion
+  # momentum_lookback_turns: 2          # Prior turns to scan for momentum
+
+  # History management
+  # compression_threshold: 0.50         # Compress when history exceeds 50% of window
+  # compression_head_preserve: 3        # Messages to protect at start
+  # compression_tail_preserve: 4        # Messages to protect at end
+  # compression_model: local            # Model for summarization
+
+  # Debug
+  # emit_context_debug: true            # Send context_debug events to web UI
+  # store_assembly_reports: true        # Persist reports to SQLite
+
+# --- Project Brain (doc 09) ---
+brain:
+  # enabled: true
+  # vault_path: ~/obsidian-vaults/sirtopham-brain
+  # obsidian_api_url: http://localhost:27124
+  # obsidian_api_key: "your-api-key-here"
+
+  # Indexing
+  # embedding_model: nomic-embed-code
+  # chunk_at_headings: true
+  # reindex_on_startup: true
+
+  # Context assembly integration
+  # max_brain_tokens: 8000
+  # brain_relevance_threshold: 0.30
+  # include_graph_hops: true
+  # graph_hop_depth: 1
+
+  # Debug
+  # log_brain_queries: true
