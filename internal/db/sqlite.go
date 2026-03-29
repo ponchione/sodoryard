@@ -24,7 +24,8 @@ const (
 // OpenDB opens a SQLite database with the project's required pragmas.
 //
 // The project intentionally uses mattn/go-sqlite3 because CGO is already an
-// accepted build dependency elsewhere in the stack.
+// accepted build dependency elsewhere in the stack. Builds/tests use the
+// sqlite_fts5 tag so the Layer 0 FTS5 schema is available at runtime.
 func OpenDB(ctx context.Context, filePath string) (*sql.DB, error) {
 	if ctx == nil {
 		ctx = context.Background()
