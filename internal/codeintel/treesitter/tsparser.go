@@ -28,6 +28,9 @@ func parseTypeScript(content []byte, isTSX bool) ([]codeintel.RawChunk, error) {
 	}
 
 	tree := parser.Parse(content, nil)
+	if tree == nil {
+		return nil, fmt.Errorf("tree-sitter parse returned nil tree")
+	}
 	defer tree.Close()
 
 	root := tree.RootNode()
