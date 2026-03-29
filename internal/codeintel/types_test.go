@@ -84,8 +84,8 @@ func TestChunkFields(t *testing.T) {
 		LineEnd:          18,
 		ContentHash:      "hash",
 		IndexedAt:        indexedAt,
-		Calls:            []string{"auth.ParseToken"},
-		CalledBy:         []string{"main.main"},
+		Calls:            []FuncRef{{Name: "ParseToken", Package: "auth"}},
+		CalledBy:         []FuncRef{{Name: "main", Package: "main"}},
 		TypesUsed:        []string{"auth.Claims"},
 		ImplementsIfaces: []string{"auth.Validator"},
 		Imports:          []string{"context", "fmt"},
@@ -107,11 +107,11 @@ func TestChunkFields(t *testing.T) {
 	if !chunk.IndexedAt.Equal(indexedAt) {
 		t.Fatalf("IndexedAt = %v, want %v", chunk.IndexedAt, indexedAt)
 	}
-	if len(chunk.Calls) != 1 || chunk.Calls[0] != "auth.ParseToken" {
-		t.Fatalf("Calls = %#v, want auth.ParseToken", chunk.Calls)
+	if len(chunk.Calls) != 1 || chunk.Calls[0].Name != "ParseToken" || chunk.Calls[0].Package != "auth" {
+		t.Fatalf("Calls = %#v, want [{ParseToken auth}]", chunk.Calls)
 	}
-	if len(chunk.CalledBy) != 1 || chunk.CalledBy[0] != "main.main" {
-		t.Fatalf("CalledBy = %#v, want main.main", chunk.CalledBy)
+	if len(chunk.CalledBy) != 1 || chunk.CalledBy[0].Name != "main" || chunk.CalledBy[0].Package != "main" {
+		t.Fatalf("CalledBy = %#v, want [{main main}]", chunk.CalledBy)
 	}
 	if len(chunk.TypesUsed) != 1 || chunk.TypesUsed[0] != "auth.Claims" {
 		t.Fatalf("TypesUsed = %#v, want auth.Claims", chunk.TypesUsed)

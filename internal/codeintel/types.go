@@ -78,8 +78,8 @@ type Chunk struct {
 	ContentHash string
 	IndexedAt   time.Time
 
-	Calls            []string
-	CalledBy         []string
+	Calls            []FuncRef
+	CalledBy         []FuncRef
 	TypesUsed        []string
 	ImplementsIfaces []string
 	Imports          []string
