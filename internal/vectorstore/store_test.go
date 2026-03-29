@@ -181,3 +181,109 @@ func TestNewStore_And_RoundTrip(t *testing.T) {
 func TestStoreImplementsInterface(t *testing.T) {
 	var _ codeintel.Store = (*Store)(nil)
 }
+
+func TestUpsert_WrongEmbeddingDims(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	store, err := NewStore(ctx, dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	chunk := codeintel.Chunk{
+		ID:        "bad-dims",
+		Name:      "BadFunc",
+		FilePath:  "bad.go",
+		Language:  "go",
+		ChunkType: codeintel.ChunkTypeFunction,
+		Embedding: make([]float32, 10), // Wrong: should be 3584
+	}
+
+	err = store.Upsert(ctx, []codeintel.Chunk{chunk})
+	if err == nil {
+		t.Fatal("expected error for wrong embedding dimensions")
+	}
+}
+
+func TestVectorSearch_WithFilters(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	store, err := NewStore(ctx, dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	dims := codeintel.DefaultEmbeddingDims
+	embedding := make([]float32, dims)
+	for i := range embedding {
+		embedding[i] = 0.01
+	}
+
+	chunks := []codeintel.Chunk{
+		{
+			ID: "go-func", Name: "GoFunc", FilePath: "internal/auth/auth.go",
+			Language: "go", ChunkType: codeintel.ChunkTypeFunction,
+			Embedding: embedding, ContentHash: "h1", IndexedAt: time.Now(),
+		},
+		{
+			ID: "py-func", Name: "PyFunc", FilePath: "scripts/run.py",
+			Language: "python", ChunkType: codeintel.ChunkTypeFunction,
+			Embedding: embedding, ContentHash: "h2", IndexedAt: time.Now(),
+		},
+		{
+			ID: "go-type", Name: "GoType", FilePath: "internal/auth/types.go",
+			Language: "go", ChunkType: codeintel.ChunkTypeType,
+			Embedding: embedding, ContentHash: "h3", IndexedAt: time.Now(),
+		},
+	}
+
+	if err := store.Upsert(ctx, chunks); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// Filter by language
+	results, err := store.VectorSearch(ctx, embedding, 10, codeintel.Filter{Language: "go"})
+	if err != nil {
+		t.Fatalf("VectorSearch language filter: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("language filter: got %d results, want 2", len(results))
+	}
+
+	// Filter by chunk type
+	results, err = store.VectorSearch(ctx, embedding, 10, codeintel.Filter{ChunkType: codeintel.ChunkTypeFunction})
+	if err != nil {
+		t.Fatalf("VectorSearch chunk type filter: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("chunk type filter: got %d results, want 2", len(results))
+	}
+
+	// Filter by file path prefix
+	results, err = store.VectorSearch(ctx, embedding, 10, codeintel.Filter{FilePathPrefix: "internal/"})
+	if err != nil {
+		t.Fatalf("VectorSearch file path filter: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("file path prefix filter: got %d results, want 2", len(results))
+	}
+
+	// Combined filter: go + function
+	results, err = store.VectorSearch(ctx, embedding, 10, codeintel.Filter{
+		Language:  "go",
+		ChunkType: codeintel.ChunkTypeFunction,
+	})
+	if err != nil {
+		t.Fatalf("VectorSearch combined filter: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("combined filter: got %d results, want 1", len(results))
+	}
+	if len(results) > 0 && results[0].Chunk.Name != "GoFunc" {
+		t.Errorf("combined filter: got %q, want GoFunc", results[0].Chunk.Name)
+	}
+}

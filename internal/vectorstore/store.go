@@ -258,6 +258,10 @@ func (s *Store) chunksToRecord(chunks []codeintel.Chunk) (arrow.Record, error) {
 	fEmbValues := fEmbedding.ValueBuilder().(*array.Float32Builder)
 
 	for _, c := range chunks {
+		if len(c.Embedding) != codeintel.DefaultEmbeddingDims {
+			return nil, fmt.Errorf("chunk %q embedding dimension mismatch: got %d, want %d",
+				c.ID, len(c.Embedding), codeintel.DefaultEmbeddingDims)
+		}
 		fID.Append(c.ID)
 		fProjectName.Append(c.ProjectName)
 		fFilePath.Append(c.FilePath)
