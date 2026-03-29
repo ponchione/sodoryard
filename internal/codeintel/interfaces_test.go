@@ -15,6 +15,8 @@ type describerStub struct{}
 
 type searcherStub struct{}
 
+type graphStoreStub struct{}
+
 func (parserStub) Parse(filePath string, content []byte) ([]RawChunk, error) {
 	return []RawChunk{}, nil
 }
@@ -60,6 +62,18 @@ func (searcherStub) Search(ctx context.Context, queries []string, opts SearchOpt
 		Chunk: Chunk{ID: "chunk-id", Name: "ValidateToken", ChunkType: ChunkTypeFunction},
 		Score: 0.9,
 	}}, nil
+}
+
+func (graphStoreStub) BlastRadius(ctx context.Context, query GraphQuery) (*BlastRadiusResult, error) {
+	return &BlastRadiusResult{
+		Upstream:   []GraphNode{{Symbol: "api.Handler", Kind: "function", Depth: 1}},
+		Downstream: []GraphNode{{Symbol: "auth.ParseToken", Kind: "function", Depth: 1}},
+		Interfaces: []GraphNode{{Symbol: "auth.Validator", Kind: "interface", Depth: 1}},
+	}, nil
+}
+
+func (graphStoreStub) Close() error {
+	return nil
 }
 
 func TestParserInterfaceIsSatisfied(t *testing.T) {
@@ -177,5 +191,36 @@ func TestSearcherInterfaceIsSatisfied(t *testing.T) {
 	}
 	if results[0].Score != 0.9 {
 		t.Fatalf("Search result score = %v, want 0.9", results[0].Score)
+	}
+}
+
+func TestGraphStoreInterfaceIsSatisfied(t *testing.T) {
+	var graphStore GraphStore = graphStoreStub{}
+	ctx := context.Background()
+
+	result, err := graphStore.BlastRadius(ctx, GraphQuery{
+		Symbol:       "auth.ValidateToken",
+		MaxDepth:     2,
+		MaxNodes:     25,
+		IncludeKinds: []string{"function", "method"},
+		ExcludeKinds: []string{"interface"},
+	})
+	if err != nil {
+		t.Fatalf("BlastRadius returned unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("BlastRadius returned nil result, want non-nil pointer")
+	}
+	if len(result.Upstream) != 1 || result.Upstream[0].Symbol != "api.Handler" {
+		t.Fatalf("Upstream = %#v, want api.Handler", result.Upstream)
+	}
+	if len(result.Downstream) != 1 || result.Downstream[0].Symbol != "auth.ParseToken" {
+		t.Fatalf("Downstream = %#v, want auth.ParseToken", result.Downstream)
+	}
+	if len(result.Interfaces) != 1 || result.Interfaces[0].Symbol != "auth.Validator" {
+		t.Fatalf("Interfaces = %#v, want auth.Validator", result.Interfaces)
+	}
+	if err := graphStore.Close(); err != nil {
+		t.Fatalf("Close returned unexpected error: %v", err)
 	}
 }

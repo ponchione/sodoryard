@@ -104,3 +104,29 @@ type SearchOptions struct {
 	HopBudgetFraction  float64
 	HopDepth           int
 }
+
+// GraphNode identifies a symbol returned by structural graph traversal.
+type GraphNode struct {
+	Symbol    string
+	FilePath  string
+	Kind      string
+	Depth     int
+	LineStart int
+	LineEnd   int
+}
+
+// BlastRadiusResult groups the structural graph results around a target symbol.
+type BlastRadiusResult struct {
+	Upstream   []GraphNode
+	Downstream []GraphNode
+	Interfaces []GraphNode
+}
+
+// GraphQuery configures a blast-radius query against the structural graph.
+type GraphQuery struct {
+	Symbol       string
+	MaxDepth     int
+	MaxNodes     int
+	IncludeKinds []string
+	ExcludeKinds []string
+}

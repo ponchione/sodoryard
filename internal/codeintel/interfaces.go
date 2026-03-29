@@ -74,3 +74,15 @@ type Searcher interface {
 	// found, Search returns an empty slice and nil error.
 	Search(ctx context.Context, queries []string, opts SearchOptions) ([]SearchResult, error)
 }
+
+// GraphStore serves structural blast-radius queries from the graph index.
+type GraphStore interface {
+	// BlastRadius returns upstream callers, downstream callees, and interface
+	// relationships for the queried symbol. MaxDepth controls traversal depth
+	// and MaxNodes caps the total results. If the symbol is not found, the
+	// returned BlastRadiusResult contains empty (not nil) slices.
+	BlastRadius(ctx context.Context, query GraphQuery) (*BlastRadiusResult, error)
+
+	// Close releases resources held by the graph store.
+	Close() error
+}

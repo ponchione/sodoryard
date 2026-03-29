@@ -218,3 +218,68 @@ func TestSearchOptionsFields(t *testing.T) {
 		t.Fatalf("HopDepth = %d, want 1", opts.HopDepth)
 	}
 }
+
+func TestGraphNodeFields(t *testing.T) {
+	node := GraphNode{
+		Symbol:    "auth.ValidateToken",
+		FilePath:  "internal/auth/service.go",
+		Kind:      "function",
+		Depth:     2,
+		LineStart: 15,
+		LineEnd:   27,
+	}
+
+	if node.Symbol != "auth.ValidateToken" {
+		t.Fatalf("Symbol = %q, want %q", node.Symbol, "auth.ValidateToken")
+	}
+	if node.FilePath != "internal/auth/service.go" {
+		t.Fatalf("FilePath = %q, want %q", node.FilePath, "internal/auth/service.go")
+	}
+	if node.Kind != "function" {
+		t.Fatalf("Kind = %q, want %q", node.Kind, "function")
+	}
+	if node.Depth != 2 || node.LineStart != 15 || node.LineEnd != 27 {
+		t.Fatalf("node location fields = %+v, want depth 2 and lines 15-27", node)
+	}
+}
+
+func TestBlastRadiusResultFields(t *testing.T) {
+	result := BlastRadiusResult{
+		Upstream:   []GraphNode{{Symbol: "api.Handler", Kind: "function", Depth: 1}},
+		Downstream: []GraphNode{{Symbol: "auth.ParseToken", Kind: "function", Depth: 1}},
+		Interfaces: []GraphNode{{Symbol: "auth.Validator", Kind: "interface", Depth: 1}},
+	}
+
+	if len(result.Upstream) != 1 || result.Upstream[0].Symbol != "api.Handler" {
+		t.Fatalf("Upstream = %#v, want api.Handler", result.Upstream)
+	}
+	if len(result.Downstream) != 1 || result.Downstream[0].Symbol != "auth.ParseToken" {
+		t.Fatalf("Downstream = %#v, want auth.ParseToken", result.Downstream)
+	}
+	if len(result.Interfaces) != 1 || result.Interfaces[0].Symbol != "auth.Validator" {
+		t.Fatalf("Interfaces = %#v, want auth.Validator", result.Interfaces)
+	}
+}
+
+func TestGraphQueryFields(t *testing.T) {
+	query := GraphQuery{
+		Symbol:       "auth.ValidateToken",
+		MaxDepth:     2,
+		MaxNodes:     25,
+		IncludeKinds: []string{"function", "method"},
+		ExcludeKinds: []string{"interface"},
+	}
+
+	if query.Symbol != "auth.ValidateToken" {
+		t.Fatalf("Symbol = %q, want %q", query.Symbol, "auth.ValidateToken")
+	}
+	if query.MaxDepth != 2 || query.MaxNodes != 25 {
+		t.Fatalf("query numeric fields = %+v, want MaxDepth 2 and MaxNodes 25", query)
+	}
+	if len(query.IncludeKinds) != 2 || query.IncludeKinds[0] != "function" || query.IncludeKinds[1] != "method" {
+		t.Fatalf("IncludeKinds = %#v, want function/method", query.IncludeKinds)
+	}
+	if len(query.ExcludeKinds) != 1 || query.ExcludeKinds[0] != "interface" {
+		t.Fatalf("ExcludeKinds = %#v, want interface", query.ExcludeKinds)
+	}
+}
