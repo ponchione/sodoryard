@@ -8,11 +8,11 @@
 
 ## Description
 
-Define the `GoParser` struct in `internal/rag/goparser/` and implement its constructor. The constructor accepts a project root path, calls `go/packages.Load()` with the required load modes, and stores the loaded package data for reuse across all subsequent per-file parse calls. This is the expensive initialization step (seconds) that makes per-file parsing cheap.
+Define the `GoParser` struct in `internal/codeintel/goparser/` and implement its constructor. The constructor accepts a project root path, calls `go/packages.Load()` with the required load modes, and stores the loaded package data for reuse across all subsequent per-file parse calls. This is the expensive initialization step (seconds) that makes per-file parsing cheap.
 
 ## Acceptance Criteria
 
-- [ ] Package `internal/rag/goparser/` exists with file `goparser.go`
+- [ ] Package `internal/codeintel/goparser/` exists with file `goparser.go`
 - [ ] `GoParser` struct defined with at least the following fields:
   - `pkgs []*packages.Package` — loaded packages from `go/packages.Load()`
   - `fset *token.FileSet` — shared file set for position resolution
@@ -26,4 +26,4 @@ Define the `GoParser` struct in `internal/rag/goparser/` and implement its const
 - [ ] Constructor builds the `pkgsByFile` index by iterating all loaded packages and mapping each `pkg.GoFiles` entry to its package
 - [ ] Constructor returns a descriptive error if `go/packages.Load()` returns nil packages or if all packages have errors (individual package errors are logged but do not fail the whole load)
 - [ ] Package errors (e.g., a single package with syntax errors) are collected and logged via `log/slog` but do not prevent the parser from being created — partial loads are acceptable
-- [ ] `GoParser` compiles cleanly: `go build ./internal/rag/goparser/...`
+- [ ] `GoParser` compiles cleanly: `go build ./internal/codeintel/goparser/...`

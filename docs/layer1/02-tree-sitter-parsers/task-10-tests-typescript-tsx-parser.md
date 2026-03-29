@@ -12,7 +12,7 @@ Write comprehensive unit tests for the TypeScript and TSX tree-sitter parsers. T
 
 ## Acceptance Criteria
 
-- [ ] Test file at `internal/rag/parser/typescript_parser_test.go`
+- [ ] Test file at `internal/codeintel/treesitter/typescript_parser_test.go`
 - [ ] **Function declaration test:** parsing `function greet(name: string): string { return name; }` produces:
   - `Name` = `"greet"`
   - `Signature` = `"function greet(name: string): string"`

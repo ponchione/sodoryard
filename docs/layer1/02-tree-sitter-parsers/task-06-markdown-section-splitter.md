@@ -12,7 +12,7 @@ Implement the Markdown section splitter. Unlike the tree-sitter language parsers
 
 ## Acceptance Criteria
 
-- [ ] `MarkdownParser` struct in `internal/rag/parser/markdown_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
+- [ ] `MarkdownParser` struct in `internal/codeintel/treesitter/markdown_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
 - [ ] The parser splits content on lines starting with `## ` (two hashes followed by a space)
 - [ ] Each section produces a `RawChunk` with:
   - `Name`: the heading text after `## `, trimmed of whitespace (e.g., `## Installation Guide` -> `Installation Guide`)

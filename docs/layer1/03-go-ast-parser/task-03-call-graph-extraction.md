@@ -16,7 +16,7 @@ Implement call graph extraction for each function and method declaration. For ev
 - [ ] Walks all `*ast.CallExpr` nodes within the function body using `ast.Inspect`
 - [ ] **Direct function calls** (e.g., `fmt.Println(...)`) are resolved to qualified names:
   - Uses `typesInfo.Uses` to look up the `*ast.Ident` or `*ast.SelectorExpr` callee
-  - For package-qualified calls: produces `"pkg.FuncName"` format (e.g., `"fmt.Println"`, `"rag.NewStore"`)
+  - For package-qualified calls: produces `"pkg.FuncName"` format (e.g., `"fmt.Println"`, `"codeintel.NewStore"`)
   - For same-package calls: produces `"FuncName"` (unqualified, since the indexer resolves package context)
 - [ ] **Method calls** (e.g., `s.Process(...)`) are resolved to `"ReceiverType.MethodName"` using the type info of the receiver expression
   - If the receiver type is a pointer, the method is still recorded without the `*` prefix (e.g., `"Parser.Parse"`, not `"*Parser.Parse"`)

@@ -12,7 +12,7 @@ Implement the write-path methods of the `GraphStore` interface: `UpsertSymbols`,
 
 ## File Location
 
-`internal/graph/store.go`
+`internal/codeintel/graph/store.go`
 
 ## Constructor
 
@@ -21,7 +21,7 @@ package graph
 
 import "database/sql"
 
-// Store implements the GraphStore interface from internal/rag.
+// Store implements the GraphStore interface from internal/codeintel.
 type Store struct {
     db *sql.DB
 }

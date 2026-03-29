@@ -8,14 +8,14 @@
 
 ## Description
 
-Add the LanceDB Go/CGo dependency to the project and implement the connection open and close lifecycle. This creates the `LanceStore` struct in `internal/rag/store/` that holds the LanceDB connection handle and exposes `Open` and `Close` methods. The data directory path is derived from config: `~/.sirtopham/projects/<project-name>/lancedb/`. Parent directories are created if they do not exist.
+Add the LanceDB Go/CGo dependency to the project and implement the connection open and close lifecycle. This creates the `LanceStore` struct in `internal/vectorstore/` that holds the LanceDB connection handle and exposes `Open` and `Close` methods. The data directory path is derived from config: `~/.sirtopham/projects/<project-name>/lancedb/`. Parent directories are created if they do not exist.
 
 ## Acceptance Criteria
 
 - [ ] `github.com/lancedb/lancedb-go` (or the current canonical LanceDB Go binding) added to `go.mod`
 - [ ] Project compiles with `CGO_ENABLED=1` and LanceDB CGo bindings link successfully
 - [ ] Makefile updated with any LanceDB-specific CGo linker flags (e.g., `CGO_LDFLAGS`, `CGO_CFLAGS`) if required by the binding
-- [ ] `LanceStore` struct defined in `internal/rag/store/store.go` with fields: `db` (LanceDB connection handle), `tableName string` (always `"chunks"`), `projectName string`
+- [ ] `LanceStore` struct defined in `internal/vectorstore/store.go` with fields: `db` (LanceDB connection handle), `tableName string` (always `"chunks"`), `projectName string`
 - [ ] Constructor function: `NewLanceStore(ctx context.Context, dataDir string, projectName string) (*LanceStore, error)`
   - Creates parent directories via `os.MkdirAll` if they do not exist
   - Opens a LanceDB connection at `dataDir`
@@ -26,7 +26,7 @@ Add the LanceDB Go/CGo dependency to the project and implement the connection op
 
 ### Interface Compliance
 
-- [ ] Compile-time interface assertion: `var _ rag.Store = (*LanceStore)(nil)` in `store.go`
-- [ ] Any return type adjustments needed so `*LanceStore` satisfies the `rag.Store` interface (e.g., `NewLanceStore` returns `(rag.Store, error)`)
-- [ ] `go build ./internal/rag/store/...` compiles without errors
-- [ ] `go vet ./internal/rag/store/...` reports no issues
+- [ ] Compile-time interface assertion: `var _ codeintel.Store = (*LanceStore)(nil)` in `store.go`
+- [ ] Any return type adjustments needed so `*LanceStore` satisfies the `codeintel.Store` interface (e.g., `NewLanceStore` returns `(codeintel.Store, error)`)
+- [ ] `go build ./internal/vectorstore/...` compiles without errors
+- [ ] `go vet ./internal/vectorstore/...` reports no issues

@@ -12,8 +12,8 @@ Implement the parser dispatcher that selects the correct parser based on file ex
 
 ## Acceptance Criteria
 
-- [ ] `Dispatcher` struct in `internal/rag/parser/dispatcher.go` implements the `Parser` interface: `Parse(filePath string, content []byte) ([]RawChunk, error)`
-- [ ] `Dispatcher` struct is unexported (or exported if needed by tests). Contains a `parsers map[string]rag.Parser` field mapping file extensions to parser instances, and a `fallback rag.Parser` field for unrecognized extensions. Populated in `NewDispatcher()`.
+- [ ] `Dispatcher` struct in `internal/codeintel/treesitter/dispatcher.go` implements the `Parser` interface: `Parse(filePath string, content []byte) ([]RawChunk, error)`
+- [ ] `Dispatcher` struct is unexported (or exported if needed by tests). Contains a `parsers map[string]codeintel.Parser` field mapping file extensions to parser instances, and a `fallback codeintel.Parser` field for unrecognized extensions. Populated in `NewDispatcher()`.
 - [ ] `NewDispatcher() *Dispatcher` constructor initializes all language parsers and the extension-to-parser mapping
 - [ ] Extension routing maps:
   - `.go` -> Go tree-sitter parser

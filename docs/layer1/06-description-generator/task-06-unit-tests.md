@@ -12,12 +12,12 @@ Comprehensive unit tests for the description generator package. Tests cover all 
 
 ## Package
 
-`internal/rag/describer/describer_test.go` (same package — tests unexported functions)
+`internal/codeintel/describer/describer_test.go` (same package — tests unexported functions)
 
 Additional files if needed for organization:
-- `internal/rag/describer/prompt_test.go`
-- `internal/rag/describer/parse_test.go`
-- `internal/rag/describer/client_test.go`
+- `internal/codeintel/describer/prompt_test.go`
+- `internal/codeintel/describer/parse_test.go`
+- `internal/codeintel/describer/client_test.go`
 
 ---
 
@@ -149,14 +149,14 @@ These use a mock HTTP server to simulate the full end-to-end flow.
 ## Acceptance Criteria
 
 - [ ] **Part A:** All prompt builder tests pass: `TruncateFileContent` (5 cases), `FormatRelationshipContext` (5 cases), `buildMessages` (5 cases)
-- [ ] **Part A:** All response parser tests pass: `extractJSON` (8 cases), `parseDescriptions` (6 cases) returning `[]rag.Description`
+- [ ] **Part A:** All response parser tests pass: `extractJSON` (8 cases), `parseDescriptions` (6 cases) returning `[]codeintel.Description`
 - [ ] **Part A:** `first200Chars` tests pass: short string, exactly 200 chars, over 200 with multi-byte runes at boundary
 - [ ] **Part B:** All LLM client tests pass: success, HTTP error, empty choices, invalid JSON, context cancellation, timeout
 - [ ] **Part B:** All describer integration tests pass: success, empty file, LLM down, timeout, invalid response, large file
 - [ ] Tests use `httptest.NewServer` for mock LLM — no real HTTP calls
 - [ ] Tests verify graceful failure behavior: LLM errors return `nil, nil`, not an error
 - [ ] Tests verify logging: Warn-level messages emitted on failure (use a test logger or `slog.Handler` that captures records)
-- [ ] `go test ./internal/rag/describer/...` passes with zero failures
+- [ ] `go test ./internal/codeintel/describer/...` passes with zero failures
 
 ## Sizing Note
 

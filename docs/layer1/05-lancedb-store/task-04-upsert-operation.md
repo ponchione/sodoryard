@@ -12,13 +12,13 @@ Implement the upsert operation on the `chunks` table. LanceDB does not have nati
 
 ## Acceptance Criteria
 
-- [ ] Method signature: `Upsert(ctx context.Context, chunks []rag.Chunk, embeddings [][]float32) error`
+- [ ] Method signature: `Upsert(ctx context.Context, chunks []codeintel.Chunk, embeddings [][]float32) error`
 - [ ] For each chunk, delete any existing record with the same `id` value. Use a filter expression: `id = '<chunk_id>'`
 - [ ] If no existing record is found for a given ID, the delete is a no-op (no error)
 - [ ] After deleting stale records, insert all chunks as a single Arrow record batch using the builder from Task 02
 - [ ] The delete-then-insert sequence is per-batch, not per-chunk: delete all stale IDs first, then insert the full batch. This is more efficient than N individual round-trips.
 - [ ] Validates `len(chunks) == len(embeddings)` — returns error if mismatched
-- [ ] Validates `len(embeddings[i]) == rag.DefaultEmbeddingDims` for each embedding — returns error with chunk ID if wrong dimension
+- [ ] Validates `len(embeddings[i]) == codeintel.DefaultEmbeddingDims` for each embedding — returns error with chunk ID if wrong dimension
 - [ ] Returns a descriptive error if the delete operation fails (includes chunk ID)
 - [ ] Returns a descriptive error if the insert operation fails
 - [ ] Calling `Upsert` with an empty slice is a no-op (returns nil, no LanceDB call)

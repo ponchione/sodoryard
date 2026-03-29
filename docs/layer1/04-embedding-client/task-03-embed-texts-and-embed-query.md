@@ -31,8 +31,8 @@ Implement the two public methods that satisfy the `Embedder` interface from L1-E
   - Calls `sendBatch(ctx, []string{prefixedQuery})`
   - Returns the single embedding vector (index 0) from the result
   - If query is empty string, returns error (do not send empty query to container)
-- [ ] `*Client` satisfies the `rag.Embedder` interface — verified by compile-time assertion:
+- [ ] `*Client` satisfies the `codeintel.Embedder` interface — verified by compile-time assertion:
   ```go
-  var _ rag.Embedder = (*Client)(nil)
+  var _ codeintel.Embedder = (*Client)(nil)
   ```
-- [ ] Compiles cleanly: `go build ./internal/rag/embedder/...`
+- [ ] Compiles cleanly: `go build ./internal/codeintel/embedder/...`

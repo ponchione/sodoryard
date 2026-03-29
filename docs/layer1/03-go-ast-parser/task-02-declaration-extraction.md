@@ -12,7 +12,7 @@ Implement the core declaration extraction logic that walks a Go file's AST and p
 
 ## Acceptance Criteria
 
-- [ ] Method on `GoParser`: `extractDeclarations(filePath string, file *ast.File, pkg *packages.Package) ([]rag.RawChunk, error)`
+- [ ] Method on `GoParser`: `extractDeclarations(filePath string, file *ast.File, pkg *packages.Package) ([]codeintel.RawChunk, error)`
 - [ ] **Function declarations** (`*ast.FuncDecl` with nil receiver): extracted as `ChunkType = Function`
   - `Name`: the function name (e.g., `"ProcessFile"`)
   - `Signature`: text from the `func` keyword through the closing `)` of the return types (everything before the body block), e.g., `"func ProcessFile(path string) ([]Chunk, error)"`
@@ -36,6 +36,6 @@ Implement the core declaration extraction logic that walks a Go file's AST and p
   - `LineStart` / `LineEnd`: span of the full type declaration
 - [ ] Grouped type declarations (`type ( ... )` blocks) are split into individual `RawChunk`s, one per `TypeSpec`
 - [ ] Source text extraction uses `token.FileSet` positions to read the exact byte range from the original source (not AST pretty-printing)
-- [ ] Bodies exceeding `rag.MaxBodyLength` (2000 characters) are truncated to that limit
+- [ ] Bodies exceeding `codeintel.MaxBodyLength` (2000 characters) are truncated to that limit
 - [ ] Declarations without a body (e.g., external function declarations with no block) are still extracted with an empty `Body`
 - [ ] If `token.FileSet` position resolution fails for a single declaration (e.g., position is out of range), that declaration is skipped with a warning log and processing continues with remaining declarations. The function does not return an error for individual position resolution failures.

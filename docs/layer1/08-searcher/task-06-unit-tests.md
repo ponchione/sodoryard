@@ -14,8 +14,8 @@ Write comprehensive unit tests for the searcher using mock implementations of th
 
 ### Mock Setup
 
-- [ ] `mockEmbedder` implementing `rag.Embedder` that returns pre-configured embedding vectors. `EmbedQuery` returns a deterministic vector per query string (use a map of query string -> vector). Returns error if configured to do so.
-- [ ] `mockStore` implementing `rag.Store` that returns pre-configured search results. `VectorSearch` returns deterministic chunk+score pairs per embedding vector (use a map or ordered list). `GetByName` returns pre-configured chunks per name. Returns error if configured to do so.
+- [ ] `mockEmbedder` implementing `codeintel.Embedder` that returns pre-configured embedding vectors. `EmbedQuery` returns a deterministic vector per query string (use a map of query string -> vector). Returns error if configured to do so.
+- [ ] `mockStore` implementing `codeintel.Store` that returns pre-configured search results. `VectorSearch` returns deterministic chunk+score pairs per embedding vector (use a map or ordered list). `GetByName` returns pre-configured chunks per name. Returns error if configured to do so.
 
 ### Deduplication and Re-Ranking Tests
 
@@ -59,7 +59,7 @@ Write comprehensive unit tests for the searcher using mock implementations of th
 
 ### Interface Compliance
 
-- [ ] Test: compile-time assertion `var _ rag.Searcher = (*Searcher)(nil)` exists in test file to verify interface satisfaction.
+- [ ] Test: compile-time assertion `var _ codeintel.Searcher = (*Searcher)(nil)` exists in test file to verify interface satisfaction.
 
 ## Work Breakdown
 

@@ -17,7 +17,7 @@ Ports from topham's `internal/rag/store.go`. The LanceDB integration was audited
 
 ## Package
 
-`internal/rag/store/` — LanceDB vector store integration.
+`internal/vectorstore/` — LanceDB vector store integration.
 
 ---
 

@@ -17,7 +17,7 @@ The structural graph has its own analyzers (Go, Python, TypeScript) and its own 
 
 ## Package
 
-`internal/graph/` — structural graph store, analyzers, and blast radius queries.
+`internal/codeintel/graph/` — structural graph store, analyzers, and blast radius queries.
 
 ---
 
@@ -35,11 +35,11 @@ The structural graph has its own analyzers (Go, Python, TypeScript) and its own 
 
 ### Graph Store
 
-- [ ] Implements the `rag.GraphStore` interface from L1-E01-T09 (`BlastRadius` and `Close` methods)
+- [ ] Implements the `codeintel.GraphStore` interface from L1-E01-T09 (`BlastRadius` and `Close` methods)
 - [ ] `UpsertSymbols(ctx, symbols []Symbol) error` — insert or update symbols for a file
 - [ ] `UpsertRelationships(ctx, calls []Call, typeRefs []TypeRef, implements []Implements) error` — insert relationships between symbols
 - [ ] `DeleteByFilePath(ctx, projectID, filePath string) error` — remove all symbols and relationships for a file (used during re-indexing)
-- [ ] `BlastRadius(ctx context.Context, query rag.GraphQuery) (*rag.BlastRadiusResult, error)` — the primary query (see below), matching the `rag.GraphStore` interface from L1-E01-T09
+- [ ] `BlastRadius(ctx context.Context, query codeintel.GraphQuery) (*codeintel.BlastRadiusResult, error)` — the primary query (see below), matching the `codeintel.GraphStore` interface from L1-E01-T09
 
 ### Blast Radius Query
 
@@ -47,7 +47,7 @@ The structural graph has its own analyzers (Go, Python, TypeScript) and its own 
   - **Upstream:** functions/types that call or reference the target (callers, at configurable depth)
   - **Downstream:** functions/types the target calls or references (callees, at configurable depth)
   - **Interfaces:** interfaces the target type implements
-- [ ] Query parameters come from `rag.GraphQuery` fields: `MaxDepth` (default 1), `MaxNodes` (budget cap), `IncludeKinds`/`ExcludeKinds` (symbol type filters)
+- [ ] Query parameters come from `codeintel.GraphQuery` fields: `MaxDepth` (default 1), `MaxNodes` (budget cap), `IncludeKinds`/`ExcludeKinds` (symbol type filters)
 - [ ] Results include: symbol name, qualified name, file path, line range, relationship type (caller/callee/implements), depth from target
 - [ ] Efficient traversal: uses recursive CTEs or iterative BFS in SQLite, not N+1 queries
 

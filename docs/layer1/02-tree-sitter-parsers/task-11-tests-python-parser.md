@@ -12,7 +12,7 @@ Write comprehensive unit tests for the Python tree-sitter parser. Tests use inli
 
 ## Acceptance Criteria
 
-- [ ] Test file at `internal/rag/parser/python_parser_test.go`
+- [ ] Test file at `internal/codeintel/treesitter/python_parser_test.go`
 - [ ] **Function extraction test:** parsing `def add(x: int, y: int) -> int:\n    return x + y` produces:
   - `Name` = `"add"`
   - `Signature` = `"def add(x: int, y: int) -> int:"`

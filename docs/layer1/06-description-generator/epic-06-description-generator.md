@@ -17,7 +17,7 @@ This is the quality-critical component of the RAG pipeline. Description quality 
 
 ## Package
 
-`internal/rag/describer/` — local LLM description generation.
+`internal/codeintel/describer/` — local LLM description generation.
 
 ---
 

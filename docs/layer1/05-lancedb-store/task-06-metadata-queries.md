@@ -14,7 +14,7 @@ Implement metadata-only query methods that retrieve chunks without vector search
 
 ### GetByFilePath
 
-- [ ] Method signature: `GetByFilePath(ctx context.Context, filePath string) ([]rag.Chunk, error)`
+- [ ] Method signature: `GetByFilePath(ctx context.Context, filePath string) ([]codeintel.Chunk, error)`
 - [ ] Returns all chunks where `file_path = '<filePath>'` (exact match, not prefix)
 - [ ] Results are ordered by `line_start` ascending (top of file first)
 - [ ] All `Chunk` fields are populated, including deserialized relationship fields (JSON string to `[]string`)
@@ -23,7 +23,7 @@ Implement metadata-only query methods that retrieve chunks without vector search
 
 ### GetByName
 
-- [ ] Method signature: `GetByName(ctx context.Context, name string) ([]rag.Chunk, error)`
+- [ ] Method signature: `GetByName(ctx context.Context, name string) ([]codeintel.Chunk, error)`
 - [ ] Returns all chunks where `name = '<name>'` (exact match)
 - [ ] Multiple chunks may share a name (e.g., same function name in different files/packages). All matches are returned.
 - [ ] All `Chunk` fields are populated, including deserialized relationship fields

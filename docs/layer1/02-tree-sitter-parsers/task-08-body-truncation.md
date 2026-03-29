@@ -12,11 +12,11 @@ Implement body truncation as a post-processing step in the parser dispatcher. Af
 
 ## Acceptance Criteria
 
-- [ ] `truncateBody(body string, maxLen int) string` function in `internal/rag/parser/truncate.go` that:
+- [ ] `truncateBody(body string, maxLen int) string` function in `internal/codeintel/treesitter/truncate.go` that:
   - Returns the body unchanged if `len(body) <= maxLen`
   - Truncates to `maxLen` characters if `len(body) > maxLen`
   - Truncation is byte-safe: if `maxLen` falls in the middle of a multi-byte UTF-8 character, the truncation point is moved backward to the last complete rune boundary
-- [ ] The `MaxBodyLength` constant from L1-E01 (`internal/rag/`) is used as the truncation limit (value: 2000)
+- [ ] The `MaxBodyLength` constant from L1-E01 (`internal/codeintel/`) is used as the truncation limit (value: 2000)
 - [ ] The dispatcher's `Parse` method applies `truncateBody` to every `RawChunk.Body` in the result slice before returning. truncateBody is applied after the fallback-on-error path (Task 02 AC7/AC8) — if the Go parser errors and the dispatcher falls to the fallback chunker, truncation still applies to the fallback results. Truncation always runs as the final step before returning, regardless of which parser produced the chunks.
 - [ ] Truncation does NOT modify `Signature`, `Name`, or any other `RawChunk` field -- only `Body`
 - [ ] Truncation is applied uniformly regardless of which parser produced the chunks (Go, TypeScript, Python, Markdown, Fallback)

@@ -17,7 +17,7 @@ The Go AST parser is initialized once per indexing run (loads all packages via `
 
 ## Package
 
-`internal/rag/goparser/` — Go AST parser with call graph extraction.
+`internal/codeintel/goparser/` — Go AST parser with call graph extraction.
 
 ---
 

@@ -8,11 +8,11 @@
 
 ## Description
 
-Define the Go structs and enums for the structural graph domain: symbols, relationships, blast radius options, and blast radius results. These are INTERNAL types in `internal/graph/` (`Symbol`, `Call`, `TypeRef`, `Implements`, `BlastRadiusOptions`, `BlastRadiusEntry`) used for SQLite storage and internal query logic. They are distinct from the PUBLIC types in `internal/rag/` (`GraphNode`, `GraphQuery`, `BlastRadiusResult`) defined in L1-E01-T09 which form the `rag.GraphStore` interface contract. The blast radius query (Task 04) converts FROM these internal types TO the E01 `rag.GraphNode`/`rag.BlastRadiusResult` types before returning results through the interface.
+Define the Go structs and enums for the structural graph domain: symbols, relationships, blast radius options, and blast radius results. These are INTERNAL types in `internal/codeintel/graph/` (`Symbol`, `Call`, `TypeRef`, `Implements`, `BlastRadiusOptions`, `BlastRadiusEntry`) used for SQLite storage and internal query logic. They are distinct from the PUBLIC types in `internal/codeintel/` (`GraphNode`, `GraphQuery`, `BlastRadiusResult`) defined in L1-E01-T09 which form the `codeintel.GraphStore` interface contract. The blast radius query (Task 04) converts FROM these internal types TO the E01 `codeintel.GraphNode`/`codeintel.BlastRadiusResult` types before returning results through the interface.
 
 ## File Location
 
-`internal/graph/types.go`
+`internal/codeintel/graph/types.go`
 
 ## Types
 
@@ -136,7 +136,7 @@ type BlastRadiusEntry struct {
 
 ## Acceptance Criteria
 
-- [ ] All types compile cleanly with `go build ./internal/graph/...`
+- [ ] All types compile cleanly with `go build ./internal/codeintel/graph/...`
 - [ ] `SymbolType` constants match the CHECK constraint values in the graph schema DDL from Task 01: `function`, `method`, `type`, `interface`
 - [ ] `RefType` constants match the CHECK constraint values: `field`, `parameter`, `return`, `embedding`
 - [ ] `BlastRadiusOptions` has `Depth`, `MaxResults`, `IncludeSymbolTypes`, `ExcludeSymbolTypes` fields
@@ -144,5 +144,5 @@ type BlastRadiusEntry struct {
 - [ ] `BlastRadiusEntry` includes `Symbol`, `Relationship` (RelationshipKind), and `Depth`
 - [ ] `Call`, `TypeRef`, `Implements` structs use qualified name strings, not database IDs
 - [ ] Zero-value semantics are documented in comments: `Depth=0` means 1, `MaxResults=0` means unlimited
-- [ ] These types live in `internal/graph/` and are INTERNAL to the graph package — they are distinct from the public `rag.GraphNode`, `rag.GraphQuery`, and `rag.BlastRadiusResult` types defined in L1-E01-T09 (`internal/rag/`)
-- [ ] BlastRadius query results are converted FROM internal types (`graph.Symbol`, `graph.BlastRadiusEntry`) TO E01's `rag.GraphNode` entries before returning through the `rag.GraphStore` interface (see Task 07 for the field mapping)
+- [ ] These types live in `internal/codeintel/graph/` and are INTERNAL to the graph package — they are distinct from the public `codeintel.GraphNode`, `codeintel.GraphQuery`, and `codeintel.BlastRadiusResult` types defined in L1-E01-T09 (`internal/codeintel/`)
+- [ ] BlastRadius query results are converted FROM internal types (`graph.Symbol`, `graph.BlastRadiusEntry`) TO E01's `codeintel.GraphNode` entries before returning through the `codeintel.GraphStore` interface (see Task 07 for the field mapping)

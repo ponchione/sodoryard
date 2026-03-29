@@ -12,9 +12,9 @@ Write an integration test that embeds real text against a running nomic-embed-co
 
 ## Acceptance Criteria
 
-- [ ] Test file: `internal/rag/embedder/integration_test.go`
+- [ ] Test file: `internal/codeintel/embedder/integration_test.go`
 - [ ] Guarded by build tag: `//go:build integration` at top of file
-- [ ] Runs only when invoked explicitly: `go test -tags=integration ./internal/rag/embedder/...`
+- [ ] Runs only when invoked explicitly: `go test -tags=integration ./internal/codeintel/embedder/...`
 - [ ] Before running assertions, checks if the container is reachable at the configured URL (default `http://localhost:8081`). If not reachable, calls `t.Skip("embedding container not available at http://localhost:8081")` — does not fail the test
 - [ ] **Test: embed single text**: Embeds the string `"func Add(a, b int) int\nAdds two integers and returns the sum"`, verifies the returned vector has exactly 3584 dimensions, verifies all values are finite floats (no NaN, no Inf)
 - [ ] **Test: embed batch**: Embeds 3 distinct texts, verifies 3 distinct vectors returned, each with 3584 dimensions, verifies the vectors are not all identical (the model should produce different embeddings for different inputs)

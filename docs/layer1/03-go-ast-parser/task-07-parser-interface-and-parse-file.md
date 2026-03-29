@@ -12,9 +12,9 @@ Wire together all extraction methods into the public `ParseFile` method that sat
 
 ## Acceptance Criteria
 
-- [ ] `GoParser` implements the `rag.Parser` interface: `Parse(filePath string, content []byte) ([]rag.RawChunk, error)`
-- [ ] Additionally exposes a richer method: `ParseWithRelationships(filePath string, content []byte) ([]rag.RawChunk, *FileRelationships, error)`
-- [ ] `FileRelationships` struct defined in `internal/rag/goparser/`:
+- [ ] `GoParser` implements the `codeintel.Parser` interface: `Parse(filePath string, content []byte) ([]codeintel.RawChunk, error)`
+- [ ] Additionally exposes a richer method: `ParseWithRelationships(filePath string, content []byte) ([]codeintel.RawChunk, *FileRelationships, error)`
+- [ ] `FileRelationships` struct defined in `internal/codeintel/goparser/`:
   ```go
   type FileRelationships struct {
       Imports []string                    // import paths for the file
@@ -34,7 +34,7 @@ Wire together all extraction methods into the public `ParseFile` method that sat
   - Calls `getImplementedIfaces` for type declarations
 - [ ] Calls `extractImports` once per file and attaches the result to `FileRelationships.Imports`
 - [ ] The relationship data for each chunk is keyed by the chunk's `Name` field (same name as in the `RawChunk`)
-- [ ] If a file parses successfully but contains zero declarations (e.g., a file with only a package clause and imports), returns an empty `[]rag.RawChunk` and populated `FileRelationships.Imports` — this is not an error
+- [ ] If a file parses successfully but contains zero declarations (e.g., a file with only a package clause and imports), returns an empty `[]codeintel.RawChunk` and populated `FileRelationships.Imports` — this is not an error
 - [ ] Errors during individual declaration extraction (e.g., position resolution failure) are logged and that declaration is skipped — the method does not fail the entire file for one bad declaration
 
 ### Import Tracking

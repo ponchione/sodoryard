@@ -17,7 +17,7 @@ The tree-sitter parsers are the primary parsing path for TypeScript/TSX and Pyth
 
 ## Package
 
-`internal/rag/parser/` — parser dispatcher, language-specific extractors, tree-sitter CGo bindings.
+`internal/codeintel/treesitter/` — parser dispatcher, language-specific extractors, tree-sitter CGo bindings.
 
 ---
 

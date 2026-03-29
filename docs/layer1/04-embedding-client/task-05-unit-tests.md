@@ -12,8 +12,8 @@ Write comprehensive unit tests for the embedding client using `net/http/httptest
 
 ## Acceptance Criteria
 
-- [ ] All tests in `internal/rag/embedder/embedder_test.go`
-- [ ] All tests pass via `go test ./internal/rag/embedder/...`
+- [ ] All tests in `internal/codeintel/embedder/embedder_test.go`
+- [ ] All tests pass via `go test ./internal/codeintel/embedder/...`
 - [ ] **Happy path — EmbedTexts single batch**: Send 5 texts, mock returns 5 vectors of 3584 float32s, verify all 5 vectors returned with correct values
 - [ ] **Happy path — EmbedTexts batch splitting**: Send 70 texts with batchSize=32, verify the mock receives exactly 3 HTTP requests (batches of 32, 32, 6), verify all 70 vectors returned in correct input order
 - [ ] **Happy path — EmbedQuery**: Send a query string, verify the mock receives a request where `input[0]` starts with the query prefix (`"Represent this query for searching relevant code: "`), verify a single 3584-dimension vector returned

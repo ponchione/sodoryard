@@ -12,7 +12,7 @@ Implement the Go language parser using tree-sitter CGo bindings. This parser ext
 
 ## Acceptance Criteria
 
-- [ ] `GoParser` struct in `internal/rag/parser/go_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
+- [ ] `GoParser` struct in `internal/codeintel/treesitter/go_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
 - [ ] Extracts `function_declaration` nodes from the tree-sitter AST. For each:
   - `Name`: the function name (child node with field name `name`)
   - `Signature`: everything from the start of the node up to (but not including) the opening `{` of the body, trimmed of trailing whitespace

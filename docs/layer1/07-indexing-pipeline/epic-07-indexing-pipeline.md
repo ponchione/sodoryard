@@ -17,7 +17,7 @@ The indexer is the entry point for `sirtopham init` (full index), `sirtopham ind
 
 ## Package
 
-`internal/rag/indexer/` — three-pass indexing pipeline orchestrator.
+`internal/index/` — three-pass indexing pipeline orchestrator.
 
 ---
 

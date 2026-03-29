@@ -14,7 +14,7 @@ Write an integration test that exercises the full searcher stack with real (or r
 
 ### Test Data Setup
 
-- [ ] Test file at `internal/rag/searcher/integration_test.go`, guarded by build tag `//go:build integration`
+- [ ] Test file at `internal/codeintel/searcher/integration_test.go`, guarded by build tag `//go:build integration`
 - [ ] Seed a temporary LanceDB store with at least 10 chunks representing a realistic mini-codebase:
   - Chunk "AuthMiddleware" (func, `internal/auth/middleware.go`): Calls=["ValidateToken", "GetUserClaims"], CalledBy=["RegisterRoutes"]
   - Chunk "ValidateToken" (func, `internal/auth/service.go`): Calls=["ParseJWT"], CalledBy=["AuthMiddleware", "RefreshToken"]

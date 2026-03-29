@@ -12,7 +12,7 @@ Wire the building blocks together into the public `Search` method that implement
 
 ## Acceptance Criteria
 
-- [ ] `(s *Searcher) Search(ctx context.Context, queries []string, opts SearchOptions) ([]rag.SearchResult, error)` method that:
+- [ ] `(s *Searcher) Search(ctx context.Context, queries []string, opts SearchOptions) ([]codeintel.SearchResult, error)` method that:
   1. Applies defaults to zero-value fields in `opts`:
      - If `opts.TopK == 0`, set to 10
      - If `opts.MaxResults == 0`, set to 30
@@ -21,9 +21,9 @@ Wire the building blocks together into the public `Search` method that implement
   3. Calls `s.searchAndMerge(ctx, queries, opts)` to get deduplicated, re-ranked direct hits
   4. If `opts.ExpandHops` is true (default), calls `s.expandHops(ctx, directHits, opts)` to get the combined direct + hop results
   5. If `opts.ExpandHops` is false, truncates direct hits to `opts.MaxResults`
-  6. Converts each `rankedResult` to a `rag.SearchResult` (from L1-E01) with: `Chunk` set to `rankedResult.Chunk`, `Score` set to `rankedResult.BestScore`, `HitCount` set to `rankedResult.HitCount`, `MatchedBy` set to a comma-joined representation of the matched query indices, `FromHop` set to `rankedResult.HopRelation != HopNone`
+  6. Converts each `rankedResult` to a `codeintel.SearchResult` (from L1-E01) with: `Chunk` set to `rankedResult.Chunk`, `Score` set to `rankedResult.BestScore`, `HitCount` set to `rankedResult.HitCount`, `MatchedBy` set to a comma-joined representation of the matched query indices, `FromHop` set to `rankedResult.HopRelation != HopNone`
   7. Returns the converted slice
-- [ ] The `*Searcher` type satisfies the `rag.Searcher` interface (compile-time check: `var _ rag.Searcher = (*Searcher)(nil)`)
+- [ ] The `*Searcher` type satisfies the `codeintel.Searcher` interface (compile-time check: `var _ codeintel.Searcher = (*Searcher)(nil)`)
 - [ ] Both call paths work through the same `Search` method:
   - Context assembly calls with multiple queries (1-3) and default options
   - `search_semantic` agent tool calls with a single query (`[]string{userQuery}`) and may override options (e.g., `ExpandHops: false` for simple lookups)

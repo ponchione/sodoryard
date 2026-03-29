@@ -15,7 +15,7 @@ Write unit tests for all store operations using a temporary LanceDB directory th
 ### Setup and Teardown
 
 - [ ] Each test creates a LanceDB store in `t.TempDir()` — automatically cleaned up
-- [ ] Helper function to create test chunks: `makeTestChunk(id, name, filePath, language, chunkType string) rag.Chunk` with all fields populated: ID, Name, FilePath, Language, ChunkType, Signature, Body, Description, LineStart, LineEnd, Calls, CalledBy, TypesUsed, ImplementsIfaces, Imports, ContentHash, Embedding (set to non-empty relationship slices and a valid content hash)
+- [ ] Helper function to create test chunks: `makeTestChunk(id, name, filePath, language, chunkType string) codeintel.Chunk` with all fields populated: ID, Name, FilePath, Language, ChunkType, Signature, Body, Description, LineStart, LineEnd, Calls, CalledBy, TypesUsed, ImplementsIfaces, Imports, ContentHash, Embedding (set to non-empty relationship slices and a valid content hash)
 - [ ] Helper function to create random embeddings: `makeRandomEmbedding() []float32` returning a 3584-dimension float32 slice
 
 ### Insert and Retrieve

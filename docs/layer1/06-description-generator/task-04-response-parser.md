@@ -2,7 +2,7 @@
 
 **Epic:** 06 — Description Generator
 **Status:** ⬚ Not started
-**Dependencies:** L1-E01 (types — `rag.Description` struct used as return type)
+**Dependencies:** L1-E01 (types — `codeintel.Description` struct used as return type)
 
 ---
 
@@ -12,7 +12,7 @@ Implement the response parser that extracts a JSON array of `{name, description}
 
 ## Package
 
-`internal/rag/describer/parse.go`
+`internal/codeintel/describer/parse.go`
 
 ## Types
 
@@ -43,13 +43,13 @@ Implementation strategy:
 - If no fences, find first `[` and last `]`. If first `[` index < last `]` index, extract that substring.
 - Otherwise, return error.
 
-### `parseDescriptions(raw string) ([]rag.Description, error)`
+### `parseDescriptions(raw string) ([]codeintel.Description, error)`
 
-Parses the raw LLM response into a `[]rag.Description`.
+Parses the raw LLM response into a `[]codeintel.Description`.
 
 1. Call `extractJSON(raw)`. If error, return `nil, err`.
 2. Unmarshal extracted JSON into `[]descriptionEntry`. If unmarshal fails, return `nil, fmt.Errorf("failed to parse description JSON: %w", err)`.
-3. Build `[]rag.Description` from the entries. Each `descriptionEntry` maps to a `rag.Description` with `Name` and `Description` fields (see E01-T03 for the `Description` struct).
+3. Build `[]codeintel.Description` from the entries. Each `descriptionEntry` maps to a `codeintel.Description` with `Name` and `Description` fields (see E01-T03 for the `Description` struct).
 4. Skip entries where `Name` is empty (defensive — LLM might produce a malformed entry).
 5. If the resulting slice is empty (zero valid entries), return `nil, fmt.Errorf("LLM returned no valid descriptions")`.
 6. Return the slice.
@@ -73,7 +73,7 @@ Parses the raw LLM response into a `[]rag.Description`.
 - [ ] `extractJSON` strips markdown code fences (both ` ```json ` and bare ` ``` `)
 - [ ] `extractJSON` handles preamble and postscript text around JSON array
 - [ ] `extractJSON` returns error when no JSON array is present
-- [ ] `parseDescriptions` returns `[]rag.Description` with `Name` and `Description` fields populated
+- [ ] `parseDescriptions` returns `[]codeintel.Description` with `Name` and `Description` fields populated
 - [ ] `parseDescriptions` skips entries with empty `Name`
 - [ ] `parseDescriptions` returns error when LLM response contains no valid descriptions
 - [ ] `parseDescriptions` returns error when JSON unmarshal fails (malformed JSON)

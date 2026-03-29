@@ -12,7 +12,7 @@ Implement the HTTP client that sends chat completion requests to the local LLM c
 
 ## Package
 
-`internal/rag/describer/client.go`
+`internal/codeintel/describer/client.go`
 
 ## Types
 

@@ -100,7 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_graph_implements_interface
 
 ## File Location
 
-`internal/graph/schema.go` -- contains the DDL constant string and `InitSchema` function.
+`internal/codeintel/graph/schema.go` -- contains the DDL constant string and `InitSchema` function.
 
 ## Function Signatures
 

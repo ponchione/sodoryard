@@ -14,7 +14,7 @@ Write unit tests for the Markdown section splitter and the fallback chunker. The
 
 ### Markdown splitter tests
 
-- [ ] Test file at `internal/rag/parser/markdown_parser_test.go`
+- [ ] Test file at `internal/codeintel/treesitter/markdown_parser_test.go`
 - [ ] **Basic section split test:** a file with content `## Intro\nHello\n## Usage\nDo stuff` produces 2 chunks:
   - Chunk 1: `Name` = `"Intro"`, `ChunkType` = `Section`, `Body` starts with `## Intro`
   - Chunk 2: `Name` = `"Usage"`, `ChunkType` = `Section`, `Body` starts with `## Usage`
@@ -26,7 +26,7 @@ Write unit tests for the Markdown section splitter and the fallback chunker. The
 
 ### Fallback chunker tests
 
-- [ ] Test file at `internal/rag/parser/fallback_parser_test.go`
+- [ ] Test file at `internal/codeintel/treesitter/fallback_parser_test.go`
 - [ ] **Short file test (20 lines):** produces exactly 1 chunk. `Name` = `"chunk_1"`, `ChunkType` = `Fallback`, `LineStart` = 1, `LineEnd` = 20
 - [ ] **Exact 40 lines test:** produces exactly 1 chunk spanning all 40 lines
 - [ ] **41 lines test:** produces exactly 2 chunks: chunk 1 covers lines 1-40, chunk 2 covers lines 21-41

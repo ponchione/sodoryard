@@ -12,7 +12,7 @@ Implement the prompt construction logic that prepares the LLM input for descript
 
 ## Package
 
-`internal/rag/describer/prompt.go`
+`internal/codeintel/describer/prompt.go`
 
 ## Functions
 
@@ -23,7 +23,7 @@ Public utility for callers (e.g., the E07 indexing pipeline) to truncate file co
 - Truncation cuts at the character boundary (not mid-rune). Use `[]rune` conversion to avoid splitting a multi-byte character.
 - The `"... (truncated)"` suffix is included within the `maxLen` budget (i.e., the raw content is cut at `maxLen - len("\n... (truncated)")` to leave room for the suffix).
 
-### `FormatRelationshipContext(chunks []rag.Chunk) string` (exported)
+### `FormatRelationshipContext(chunks []codeintel.Chunk) string` (exported)
 
 Public utility for callers (e.g., the E07 indexing pipeline) to format relationship context before passing it to `DescribeFile`. The describer package owns this formatting logic, but the function is called BEFORE `DescribeFile` — the caller passes the resulting string as the `relationshipContext` parameter.
 

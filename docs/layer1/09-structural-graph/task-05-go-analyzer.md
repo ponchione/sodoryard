@@ -12,7 +12,7 @@ Implement the Go analyzer that transforms the Go AST parser's relationship metad
 
 ## File Location
 
-`internal/graph/analyzer_go.go`
+`internal/codeintel/graph/analyzer_go.go`
 
 ## Input: Go AST Parser Output
 
@@ -161,9 +161,9 @@ Implements{
 
 ### Python and TypeScript Analyzer Stubs (v0.1)
 
-- [ ] `AnalyzePythonFile` stub defined in `internal/graph/analyzer_python.go` — compiles and returns `(&GoAnalyzerOutput{}, nil)` (empty symbols, calls, type refs, implements)
-- [ ] `AnalyzeTypeScriptFile` stub defined in `internal/graph/analyzer_typescript.go` — compiles and returns `(&GoAnalyzerOutput{}, nil)` (empty symbols, calls, type refs, implements)
+- [ ] `AnalyzePythonFile` stub defined in `internal/codeintel/graph/analyzer_python.go` — compiles and returns `(&GoAnalyzerOutput{}, nil)` (empty symbols, calls, type refs, implements)
+- [ ] `AnalyzeTypeScriptFile` stub defined in `internal/codeintel/graph/analyzer_typescript.go` — compiles and returns `(&GoAnalyzerOutput{}, nil)` (empty symbols, calls, type refs, implements)
 - [ ] Both stubs accept their respective input structs (`PythonAnalyzerInput`, `TypeScriptAnalyzerInput`) with `ProjectID` and `FilePath` fields
 - [ ] Both files contain a doc comment explaining that the analyzer is a stub for v0.1
 - [ ] TypeScript stub file contains a TODO comment about the external script decision (port to Go vs. keep Node.js `ts-analyzer/analyze.ts`)
-- [ ] Both stubs compile cleanly with `go build ./internal/graph/...`
+- [ ] Both stubs compile cleanly with `go build ./internal/codeintel/graph/...`

@@ -12,10 +12,10 @@ Implement the core single-query search path: take a natural-language query strin
 
 ## Acceptance Criteria
 
-- [ ] `Searcher` struct defined in `internal/rag/searcher/searcher.go` with fields:
-  - `embedder rag.Embedder` — embedding client implementing `rag.Embedder` (methods used: `EmbedQuery`)
-  - `store rag.Store` — vector store implementing `rag.Store` (methods used: `VectorSearch`, `GetByName`)
-- [ ] `NewSearcher(embedder rag.Embedder, store rag.Store) *Searcher` constructor
+- [ ] `Searcher` struct defined in `internal/codeintel/searcher/searcher.go` with fields:
+  - `embedder codeintel.Embedder` — embedding client implementing `codeintel.Embedder` (methods used: `EmbedQuery`)
+  - `store codeintel.Store` — vector store implementing `codeintel.Store` (methods used: `VectorSearch`, `GetByName`)
+- [ ] `NewSearcher(embedder codeintel.Embedder, store codeintel.Store) *Searcher` constructor
 - [ ] `(s *Searcher) embedAndSearch(ctx context.Context, query string, queryIndex int, opts SearchOptions) ([]rankedResult, error)` method (unexported) that:
   1. Calls `s.embedder.EmbedQuery(ctx, query)` to get the query embedding vector
   2. Calls `s.store.VectorSearch(ctx, embedding, opts.TopK, opts.Filters)` to get the top-K chunks by cosine similarity

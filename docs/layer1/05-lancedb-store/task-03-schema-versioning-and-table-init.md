@@ -8,14 +8,14 @@
 
 ## Description
 
-Implement schema versioning for the `chunks` table. On store open, check whether the existing table's schema version matches the current `rag.SchemaVersion` constant. If it does not match (or the table does not exist), drop the existing table and create a new one with the current schema. This triggers a full re-index by upstream callers. The schema version is stored as LanceDB table metadata.
+Implement schema versioning for the `chunks` table. On store open, check whether the existing table's schema version matches the current `codeintel.SchemaVersion` constant. If it does not match (or the table does not exist), drop the existing table and create a new one with the current schema. This triggers a full re-index by upstream callers. The schema version is stored as LanceDB table metadata.
 
 ## Acceptance Criteria
 
 - [ ] `initTable(ctx context.Context) error` method on `LanceStore` called during `NewLanceStore` after connection is established
 - [ ] If the `chunks` table does not exist, create it with the Arrow schema from Task 02 and store `SchemaVersion` in table metadata
 - [ ] If the `chunks` table exists, read its stored schema version from metadata
-  - If version matches `rag.SchemaVersion`: open the existing table, no data loss
+  - If version matches `codeintel.SchemaVersion`: open the existing table, no data loss
   - If version does not match: drop the existing table, create a new empty table with the current schema and version. Log a warning: `"schema version mismatch (stored=%s, current=%s), recreating table — full re-index required"`
 - [ ] `NeedsReindex() bool` method on `LanceStore` returns `true` if the table was recreated during initialization (schema mismatch or first creation), `false` if the existing table was reused
 - [ ] Error handling: if table creation fails, `NewLanceStore` returns an error with context (e.g., `"failed to create chunks table: ..."`)

@@ -12,7 +12,7 @@ Implement the TypeScript and TSX language parsers using tree-sitter CGo bindings
 
 ## Acceptance Criteria
 
-- [ ] `TypeScriptParser` struct in `internal/rag/parser/typescript_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
+- [ ] `TypeScriptParser` struct in `internal/codeintel/treesitter/typescript_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
 - [ ] `TSXParser` struct in the same file (or separate `tsx_parser.go`), identical extraction logic but configured with the TSX tree-sitter grammar instead of the TypeScript grammar
 - [ ] Extracts `function_declaration` nodes:
   - `Name`: the function name (field name `name`)

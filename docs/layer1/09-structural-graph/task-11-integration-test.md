@@ -12,7 +12,7 @@ Write an integration test that exercises the full graph pipeline: analyze multip
 
 ## File Location
 
-`internal/graph/integration_test.go`
+`internal/codeintel/graph/integration_test.go`
 
 ## Test Scenario: Multi-File Go Project
 
@@ -139,4 +139,4 @@ Query `graph_symbols` and verify 8 symbols exist (excluding external types like 
 - [ ] Re-indexing simulation: delete + re-query confirms cascade works and re-insert restores full graph
 - [ ] Test completes in under 2 seconds (all in-memory, no external dependencies)
 - [ ] Cross-file call relationships resolve correctly (server package calls into auth package)
-- [ ] The test file includes `var _ rag.GraphStore = (*graph.Store)(nil)` to verify compile-time interface satisfaction
+- [ ] The test file includes `var _ codeintel.GraphStore = (*graph.Store)(nil)` to verify compile-time interface satisfaction

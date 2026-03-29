@@ -12,7 +12,7 @@ Write unit tests for the `AnalyzeGoFile` function that transforms Go AST parser 
 
 ## File Location
 
-`internal/graph/analyzer_go_test.go`
+`internal/codeintel/graph/analyzer_go_test.go`
 
 ## Test Cases
 
@@ -167,7 +167,7 @@ Write unit tests for the `AnalyzeGoFile` function that transforms Go AST parser 
 
 ## Acceptance Criteria
 
-- [ ] All tests pass with `go test ./internal/graph/... -v -run TestAnalyzeGoFile`
+- [ ] All tests pass with `go test ./internal/codeintel/graph/... -v -run TestAnalyzeGoFile`
 - [ ] `TestAnalyzeGoFile_FunctionSymbol` verifies all Symbol fields for a function chunk
 - [ ] `TestAnalyzeGoFile_CallRelationships` verifies 3 Call entries with correct caller/callee QNames
 - [ ] `TestAnalyzeGoFile_Implements` verifies 2 Implements entries with correct type/interface QNames

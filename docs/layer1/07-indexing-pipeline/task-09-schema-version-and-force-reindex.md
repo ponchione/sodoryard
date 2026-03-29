@@ -26,9 +26,9 @@ func (idx *Indexer) resetForFullReindex(ctx context.Context) error
 ## Acceptance Criteria
 
 - [ ] `checkSchemaVersion` calls `store.NeedsReindex()` (from L1-E05 task-03) which compares the stored schema version against the current version. If `NeedsReindex()` returns true, `resetForFullReindex` is called
-- [ ] Compares stored version against `rag.SchemaVersion` constant (defined in L1-E01)
+- [ ] Compares stored version against `codeintel.SchemaVersion` constant (defined in L1-E01)
 - [ ] Returns `true` (needs full re-index) if:
-  - Stored version does not match `rag.SchemaVersion`
+  - Stored version does not match `codeintel.SchemaVersion`
   - No stored version exists (first index)
   - `IndexerConfig.Force` is true
 - [ ] Returns `false` (incremental indexing OK) if stored version matches and Force is false

@@ -12,7 +12,7 @@ Write comprehensive unit tests for the Go tree-sitter parser. Tests use inline G
 
 ## Acceptance Criteria
 
-- [ ] Test file at `internal/rag/parser/go_parser_test.go`
+- [ ] Test file at `internal/codeintel/treesitter/go_parser_test.go`
 - [ ] **Function extraction test:** parsing the source `func Foo(x int, y string) error { return nil }` produces a `RawChunk` with:
   - `Name` = `"Foo"`
   - `Signature` = `"func Foo(x int, y string) error"`

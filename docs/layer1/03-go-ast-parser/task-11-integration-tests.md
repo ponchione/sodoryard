@@ -24,7 +24,7 @@ Integration tests that verify the full end-to-end flow: construct a `GoParser` a
     - Each chunk with a type declaration has `ChunkRelationships` entries with populated `TypesUsed` or `ImplementsIfaces`
     - Each chunk with a function/method declaration has `ChunkRelationships` entries with populated `Calls`
 - [ ] **Integration test: Parser interface compliance**
-  - `TestParserInterfaceCompliance` — verifies `GoParser` can be assigned to a `rag.Parser` variable (compile-time check via assignment: `var _ rag.Parser = (*goparser.GoParser)(nil)`). The `rag.Parser` interface (from L1-E01) requires: `Parse(filePath string, content []byte) ([]RawChunk, error)`
+  - `TestParserInterfaceCompliance` — verifies `GoParser` can be assigned to a `codeintel.Parser` variable (compile-time check via assignment: `var _ codeintel.Parser = (*goparser.GoParser)(nil)`). The `codeintel.Parser` interface (from L1-E01) requires: `Parse(filePath string, content []byte) ([]RawChunk, error)`
 - [ ] **Graceful degradation test: file not loaded**
   - `TestParseUnknownFile` — calls `Parse("/nonexistent/file.go", []byte("package foo"))` and verifies:
     - Error is returned
@@ -36,4 +36,4 @@ Integration tests that verify the full end-to-end flow: construct a `GoParser` a
 - [ ] **Graceful degradation test: nil safety**
   - `TestNilSafety` — exercises edge cases: function with no body (`*ast.FuncDecl` where `Body` is nil — e.g., CGo extern declarations), type spec with nil type expression
   - Verifies no panic and graceful skip of the malformed declaration
-- [ ] All tests run with `go test ./internal/rag/goparser/...` and pass
+- [ ] All tests run with `go test ./internal/codeintel/goparser/...` and pass

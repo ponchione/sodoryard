@@ -12,25 +12,25 @@ Implement the `BlastRadius` method on the graph store -- the primary read-path q
 
 ## File Location
 
-`internal/graph/blast_radius.go`
+`internal/codeintel/graph/blast_radius.go`
 
 ## Function Signature
 
 ```go
 // BlastRadius finds all symbols structurally related to the target within
-// the configured depth and budget. Implements rag.GraphStore.BlastRadius.
+// the configured depth and budget. Implements codeintel.GraphStore.BlastRadius.
 //
 // The target symbol is query.Symbol. Traversal depth is query.MaxDepth
 // (0 defaults to 1). Budget cap is query.MaxNodes (0 means unlimited).
 // Filters: query.IncludeKinds / query.ExcludeKinds restrict results by
 // symbol kind.
 //
-// Returns a non-nil *rag.BlastRadiusResult with empty (not nil) slices if
+// Returns a non-nil *codeintel.BlastRadiusResult with empty (not nil) slices if
 // the symbol is not found, and nil error.
-func (s *Store) BlastRadius(ctx context.Context, query rag.GraphQuery) (*rag.BlastRadiusResult, error)
+func (s *Store) BlastRadius(ctx context.Context, query codeintel.GraphQuery) (*codeintel.BlastRadiusResult, error)
 ```
 
-The method internally uses `query.Symbol` as the target qualified name, `query.MaxDepth` as depth, `query.MaxNodes` as the budget, and `query.IncludeKinds`/`query.ExcludeKinds` as symbol type filters. Internal `graph.Symbol` results are converted to `rag.GraphNode` entries before populating the `rag.BlastRadiusResult` (see Task 07 for the field mapping).
+The method internally uses `query.Symbol` as the target qualified name, `query.MaxDepth` as depth, `query.MaxNodes` as the budget, and `query.IncludeKinds`/`query.ExcludeKinds` as symbol type filters. Internal `graph.Symbol` results are converted to `codeintel.GraphNode` entries before populating the `codeintel.BlastRadiusResult` (see Task 07 for the field mapping).
 
 ## Algorithm
 
@@ -42,7 +42,7 @@ FROM graph_symbols
 WHERE qualified_name = ?;
 ```
 
-If no row is found, return a non-nil `*rag.BlastRadiusResult` with empty (not nil) slices and nil error. The symbol may not have been indexed yet.
+If no row is found, return a non-nil `*codeintel.BlastRadiusResult` with empty (not nil) slices and nil error. The symbol may not have been indexed yet.
 
 If multiple rows match (should not happen with the UNIQUE constraint, but defensively), use the first.
 
@@ -167,7 +167,7 @@ The recursive CTEs use `UNION ALL` which can loop on cycles. The `WHERE depth < 
 
 ## Acceptance Criteria
 
-- [ ] `BlastRadius` returns a non-nil `*rag.BlastRadiusResult` with empty (not nil) slices if the symbol is not found, and nil error
+- [ ] `BlastRadius` returns a non-nil `*codeintel.BlastRadiusResult` with empty (not nil) slices if the symbol is not found, and nil error
 - [ ] `BlastRadius` with depth=1 returns direct callers in Upstream and direct callees in Downstream
 - [ ] `BlastRadius` with depth=2 returns transitive callers/callees up to 2 hops
 - [ ] `BlastRadius` with depth=0 defaults to depth=1 behavior
@@ -187,6 +187,6 @@ The recursive CTEs use `UNION ALL` which can loop on cycles. The `WHERE depth < 
 
 **Part A (~2-3h):** Upstream and downstream CTE traversal queries. Implement the recursive CTEs for caller/callee traversal with depth limiting and cycle detection.
 
-**Part B (~2-3h):** Type reference and interface queries, filtering (IncludeKinds/ExcludeKinds), MaxNodes budget enforcement, deduplication, and internal-to-rag type conversion.
+**Part B (~2-3h):** Type reference and interface queries, filtering (IncludeKinds/ExcludeKinds), MaxNodes budget enforcement, deduplication, and internal-to-codeintel type conversion.
 
 This task should be worked in two sessions to stay within the 4-hour budget.

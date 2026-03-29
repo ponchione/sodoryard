@@ -15,7 +15,7 @@ Implement the first pass of the indexing pipeline: walk the project directory, a
 ```go
 // pass1WalkAndParse walks the project, filters to changed files, parses each,
 // and returns the full chunk list plus the list of deleted file paths.
-func (idx *Indexer) pass1WalkAndParse(ctx context.Context) ([]rag.Chunk, []string, error)
+func (idx *Indexer) pass1WalkAndParse(ctx context.Context) ([]codeintel.Chunk, []string, error)
 ```
 
 Returns: all chunks from changed files, list of deleted file relative paths, error.
@@ -34,7 +34,7 @@ Returns: all chunks from changed files, list of deleted file relative paths, err
   - All other extensions matching include globs: use the fallback chunker (40-line sliding windows with 20-line overlap)
 - [ ] For each file, reads file content from disk
 - [ ] Passes file content to the selected parser, receives `[]RawChunk`
-- [ ] Converts each `RawChunk` to a `rag.Chunk`:
+- [ ] Converts each `RawChunk` to a `codeintel.Chunk`:
   - `ID` = `hex(sha256(filePath + chunkType + name + lineStart))` (matching the `ChunkID(filePath, chunkType, name, lineStart)` function from L1-E01 task-04)
   - `ProjectName` = from config
   - `FilePath` = relative path
@@ -48,7 +48,7 @@ Returns: all chunks from changed files, list of deleted file relative paths, err
   - `CalledBy` = empty (populated in Pass 2)
   - `TypesUsed`, `ImplementsIfaces`, `Imports` = from Go AST parser metadata (empty for non-Go)
 - [ ] **Error handling per file:** if parsing fails for a single file, log the error (`"failed to parse file" path=<relpath> err=<error>`) and skip that file. Do not abort the entire pass
-- [ ] Returns the accumulated `[]rag.Chunk` from all successfully parsed changed files
+- [ ] Returns the accumulated `[]codeintel.Chunk` from all successfully parsed changed files
 - [ ] Emits progress: `"pass 1 complete" files_walked=<N> files_changed=<N> files_skipped=<N> chunks_produced=<N> files_deleted=<N>`
 - [ ] Context cancellation checked between files
 

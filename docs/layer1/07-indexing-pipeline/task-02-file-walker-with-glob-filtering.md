@@ -29,7 +29,7 @@ type FileEntry struct {
 
 - [ ] `FileEntry` struct defined with `Path` (absolute), `RelPath` (relative to project root), and `Size` (bytes)
 - [ ] Uses `filepath.WalkDir` to traverse `IndexerConfig.ProjectRoot`
-- [ ] **Include filtering:** if `IncludeGlobs` is non-empty, a file must match at least one include glob to be included. Glob matching uses the file's relative path (e.g., `internal/rag/indexer.go` matched against `**/*.go`)
+- [ ] **Include filtering:** if `IncludeGlobs` is non-empty, a file must match at least one include glob to be included. Glob matching uses the file's relative path (e.g., `internal/index/indexer.go` matched against `**/*.go`)
 - [ ] **Exclude filtering:** if a file matches any glob in `ExcludeGlobs`, it is excluded regardless of include matches. Exclude is evaluated after include
 - [ ] **Default excludes** always applied even if not in config: `**/.git/**`, `**/vendor/**`, `**/node_modules/**`, `**/.sirtopham/**`
 - [ ] **Max file size:** files exceeding `MaxFileSizeBytes` are skipped. A debug log message is emitted: `"skipping file exceeding size limit" path=<relpath> size=<bytes> limit=<limit>`

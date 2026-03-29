@@ -12,7 +12,7 @@ Write unit tests for the graph store's CRUD operations: `InitSchema`, `UpsertSym
 
 ## File Location
 
-`internal/graph/store_test.go`
+`internal/codeintel/graph/store_test.go`
 
 ## Test Helper
 
@@ -131,7 +131,7 @@ func newTestStore(t *testing.T) *Store {
 
 ## Acceptance Criteria
 
-- [ ] All tests pass with `go test ./internal/graph/... -v`
+- [ ] All tests pass with `go test ./internal/codeintel/graph/... -v`
 - [ ] Tests use in-memory SQLite (no file cleanup needed)
 - [ ] `TestInitSchema_FreshDatabase` verifies all 5 tables exist in `sqlite_master`
 - [ ] `TestInitSchema_Idempotent` verifies data survives a second `InitSchema` call

@@ -12,10 +12,10 @@ Implement cosine similarity vector search on the `chunks` table with configurabl
 
 ## Acceptance Criteria
 
-- [ ] Method signature: `VectorSearch(ctx context.Context, queryVector []float32, topK int, filter *rag.Filter) ([]rag.SearchResult, error)`
+- [ ] Method signature: `VectorSearch(ctx context.Context, queryVector []float32, topK int, filter *codeintel.Filter) ([]codeintel.SearchResult, error)`
 - [ ] Performs cosine similarity search on the `vector` column
 - [ ] Returns at most `topK` results, ordered by descending similarity score (most similar first)
-- [ ] Each `rag.SearchResult` contains the full `rag.Chunk` (all fields populated) and the cosine similarity `Score` (float32, range 0.0 to 1.0 for cosine similarity)
+- [ ] Each `codeintel.SearchResult` contains the full `codeintel.Chunk` (all fields populated) and the cosine similarity `Score` (float32, range 0.0 to 1.0 for cosine similarity)
 - [ ] When `filter` is non-nil, applies optional metadata filters as LanceDB `WHERE` expressions:
   - `filter.Language` (non-empty): `language = '<value>'`
   - `filter.ChunkType` (non-empty): `chunk_type = '<value>'`
@@ -24,7 +24,7 @@ Implement cosine similarity vector search on the `chunks` table with configurabl
 - [ ] When `filter` is nil, no metadata filtering is applied
 - [ ] Relationship fields (`calls`, `called_by`, `types_used`, `implements_ifaces`, `imports`) are deserialized from JSON strings back to `[]string` slices on the returned `Chunk`
 - [ ] If a JSON relationship field is empty string or `"null"`, deserialize as empty `[]string{}` (never nil)
-- [ ] Validates `len(queryVector) == rag.DefaultEmbeddingDims` — returns error if wrong dimension
+- [ ] Validates `len(queryVector) == codeintel.DefaultEmbeddingDims` — returns error if wrong dimension
 - [ ] Returns empty slice (not nil) when no results match
 - [ ] Returns a descriptive error on search failure
 - [ ] Implements the `VectorSearch` method of the `Store` interface from L1-E01

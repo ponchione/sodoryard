@@ -12,7 +12,7 @@ Implement the Python language parser using tree-sitter CGo bindings. This is the
 
 ## Acceptance Criteria
 
-- [ ] `PythonParser` struct in `internal/rag/parser/python_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
+- [ ] `PythonParser` struct in `internal/codeintel/treesitter/python_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
 - [ ] Extracts `function_definition` nodes from the tree-sitter AST. For each:
   - `Name`: the function name (field name `name`)
   - `Signature`: everything from the start of the node up to and including the `:` that ends the function header (before the body block), trimmed of trailing whitespace. This includes decorators if they are siblings preceding the node. Example: `def foo(x: int, y: str) -> bool:` or `async def bar():` for async functions

@@ -12,7 +12,7 @@ Write unit tests for the `BlastRadius` method covering depth traversal, interfac
 
 ## File Location
 
-`internal/graph/blast_radius_test.go`
+`internal/codeintel/graph/blast_radius_test.go`
 
 ## Test Helper
 
@@ -100,7 +100,7 @@ func seedGraph(t *testing.T, store *Store, symbols []Symbol, calls []Call, typeR
 
 **TestBlastRadius_UnknownSymbol:**
 - Query: BlastRadius for `nonexistent.Symbol`, depth=1.
-- Expected: non-nil `*rag.BlastRadiusResult` with empty (not nil) slices, and nil error.
+- Expected: non-nil `*codeintel.BlastRadiusResult` with empty (not nil) slices, and nil error.
 
 ### Default Options
 
@@ -144,11 +144,11 @@ func seedGraph(t *testing.T, store *Store, symbols []Symbol, calls []Call, typeR
 **TestBlastRadius_EmptyGraph:**
 - No symbols seeded.
 - Query: BlastRadius for any name.
-- Expected: non-nil `*rag.BlastRadiusResult` with empty (not nil) slices, nil error.
+- Expected: non-nil `*codeintel.BlastRadiusResult` with empty (not nil) slices, nil error.
 
 ## Acceptance Criteria
 
-- [ ] All tests pass with `go test ./internal/graph/... -v -run TestBlastRadius`
+- [ ] All tests pass with `go test ./internal/codeintel/graph/... -v -run TestBlastRadius`
 - [ ] `TestBlastRadius_LinearChain_Depth1` verifies exact upstream/downstream entries for B in A->B->C
 - [ ] `TestBlastRadius_Diamond_Depth2` verifies A appears at depth=2 (not depth=1) when querying D
 - [ ] `TestBlastRadius_Cycle_Depth3` completes without hanging (timeout safety)

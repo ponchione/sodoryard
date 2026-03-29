@@ -14,7 +14,7 @@ Write unit tests for the parser dispatcher's extension routing logic, the fallba
 
 ### Dispatcher routing tests
 
-- [ ] Test file at `internal/rag/parser/dispatcher_test.go`
+- [ ] Test file at `internal/codeintel/treesitter/dispatcher_test.go`
 - [ ] **Go routing test:** `Parse("main.go", goSource)` routes to the Go parser and returns function/method/type chunks
 - [ ] **TypeScript routing test:** `Parse("app.ts", tsSource)` routes to the TypeScript parser
 - [ ] **TSX routing test:** `Parse("component.tsx", tsxSource)` routes to the TSX parser
@@ -28,7 +28,7 @@ Write unit tests for the parser dispatcher's extension routing logic, the fallba
 ### Fallback-on-error tests
 
 - [ ] **Syntax error fallback test:** `Parse("broken.go", invalidGoSource)` where `invalidGoSource` is syntactically invalid Go (e.g., `func {{{`) falls back to the fallback chunker and returns `Fallback` chunks instead of an error
-- [ ] **Fallback error propagation test:** construct a Dispatcher with a mock fallback parser (a `rag.Parser` implementation that always returns an error). Call `Parse` with an unknown extension. Verify the mock's error is propagated to the caller.
+- [ ] **Fallback error propagation test:** construct a Dispatcher with a mock fallback parser (a `codeintel.Parser` implementation that always returns an error). Call `Parse` with an unknown extension. Verify the mock's error is propagated to the caller.
 
 ### Edge case tests
 

@@ -15,14 +15,14 @@ Implement the second pass of the indexing pipeline: build the reverse call graph
 ```go
 // pass2ReverseCallGraph builds the reverse call graph in place,
 // populating CalledBy on each chunk.
-func (idx *Indexer) pass2ReverseCallGraph(chunks []rag.Chunk)
+func (idx *Indexer) pass2ReverseCallGraph(chunks []codeintel.Chunk)
 ```
 
 Modifies chunks in place. No error return — this is a pure in-memory computation.
 
 ## Acceptance Criteria
 
-- [ ] **Build `pkgIndex`:** a `map[string]*rag.Chunk` that maps `"dir.FuncName"` to the chunk reference. The key format is `filepath.Dir(chunk.FilePath) + "." + chunk.Name`. For example, a function `HandleAuth` in file `internal/auth/handler.go` maps to `"internal/auth.HandleAuth"`
+- [ ] **Build `pkgIndex`:** a `map[string]*codeintel.Chunk` that maps `"dir.FuncName"` to the chunk reference. The key format is `filepath.Dir(chunk.FilePath) + "." + chunk.Name`. For example, a function `HandleAuth` in file `internal/auth/handler.go` maps to `"internal/auth.HandleAuth"`
 - [ ] **Build `suffixToDir`:** a `map[string]string` that maps the last path component (package directory name) to the full directory path. For example, `"auth"` → `"internal/auth"`. This enables resolving import paths like `"github.com/user/project/internal/auth"` to directory `"internal/auth"` by matching the suffix
 - [ ] **Handle suffix collisions:** if multiple directories share the same suffix (e.g., `pkg/auth` and `internal/auth`), `suffixToDir` stores the first one encountered. Log a debug warning for collisions: `"suffix collision in package index" suffix=<suffix> existing=<dir1> new=<dir2>`
 - [ ] **Resolve forward calls to targets:** for each chunk with a non-empty `Calls` list:

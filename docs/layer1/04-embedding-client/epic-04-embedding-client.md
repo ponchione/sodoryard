@@ -17,7 +17,7 @@ This is a thin HTTP client with batch support, not a complex component. Ports fr
 
 ## Package
 
-`internal/rag/embedder/` — embedding HTTP client.
+`internal/codeintel/embedder/` — embedding HTTP client.
 
 ---
 

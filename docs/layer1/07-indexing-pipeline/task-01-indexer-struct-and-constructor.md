@@ -12,7 +12,7 @@ Define the `Indexer` struct, its configuration options, and the constructor func
 
 ## Package
 
-`internal/rag/indexer/`
+`internal/index/`
 
 ## Acceptance Criteria
 
@@ -27,14 +27,14 @@ Define the `Indexer` struct, its configuration options, and the constructor func
 - [ ] `IndexerConfig` includes an optional `OnProgress func(ProgressEvent)` callback field. If nil, progress events are silently discarded
 - [ ] `Indexer` struct with fields:
   - `config IndexerConfig`
-  - `goParser` — Go AST parser: `*goparser.GoParser` (implements `rag.Parser` and also provides `ParseWithRelationships` for relationship metadata extraction)
+  - `goParser` — Go AST parser: `*goparser.GoParser` (implements `codeintel.Parser` and also provides `ParseWithRelationships` for relationship metadata extraction)
   - `tsParser` — tree-sitter parser dispatcher (L1-E02 `Parser` interface)
-  - `embedder` — `rag.Embedder` interface (L1-E04)
-  - `store` — `rag.Store` interface (L1-E05)
-  - `describer` — `rag.Describer` interface (L1-E06)
+  - `embedder` — `codeintel.Embedder` interface (L1-E04)
+  - `store` — `codeintel.Store` interface (L1-E05)
+  - `describer` — `codeintel.Describer` interface (L1-E06)
   - `queries` — sqlc-generated `DB` interface providing: `GetFileState(ctx, projectID, filePath) (*IndexState, error)`, `UpsertFileState(ctx, params) error`, `DeleteFileState(ctx, projectID, filePath) error`, `DeleteFileStatesByProject(ctx, projectID) error`, `GetProjectCommit(ctx, projectID) (string, error)`, `UpsertProjectCommit(ctx, params) error`
   - `logger` — structured logger (L0-E02)
-- [ ] Constructor function: `func NewIndexer(cfg IndexerConfig, goParser Parser, tsParser Parser, embedder rag.Embedder, store rag.Store, describer rag.Describer, queries DB, logger *slog.Logger) *Indexer`
+- [ ] Constructor function: `func NewIndexer(cfg IndexerConfig, goParser Parser, tsParser Parser, embedder codeintel.Embedder, store codeintel.Store, describer codeintel.Describer, queries DB, logger *slog.Logger) *Indexer`
 - [ ] Constructor validates that required dependencies are non-nil, returns error if any are missing
 - [ ] `Run(ctx context.Context) error` method signature defined (body is a stub that returns nil — implemented in Task 10)
-- [ ] File compiles cleanly with `go build ./internal/rag/indexer/...`
+- [ ] File compiles cleanly with `go build ./internal/index/...`

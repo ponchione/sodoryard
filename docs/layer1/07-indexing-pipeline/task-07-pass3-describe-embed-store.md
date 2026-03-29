@@ -14,14 +14,14 @@ Implement the third and final pass of the indexing pipeline: generate descriptio
 
 ```go
 // pass3DescribeEmbedStore generates descriptions, embeds, and stores all chunks.
-func (idx *Indexer) pass3DescribeEmbedStore(ctx context.Context, chunks []rag.Chunk) error
+func (idx *Indexer) pass3DescribeEmbedStore(ctx context.Context, chunks []codeintel.Chunk) error
 ```
 
 ## Acceptance Criteria
 
 ### Description Generation
 
-- [ ] Groups chunks by `FilePath` — produces a `map[string][]rag.Chunk` where each key is a relative file path and the value is all chunks from that file
+- [ ] Groups chunks by `FilePath` — produces a `map[string][]codeintel.Chunk` where each key is a relative file path and the value is all chunks from that file
 - [ ] For each file group, reads the file content from disk and truncates to 6000 characters before passing to the describer (the caller is responsible for truncation, not the describer)
 - [ ] Calls `describer.DescribeFile(ctx, fileContent, fileChunks)` which returns `map[string]string` (name to description)
 - [ ] Applies descriptions to chunks: for each chunk in the file, sets `chunk.Description = descriptions[chunk.Name]` if present

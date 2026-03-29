@@ -12,7 +12,7 @@ Implement the fallback chunker for unsupported file types. When a file's extensi
 
 ## Acceptance Criteria
 
-- [ ] `FallbackParser` struct in `internal/rag/parser/fallback_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
+- [ ] `FallbackParser` struct in `internal/codeintel/treesitter/fallback_parser.go` with method `Parse(filePath string, content []byte) ([]RawChunk, error)`
 - [ ] Window size: 40 lines per chunk
 - [ ] Overlap: 20 lines (each window starts 20 lines after the previous window's start)
 - [ ] Each chunk produces a `RawChunk` with:

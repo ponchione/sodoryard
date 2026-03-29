@@ -12,7 +12,7 @@ Wire everything together into the concrete `Describer` implementation that satis
 
 ## Package
 
-`internal/rag/describer/describer.go`
+`internal/codeintel/describer/describer.go`
 
 ## Struct and Constructor
 
@@ -40,7 +40,7 @@ func New(cfg config.DescriberConfig, logger *slog.Logger) *Describer
 //
 // fileContent must already be truncated by the caller (via TruncateFileContent).
 // relationshipContext must already be formatted by the caller (via FormatRelationshipContext).
-func (d *Describer) DescribeFile(ctx context.Context, fileContent string, relationshipContext string) ([]rag.Description, error)
+func (d *Describer) DescribeFile(ctx context.Context, fileContent string, relationshipContext string) ([]codeintel.Description, error)
 ```
 
 **Note on return type:** The `error` return is always `nil` due to the graceful failure policy. The error return is preserved in the signature to satisfy the `Describer` interface, but this implementation never returns a non-nil error. All failures are logged and result in an empty slice (`nil, nil`).
@@ -53,7 +53,7 @@ func (d *Describer) DescribeFile(ctx context.Context, fileContent string, relati
    - If error: log at `Warn` level with `"msg", "description generation failed", "error", err.Error()`, return `nil, nil`.
 4. Call `parseDescriptions(rawResponse)`.
    - If error: log at `Warn` level with `"msg", "failed to parse LLM descriptions", "error", err.Error(), "response_preview", first200Chars(rawResponse)`, return `nil, nil`.
-5. Return the parsed `[]rag.Description, nil`.
+5. Return the parsed `[]codeintel.Description, nil`.
 
 ### Helper
 
@@ -78,7 +78,7 @@ Returns the first 200 characters of `s` (rune-safe), or `s` itself if shorter. U
 ## Acceptance Criteria
 
 - [ ] `Describer` struct with `New(cfg, logger)` constructor
-- [ ] `DescribeFile` signature matches E01-T07: `(ctx context.Context, fileContent string, relationshipContext string) ([]rag.Description, error)`
+- [ ] `DescribeFile` signature matches E01-T07: `(ctx context.Context, fileContent string, relationshipContext string) ([]codeintel.Description, error)`
 - [ ] `DescribeFile` implements the `Describer` interface from L1-E01
 - [ ] Empty file content returns `nil, nil` immediately without calling LLM
 - [ ] No internal file truncation — caller is responsible (via `TruncateFileContent`)
@@ -88,4 +88,4 @@ Returns the first 200 characters of `s` (rune-safe), or `s` itself if shorter. U
 - [ ] Response parse errors logged at Warn level with response preview and return `nil, nil`
 - [ ] Error return is always `nil` (graceful failure policy)
 - [ ] `first200Chars` helper truncates at rune boundary
-- [ ] The `*Describer` type satisfies the `rag.Describer` interface (compile-time check via `var _ rag.Describer = (*Describer)(nil)`)
+- [ ] The `*Describer` type satisfies the `codeintel.Describer` interface (compile-time check via `var _ codeintel.Describer = (*Describer)(nil)`)

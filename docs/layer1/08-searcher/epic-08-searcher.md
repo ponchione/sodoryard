@@ -17,7 +17,7 @@ This is the retrieval engine that [[06-context-assembly]] calls during per-turn 
 
 ## Package
 
-`internal/rag/searcher/` — semantic search with multi-query expansion and hop expansion.
+`internal/codeintel/searcher/` — semantic search with multi-query expansion and hop expansion.
 
 ---
 
