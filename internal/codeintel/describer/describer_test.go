@@ -2,6 +2,7 @@ package describer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -136,4 +137,32 @@ func TestFormatRelationshipContext_Empty(t *testing.T) {
 
 func TestDescriberImplementsInterface(t *testing.T) {
 	var _ codeintel.Describer = (*Describer)(nil)
+}
+
+type errorLLM struct{}
+
+func (e *errorLLM) Complete(_ context.Context, _, _ string) (string, error) {
+	return "", fmt.Errorf("connection refused")
+}
+
+func TestDescribeFile_LLMError_ReturnsNilNil(t *testing.T) {
+	d := New(&errorLLM{}, "system prompt")
+	descs, err := d.DescribeFile(context.Background(), "func main() {}", "")
+	if err != nil {
+		t.Fatalf("expected nil error for LLM failure, got: %v", err)
+	}
+	if descs != nil {
+		t.Errorf("expected nil descriptions, got %v", descs)
+	}
+}
+
+func TestDescribeFile_ContextCancelled_ReturnsError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel before calling
+
+	d := New(&mockLLM{response: `[{"name":"Foo","description":"bar"}]`}, "system prompt")
+	_, err := d.DescribeFile(ctx, "func main() {}", "")
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
 }

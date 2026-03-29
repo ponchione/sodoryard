@@ -46,10 +46,14 @@ func (d *Describer) DescribeFile(ctx context.Context, fileContent string, relati
 		userMsg = fmt.Sprintf("```\n%s\n```", content)
 	}
 
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("llm describe: %w", ctx.Err())
+	}
+
 	raw, err := d.llm.Complete(ctx, d.systemPrompt, userMsg)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("llm describe: %w", err)
+			return nil, fmt.Errorf("llm describe: %w", ctx.Err())
 		}
 		slog.Warn("describer LLM call failed", "error", err)
 		return nil, nil
