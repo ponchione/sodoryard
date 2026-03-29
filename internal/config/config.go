@@ -32,6 +32,7 @@ type Config struct {
 	Routing   RoutingConfig             `yaml:"routing"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
 	Index     IndexConfig               `yaml:"index"`
+	Embedding Embedding                 `yaml:"embedding"`
 	Agent     AgentConfig               `yaml:"agent"`
 	Context   ContextConfig             `yaml:"context"`
 	Brain     BrainConfig               `yaml:"brain"`
@@ -71,6 +72,15 @@ type IndexConfig struct {
 	AutoReindex           bool     `yaml:"auto_reindex"`
 	MaxFileSizeBytes      int      `yaml:"max_file_size_bytes"`
 	MaxTotalFileSizeBytes int      `yaml:"max_total_file_size_bytes"`
+}
+
+// Embedding configures the local embedding service used for semantic search.
+type Embedding struct {
+	BaseURL        string `yaml:"base_url"`
+	Model          string `yaml:"model"`
+	BatchSize      int    `yaml:"batch_size"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	QueryPrefix    string `yaml:"query_prefix"`
 }
 
 type AgentConfig struct {
@@ -175,6 +185,13 @@ func Default() *Config {
 			AutoReindex:           true,
 			MaxFileSizeBytes:      51200,
 			MaxTotalFileSizeBytes: 524288,
+		},
+		Embedding: Embedding{
+			BaseURL:        "http://localhost:8081",
+			Model:          "nomic-embed-code",
+			BatchSize:      32,
+			TimeoutSeconds: 30,
+			QueryPrefix:    "Represent this query for searching relevant code: ",
 		},
 		Agent: AgentConfig{
 			MaxIterationsPerTurn:     50,
@@ -294,6 +311,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateProviders(); err != nil {
+		return err
+	}
+	if err := c.validateEmbedding(); err != nil {
 		return err
 	}
 	if err := c.validateNumericFields(); err != nil {
@@ -418,6 +438,19 @@ func (c *Config) validateProviders() error {
 		if _, ok := allowedProviderTypes[providerType]; !ok {
 			return fmt.Errorf("invalid field providers.%s.type=%q (expected anthropic, codex, or openai-compatible)", name, provider.Type)
 		}
+	}
+	return nil
+}
+
+func (c *Config) validateEmbedding() error {
+	if strings.TrimSpace(c.Embedding.BaseURL) == "" {
+		return errors.New("invalid field embedding.base_url=\"\" (must not be empty)")
+	}
+	if c.Embedding.BatchSize <= 0 {
+		return fmt.Errorf("invalid field embedding.batch_size=%d (must be > 0)", c.Embedding.BatchSize)
+	}
+	if c.Embedding.TimeoutSeconds <= 0 {
+		return fmt.Errorf("invalid field embedding.timeout_seconds=%d (must be > 0)", c.Embedding.TimeoutSeconds)
 	}
 	return nil
 }

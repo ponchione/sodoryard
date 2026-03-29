@@ -55,6 +55,13 @@ index:
   # max_file_size_bytes: 51200           # 50KB per file limit
   # max_total_file_size_bytes: 524288    # 512KB total context limit
 
+embedding:
+  # base_url: "http://localhost:8081"    # Local nomic-embed-code container
+  # model: "nomic-embed-code"
+  # batch_size: 32
+  # timeout_seconds: 30
+  # query_prefix: "Represent this query for searching relevant code: "
+
 # --- Agent Loop (doc 05) ---
 agent:
   # max_iterations_per_turn: 50          # Hard stop for runaway loops

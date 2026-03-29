@@ -88,6 +88,108 @@ func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 	}
 }
 
+func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+
+	cfg, err := Load(missing)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.Embedding.BaseURL != "http://localhost:8081" {
+		t.Fatalf("Embedding.BaseURL = %q, want http://localhost:8081", cfg.Embedding.BaseURL)
+	}
+	if cfg.Embedding.Model != "nomic-embed-code" {
+		t.Fatalf("Embedding.Model = %q, want nomic-embed-code", cfg.Embedding.Model)
+	}
+	if cfg.Embedding.BatchSize != 32 {
+		t.Fatalf("Embedding.BatchSize = %d, want 32", cfg.Embedding.BatchSize)
+	}
+	if cfg.Embedding.TimeoutSeconds != 30 {
+		t.Fatalf("Embedding.TimeoutSeconds = %d, want 30", cfg.Embedding.TimeoutSeconds)
+	}
+	if cfg.Embedding.QueryPrefix != "Represent this query for searching relevant code: " {
+		t.Fatalf("Embedding.QueryPrefix = %q, want default prefix", cfg.Embedding.QueryPrefix)
+	}
+}
+
+func TestLoadAppliesPartialEmbeddingOverrides(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"embedding:\n" +
+		"  model: custom-embed\n" +
+		"  batch_size: 64\n"
+
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.Embedding.Model != "custom-embed" {
+		t.Fatalf("Embedding.Model = %q, want custom-embed", cfg.Embedding.Model)
+	}
+	if cfg.Embedding.BatchSize != 64 {
+		t.Fatalf("Embedding.BatchSize = %d, want 64", cfg.Embedding.BatchSize)
+	}
+	if cfg.Embedding.BaseURL != "http://localhost:8081" {
+		t.Fatalf("Embedding.BaseURL = %q, want default http://localhost:8081", cfg.Embedding.BaseURL)
+	}
+	if cfg.Embedding.TimeoutSeconds != 30 {
+		t.Fatalf("Embedding.TimeoutSeconds = %d, want default 30", cfg.Embedding.TimeoutSeconds)
+	}
+	if cfg.Embedding.QueryPrefix != "Represent this query for searching relevant code: " {
+		t.Fatalf("Embedding.QueryPrefix = %q, want default query prefix", cfg.Embedding.QueryPrefix)
+	}
+}
+
+func TestLoadRejectsInvalidEmbeddingConfig(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	tests := []struct {
+		name       string
+		yaml       string
+		wantSubstr string
+	}{
+		{
+			name: "empty base url",
+			yaml: "project_root: \"" + projectRoot + "\"\nembedding:\n  base_url: \"\"\n",
+			wantSubstr: "embedding.base_url",
+		},
+		{
+			name: "zero batch size",
+			yaml: "project_root: \"" + projectRoot + "\"\nembedding:\n  batch_size: 0\n",
+			wantSubstr: "embedding.batch_size=0",
+		},
+		{
+			name: "zero timeout",
+			yaml: "project_root: \"" + projectRoot + "\"\nembedding:\n  timeout_seconds: 0\n",
+			wantSubstr: "embedding.timeout_seconds=0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+			if err := os.WriteFile(configPath, []byte(tt.yaml), 0o644); err != nil {
+				t.Fatalf("WriteFile returned error: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantSubstr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantSubstr)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsInvalidValues(t *testing.T) {
 	projectRoot := t.TempDir()
 
