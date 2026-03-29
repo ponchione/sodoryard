@@ -72,3 +72,25 @@ type Chunk struct {
 
 	Embedding []float32
 }
+
+// SearchResult wraps a retrieved chunk with ranking metadata.
+type SearchResult struct {
+	Chunk     Chunk
+	Score     float64
+	MatchedBy string
+	HitCount  int
+	FromHop   bool
+}
+
+// Filter constrains vector-search results by metadata.
+type Filter struct {
+	Language       string
+	ChunkType      ChunkType
+	FilePathPrefix string
+}
+
+// Description is a semantic name-summary pair returned by the describer.
+type Description struct {
+	Name        string
+	Description string
+}

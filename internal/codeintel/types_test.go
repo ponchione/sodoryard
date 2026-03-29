@@ -126,3 +126,65 @@ func TestChunkFields(t *testing.T) {
 		t.Fatalf("Embedding = %#v, want 3 float32 values", chunk.Embedding)
 	}
 }
+
+func TestSearchResultFields(t *testing.T) {
+	result := SearchResult{
+		Chunk: Chunk{
+			ID:        "chunk-id",
+			Name:      "ValidateToken",
+			ChunkType: ChunkTypeFunction,
+		},
+		Score:     0.91,
+		MatchedBy: "auth middleware",
+		HitCount:  2,
+		FromHop:   true,
+	}
+
+	if result.Chunk.ID != "chunk-id" || result.Chunk.Name != "ValidateToken" {
+		t.Fatalf("Chunk = %+v, want embedded chunk preserved", result.Chunk)
+	}
+	if result.Score != 0.91 {
+		t.Fatalf("Score = %v, want 0.91", result.Score)
+	}
+	if result.MatchedBy != "auth middleware" {
+		t.Fatalf("MatchedBy = %q, want %q", result.MatchedBy, "auth middleware")
+	}
+	if result.HitCount != 2 {
+		t.Fatalf("HitCount = %d, want 2", result.HitCount)
+	}
+	if !result.FromHop {
+		t.Fatal("FromHop = false, want true")
+	}
+}
+
+func TestFilterFields(t *testing.T) {
+	filter := Filter{
+		Language:       "go",
+		ChunkType:      ChunkTypeFunction,
+		FilePathPrefix: "internal/auth",
+	}
+
+	if filter.Language != "go" {
+		t.Fatalf("Language = %q, want %q", filter.Language, "go")
+	}
+	if filter.ChunkType != ChunkTypeFunction {
+		t.Fatalf("ChunkType = %q, want %q", filter.ChunkType, ChunkTypeFunction)
+	}
+	if filter.FilePathPrefix != "internal/auth" {
+		t.Fatalf("FilePathPrefix = %q, want %q", filter.FilePathPrefix, "internal/auth")
+	}
+}
+
+func TestDescriptionFields(t *testing.T) {
+	description := Description{
+		Name:        "ValidateToken",
+		Description: "Validates a token and returns an error when it is invalid.",
+	}
+
+	if description.Name != "ValidateToken" {
+		t.Fatalf("Name = %q, want %q", description.Name, "ValidateToken")
+	}
+	if description.Description == "" {
+		t.Fatal("Description is empty, want semantic summary")
+	}
+}
