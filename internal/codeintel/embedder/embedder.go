@@ -134,5 +134,8 @@ func (c *Client) EmbedQuery(ctx context.Context, query string) ([]float32, error
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("embed query: no embeddings returned")
+	}
 	return vecs[0], nil
 }
