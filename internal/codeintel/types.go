@@ -1,5 +1,7 @@
 package codeintel
 
+import "time"
+
 // ChunkType classifies a parsed code or document chunk by syntactic role.
 type ChunkType string
 
@@ -32,3 +34,41 @@ const (
 	// QueryPrefix is prepended to queries before embedding for asymmetric retrieval.
 	QueryPrefix = "Represent this query for searching relevant code: "
 )
+
+// RawChunk is the direct output of a parser before enrichment and storage.
+type RawChunk struct {
+	Name      string
+	Signature string
+	Body      string
+	ChunkType ChunkType
+	LineStart int
+	LineEnd   int
+}
+
+// Chunk is the fully enriched record stored in the semantic index.
+type Chunk struct {
+	ID          string
+	ProjectName string
+
+	FilePath  string
+	Language  string
+	ChunkType ChunkType
+
+	Name        string
+	Signature   string
+	Body        string
+	Description string
+
+	LineStart   int
+	LineEnd     int
+	ContentHash string
+	IndexedAt   time.Time
+
+	Calls            []string
+	CalledBy         []string
+	TypesUsed        []string
+	ImplementsIfaces []string
+	Imports          []string
+
+	Embedding []float32
+}
