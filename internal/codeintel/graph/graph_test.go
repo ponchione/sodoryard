@@ -198,3 +198,124 @@ func TestChunkMappings(t *testing.T) {
 func TestStoreImplementsInterface(t *testing.T) {
 	var _ codeintel.GraphStore = (*Store)(nil)
 }
+
+func TestBlastRadius_CycleDetection_SubstringIDs(t *testing.T) {
+	s := newTestStore(t)
+
+	// Symbol IDs where one is a substring of another: "ab" is inside "abc".
+	syms := []Symbol{
+		{ID: "abc", Name: "ABC", Kind: "function", Language: "go", FilePath: "a.go", LineStart: 1, LineEnd: 5},
+		{ID: "ab", Name: "AB", Kind: "function", Language: "go", FilePath: "b.go", LineStart: 1, LineEnd: 5},
+		{ID: "target", Name: "Target", Kind: "function", Language: "go", FilePath: "c.go", LineStart: 1, LineEnd: 5},
+	}
+	s.InsertSymbols(syms)
+	// abc -> ab -> target
+	s.InsertEdges([]Edge{
+		{SourceID: "abc", TargetID: "ab", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "ab", TargetID: "target", EdgeType: "CALLS", Confidence: 1.0},
+	})
+
+	result, err := s.BlastRadius(context.Background(), codeintel.GraphQuery{
+		Symbol:   "target",
+		MaxDepth: 5,
+		MaxNodes: 10,
+	})
+	if err != nil {
+		t.Fatalf("BlastRadius: %v", err)
+	}
+	if len(result.Upstream) != 2 {
+		t.Fatalf("got %d upstream, want 2 (ab and abc)", len(result.Upstream))
+	}
+}
+
+func TestBlastRadius_Downstream(t *testing.T) {
+	s := newTestStore(t)
+
+	syms := []Symbol{
+		{ID: "a", Name: "A", Kind: "function", Language: "go", FilePath: "a.go", LineStart: 1, LineEnd: 5},
+		{ID: "b", Name: "B", Kind: "function", Language: "go", FilePath: "b.go", LineStart: 1, LineEnd: 5},
+		{ID: "c", Name: "C", Kind: "function", Language: "go", FilePath: "c.go", LineStart: 1, LineEnd: 5},
+	}
+	s.InsertSymbols(syms)
+	s.InsertEdges([]Edge{
+		{SourceID: "a", TargetID: "b", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "b", TargetID: "c", EdgeType: "CALLS", Confidence: 1.0},
+	})
+
+	result, err := s.BlastRadius(context.Background(), codeintel.GraphQuery{
+		Symbol:   "a",
+		MaxDepth: 3,
+		MaxNodes: 10,
+	})
+	if err != nil {
+		t.Fatalf("BlastRadius: %v", err)
+	}
+	if len(result.Downstream) != 2 {
+		t.Fatalf("got %d downstream, want 2", len(result.Downstream))
+	}
+	if result.Downstream[0].Symbol != "B" {
+		t.Errorf("downstream[0] = %q, want B", result.Downstream[0].Symbol)
+	}
+	if result.Downstream[1].Symbol != "C" {
+		t.Errorf("downstream[1] = %q, want C", result.Downstream[1].Symbol)
+	}
+}
+
+func TestBlastRadius_Cycle(t *testing.T) {
+	s := newTestStore(t)
+
+	syms := []Symbol{
+		{ID: "a", Name: "A", Kind: "function", Language: "go", FilePath: "a.go", LineStart: 1, LineEnd: 5},
+		{ID: "b", Name: "B", Kind: "function", Language: "go", FilePath: "b.go", LineStart: 1, LineEnd: 5},
+		{ID: "c", Name: "C", Kind: "function", Language: "go", FilePath: "c.go", LineStart: 1, LineEnd: 5},
+	}
+	s.InsertSymbols(syms)
+	s.InsertEdges([]Edge{
+		{SourceID: "a", TargetID: "b", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "b", TargetID: "c", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "c", TargetID: "a", EdgeType: "CALLS", Confidence: 1.0},
+	})
+
+	result, err := s.BlastRadius(context.Background(), codeintel.GraphQuery{
+		Symbol:   "a",
+		MaxDepth: 10,
+		MaxNodes: 30,
+	})
+	if err != nil {
+		t.Fatalf("BlastRadius: %v", err)
+	}
+	if len(result.Downstream) != 2 {
+		t.Fatalf("got %d downstream, want 2", len(result.Downstream))
+	}
+}
+
+func TestBlastRadius_MaxDepth(t *testing.T) {
+	s := newTestStore(t)
+
+	syms := []Symbol{
+		{ID: "a", Name: "A", Kind: "function", Language: "go", FilePath: "a.go", LineStart: 1, LineEnd: 5},
+		{ID: "b", Name: "B", Kind: "function", Language: "go", FilePath: "b.go", LineStart: 1, LineEnd: 5},
+		{ID: "c", Name: "C", Kind: "function", Language: "go", FilePath: "c.go", LineStart: 1, LineEnd: 5},
+		{ID: "d", Name: "D", Kind: "function", Language: "go", FilePath: "d.go", LineStart: 1, LineEnd: 5},
+		{ID: "e", Name: "E", Kind: "function", Language: "go", FilePath: "e.go", LineStart: 1, LineEnd: 5},
+	}
+	s.InsertSymbols(syms)
+	s.InsertEdges([]Edge{
+		{SourceID: "a", TargetID: "b", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "b", TargetID: "c", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "c", TargetID: "d", EdgeType: "CALLS", Confidence: 1.0},
+		{SourceID: "d", TargetID: "e", EdgeType: "CALLS", Confidence: 1.0},
+	})
+
+	result, err := s.BlastRadius(context.Background(), codeintel.GraphQuery{
+		Symbol:   "a",
+		MaxDepth: 2,
+		MaxNodes: 10,
+	})
+	if err != nil {
+		t.Fatalf("BlastRadius: %v", err)
+	}
+	if len(result.Downstream) != 2 {
+		t.Fatalf("got %d downstream, want 2 (depth-limited)", len(result.Downstream))
+	}
+}

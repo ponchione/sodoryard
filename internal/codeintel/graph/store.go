@@ -273,7 +273,7 @@ func (s *Store) GetSymbolsByFile(filePath string) ([]Symbol, error) {
 func (s *Store) GetSymbolsByName(name string) ([]Symbol, error) {
 	rows, err := s.db.Query(`SELECT id, name, kind, language, package, file_path,
 		line_start, line_end, signature, exported, receiver
-		FROM symbols WHERE name = ?`, name)
+		FROM symbols WHERE name = ? ORDER BY file_path, line_start`, name)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +406,7 @@ func (s *Store) blastUpstream(targetID string, maxDepth, budget int) ([]blastNod
 			JOIN blast b ON e.target_id = b.symbol_id
 			WHERE b.depth < ?
 			  AND e.source_id NOT IN (SELECT id FROM boundary_symbols)
-			  AND instr(b.path, e.source_id) = 0
+			  AND instr('>' || b.path || '>', '>' || e.source_id || '>') = 0
 			  AND e.source_id != ?
 		)
 		SELECT s.id, s.name, s.kind, s.language, s.package, s.file_path,
@@ -445,7 +445,7 @@ func (s *Store) blastDownstream(targetID string, maxDepth, budget int) ([]blastN
 			JOIN blast b ON e.source_id = b.symbol_id
 			WHERE b.depth < ?
 			  AND e.target_id NOT IN (SELECT id FROM boundary_symbols)
-			  AND instr(b.path, e.target_id) = 0
+			  AND instr('>' || b.path || '>', '>' || e.target_id || '>') = 0
 			  AND e.target_id != ?
 			  AND e.edge_type != 'IMPLEMENTS'
 		)
