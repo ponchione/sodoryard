@@ -12,14 +12,14 @@ Define the `Searcher` interface and its associated `SearchOptions` configuration
 
 ## Acceptance Criteria
 
-- [ ] `SearchOptions` struct defined in `internal/rag/types.go` with the following fields:
+- [ ] `SearchOptions` struct defined in `internal/codeintel/types.go` with the following fields:
   - `TopK               int`     — maximum results per query in vector search (default: 10)
   - `Filter             Filter`  — metadata constraints applied to all queries
   - `MaxResults         int`     — total results to return after deduplication and re-ranking (default: 30, from `max_rag_results` config)
   - `EnableHopExpansion bool`    — whether to perform one-hop call graph expansion on top hits
   - `HopBudgetFraction float64` — fraction of MaxResults allocated to hop expansion (default: 0.4, i.e., 60% direct hits / 40% dependency hops)
   - `HopDepth          int`     — call graph expansion depth (default: 1)
-- [ ] `Searcher` interface defined in `internal/rag/interfaces.go` with the following method:
+- [ ] `Searcher` interface defined in `internal/codeintel/interfaces.go` with the following method:
   ```go
   type Searcher interface {
       // Search executes one or more semantic queries against the code index.
@@ -46,4 +46,4 @@ Define the `Searcher` interface and its associated `SearchOptions` configuration
 - [ ] The `Search` method accepts multiple queries (not single) to support both simple agent tool calls (1 query) and context assembly multi-query expansion (up to 3 queries)
 - [ ] Doc comment explicitly describes the deduplication and re-ranking algorithm (hit count, then best score as tiebreaker)
 - [ ] Doc comment describes the budget allocation between direct hits and hop expansion
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`

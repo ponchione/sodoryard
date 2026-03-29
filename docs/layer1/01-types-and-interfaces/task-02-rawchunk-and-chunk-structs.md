@@ -12,14 +12,14 @@ Define the two core data structures of the RAG pipeline. `RawChunk` is the outpu
 
 ## Acceptance Criteria
 
-- [ ] `RawChunk` struct defined in `internal/rag/types.go` with the following fields:
+- [ ] `RawChunk` struct defined in `internal/codeintel/types.go` with the following fields:
   - `Name      string`    — symbol name (e.g., function name, type name, heading text)
   - `Signature string`    — everything before the body (e.g., `func (s *AuthService) ValidateToken(token string) (*Claims, error)`)
   - `Body      string`    — full body text of the declaration
   - `ChunkType ChunkType` — one of the ChunkType enum values from Task 01
   - `LineStart int`       — 1-based starting line number in the source file
   - `LineEnd   int`       — 1-based ending line number in the source file
-- [ ] `Chunk` struct defined in `internal/rag/types.go` with the following fields:
+- [ ] `Chunk` struct defined in `internal/codeintel/types.go` with the following fields:
   - **Identity:**
     - `ID          string` — deterministic SHA-256 hash (see Task 04)
     - `ProjectName string` — project identifier for multi-project support
@@ -45,4 +45,4 @@ Define the two core data structures of the RAG pipeline. `RawChunk` is the outpu
     - `Imports          []string` — package paths imported by the file containing this chunk
   - **Embedding:**
     - `Embedding []float32` — vector embedding of `Signature + "\n" + Description` (3584 dimensions by default)
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`

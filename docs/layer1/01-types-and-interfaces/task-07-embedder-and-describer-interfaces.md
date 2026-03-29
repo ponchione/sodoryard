@@ -12,7 +12,7 @@ Define the `Embedder` and `Describer` interfaces. The `Embedder` wraps the nomic
 
 ## Acceptance Criteria
 
-- [ ] `Embedder` interface defined in `internal/rag/interfaces.go` with the following methods:
+- [ ] `Embedder` interface defined in `internal/codeintel/interfaces.go` with the following methods:
   ```go
   type Embedder interface {
       // EmbedTexts embeds a batch of texts for indexing.
@@ -29,7 +29,7 @@ Define the `Embedder` and `Describer` interfaces. The `Embedder` wraps the nomic
       EmbedQuery(ctx context.Context, query string) ([]float32, error)
   }
   ```
-- [ ] `Describer` interface defined in `internal/rag/interfaces.go` with the following methods:
+- [ ] `Describer` interface defined in `internal/codeintel/interfaces.go` with the following methods:
   ```go
   type Describer interface {
       // DescribeFile sends file content and relationship context to a local LLM
@@ -50,4 +50,4 @@ Define the `Embedder` and `Describer` interfaces. The `Embedder` wraps the nomic
   }
   ```
 - [ ] `DescribeFile` graceful degradation behavior is documented in the interface doc comment: LLM failures produce empty descriptions, not errors (the indexing pipeline continues)
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`

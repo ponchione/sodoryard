@@ -12,13 +12,13 @@ Implement the two deterministic hashing functions used throughout the indexing p
 
 ## Acceptance Criteria
 
-- [ ] Function `ChunkID(filePath string, chunkType ChunkType, name string, lineStart int) string` defined in `internal/rag/hash.go`
+- [ ] Function `ChunkID(filePath string, chunkType ChunkType, name string, lineStart int) string` defined in `internal/codeintel/hash.go`
   - Computes `sha256(filePath + string(chunkType) + name + strconv.Itoa(lineStart))`
   - Returns the lowercase hex-encoded hash string (64 characters)
   - Input concatenation uses no separator (matches topham behavior: direct concatenation)
-- [ ] Function `ContentHash(body string) string` defined in `internal/rag/hash.go`
+- [ ] Function `ContentHash(body string) string` defined in `internal/codeintel/hash.go`
   - Computes `sha256(body)`
   - Returns the lowercase hex-encoded hash string (64 characters)
 - [ ] Both functions are pure (no side effects, no I/O)
 - [ ] Both functions are deterministic (same inputs always produce the same output)
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`

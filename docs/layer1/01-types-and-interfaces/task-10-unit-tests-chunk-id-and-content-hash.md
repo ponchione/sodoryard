@@ -1,4 +1,4 @@
-# Task 12: Unit Tests for Chunk ID and Content Hash
+# Task 10: Unit Tests for Chunk ID and Content Hash
 
 **Epic:** 01 — Types and Interfaces
 **Status:** ⬚ Not started
@@ -12,7 +12,7 @@ Write unit tests for the `ChunkID` and `ContentHash` functions defined in Task 0
 
 ## Acceptance Criteria
 
-### ChunkID tests (in `internal/rag/hash_test.go`)
+### ChunkID tests (in `internal/codeintel/hash_test.go`)
 
 - [ ] **Determinism:** Calling `ChunkID("internal/auth/middleware.go", ChunkTypeFunction, "AuthMiddleware", 15)` twice returns the same string both times
 - [ ] **Expected format:** The return value is exactly 64 lowercase hex characters (SHA-256 output)
@@ -22,7 +22,7 @@ Write unit tests for the `ChunkID` and `ContentHash` functions defined in Task 0
 - [ ] **Collision resistance — different chunk type:** `ChunkID("a.go", ChunkTypeFunction, "Foo", 10)` and `ChunkID("a.go", ChunkTypeMethod, "Foo", 10)` produce different IDs (same name, different chunk type)
 - [ ] **Empty name:** `ChunkID("a.go", ChunkTypeFallback, "", 1)` does not panic and returns a valid 64-character hex string (fallback chunks may have empty names)
 
-### ContentHash tests (in `internal/rag/hash_test.go`)
+### ContentHash tests (in `internal/codeintel/hash_test.go`)
 
 - [ ] **Determinism:** Calling `ContentHash("func main() { fmt.Println(\"hello\") }")` twice returns the same string both times
 - [ ] **Expected format:** The return value is exactly 64 lowercase hex characters
@@ -32,5 +32,5 @@ Write unit tests for the `ChunkID` and `ContentHash` functions defined in Task 0
 
 ### General
 
-- [ ] All tests pass: `go test ./internal/rag/...`
+- [ ] All tests pass: `go test ./internal/codeintel/...`
 - [ ] Tests use table-driven test pattern where appropriate

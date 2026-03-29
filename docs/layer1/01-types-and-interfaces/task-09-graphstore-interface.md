@@ -12,24 +12,24 @@ Define the `GraphStore` interface and its associated result types for structural
 
 ## Acceptance Criteria
 
-- [ ] `BlastRadiusResult` struct defined in `internal/rag/types.go` with the following fields:
+- [ ] `BlastRadiusResult` struct defined in `internal/codeintel/types.go` with the following fields:
   - `Upstream   []GraphNode` — functions/types that call or reference the target (callers)
   - `Downstream []GraphNode` — functions/types the target calls or references (callees)
   - `Interfaces []GraphNode` — interfaces that the target type implements
-- [ ] `GraphNode` struct defined in `internal/rag/types.go` with the following fields:
+- [ ] `GraphNode` struct defined in `internal/codeintel/types.go` with the following fields:
   - `Symbol    string` — qualified symbol name (e.g., `"pkg.FunctionName"`)
   - `FilePath  string` — file containing this symbol (relative to project root)
   - `Kind      string` — node type: `"function"`, `"method"`, `"type"`, `"interface"`
   - `Depth     int`    — distance from the query target (1 = direct caller/callee, 2 = two hops away)
   - `LineStart int`    — start line of the symbol in its file
   - `LineEnd   int`    — end line of the symbol in its file
-- [ ] `GraphQuery` struct defined in `internal/rag/types.go` with the following fields:
+- [ ] `GraphQuery` struct defined in `internal/codeintel/types.go` with the following fields:
   - `Symbol    string` — the target symbol to query
   - `MaxDepth  int`    — maximum traversal depth (default: 1 for one-hop expansion)
   - `MaxNodes  int`    — maximum total nodes to return across all categories (budget cap)
   - `IncludeKinds []string` — if non-empty, only return nodes whose Kind is in this list
   - `ExcludeKinds []string` — if non-empty, exclude nodes whose Kind is in this list
-- [ ] `GraphStore` interface defined in `internal/rag/interfaces.go` with the following method:
+- [ ] `GraphStore` interface defined in `internal/codeintel/interfaces.go` with the following method:
   ```go
   type GraphStore interface {
       // BlastRadius returns the upstream callers, downstream callees, and
@@ -48,4 +48,4 @@ Define the `GraphStore` interface and its associated result types for structural
   }
   ```
 - [ ] `BlastRadius` returns a pointer to `BlastRadiusResult` (the result struct is large enough to warrant avoiding copies)
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`

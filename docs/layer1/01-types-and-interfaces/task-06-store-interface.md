@@ -12,7 +12,7 @@ Define the `Store` interface that abstracts the LanceDB vector store. The store 
 
 ## Acceptance Criteria
 
-- [ ] `Store` interface defined in `internal/rag/interfaces.go` with the following methods:
+- [ ] `Store` interface defined in `internal/codeintel/interfaces.go` with the following methods:
   ```go
   type Store interface {
       // Upsert inserts or updates chunks in the vector store.
@@ -52,4 +52,4 @@ Define the `Store` interface that abstracts the LanceDB vector store. The store 
 - [ ] `VectorSearch` accepts a `Filter` value (not pointer) — zero-value Filter means no filtering
 - [ ] `Upsert` accepts a slice of `Chunk` (batch operation, not single-chunk)
 - [ ] Doc comments explain the LanceDB implementation strategy (delete-then-insert for upsert, JSON serialization for relationship slices)
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`

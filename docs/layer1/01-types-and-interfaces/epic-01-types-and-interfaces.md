@@ -17,7 +17,7 @@ This is the foundation contract for the entire code intelligence layer. Every ot
 
 ## Package
 
-`internal/rag/` — types, interfaces, and constants shared across the RAG pipeline.
+`internal/codeintel/` — shared Layer 1 types, interfaces, constants, and hash helpers consumed across the code-intelligence pipeline.
 
 ---
 
@@ -37,7 +37,7 @@ This is the foundation contract for the entire code intelligence layer. Every ot
 - [ ] Constants defined: `MaxBodyLength = 2000`, `DefaultEmbeddingDims = 3584`, `DefaultEmbedBatchSize = 32`, `SchemaVersion`
 - [ ] Deterministic chunk ID generation function: `sha256(filePath + chunkType + name + lineStart)`
 - [ ] Content hash function: `sha256(body)`
-- [ ] All types compile cleanly with `go build ./internal/rag/...`
+- [ ] All types compile cleanly with `go build ./internal/codeintel/...`
 - [ ] Unit tests for chunk ID generation (deterministic, collision-resistant for same-named symbols)
 - [ ] Unit tests for content hash generation
 
@@ -57,3 +57,4 @@ This is the foundation contract for the entire code intelligence layer. Every ot
 - The `Store` interface must support both vector search (cosine similarity with metadata filters) and metadata-only queries (by file path, by name) needed for call graph lookups and change detection.
 - The `GraphStore` interface is separate from `Store` — structural graph data lives in SQLite, not LanceDB. Keep them distinct.
 - Relationship fields on `Chunk` (Calls, CalledBy, etc.) are `[]string` — stored as JSON strings in LanceDB. The Go types should use native slices; serialization is the store's responsibility.
+- Layer 3 owns `ContextNeeds`, `TurnAnalyzer`, `ContextAssemblyReport`, and related context-assembly observability types in `internal/context/`. Epic 01 intentionally stops at Layer 1 contracts and does not redefine those downstream types here.

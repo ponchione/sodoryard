@@ -19,7 +19,7 @@ Everything in this layer runs locally — tree-sitter CGo bindings, Go AST analy
 
 | #   | Epic                        | Tasks | Status | Dependencies                          |
 | --- | --------------------------- | ----- | ------ | ------------------------------------- |
-| 01  | [[01-types-and-interfaces/epic-01-types-and-interfaces]] | 13 | ⬜      | L0-E01                                |
+| 01  | [[01-types-and-interfaces/epic-01-types-and-interfaces]] | 11 | ⬜      | L0-E01                                |
 | 02  | [[02-tree-sitter-parsers/epic-02-tree-sitter-parsers]]   | 13 | ⬜      | L1-E01                                |
 | 03  | [[03-go-ast-parser/epic-03-go-ast-parser]]               | 11 | ⬜      | L1-E01                                |
 | 04  | [[04-embedding-client/epic-04-embedding-client]]         | 6  | ⬜      | L1-E01, L0-E03                        |
@@ -103,6 +103,19 @@ These two can run in parallel with each other.
 
 ---
 
+## Canonical Package Map
+
+Layer 1 destination packages in sirtopham align to the repo skeleton rather than reusing topham package paths verbatim:
+
+- `internal/codeintel/` — shared Layer 1 contracts plus code-intelligence components (parsers, embedder, describer, searcher, structural graph implementation)
+- `internal/vectorstore/` — LanceDB-backed vector storage implementation
+- `internal/index/` — indexing pipeline orchestration
+- `internal/context/` — Layer 3 context-assembly ownership, not Layer 1
+
+Historical references to topham's `internal/rag/` and `internal/graph/` in Layer 1 docs describe source material only, not sirtopham's destination package paths.
+
+---
+
 ## Interface Boundaries (Downstream Consumers)
 
 Layer 1 provides interfaces consumed by later layers. These interfaces are defined in L1-E01 and implemented across subsequent epics:
@@ -120,7 +133,7 @@ Layer 1 provides interfaces consumed by later layers. These interfaces are defin
 
 ## What Ports from topham
 
-Almost all code in `internal/rag/` and `internal/graph/` from the agent-conductor repo ports directly. The primary translation effort is Go-to-Go refactoring (same language, different project structure) rather than cross-language reimplementation.
+Most Layer 1 source material comes from topham's `internal/rag/` and `internal/graph/`. In sirtopham, that source material is repackaged into the Layer 1 destination packages declared above (`internal/codeintel/`, `internal/vectorstore/`, and `internal/index/`). The primary translation effort is Go-to-Go refactoring (same language, different project structure) rather than cross-language reimplementation.
 
 **Direct ports:** types, tree-sitter parser dispatcher, Go AST parser, embedder HTTP client, LanceDB store, describer, indexer pipeline, searcher, structural graph analyzers.
 

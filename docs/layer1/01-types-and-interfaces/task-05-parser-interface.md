@@ -12,7 +12,7 @@ Define the `Parser` interface that all language-specific parsers (Go AST, tree-s
 
 ## Acceptance Criteria
 
-- [ ] `Parser` interface defined in `internal/rag/interfaces.go` with the following method:
+- [ ] `Parser` interface defined in `internal/codeintel/interfaces.go` with the following method:
   ```go
   type Parser interface {
       // Parse extracts top-level declarations from the given file content.
@@ -23,7 +23,7 @@ Define the `Parser` interface that all language-specific parsers (Go AST, tree-s
       Parse(filePath string, content []byte) ([]RawChunk, error)
   }
   ```
-- [ ] The interface lives in `internal/rag/interfaces.go` alongside other interfaces
+- [ ] The interface lives in `internal/codeintel/interfaces.go` alongside other interfaces
 - [ ] The `content` parameter is `[]byte` (not `string`) to avoid unnecessary copies from file reads
 - [ ] Doc comment on the interface explains that implementations exist for Go (AST-based), TypeScript/TSX (tree-sitter), Python (tree-sitter), Markdown (heading splitter), and a fallback (40-line sliding window with 20-line overlap)
-- [ ] File compiles cleanly: `go build ./internal/rag/...`
+- [ ] File compiles cleanly: `go build ./internal/codeintel/...`
