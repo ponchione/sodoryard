@@ -1,0 +1,614 @@
+# 09 — Project Brain
+
+**Status:** Draft v0.1 **Last Updated:** 2026-03-28 **Author:** Mitchell
+
+---
+
+## Overview
+
+The project brain is a persistent, project-scoped knowledge base backed by an Obsidian vault. It accumulates intelligence over the lifetime of working on a codebase — architectural decisions, debugging insights, conventions, session histories, relationship maps, and anything else worth persisting across sessions.
+
+Both the developer and the agent are co-authors. The developer works directly in Obsidian — reading, editing, organizing, browsing the graph view. The agent reads from and writes to the vault via tools, and context assembly queries the brain alongside code RAG to surface relevant project knowledge on each turn.
+
+This is sirtopham's long-term memory. Conversations are ephemeral — they live for a session, get compressed, eventually fade. The brain is where durable insights get extracted and persisted. A conversation is a working session. The brain is the institutional knowledge that sessions contribute to.
+
+---
+
+## Why Obsidian
+
+Obsidian is not just a markdown renderer. It's a structured knowledge tool with primitives that a plain directory of files can't replicate.
+
+**Wikilinks (`[[double brackets]]`).** Bidirectional linking between documents. If "auth-architecture.md" links to `[[provider-design]]`, Obsidian tracks that relationship in both directions. This is a graph — not a pile of files. When the agent writes `[[context-assembly-decisions]]` in a debugging note, that's a semantic connection that retrieval can exploit. "Find everything linked to context assembly" becomes a graph traversal, not a keyword search.
+
+**Tags.** `#architecture`, `#debugging`, `#convention`, `#tech-debt`. Lightweight categorization that the agent applies when writing and that retrieval filters on.
+
+**Frontmatter (YAML).** Structured metadata — created date, author, status, related topics. The agent writes this, the retrieval layer queries on it, Obsidian renders it cleanly.
+
+**Graph view.** Obsidian's built-in graph visualization shows how documents connect — clusters of related knowledge, orphaned documents, interconnection density. We don't build this; Obsidian gives it for free.
+
+**Canvas.** Spatial layouts of cards, notes, and connections. Architectural diagrams, flow maps, decision trees — all inside the vault. Future territory, but available.
+
+**Plugin ecosystem.** Dataview for structured queries across documents. Templater for document templates. Git integration for version-controlled vaults. Available when needed.
+
+**Local-first, file-based.** Obsidian vaults are directories of markdown files on disk. No proprietary format, no server dependency, no sync requirement. Architecturally aligned with sirtopham.
+
+---
+
+## Architecture
+
+The brain is not a feature bolted onto sirtopham. It's a first-class component with its own storage, retrieval logic, tools, and lifecycle.
+
+### Integration Model
+
+Obsidian runs alongside sirtopham. The developer already has it open. sirtopham communicates with Obsidian via the **Obsidian Local REST API** community plugin, which exposes read/write/search operations on `localhost:27124`.
+
+```
+┌─────────────────────────────────┐     ┌──────────────────────────┐
+│  sirtopham                      │     │  Obsidian                │
+│                                 │     │                          │
+│  Agent Loop                     │     │  Project Brain Vault     │
+│    ├─ brain_read ──────────────────→  │    ├─ architecture/      │
+│    ├─ brain_write ─────────────────→  │    ├─ debugging/         │
+│    ├─ brain_update ────────────────→  │    ├─ conventions/       │
+│    ├─ brain_search (keyword) ──────→  │    ├─ sessions/          │
+│    │                            │     │    └─ notes/             │
+│    └─ brain_search (semantic) ──┐│    │                          │
+│                                 ││    │  Local REST API Plugin   │
+│  Context Assembly               ││    │    (localhost:27124)     │
+│    ├─ brain keyword query ─────────→  │                          │
+│    └─ brain semantic query ─────┘│    │  Graph View, Canvas,     │
+│                                 │     │  Plugins, Search, etc.   │
+│  Brain Indexer                  │     │                          │
+│    ├─ Vector embeddings         │     └──────────────────────────┘
+│    │  (LanceDB, brain collection)            ↕
+│    ├─ Wikilink graph (SQLite)         Developer works directly
+│    └─ Frontmatter/tag index           in Obsidian alongside
+│                                       sirtopham
+│  Web UI                         │
+│    └─ "Open in Obsidian" links  │
+│                                 │
+└─────────────────────────────────┘
+```
+
+### What Lives Where
+
+**In Obsidian (source of truth):** All brain documents. Markdown files with frontmatter, wikilinks, tags. The developer reads, edits, organizes, and browses here. Obsidian's graph view visualizes the knowledge structure.
+
+**In sirtopham v0.1 (tools):** The agent-facing interface. Read/write operations go through the Obsidian REST API. Search is keyword-only via Obsidian's API.
+
+**In sirtopham v0.2+ (derived indexes):** Vector embeddings of brain documents in a separate LanceDB collection. A parsed wikilink graph stored in SQLite. Extracted frontmatter metadata and tags for structured queries. These indexes are rebuilt from vault content on startup and kept in sync via the REST API.
+
+**In sirtopham v0.2+ (context assembly):** Brain retrieval runs in parallel with code RAG during context assembly. Results compete for budget alongside code chunks.
+
+---
+
+## Vault Structure
+
+The vault is an Obsidian vault at a configurable path. The directory structure is freeform — the agent and developer organize however makes sense. Flat, nested, by date, by topic. The retrieval layer searches content regardless of file location.
+
+### Typical Structure
+
+```
+brain-vault/
+├── .obsidian/                        # Obsidian config (sirtopham ignores this)
+├── architecture/
+│   ├── provider-design.md
+│   ├── rag-pipeline-audit.md
+│   ├── context-assembly-decisions.md
+│   └── agent-loop-design.md
+├── debugging/
+│   ├── lancedb-cgo-gotchas.md
+│   ├── tree-sitter-generics-workaround.md
+│   └── oauth-token-refresh-race.md
+├── conventions/
+│   ├── error-handling.md
+│   ├── anti-patterns.md
+│   └── testing-patterns.md
+├── sessions/
+│   ├── 2026-03-27-tech-stack.md
+│   ├── 2026-03-28-agent-loop.md
+│   └── 2026-03-28-context-assembly.md
+├── notes/
+│   ├── token-refresh-file-locking.md
+│   ├── codex-responses-api-quirks.md
+│   └── nomic-embed-query-prefix.md
+└── templates/
+    ├── session-summary.md
+    ├── debugging-journal.md
+    └── decision-record.md
+```
+
+### Document Format
+
+Brain documents are Obsidian-native markdown. The agent writes documents that work naturally in Obsidian:
+
+```markdown
+---
+created: 2026-03-28
+author: agent
+session: abc-123
+tags: [debugging, cgo, lancedb]
+status: active
+---
+
+# LanceDB CGo Nil Slice Segfault
+
+## Problem
+
+Passing a nil Go slice to the LanceDB CGo bindings causes a segfault
+in the C layer. This manifests as a SIGSEGV with no Go stack trace —
+the crash is below the CGo boundary.
+
+## Root Cause
+
+The C layer dereferences the slice pointer without nil checking.
+The Go slice header has a nil data pointer when the slice is nil,
+and the C code assumes it's always valid.
+
+## Workaround
+
+Always pre-allocate slices before passing to LanceDB:
+
+```go
+// BAD — nil slice causes segfault
+var embeddings []float32
+store.Insert(embeddings)
+
+// GOOD — empty but non-nil slice
+embeddings := make([]float32, 0, expectedSize)
+store.Insert(embeddings)
+`` `
+
+## Impact
+
+Affects any code path that might pass an empty result set to
+LanceDB — particularly the indexer when processing files with
+no extractable symbols.
+
+## Related
+
+- [[tech-stack-decisions]] — why we accepted CGo as a dependency
+- [[rag-pipeline-audit]] — the LanceDB evaluation that first surfaced this
+- [[error-handling]] — our convention for handling CGo boundary errors
+```
+
+---
+
+## What Goes In the Brain
+
+The brain accumulates any project knowledge worth persisting across sessions:
+
+**Architectural decisions and rationale.** Why we chose Go, why CGo is accepted, how the provider architecture works. The *why* behind choices — exactly what's lost when conversations end.
+
+**Debugging journals.** Hard-won operational knowledge. "The tree-sitter Go parser doesn't handle generics well. Workaround: fall back to Go AST parser for files with type parameters." These are the war stories that save hours of rediscovery.
+
+**Conventions not derivable from code.** "We don't use go-git because of index desync issues — always shell out to git." The convention extractor in [[04-code-intelligence-and-rag]] derives patterns from code analysis. The brain stores conventions that require judgment — anti-patterns, rationale, exceptions to rules.
+
+**Implementation notes.** Specific technical details too granular for architecture docs but too important to lose. "The Anthropic OAuth token refresh writes back to ~/.claude/.credentials.json. Use advisory file locking to avoid races with Claude Code."
+
+**Session summaries.** Breadcrumb trail of what's been done. "2026-03-28: Designed context assembly system. Key decisions: always-on RAG, rule-based turn analyzer, 3 cache breakpoints, 30k token budget cap."
+
+**Relationship maps.** Architectural knowledge that's implicit in the code but takes significant reading to reconstruct. "The payment flow goes: handler → service → gateway → Stripe API. The gateway package owns all external HTTP calls."
+
+**Known issues and tech debt.** "The description generator sometimes produces vague descriptions for small utility functions. Impact: reduced retrieval quality for helper functions. Future fix: use a better local model or add few-shot examples."
+
+There is no size limit on the vault. No document count limit. No enforced structure. The brain grows as large as it needs to. The retrieval layer handles finding what's relevant; the developer and agent handle curation.
+
+---
+
+## Retrieval: Three Modes
+
+Brain retrieval uses three complementary search mechanisms. All three run during context assembly and can be invoked independently via the `brain_search` tool.
+
+### Mode 1: Keyword Search (FTS5 via Obsidian REST API)
+
+Fast, exact, good for known concepts. Uses Obsidian's built-in search, which understands its own primitives — wikilinks, tags, frontmatter fields, headings.
+
+Queries like:
+- "file locking" → finds "token-refresh-file-locking.md"
+- "tag:#debugging" → finds all documents tagged `#debugging`
+- "CGo segfault" → finds the LanceDB debugging journal
+
+This is the primary retrieval mode for structured knowledge with clear keywords.
+
+### Mode 2: Semantic Search (Vector via LanceDB)
+
+Embed brain documents with nomic-embed-code (same model as code embeddings), store in a **separate LanceDB collection** from code chunks. Query with the same embedding pipeline as code search.
+
+Handles fuzzy queries:
+- "how do we handle external API calls" → matches the payment flow relationship document
+- "why is the code parsing architecture the way it is" → matches the tech stack decisions document
+
+### Why a Separate LanceDB Collection
+
+Brain documents differ from code chunks in ways that justify separation:
+
+- **Different embedding input.** Code chunks embed `signature + description`. Brain documents embed full text or heading-delimited sections.
+- **Different metadata schema.** Code chunks carry language, chunk_type, calls, called_by. Brain documents carry tags, wikilinks, frontmatter fields, author.
+- **Different scale.** A project might have 5,000-50,000 code chunks but 50-500 brain documents. Query behavior, topK values, and relevance thresholds differ.
+- **Independent lifecycle.** Dropping and rebuilding the brain index doesn't touch the code index. Reindexing code doesn't reindex brain documents.
+
+### Mode 3: Graph Traversal (Wikilinks)
+
+Given a brain document, find all documents it links to (outgoing wikilinks) and all documents that link back to it (backlinks). Optionally follow second-degree connections.
+
+This is unique to Obsidian-backed storage. When context assembly finds one relevant brain document, graph traversal can pull in related documents that keyword or semantic search might miss. If "auth-architecture.md" is relevant and it links to `[[error-handling]]` and `[[provider-design]]`, those linked documents get a relevance boost.
+
+The wikilink graph is stored in SQLite and rebuilt from vault content during indexing.
+
+---
+
+## Indexing
+
+Brain documents are indexed for both FTS5 (via Obsidian) and vector search (via sirtopham's indexer).
+
+### Obsidian Handles Keyword Search
+
+The Obsidian REST API plugin exposes Obsidian's own search. sirtopham doesn't need to maintain a separate FTS5 index for keyword queries — Obsidian does this automatically as files change in the vault.
+
+### sirtopham Handles Vector Search and Graph
+
+The brain indexer runs on startup and incrementally:
+
+**On startup:** Scan the vault directory (via REST API or filesystem). For each document: compute content hash, compare to stored hash, re-embed if changed. Parse wikilinks and rebuild the link graph. Extract frontmatter and tags.
+
+**On agent write:** When the agent creates or updates a document via `brain_write` or `brain_update`, immediately update the vector embeddings and link graph for that document. No waiting for a reindex cycle. The document is semantically searchable on the very next turn.
+
+**On developer edit:** Detected on the next startup scan or mid-session if the indexer runs periodic checks (configurable). Developer edits made in Obsidian are picked up and re-embedded.
+
+### Chunking Strategy
+
+Brain documents are split at `##` heading boundaries (same as the markdown fallback parser in the code indexer). Each section becomes a separate vector. This means a long architecture document with 8 sections produces 8 embeddings, each retrievable independently. The section heading provides context for what the chunk is about.
+
+Short documents (under ~1000 characters) are embedded as a single chunk.
+
+### Index Storage
+
+- **Vector embeddings:** Separate LanceDB collection (`brain_chunks`), same LanceDB instance as code. Schema includes: document_id, chunk_index, chunk_text, embedding, document_path, document_title, tags (JSON), created_at, updated_at.
+- **Wikilink graph:** SQLite table `brain_links` with columns: source_path, target_path, link_text. Enables bidirectional traversal.
+- **Document metadata:** SQLite table `brain_documents` with columns: path, title, content_hash, tags (JSON), frontmatter (JSON), created_at, updated_at, created_by, source_session_id, token_count.
+
+These tables live in the main sirtopham SQLite database alongside conversation and metrics tables.
+
+---
+
+## Tools
+
+Four tools for the agent. All project-scoped — they operate on the current project's brain vault via the Obsidian REST API.
+
+### brain_search
+
+Search the brain by keyword or semantic query. Returns document titles, paths, and relevant snippets.
+
+**Purity:** Pure (read-only)
+
+**Parameters:**
+- `query` (string, required): The search query
+- `mode` (string, optional): "keyword", "semantic", or "auto" (default). Auto runs both and merges results.
+- `tags` ([]string, optional): Filter by tags
+- `max_results` (int, optional): Maximum results to return (default 10)
+
+**Returns:** Ranked list of matches with: document path, title, relevant snippet, match score, tags, linked documents.
+
+### brain_read
+
+Read a specific brain document by path. Returns the full markdown content.
+
+**Purity:** Pure (read-only)
+
+**Parameters:**
+- `path` (string, required): Path relative to vault root
+- `include_backlinks` (bool, optional): If true, also return a list of documents that link to this one (default false)
+
+**Returns:** Document content, frontmatter metadata, outgoing wikilinks, and optionally backlinks.
+
+### brain_write
+
+Create a new document or overwrite an existing one. The agent writes Obsidian-native markdown — frontmatter, wikilinks, tags.
+
+**Purity:** Mutating
+
+**Parameters:**
+- `path` (string, required): Path relative to vault root (creates parent directories if needed)
+- `content` (string, required): Full markdown content including frontmatter
+
+**Behavior:**
+- Creates or overwrites the file via the Obsidian REST API
+- Immediately updates vector embeddings and link graph for the new/changed document
+- Returns confirmation with the document path
+
+### brain_update
+
+Append to or edit a section of an existing document. More surgical than full overwrite — the agent can add a section to a debugging journal or update a specific heading without rewriting the entire file.
+
+**Purity:** Mutating
+
+**Parameters:**
+- `path` (string, required): Path relative to vault root
+- `operation` (string, required): "append", "prepend", or "replace_section"
+- `content` (string, required): Content to add or replace with
+- `section` (string, optional): Heading text to target for `replace_section` (e.g., "## Workaround")
+
+**Behavior:**
+- Reads the current document, applies the operation, writes back via REST API
+- Updates vector embeddings and link graph
+- Returns the updated document content
+
+---
+
+## v0.2 Integration with Context Assembly
+
+This section describes the planned v0.2 design. In v0.1, the brain is reactive-only and accessed through Layer 4 brain tools; it is not a proactive retrieval source in the context assembly pipeline.
+
+### How Brain Queries Are Derived
+
+When this lands in v0.2, the turn analyzer's existing signals can drive brain retrieval naturally. The same signals that produce code RAG queries can also produce brain search queries:
+
+- User says "fix the auth middleware" → signals "auth" + "middleware" → brain keyword search for "auth middleware", brain semantic search with the cleaned message
+- User says "why did we design it this way" → no strong code signals, but the momentum module (e.g., "internal/auth") narrows the brain search → finds "auth-architecture.md"
+- User says "what's the convention for error handling" → creation/convention intent signal → brain tag search for `#convention`, keyword search for "error handling"
+
+No special brain-specific signal extraction is needed. The existing signal set covers the query space.
+
+### Budget Fitting Priority
+
+When this lands in v0.2, brain results will compete with code chunks for budget. Brain documents can slot into the priority order between explicit files and top RAG code hits:
+
+1. **Explicit files** (user mentioned them directly)
+2. **Brain documents** (project knowledge — architecture, debugging, conventions)
+3. **Top RAG code hits** (above threshold, de-duped, re-ranked)
+4. **Structural graph results** (callers/callees of identified symbols)
+5. **Conventions** (derived from code analysis)
+6. **Git context** (recent commits)
+7. **Lower-ranked RAG code hits** (fill remaining budget)
+
+Rationale: brain documents contain high-level knowledge — architectural context, decision rationale, debugging insights. This is often more valuable than the fifth-ranked code function in the results. When the agent knows *why* the auth system is designed the way it is, it makes better decisions about *how* to modify it.
+
+This ranking is a starting point for v0.2. The context inspector will reveal whether brain documents are genuinely helpful or displacing more valuable code context.
+
+### Brain Budget Allocation
+
+In v0.2, brain results get a configurable token budget within the overall MAX_CONTEXT_BUDGET:
+
+```yaml
+brain:
+  max_brain_tokens: 8000              # Max tokens for brain content in assembled context
+  brain_relevance_threshold: 0.30     # Separate threshold for brain semantic results
+```
+
+The brain budget is a soft cap within the overall budget — if brain results are highly relevant and code results are sparse, brain content can use more. If code results are dense and brain results are marginal, brain content uses less. The budget manager balances this dynamically.
+
+### Serialization Format
+
+In v0.2, brain results in the assembled context are serialized separately from code chunks:
+
+```markdown
+## Project Knowledge
+
+### auth-architecture.md
+Architecture decision: The auth system uses JWT tokens validated by middleware.
+Token refresh is handled by the AuthService, not the middleware. The middleware
+only validates — it never issues or refreshes tokens. This separation exists
+because the refresh flow requires database access that the middleware layer
+shouldn't have.
+
+Related: [[provider-design]], [[error-handling]]
+
+### tree-sitter-generics-workaround.md
+The tree-sitter Go parser doesn't handle generics (type parameters) correctly.
+When a Go file contains generic types, fall back to the Go AST parser instead.
+This is detected by checking for `[` in type declarations during the parsing phase.
+
+## Relevant Code
+
+### internal/auth/middleware.go (lines 15-48)
+...
+```
+
+If adopted in v0.2, brain content is serialized before code chunks in the assembled context. This positions project knowledge early in the context where attention is highest.
+
+---
+
+## Agent Writing to the Brain
+
+The agent writes to the brain when it discovers durable knowledge. This is a deliberate act, not an automatic dump.
+
+### System Prompt Guidance
+
+The base system prompt includes guidance for when to create or update brain documents:
+
+```
+You have access to a project brain — an Obsidian vault of persistent project
+knowledge. Use brain_write and brain_update to capture durable insights:
+
+- After resolving a non-obvious bug, write a debugging journal entry
+- When an architectural decision is made during conversation, document it
+- When you discover a convention or anti-pattern, record it
+- At the end of a substantial work session, write a session summary
+
+Write in Obsidian-native markdown: use YAML frontmatter, [[wikilinks]] to
+related documents, and #tags for categorization. Link to existing brain
+documents when relevant.
+
+Do not write brain documents for trivial interactions. The brain is for
+knowledge worth preserving across sessions.
+```
+
+### Writing Triggers
+
+**Agent-initiated:** The agent judges that something is worth persisting. A complex debugging session that uncovers a subtle issue. An architectural decision made during conversation. A convention discovered while reading code. The agent uses judgment — not every session produces a brain document.
+
+**Developer-initiated:** The developer explicitly asks: "write that up in the brain", "add that to the debugging notes", "create a session summary." Direct, intentional knowledge capture.
+
+**Not auto-generated.** The agent does not automatically summarize every session into a brain document. That would flood the brain with low-signal entries. Automatic session summaries are a future consideration (v0.3), gated on quality — only sessions where meaningful work was done.
+
+### Curation
+
+Both the developer and agent can edit and delete brain documents. The developer curates in Obsidian — reorganizing, merging related notes, deleting stale entries. The agent can update existing documents via `brain_update` — adding new information to a debugging journal, updating a decision record with new context.
+
+The brain has no artificial constraints on size, structure, or organization. It grows organically. The retrieval layer handles finding what's relevant; the humans and agent handle keeping it useful.
+
+---
+
+## Obsidian Configuration
+
+### Required Plugin
+
+The **Obsidian Local REST API** plugin must be installed and enabled in the brain vault. Configuration:
+
+- **Port:** 27124 (default)
+- **API key:** Generated by the plugin, stored in sirtopham's config
+- **HTTPS:** Not required for localhost
+
+### sirtopham Configuration
+
+```yaml
+brain:
+  enabled: true
+  vault_path: ~/obsidian-vaults/sirtopham-brain  # path to the Obsidian vault
+  obsidian_api_url: http://localhost:27124        # REST API endpoint
+  obsidian_api_key: "your-api-key-here"           # from Obsidian REST API plugin
+
+  # Indexing
+  embedding_model: "nomic-embed-code"             # same as code embeddings
+  chunk_at_headings: true                         # split at ## boundaries
+  reindex_on_startup: true                        # sync index on launch
+
+  # v0.2 context assembly integration
+  max_brain_tokens: 8000                          # budget for brain content
+  brain_relevance_threshold: 0.30                 # semantic search threshold
+  include_graph_hops: true                        # follow wikilinks from matched docs
+  graph_hop_depth: 1                              # how many link hops to follow
+
+  # Debug
+  log_brain_queries: true                         # log all brain search queries and results
+```
+
+---
+
+## Data Model
+
+### SQLite Tables
+
+```sql
+-- Brain document metadata (derived from vault content)
+CREATE TABLE brain_documents (
+    id TEXT PRIMARY KEY,              -- UUID
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    path TEXT NOT NULL,               -- relative to vault root
+    title TEXT,                       -- extracted from first heading or filename
+    content_hash TEXT NOT NULL,       -- for change detection
+    tags TEXT,                        -- JSON array of tags
+    frontmatter TEXT,                 -- JSON of full frontmatter
+    token_count INTEGER,             -- estimated token count
+    created_by TEXT,                  -- 'agent' or 'user'
+    source_session_id TEXT,           -- session that created this (if agent-created)
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE(project_id, path)
+);
+
+-- Wikilink graph
+CREATE TABLE brain_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    source_path TEXT NOT NULL,        -- document containing the link
+    target_path TEXT NOT NULL,        -- document being linked to
+    link_text TEXT,                   -- display text of the wikilink
+    UNIQUE(project_id, source_path, target_path)
+);
+
+-- Indexes
+CREATE INDEX idx_brain_docs_project ON brain_documents(project_id);
+CREATE INDEX idx_brain_links_source ON brain_links(project_id, source_path);
+CREATE INDEX idx_brain_links_target ON brain_links(project_id, target_path);
+```
+
+### LanceDB Collection
+
+Separate collection `brain_chunks` in the same LanceDB instance as code:
+
+| Column | Type | Description |
+|---|---|---|
+| id | string | `sha256(project_name + path + chunk_index)` |
+| project_name | string | Project identifier |
+| document_path | string | Path relative to vault root |
+| document_title | string | Document title |
+| chunk_index | int | Section index within document |
+| chunk_text | string | Text content of the section |
+| tags | string | JSON array of document tags |
+| embedding | float32[3584] | nomic-embed-code vector |
+| updated_at | string | ISO timestamp |
+
+---
+
+## Differences from Existing Components
+
+**Brain vs. Code RAG ([[04-code-intelligence-and-rag]]):** Code RAG indexes source code — function bodies, type definitions, file structures. The brain indexes knowledge *about* code — why things are the way they are, how systems relate, what to watch out for. Different content, different retrieval characteristics, different update cycles. Code changes with every commit. Brain documents change when understanding changes.
+
+**Brain vs. Convention Extractor:** The convention extractor derives patterns mechanically from code analysis — "tests use `_test.go` suffix." The brain stores conventions that require judgment — "we don't use go-git because of index desync issues." They're complementary. The extractor tells you *what patterns exist*. The brain tells you *why certain patterns are followed* and *what patterns to avoid*.
+
+**Brain vs. Conversation History:** Conversation history is ephemeral — it lives for a session, gets compressed, eventually summarized away. The brain is where the durable insights from conversations get extracted and persisted. After compression removes the details of a debugging session, the brain document about that bug survives intact.
+
+**Brain vs. Hermes Memory:** Hermes uses MEMORY.md (~2200 chars) and USER.md (~1375 chars) — tiny, bounded, agent-curated scratchpads injected into every turn. The brain is unbounded, topic-organized, and retrieved contextually (not dumped wholesale). Hermes's approach is a notepad. The brain is a library.
+
+---
+
+## Dependencies
+
+- [[06-context-assembly]] — Consumes brain results as a retrieval source; budget fitting allocates between brain and code context
+- [[05-agent-loop]] — Four brain tools (`brain_read`, `brain_write`, `brain_update`, `brain_search`) in the tool registry
+- [[04-code-intelligence-and-rag]] — Shared LanceDB instance (separate collection), shared embedding model (nomic-embed-code), shared embedding container
+- [[08-data-model]] — `brain_documents` and `brain_links` tables in SQLite
+- [[07-web-interface-and-streaming]] — "Open in Obsidian" links, brain results in context inspector
+- Obsidian Local REST API plugin — required external dependency
+
+---
+
+## Future Directions
+
+**MCP migration (v0.5+):** When sirtopham builds MCP client infrastructure for other integrations, evaluate migrating brain access from the REST API to an Obsidian MCP server. The brain tools interface stays the same — only the backend changes.
+
+**MCP server exposure (v0.5+):** Expose sirtopham's brain tools as an MCP server, letting other tools (Claude Code, Codex) query the project brain. The brain becomes a shared knowledge layer across your entire tool chain.
+
+**Obsidian URI integration (v0.3):** Use the `obsidian://` URI protocol to open specific documents from sirtopham's web UI. Click a brain reference in a conversation → Obsidian focuses that document.
+
+**Session summary automation (v0.3):** At the end of sessions where meaningful work was done, the agent proposes a session summary for the brain. The developer approves, edits, or declines. Not fully automatic — gated on quality.
+
+**Cross-project brain queries (v0.5+):** Search across multiple project brains. Patterns learned on project A that might apply to project B. Requires a brain registry that knows about all project vaults.
+
+**Template system:** Obsidian Templater integration for standardized brain documents — decision records, debugging journals, session summaries. The agent uses templates when creating new documents for consistent structure.
+
+---
+
+## Build Phases
+
+**v0.1 (foundation):** Obsidian vault designated in config. Obsidian Local REST API plugin required. `brain_read`, `brain_write`, `brain_update`, `brain_search` (keyword via Obsidian API) tools work. Agent writes Obsidian-native markdown with frontmatter, wikilinks, tags. Basic system prompt guidance on when to create brain documents. No vector search, no context assembly integration — agent uses brain tools reactively.
+
+**v0.2 (smart retrieval):** Brain vector embeddings in separate LanceDB collection. Wikilink graph parsing and storage in SQLite. Brain results surface in context assembly as a sixth retrieval source. Budget fitting with brain tier. Context inspector shows brain results. Graph traversal for related documents via wikilinks.
+
+**v0.3 (deep integration):** Obsidian URI links from the web UI. Session summary proposals at session end. Brain-aware quality metrics in the ContextAssemblyReport. Brain document viewer linked from conversation context inspector.
+
+**v0.5 (ecosystem):** MCP client migration evaluation. MCP server exposure for external tools. Cross-project queries. Obsidian Templater integration.
+
+---
+
+## Open Questions
+
+- **Obsidian REST API plugin stability:** How stable is the plugin across Obsidian updates? Is there a risk of API breakage? The tool interface abstraction (brain tools → backend) insulates us from this, but it's worth monitoring.
+- **Embedding model for prose vs code:** nomic-embed-code is optimized for code. Brain documents are prose with code snippets. Would a general-purpose embedding model (nomic-embed-text) produce better brain retrieval? Worth A/B testing.
+- **Brain document size limits for embedding:** Very long brain documents (5000+ words) need chunking for effective embedding. The heading-based chunking strategy should handle this, but edge cases (documents with no headings, single-heading documents) need fallback logic.
+- **Conflict resolution:** If the agent writes a brain document via the REST API while the developer has the same file open in Obsidian, what happens? Obsidian detects external file changes and prompts to reload. This should be fine for a single-developer tool, but worth verifying the behavior.
+- **Brain search latency in context assembly:** Adding brain retrieval to the parallel retrieval phase adds latency. The Obsidian REST API keyword search adds a localhost HTTP call (~5-10ms). Vector search against the brain LanceDB collection adds ~10ms. Total impact on assembly latency should be under 20ms. Verify empirically.
+
+---
+
+## References
+
+- Obsidian: https://obsidian.md
+- Obsidian Local REST API plugin: https://github.com/coddingtonbear/obsidian-local-rest-api
+- Obsidian URI protocol: https://help.obsidian.md/Extending+Obsidian/Obsidian+URI
+- Hermes Agent memory system: `tools/memory_tool.py`, `agent/prompt_builder.py` (bounded scratchpad we're improving on)
+- Hermes Agent Honcho integration: `honcho_integration/` (vector-based cross-session recall — conceptually related)
+- LanceDB Go bindings: `github.com/lancedb/lancedb-go`
+- nomic-embed-code: https://huggingface.co/nomic-ai/nomic-embed-code

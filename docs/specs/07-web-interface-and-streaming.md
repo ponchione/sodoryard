@@ -1,0 +1,150 @@
+# 07 — Web Interface & Streaming Protocol
+
+**Status:** Living spec — aligned with the current Layer 6 v0.1 contract
+**Last Updated:** 2026-03-29
+**Author:** Mitchell
+
+---
+
+## Overview
+
+sirtopham's primary interface is a locally-served web application. `sirtopham serve` starts an HTTP server and opens the browser. The frontend communicates with the Go backend via REST (CRUD operations) and WebSocket (real-time streaming).
+
+This document covers the frontend stack, the backend HTTP/WebSocket server, the streaming message protocol, and the UI component architecture.
+
+---
+
+## Architecture
+
+```
+Browser (React app)
+    ↕ WebSocket (streaming: tokens, tool events, status)
+    ↕ REST (CRUD: conversations, config, project info)
+Go HTTP Server
+    → embed.FS (serves compiled frontend assets)
+    → API handlers (REST endpoints)
+    → WebSocket handler (streaming bridge to agent loop)
+```
+
+**Single binary:** The compiled React frontend is embedded in the Go binary via `embed.FS`. No separate frontend server in production. In development, Vite's dev server proxies API calls to the Go backend.
+
+---
+
+## Frontend Stack
+
+**v0.1 decision:** React + TypeScript + Vite + Tailwind CSS + shadcn/ui
+
+The UI needs to handle: WebSocket streaming, collapsible tool call blocks, syntax highlighting, file trees, diff views, and metrics panels. That favors a capable component ecosystem. shadcn/ui provides accessible, composable primitives, and the stack aligns with the current Layer 6 decomposition.
+
+**Arguments for React:**
+- Largest component ecosystem (syntax highlighters, diff viewers, tree views all exist)
+- TypeScript support is first-class
+- Developer familiarity
+- shadcn/ui is React-native
+
+**Arguments against:**
+- Heavy for a single-user local app
+- Build step adds complexity
+- Overkill if the UI ends up being simpler than imagined
+
+---
+
+## WebSocket Streaming Protocol
+
+This is the critical design piece. Every layer pushes events through this pipe.
+
+### Event Types (Current v0.1 contract)
+
+```typescript
+// Server → Client events
+type ServerEvent =
+  | { type: "conversation_id"; data: { id: string } }
+  | { type: "token"; data: { text: string } }
+  | { type: "thinking_start"; data: {} }
+  | { type: "thinking_delta"; data: { text: string } }
+  | { type: "thinking_end"; data: {} }
+  | { type: "tool_call_start"; data: { id: string; name: string; args: object } }
+  | { type: "tool_call_output"; data: { id: string; output: string } }
+  | { type: "tool_call_end"; data: { id: string; result: string; duration_ms: number; success: boolean } }
+  | { type: "turn_complete"; data: { usage: Usage; iteration_count: number } }
+  | { type: "turn_cancelled"; data: {} }
+  | { type: "error"; data: { message: string; recoverable: boolean } }
+  | { type: "context_debug"; data: ContextDebugInfo }  // always emitted once per turn; frontend may ignore unless the debug panel is open
+  | { type: "status"; data: { state: AgentState } }     // idle, thinking, executing_tools, etc.
+
+// Client → Server events
+type ClientEvent =
+  | { type: "message"; data: { text: string; conversation_id?: string } }
+  | { type: "cancel"; data: {} }
+  | { type: "model_override"; data: { provider: string; model: string } }
+```
+
+### Protocol Notes
+- Tool outputs stream incrementally via `tool_call_output` events.
+- Multiple concurrent tool calls are represented as interleaved event streams keyed by tool call `id`.
+- `context_debug` is always emitted by the backend after context assembly; the frontend decides whether to render it.
+- `conversation_id` is sent when a new conversation is created over WebSocket so the frontend can update routing and subsequent REST calls.
+
+---
+
+## REST API Endpoints (Current v0.1 contract)
+
+```
+GET    /api/conversations              List conversations
+POST   /api/conversations              Create new conversation
+GET    /api/conversations/:id          Get conversation metadata
+GET    /api/conversations/:id/messages Get messages for conversation
+DELETE /api/conversations/:id          Delete conversation
+GET    /api/conversations/search?q=... Search conversations via FTS5
+
+GET    /api/project                    Project metadata (id, name, root_path, language, last indexed info)
+GET    /api/project/tree               File tree
+GET    /api/project/file?path=...      Plain-text file contents plus path/language metadata
+
+GET    /api/config                     Current UI-relevant runtime config
+PUT    /api/config                     Update mutable runtime config (v0.1: default provider/model)
+GET    /api/providers                  Configured providers and available models
+
+GET    /api/metrics/conversation/:id              Per-conversation token/tool/context metrics
+GET    /api/metrics/conversation/:id/context/:turn ContextAssemblyReport for a specific turn
+
+WS     /api/ws                         WebSocket for streaming
+```
+
+---
+
+## UI Components (From Spec)
+
+- **Conversation view:** Chat-style message thread with streaming token display
+- **Tool call visualization:** Inline syntax-highlighted diffs, command output, search results
+- **File browser / code viewer:** Navigate project tree, view files with syntax highlighting
+- **Context inspector (debug):** RAG chunks retrieved, conventions included, token budget allocation
+- **Conversation sidebar:** Past conversations with search
+- **Settings panel:** Model selection, provider config, tool permissions
+- **Metrics/stats:** Token usage, cost per conversation, model breakdown
+
+### Compelling Visualizations (Web-Only)
+- Live streaming diffs as the agent edits files
+- Interactive file tree with "files the agent touched" highlighting
+- Tool call timeline showing sequential execution
+- RAG hit visualization — which code chunks were retrieved and why
+- Cost breakdown charts per conversation or over time
+- Side-by-side before/after code comparison
+
+---
+
+## Dependencies
+
+- [[05-agent-loop]] — drives all streaming events
+- [[08-data-model]] — conversations, messages, metrics
+- [[03-provider-architecture]] — model selection, provider status
+
+---
+
+## Current v0.1 decisions
+
+- WebSocket over SSE — bidirectional transport is required for `cancel` and `model_override`.
+- SPA with client-side routing and one WebSocket connection per active conversation view.
+- React + TypeScript + Vite + Tailwind + shadcn/ui for the initial frontend implementation.
+- Vite dev server proxies API and WebSocket traffic to the Go backend during development.
+- Offline/degraded provider behavior remains a runtime concern: the UI should still function when only cloud providers are available.
