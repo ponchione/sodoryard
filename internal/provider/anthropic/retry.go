@@ -156,8 +156,18 @@ func (p *AnthropicProvider) backoff(ctx context.Context, baseDelay time.Duration
 	jitter := time.Duration(rand.Int63n(int64(delay / 2)))
 	totalDelay := delay + jitter
 
+	if p.sleep == nil {
+		return sleepWithContext(ctx, totalDelay)
+	}
+	return p.sleep(ctx, totalDelay)
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(totalDelay):
+	case <-timer.C:
 		return true
 	case <-ctx.Done():
 		return false

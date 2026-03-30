@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ponchione/sirtopham/internal/provider"
 )
@@ -28,6 +29,14 @@ type mockCredentials struct {
 
 func (m *mockCredentials) GetAuthHeader(ctx context.Context) (string, string, error) {
 	return m.headerName, m.headerValue, m.err
+}
+
+func newRetryTestProvider() *AnthropicProvider {
+	p := newAnthropicProviderInternal(&mockCredentials{})
+	p.sleep = func(context.Context, time.Duration) bool {
+		return true
+	}
+	return p
 }
 
 // --- Request Building Tests ---
@@ -583,7 +592,7 @@ func TestClassifyNetworkError(t *testing.T) {
 // --- Retry Logic Tests ---
 
 func TestDoWithRetry_SuccessFirstAttempt(t *testing.T) {
-	p := newAnthropicProviderInternal(&mockCredentials{})
+	p := newRetryTestProvider()
 	var callCount int32
 
 	resp, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
@@ -602,8 +611,34 @@ func TestDoWithRetry_SuccessFirstAttempt(t *testing.T) {
 	}
 }
 
-func TestDoWithRetry_RetryOn429(t *testing.T) {
+func TestDoWithRetry_UsesInjectedSleepBetweenRetriableFailures(t *testing.T) {
 	p := newAnthropicProviderInternal(&mockCredentials{})
+	var delays []time.Duration
+	p.sleep = func(_ context.Context, delay time.Duration) bool {
+		delays = append(delays, delay)
+		return true
+	}
+
+	resp, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
+		if len(delays) < 2 {
+			return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("server error"))}, nil
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if len(delays) != 2 {
+		t.Fatalf("expected 2 injected sleep calls, got %d", len(delays))
+	}
+}
+
+func TestDoWithRetry_RetryOn429(t *testing.T) {
+	p := newRetryTestProvider()
 	var callCount int32
 
 	resp, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
@@ -626,7 +661,7 @@ func TestDoWithRetry_RetryOn429(t *testing.T) {
 }
 
 func TestDoWithRetry_RetryOn500(t *testing.T) {
-	p := newAnthropicProviderInternal(&mockCredentials{})
+	p := newRetryTestProvider()
 	var callCount int32
 
 	resp, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
@@ -649,7 +684,7 @@ func TestDoWithRetry_RetryOn500(t *testing.T) {
 }
 
 func TestDoWithRetry_NoRetryOn401(t *testing.T) {
-	p := newAnthropicProviderInternal(&mockCredentials{})
+	p := newRetryTestProvider()
 	var callCount int32
 
 	_, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
@@ -673,7 +708,7 @@ func TestDoWithRetry_NoRetryOn401(t *testing.T) {
 }
 
 func TestDoWithRetry_NoRetryOn400(t *testing.T) {
-	p := newAnthropicProviderInternal(&mockCredentials{})
+	p := newRetryTestProvider()
 	var callCount int32
 
 	_, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
@@ -690,7 +725,7 @@ func TestDoWithRetry_NoRetryOn400(t *testing.T) {
 }
 
 func TestDoWithRetry_ExhaustedRetries(t *testing.T) {
-	p := newAnthropicProviderInternal(&mockCredentials{})
+	p := newRetryTestProvider()
 	var callCount int32
 
 	_, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
@@ -728,7 +763,7 @@ func TestDoWithRetry_ContextCancellation(t *testing.T) {
 }
 
 func TestDoWithRetry_NetworkError(t *testing.T) {
-	p := newAnthropicProviderInternal(&mockCredentials{})
+	p := newRetryTestProvider()
 	var callCount int32
 
 	_, err := p.doWithRetry(context.Background(), func() (*http.Response, error) {
