@@ -3,6 +3,7 @@ package agent
 import (
 	stdctx "context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -11,7 +12,10 @@ import (
 	"github.com/ponchione/sirtopham/internal/conversation"
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
 	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sirtopham/internal/provider"
 )
+
+// --- Stubs ---
 
 type loopSeenFilesStub struct{}
 
@@ -132,6 +136,55 @@ func (s *loopContextAssemblerStub) UpdateQuality(stdctx.Context, string, int, bo
 	return nil
 }
 
+// providerRouterStub implements ProviderRouter with configurable stream responses.
+type providerRouterStub struct {
+	streamEvents [][]provider.StreamEvent // one per call
+	callIndex    int
+	streamErr    error
+}
+
+func (s *providerRouterStub) Stream(_ stdctx.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	if s.streamErr != nil {
+		return nil, s.streamErr
+	}
+	idx := s.callIndex
+	if idx >= len(s.streamEvents) {
+		idx = len(s.streamEvents) - 1
+	}
+	s.callIndex++
+
+	events := s.streamEvents[idx]
+	ch := make(chan provider.StreamEvent, len(events))
+	for _, e := range events {
+		ch <- e
+	}
+	close(ch)
+	return ch, nil
+}
+
+// toolExecutorStub implements ToolExecutor with configurable results.
+type toolExecutorStub struct {
+	results map[string]*provider.ToolResult
+	err     error
+	calls   []provider.ToolCall
+}
+
+func (s *toolExecutorStub) Execute(_ stdctx.Context, call provider.ToolCall) (*provider.ToolResult, error) {
+	s.calls = append(s.calls, call)
+	if s.err != nil {
+		return nil, s.err
+	}
+	if r, ok := s.results[call.ID]; ok {
+		return r, nil
+	}
+	return &provider.ToolResult{
+		ToolUseID: call.ID,
+		Content:   "default result",
+	}, nil
+}
+
+// --- Tests ---
+
 func TestNewAgentLoopPrepareTurnContextCallsLayer3AndEmitsEvents(t *testing.T) {
 	sink := NewChannelSink(8)
 	history := []db.Message{{ConversationID: "conversation-1", Role: "user", TurnNumber: 1, Iteration: 0, Sequence: 0}}
@@ -239,50 +292,256 @@ func TestPrepareTurnContextBubblesHistoryErrors(t *testing.T) {
 	}
 }
 
-func TestRunTurnPersistsUserMessageBeforePreparingContext(t *testing.T) {
-	sink := NewChannelSink(8)
-	report := &contextpkg.ContextAssemblyReport{TurnNumber: 4}
+func TestRunTurnTextOnlyResponse(t *testing.T) {
+	sink := NewChannelSink(32)
+	report := &contextpkg.ContextAssemblyReport{TurnNumber: 1}
 	assembler := &loopContextAssemblerStub{
-		pkg: &contextpkg.FullContextPackage{Content: "assembled", Report: report, Frozen: true},
+		pkg: &contextpkg.FullContextPackage{Content: "context", Report: report, Frozen: true},
 	}
 	conversations := &loopConversationManagerStub{
-		history: []db.Message{{ConversationID: "conversation-1", Role: "user", TurnNumber: 4, Sequence: 0}},
+		history: []db.Message{},
 		seen:    loopSeenFilesStub{},
 	}
+
+	routerStub := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.TokenDelta{Text: "Hello, "},
+				provider.TokenDelta{Text: "world!"},
+				provider.StreamDone{
+					StopReason: provider.StopReasonEndTurn,
+					Usage:      provider.Usage{InputTokens: 100, OutputTokens: 10},
+				},
+			},
+		},
+	}
+
+	promptBuilder := NewPromptBuilder(nil)
+
 	loop := NewAgentLoop(AgentLoopDeps{
 		ContextAssembler:    assembler,
 		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       promptBuilder,
 		EventSink:           sink,
 	})
 	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
 
 	result, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
-		ConversationID:    "conversation-1",
-		TurnNumber:        4,
-		Message:           "fix auth",
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "hello",
 		ModelContextLimit: 200000,
-		HistoryTokenCount: 4096,
 	})
 	if err != nil {
-		t.Fatalf("RunTurn returned error: %v", err)
-	}
-	if result == nil || result.ContextPackage == nil || result.ContextPackage.Report != report {
-		t.Fatalf("RunTurn result = %#v, want preserved TurnStartResult", result)
-	}
-	if len(conversations.persistCalls) != 1 {
-		t.Fatalf("PersistUserMessage call count = %d, want 1", len(conversations.persistCalls))
-	}
-	persist := conversations.persistCalls[0]
-	if persist.conversationID != "conversation-1" || persist.turnNumber != 4 || persist.message != "fix auth" {
-		t.Fatalf("PersistUserMessage call = %#v, want conversation-1/4/fix auth", persist)
-	}
-	if got := strings.Join(conversations.callOrder, ","); got != "persist,reconstruct" {
-		t.Fatalf("call order = %q, want persist,reconstruct", got)
+		t.Fatalf("RunTurn error: %v", err)
 	}
 
-	first := readEvent(t, sink.Events())
-	if got := first.EventType(); got != "status" {
-		t.Fatalf("first event type = %q, want status", got)
+	if result.FinalText != "Hello, world!" {
+		t.Fatalf("FinalText = %q, want %q", result.FinalText, "Hello, world!")
+	}
+	if result.IterationCount != 1 {
+		t.Fatalf("IterationCount = %d, want 1", result.IterationCount)
+	}
+	if result.TotalUsage.InputTokens != 100 || result.TotalUsage.OutputTokens != 10 {
+		t.Fatalf("TotalUsage = %+v, want 100/10", result.TotalUsage)
+	}
+
+	// Should have persisted user message and one iteration.
+	if len(conversations.persistCalls) != 1 {
+		t.Fatalf("PersistUserMessage calls = %d, want 1", len(conversations.persistCalls))
+	}
+	if len(conversations.persistIterCalls) != 1 {
+		t.Fatalf("PersistIteration calls = %d, want 1", len(conversations.persistIterCalls))
+	}
+	iterCall := conversations.persistIterCalls[0]
+	if iterCall.iteration != 1 || len(iterCall.messages) != 1 || iterCall.messages[0].Role != "assistant" {
+		t.Fatalf("PersistIteration call = %+v, want iteration 1 with 1 assistant message", iterCall)
+	}
+}
+
+func TestRunTurnWithToolUse(t *testing.T) {
+	sink := NewChannelSink(64)
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+
+	toolInput := json.RawMessage(`{"path":"main.go"}`)
+	routerStub := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			// Iteration 1: tool use
+			{
+				provider.TokenDelta{Text: "Let me read that."},
+				provider.ToolCallStart{ID: "tool_1", Name: "read_file"},
+				provider.ToolCallEnd{ID: "tool_1", Input: toolInput},
+				provider.StreamDone{
+					StopReason: provider.StopReasonToolUse,
+					Usage:      provider.Usage{InputTokens: 50, OutputTokens: 20},
+				},
+			},
+			// Iteration 2: text-only
+			{
+				provider.TokenDelta{Text: "The file contains Go code."},
+				provider.StreamDone{
+					StopReason: provider.StopReasonEndTurn,
+					Usage:      provider.Usage{InputTokens: 80, OutputTokens: 15},
+				},
+			},
+		},
+	}
+
+	executor := &toolExecutorStub{
+		results: map[string]*provider.ToolResult{
+			"tool_1": {
+				ToolUseID: "tool_1",
+				Content:   "package main\nfunc main() {}",
+			},
+		},
+	}
+
+	promptBuilder := NewPromptBuilder(nil)
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        executor,
+		PromptBuilder:       promptBuilder,
+		EventSink:           sink,
+	})
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	result, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "read main.go",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+
+	if result.FinalText != "The file contains Go code." {
+		t.Fatalf("FinalText = %q, want %q", result.FinalText, "The file contains Go code.")
+	}
+	if result.IterationCount != 2 {
+		t.Fatalf("IterationCount = %d, want 2", result.IterationCount)
+	}
+
+	// Total usage should be sum of both iterations.
+	if result.TotalUsage.InputTokens != 130 || result.TotalUsage.OutputTokens != 35 {
+		t.Fatalf("TotalUsage = %+v, want 130/35", result.TotalUsage)
+	}
+
+	// Should have persisted 2 iterations.
+	if len(conversations.persistIterCalls) != 2 {
+		t.Fatalf("PersistIteration calls = %d, want 2", len(conversations.persistIterCalls))
+	}
+
+	// First iteration: assistant + tool result.
+	iter1 := conversations.persistIterCalls[0]
+	if iter1.iteration != 1 || len(iter1.messages) != 2 {
+		t.Fatalf("iteration 1 persist = %+v, want iteration 1 with 2 messages", iter1)
+	}
+	if iter1.messages[0].Role != "assistant" || iter1.messages[1].Role != "tool" {
+		t.Fatalf("iteration 1 roles = %q/%q, want assistant/tool", iter1.messages[0].Role, iter1.messages[1].Role)
+	}
+	if iter1.messages[1].ToolUseID != "tool_1" {
+		t.Fatalf("iteration 1 tool result ToolUseID = %q, want tool_1", iter1.messages[1].ToolUseID)
+	}
+
+	// Second iteration: assistant only.
+	iter2 := conversations.persistIterCalls[1]
+	if iter2.iteration != 2 || len(iter2.messages) != 1 {
+		t.Fatalf("iteration 2 persist = %+v, want iteration 2 with 1 message", iter2)
+	}
+
+	// Tool executor should have been called once.
+	if len(executor.calls) != 1 {
+		t.Fatalf("tool executor calls = %d, want 1", len(executor.calls))
+	}
+	if executor.calls[0].Name != "read_file" {
+		t.Fatalf("tool call name = %q, want read_file", executor.calls[0].Name)
+	}
+}
+
+func TestRunTurnToolExecutionError(t *testing.T) {
+	sink := NewChannelSink(64)
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+
+	toolInput := json.RawMessage(`{"command":"rm -rf /"}`)
+	routerStub := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			// Iteration 1: tool use
+			{
+				provider.ToolCallStart{ID: "tool_1", Name: "run_command"},
+				provider.ToolCallEnd{ID: "tool_1", Input: toolInput},
+				provider.StreamDone{
+					StopReason: provider.StopReasonToolUse,
+					Usage:      provider.Usage{InputTokens: 50, OutputTokens: 20},
+				},
+			},
+			// Iteration 2: text after error
+			{
+				provider.TokenDelta{Text: "Sorry, that failed."},
+				provider.StreamDone{
+					StopReason: provider.StopReasonEndTurn,
+					Usage:      provider.Usage{InputTokens: 80, OutputTokens: 10},
+				},
+			},
+		},
+	}
+
+	executor := &toolExecutorStub{
+		err: errors.New("permission denied"),
+	}
+
+	promptBuilder := NewPromptBuilder(nil)
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        executor,
+		PromptBuilder:       promptBuilder,
+		EventSink:           sink,
+	})
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	result, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "run command",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+
+	// Tool error should have been wrapped as an error result, not terminate the turn.
+	if result.FinalText != "Sorry, that failed." {
+		t.Fatalf("FinalText = %q, want %q", result.FinalText, "Sorry, that failed.")
+	}
+	if result.IterationCount != 2 {
+		t.Fatalf("IterationCount = %d, want 2", result.IterationCount)
+	}
+
+	// Check that the persisted tool result contains the error.
+	iter1 := conversations.persistIterCalls[0]
+	toolMsg := iter1.messages[1]
+	if !strings.Contains(toolMsg.Content, "permission denied") {
+		t.Fatalf("tool error content = %q, want containing permission denied", toolMsg.Content)
 	}
 }
 
@@ -294,7 +553,10 @@ func TestRunTurnReturnsErrorEventWhenPersistenceFails(t *testing.T) {
 		ConversationManager: &loopConversationManagerStub{
 			persistErr: persistErr,
 		},
-		EventSink: sink,
+		ProviderRouter: &providerRouterStub{},
+		ToolExecutor:   &toolExecutorStub{},
+		PromptBuilder:  NewPromptBuilder(nil),
+		EventSink:      sink,
 	})
 	loop.now = func() time.Time { return time.Unix(1700000700, 0).UTC() }
 
@@ -331,6 +593,9 @@ func TestRunTurnValidatesRequest(t *testing.T) {
 	loop := NewAgentLoop(AgentLoopDeps{
 		ContextAssembler:    &loopContextAssemblerStub{},
 		ConversationManager: &loopConversationManagerStub{},
+		ProviderRouter:      &providerRouterStub{},
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
 	})
 
 	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{Message: "hello", TurnNumber: 1, ModelContextLimit: 200000})
@@ -341,3 +606,156 @@ func TestRunTurnValidatesRequest(t *testing.T) {
 		t.Fatalf("error = %q, want conversation ID validation", err)
 	}
 }
+
+func TestRunTurnStreamError(t *testing.T) {
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+
+	routerStub := &providerRouterStub{
+		streamErr: errors.New("provider unavailable"),
+	}
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
+	})
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "hello",
+		ModelContextLimit: 200000,
+	})
+	if err == nil {
+		t.Fatal("RunTurn error = nil, want stream error")
+	}
+	if !strings.Contains(err.Error(), "stream request") {
+		t.Fatalf("error = %q, want stream request error", err)
+	}
+}
+
+func TestRunTurnEmitsTurnCompleteEvent(t *testing.T) {
+	sink := NewChannelSink(32)
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+
+	routerStub := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.TokenDelta{Text: "Done"},
+				provider.StreamDone{
+					StopReason: provider.StopReasonEndTurn,
+					Usage:      provider.Usage{InputTokens: 10, OutputTokens: 5},
+				},
+			},
+		},
+	}
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
+		EventSink:           sink,
+	})
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "done",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+
+	// Drain events and find TurnCompleteEvent.
+	var found bool
+	for i := 0; i < 20; i++ {
+		select {
+		case e := <-sink.Events():
+			if tc, ok := e.(TurnCompleteEvent); ok {
+				found = true
+				if tc.TurnNumber != 1 {
+					t.Fatalf("TurnComplete.TurnNumber = %d, want 1", tc.TurnNumber)
+				}
+				if tc.IterationCount != 1 {
+					t.Fatalf("TurnComplete.IterationCount = %d, want 1", tc.IterationCount)
+				}
+				if tc.TotalInputTokens != 10 || tc.TotalOutputTokens != 5 {
+					t.Fatalf("TurnComplete usage = %d/%d, want 10/5", tc.TotalInputTokens, tc.TotalOutputTokens)
+				}
+			}
+		default:
+		}
+	}
+	if !found {
+		t.Fatal("TurnCompleteEvent not emitted")
+	}
+}
+
+func TestRunTurnCallOrder(t *testing.T) {
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+
+	routerStub := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.TokenDelta{Text: "done"},
+				provider.StreamDone{
+					StopReason: provider.StopReasonEndTurn,
+					Usage:      provider.Usage{InputTokens: 10, OutputTokens: 5},
+				},
+			},
+		},
+	}
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
+	})
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "hello",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+
+	// Expected call order: persist user message → reconstruct (context assembly) →
+	// reconstruct (iteration 1) → persist_iteration
+	got := strings.Join(conversations.callOrder, ",")
+	if got != "persist,reconstruct,reconstruct,persist_iteration" {
+		t.Fatalf("call order = %q, want persist,reconstruct,reconstruct,persist_iteration", got)
+	}
+}
+
+
