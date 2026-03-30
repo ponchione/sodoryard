@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -745,6 +746,54 @@ func TestComplete_TracksSubCalls(t *testing.T) {
 	}
 	if calls[0].TokensIn != 100 {
 		t.Errorf("expected 100 input tokens, got %d", calls[0].TokensIn)
+	}
+}
+
+// --- Validate tests ---
+
+func TestValidate_AnthropicAuthFailure(t *testing.T) {
+	cfg := validConfig()
+	r, _ := NewRouter(cfg, nil, nil)
+
+	// Mock anthropic that fails Models() call (simulates auth failure)
+	anthropicMock := &mockProvider{
+		name:      "anthropic",
+		modelsErr: &provider.ProviderError{Provider: "anthropic", StatusCode: 401, Message: "unauthorized"},
+	}
+	_ = r.RegisterProvider(anthropicMock)
+
+	err := r.Validate(context.Background())
+	// Only provider fails validation, so no providers left -> error
+	if err == nil {
+		t.Fatal("expected error when only provider fails validation")
+	}
+}
+
+func TestValidate_UnreachableProviderUnregistered(t *testing.T) {
+	cfg := RouterConfig{
+		Default: RouteTarget{Provider: "anthropic", Model: "claude-sonnet-4-6"},
+	}
+	r, _ := NewRouter(cfg, nil, nil)
+
+	anthropicMock := &mockProvider{
+		name:   "anthropic",
+		models: []provider.Model{{ID: "claude-sonnet-4-6"}},
+	}
+	unreachableMock := &mockProvider{
+		name:      "local",
+		modelsErr: fmt.Errorf("connection refused"),
+	}
+	_ = r.RegisterProvider(anthropicMock)
+	_ = r.RegisterProvider(unreachableMock)
+
+	err := r.Validate(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Unreachable provider should have been unregistered
+	health := r.ProviderHealthMap()
+	if _, ok := health["local"]; ok {
+		t.Error("expected unreachable provider to be unregistered")
 	}
 }
 

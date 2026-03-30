@@ -54,13 +54,28 @@ func (r *Router) Validate(ctx context.Context) error {
 		}
 	}
 
+	// Validate each remaining provider with a Models() call (timeout per provider).
+	var toRemove []string
+	for name, p := range r.providers {
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := p.Models(checkCtx)
+		cancel()
+		if err != nil {
+			r.logger.Warn("provider failed startup validation, unregistering",
+				"provider", name, "error", err)
+			toRemove = append(toRemove, name)
+		}
+	}
+	for _, name := range toRemove {
+		delete(r.providers, name)
+		delete(r.health, name)
+	}
+
 	// After all checks, verify the default provider is still registered.
 	if _, ok := r.providers[r.config.Default.Provider]; !ok {
 		r.logger.Error("configured default provider not available, falling back to first available",
 			"configured", r.config.Default.Provider,
 		)
-
-		// Pick the first available provider.
 		found := false
 		for name := range r.providers {
 			r.config.Default.Provider = name
