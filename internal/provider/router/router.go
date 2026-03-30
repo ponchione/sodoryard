@@ -105,16 +105,21 @@ func (r *Router) Name() string {
 	return "router"
 }
 
-// ProviderHealthMap returns a shallow copy of the health map. The returned map
-// is safe for the caller to iterate without holding the router's lock, though
-// individual ProviderHealth pointers are shared.
+// ProviderHealthMap returns a deep copy of the health map. The returned map and
+// ProviderHealth values are safe for callers to inspect and modify without
+// affecting the router's internal state.
 func (r *Router) ProviderHealthMap() map[string]*ProviderHealth {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	out := make(map[string]*ProviderHealth, len(r.health))
 	for k, v := range r.health {
-		out[k] = v
+		if v == nil {
+			out[k] = nil
+			continue
+		}
+		copy := *v
+		out[k] = &copy
 	}
 	return out
 }

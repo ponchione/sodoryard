@@ -544,6 +544,39 @@ func TestStream_FallbackOnRetriableError(t *testing.T) {
 
 // --- Health tracking tests ---
 
+func TestProviderHealthMap_ReturnsDeepCopies(t *testing.T) {
+	r, _ := NewRouter(validConfig(), nil, nil)
+	mp := &mockProvider{name: "anthropic"}
+	_ = r.RegisterProvider(mp)
+
+	testErr := fmt.Errorf("boom")
+	r.markFailure("anthropic", testErr)
+
+	health := r.ProviderHealthMap()
+	copyHealth := health["anthropic"]
+	if copyHealth == nil {
+		t.Fatal("expected copied health entry")
+	}
+	copyHealth.Healthy = true
+	copyHealth.LastError = nil
+	copyHealth.LastErrorAt = time.Time{}
+	copyHealth.LastSuccessAt = time.Time{}
+
+	refreshed := r.ProviderHealthMap()
+	if refreshed["anthropic"] == copyHealth {
+		t.Fatal("expected ProviderHealthMap to return distinct provider health copies")
+	}
+	if refreshed["anthropic"].Healthy {
+		t.Fatal("expected internal health to remain unhealthy")
+	}
+	if refreshed["anthropic"].LastError != testErr {
+		t.Fatal("expected internal LastError to remain unchanged")
+	}
+	if refreshed["anthropic"].LastErrorAt.IsZero() {
+		t.Fatal("expected internal LastErrorAt to remain set")
+	}
+}
+
 func TestHealthTracking_SuccessUpdatesHealth(t *testing.T) {
 	r, _ := NewRouter(validConfig(), nil, nil)
 	mp := &mockProvider{
