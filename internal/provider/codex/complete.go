@@ -250,7 +250,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 		Provider:   "codex",
 		StatusCode: lastStatusCode,
 		Message:    msg,
-		Retriable:  false,
+		Retriable:  true, // preserve retriable so router can attempt fallback
 	}
 }
 

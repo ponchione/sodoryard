@@ -2,9 +2,15 @@ package codex
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/ponchione/sirtopham/internal/provider"
 )
 
 func TestName(t *testing.T) {
@@ -72,5 +78,40 @@ func TestNewCodexProvider_CodexNotOnPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Codex CLI not found on PATH") {
 		t.Errorf("expected error containing %q, got %q", "Codex CLI not found on PATH", err.Error())
+	}
+}
+
+func TestComplete_RetriableAfterRetriesExhausted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/responses" {
+			w.WriteHeader(503)
+			w.Write([]byte(`{"error":"service unavailable"}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	p, _ := NewCodexProvider(WithBaseURL(srv.URL), WithHTTPClient(&http.Client{Timeout: 5 * time.Second}))
+
+	// Seed a valid cached token to skip credential flow
+	p.mu.Lock()
+	p.cachedToken = "test-token"
+	p.tokenExpiry = time.Now().Add(1 * time.Hour)
+	p.mu.Unlock()
+
+	_, err := p.Complete(context.Background(), &provider.Request{Model: "o3", MaxTokens: 100})
+	if err == nil {
+		t.Fatal("expected error after retries exhausted")
+	}
+	var pe *provider.ProviderError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *provider.ProviderError, got %T", err)
+	}
+	if !pe.Retriable {
+		t.Error("expected Retriable=true after retries exhausted on transient error")
+	}
+	if pe.StatusCode != 503 {
+		t.Errorf("expected status 503, got %d", pe.StatusCode)
 	}
 }
