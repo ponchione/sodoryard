@@ -127,16 +127,8 @@ func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider
 		return nil, err
 	}
 
-	// Save original model to restore after the call.
-	origModel := req.Model
-
-	// Set the resolved model for the provider call.
-	req.Model = r.resolvedModel(req, targetName)
-
-	resp, callErr := target.Complete(ctx, req)
-
-	// Restore original model.
-	req.Model = origModel
+	callReq := cloneRequestWithModel(req, r.resolvedModel(req, targetName))
+	resp, callErr := target.Complete(ctx, callReq)
 
 	if callErr == nil {
 		r.markSuccess(targetName)
@@ -157,12 +149,8 @@ func (r *Router) Stream(ctx context.Context, req *provider.Request) (<-chan prov
 		return nil, err
 	}
 
-	origModel := req.Model
-	req.Model = r.resolvedModel(req, targetName)
-
-	ch, callErr := target.Stream(ctx, req)
-
-	req.Model = origModel
+	callReq := cloneRequestWithModel(req, r.resolvedModel(req, targetName))
+	ch, callErr := target.Stream(ctx, callReq)
 
 	if callErr == nil {
 		r.markSuccess(targetName)
@@ -264,6 +252,15 @@ func (r *Router) resolvedModel(req *provider.Request, targetName string) string 
 	return ""
 }
 
+func cloneRequestWithModel(req *provider.Request, model string) *provider.Request {
+	if req == nil {
+		return nil
+	}
+	cloned := *req
+	cloned.Model = model
+	return &cloned
+}
+
 // handleCompleteError classifies the error from a Complete call and optionally
 // dispatches a fallback attempt.
 func (r *Router) handleCompleteError(ctx context.Context, req *provider.Request, primaryName string, primaryErr error) (*provider.Response, error) {
@@ -295,10 +292,8 @@ func (r *Router) handleCompleteError(ctx context.Context, req *provider.Request,
 		return nil, fmt.Errorf("primary provider failed and fallback provider not available: %s", fallbackName)
 	}
 
-	origModel := req.Model
-	req.Model = r.config.Fallback.Model
-	resp, fbErr := fbProvider.Complete(ctx, req)
-	req.Model = origModel
+	fallbackReq := cloneRequestWithModel(req, r.config.Fallback.Model)
+	resp, fbErr := fbProvider.Complete(ctx, fallbackReq)
 
 	if fbErr == nil {
 		r.markSuccess(fallbackName)
@@ -343,10 +338,8 @@ func (r *Router) handleStreamError(ctx context.Context, req *provider.Request, p
 		return nil, fmt.Errorf("primary provider failed and fallback provider not available: %s", fallbackName)
 	}
 
-	origModel := req.Model
-	req.Model = r.config.Fallback.Model
-	ch, fbErr := fbProvider.Stream(ctx, req)
-	req.Model = origModel
+	fallbackReq := cloneRequestWithModel(req, r.config.Fallback.Model)
+	ch, fbErr := fbProvider.Stream(ctx, fallbackReq)
 
 	if fbErr == nil {
 		r.markSuccess(fallbackName)

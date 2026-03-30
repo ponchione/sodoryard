@@ -24,6 +24,7 @@ type mockProvider struct {
 	completeCalls int
 	streamCalls   int
 	lastReq       *provider.Request // captures last request for inspection
+	lastReqPtr    *provider.Request // captures original pointer passed to provider
 }
 
 func (m *mockProvider) Name() string { return m.name }
@@ -32,6 +33,7 @@ func (m *mockProvider) Complete(_ context.Context, req *provider.Request) (*prov
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.completeCalls++
+	m.lastReqPtr = req
 	// Capture a snapshot of the model for verification.
 	m.lastReq = &provider.Request{Model: req.Model}
 	return m.completeResp, m.completeErr
@@ -41,6 +43,7 @@ func (m *mockProvider) Stream(_ context.Context, req *provider.Request) (<-chan 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.streamCalls++
+	m.lastReqPtr = req
 	m.lastReq = &provider.Request{Model: req.Model}
 	return m.streamCh, m.streamErr
 }
@@ -173,6 +176,9 @@ func TestComplete_DefaultRouting(t *testing.T) {
 	// Verify the caller's request was not mutated.
 	if req.Model != "" {
 		t.Fatalf("expected req.Model to be restored to empty, got %s", req.Model)
+	}
+	if mp.lastReqPtr == req {
+		t.Fatal("expected router to pass a cloned request to provider")
 	}
 }
 
@@ -482,6 +488,12 @@ func TestStream_DefaultRouting(t *testing.T) {
 	}
 	if td.Text != "hello" {
 		t.Fatalf("expected 'hello', got %s", td.Text)
+	}
+	if req.Model != "" {
+		t.Fatalf("expected req.Model to remain empty, got %s", req.Model)
+	}
+	if mp.lastReqPtr == req {
+		t.Fatal("expected router to pass a cloned request to provider")
 	}
 }
 
