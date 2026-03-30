@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ponchione/sirtopham/internal/config"
 	"github.com/ponchione/sirtopham/internal/conversation"
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
 	"github.com/ponchione/sirtopham/internal/db"
@@ -73,12 +74,13 @@ type ToolExecutor interface {
 // AgentLoopConfig carries the initial state-machine knobs for the future full
 // RunTurn implementation.
 type AgentLoopConfig struct {
-	MaxIterations          int    `json:"max_iterations,omitempty"`
-	LoopDetectionThreshold int    `json:"loop_detection_threshold,omitempty"`
-	ExtendedThinking       bool   `json:"extended_thinking,omitempty"`
-	BasePrompt             string `json:"base_prompt,omitempty"`
-	ProviderName           string `json:"provider_name,omitempty"`
-	ModelName              string `json:"model_name,omitempty"`
+	MaxIterations          int                 `json:"max_iterations,omitempty"`
+	LoopDetectionThreshold int                 `json:"loop_detection_threshold,omitempty"`
+	ExtendedThinking       bool                `json:"extended_thinking,omitempty"`
+	BasePrompt             string              `json:"base_prompt,omitempty"`
+	ProviderName           string              `json:"provider_name,omitempty"`
+	ModelName              string              `json:"model_name,omitempty"`
+	ContextConfig          config.ContextConfig `json:"context_config,omitempty"`
 }
 
 // AgentLoopDeps carries the dependencies needed by the agent loop.
@@ -89,6 +91,8 @@ type AgentLoopDeps struct {
 	ToolExecutor        ToolExecutor
 	PromptBuilder       *PromptBuilder
 	EventSink           EventSink
+	CompressionEngine   CompressionEngine
+	TitleGenerator      TitleGenerator
 	Config              AgentLoopConfig
 	Logger              *slog.Logger
 }
@@ -120,10 +124,13 @@ type AgentLoop struct {
 	toolExecutor        ToolExecutor
 	promptBuilder       *PromptBuilder
 	events              *MultiSink
+	compressionEngine   CompressionEngine
+	titleGenerator      TitleGenerator
 	cfg                 AgentLoopConfig
+	contextCfg          config.ContextConfig
 	logger              *slog.Logger
-	now     func() time.Time
-	sleepFn func(ctx stdctx.Context, d time.Duration) error
+	now                 func() time.Time
+	sleepFn             func(ctx stdctx.Context, d time.Duration) error
 
 	// cancelMu protects cancelFn for thread-safe Cancel() calls.
 	cancelMu sync.Mutex
@@ -148,7 +155,10 @@ func NewAgentLoop(deps AgentLoopDeps) *AgentLoop {
 		toolExecutor:        deps.ToolExecutor,
 		promptBuilder:       deps.PromptBuilder,
 		events:              events,
+		compressionEngine:   deps.CompressionEngine,
+		titleGenerator:      deps.TitleGenerator,
 		cfg:                 withDefaultConfig(deps.Config),
+		contextCfg:          deps.Config.ContextConfig,
 		logger:              logger,
 		now:                 time.Now,
 	}
@@ -271,6 +281,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	completedIterations := 0
 	var totalUsage provider.Usage
 	var currentTurnMessages []provider.Message
+	var allToolCalls []completedToolCall
 	detector := newLoopDetector(l.cfg.LoopDetectionThreshold)
 
 	// Add the user message as the first current-turn message.
@@ -332,6 +343,32 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			return nil, fmt.Errorf("agent loop: build prompt for iteration %d: %w", iteration, err)
 		}
 
+		// 3b.1: Preflight compression check — rough estimate before the LLM call.
+		if compressed := l.tryPreflightCompression(ctx, req.ConversationID, promptReq, req.ModelContextLimit); compressed {
+			// Rebuild prompt with compressed history.
+			history, err = l.conversationManager.ReconstructHistory(ctx, req.ConversationID)
+			if err != nil {
+				return nil, fmt.Errorf("agent loop: reconstruct history after compression in iteration %d: %w", iteration, err)
+			}
+			promptReq, err = l.promptBuilder.BuildPrompt(PromptConfig{
+				BasePrompt:          l.cfg.BasePrompt,
+				ContextPackage:      turnCtx.ContextPackage,
+				History:             history,
+				CurrentTurnMessages: currentTurnMessages,
+				ProviderName:        l.cfg.ProviderName,
+				ModelName:           l.cfg.ModelName,
+				ContextLimit:        req.ModelContextLimit,
+				DisableTools:        disableTools,
+				Purpose:             "chat",
+				ConversationID:      req.ConversationID,
+				TurnNumber:          req.TurnNumber,
+				Iteration:           iteration,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("agent loop: rebuild prompt after compression in iteration %d: %w", iteration, err)
+			}
+		}
+
 		// 3c: Stream LLM request with retry for retriable errors.
 		l.emit(StatusEvent{State: StateWaitingForLLM, Time: l.now()})
 
@@ -340,10 +377,28 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			if isCancelled(ctx) {
 				return nil, l.handleCancellation(req.ConversationID, req.TurnNumber, iteration, completedIterations, ctx.Err())
 			}
-			return nil, err
+
+			// Emergency compression: if the error is context overflow and we
+			// have a compression engine, compress and retry once.
+			if l.isContextOverflowError(err) {
+				if retryResult, retryErr := l.tryEmergencyCompression(ctx, req, turnCtx, currentTurnMessages, iteration, disableTools); retryResult != nil || retryErr != nil {
+					if retryErr != nil {
+						return nil, retryErr
+					}
+					result = retryResult
+					err = nil
+				}
+			}
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		totalUsage = totalUsage.Add(result.Usage)
+
+		// 3c.1: Post-response compression check — exact token count from the
+		// API response. If triggered, compresses before the next iteration.
+		l.tryPostResponseCompression(ctx, req.ConversationID, result.Usage.InputTokens, req.ModelContextLimit)
 
 		// Sanitize content blocks (replace invalid tool_use JSON inputs) before serialization.
 		sanitizedBlocks := sanitizeContentBlocks(result.ContentBlocks)
@@ -370,6 +425,12 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				return nil, fmt.Errorf("agent loop: persist final iteration %d: %w", iteration, err)
 			}
 
+			// Post-turn quality metrics.
+			l.updatePostTurnQuality(ctx, req.ConversationID, req.TurnNumber, allToolCalls)
+
+			// Title generation for first turn in a new conversation.
+			l.maybeGenerateTitle(req.ConversationID, req.TurnNumber)
+
 			// Turn complete.
 			turnDuration := l.now().Sub(turnStart)
 			l.emit(TurnCompleteEvent{
@@ -380,6 +441,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				Duration:          turnDuration,
 				Time:              l.now(),
 			})
+			l.emit(StatusEvent{State: StateIdle, Time: l.now()})
 
 			return &TurnResult{
 				TurnStartResult: *turnCtx,
@@ -403,6 +465,12 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				toolsCancelled = true
 				break
 			}
+
+			// Track tool calls for post-turn quality analysis.
+			allToolCalls = append(allToolCalls, completedToolCall{
+				ToolName:  tc.Name,
+				Arguments: tc.Input,
+			})
 
 			// Validate tool call JSON before execution.
 			validation := validateToolCallJSON(tc)
@@ -660,6 +728,216 @@ func (l *AgentLoop) PrepareTurnContext(
 		ContextPackage:    pkg,
 		CompressionNeeded: compressionNeeded,
 	}, nil
+}
+
+// tryPreflightCompression checks whether the rough char-count estimate of
+// the built prompt exceeds the compression threshold. If so and a compression
+// engine is available, it runs compression and returns true.
+func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID string, req *provider.Request, modelContextLimit int) bool {
+	if l.compressionEngine == nil {
+		return false
+	}
+	chars := estimateRequestChars(req)
+	if !contextpkg.NeedsCompressionPreflight(chars, modelContextLimit, l.contextCfg) {
+		return false
+	}
+
+	l.logger.Info("preflight compression triggered",
+		"conversation_id", conversationID,
+		"estimated_chars", chars,
+		"model_context_limit", modelContextLimit,
+	)
+	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
+
+	result, err := l.compressionEngine.Compress(ctx, conversationID, l.contextCfg)
+	if err != nil {
+		l.logger.Error("preflight compression failed",
+			"conversation_id", conversationID,
+			"error", err,
+		)
+		l.emit(ErrorEvent{
+			ErrorCode:   "compression_failed",
+			Message:     fmt.Sprintf("Preflight compression failed: %s", err),
+			Recoverable: true,
+			Time:        l.now(),
+		})
+		return false
+	}
+
+	l.logger.Info("preflight compression completed",
+		"conversation_id", conversationID,
+		"compressed", result.Compressed,
+		"compressed_messages", result.CompressedMessages,
+	)
+	return result.Compressed
+}
+
+// tryPostResponseCompression checks whether the exact prompt token count from
+// the API response exceeds the compression threshold. If so, compresses before
+// the next iteration. This is fire-and-forget — compression failure here is
+// logged but non-fatal.
+func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationID string, promptTokens int, modelContextLimit int) {
+	if l.compressionEngine == nil {
+		return
+	}
+	if !contextpkg.NeedsCompressionPostResponse(promptTokens, modelContextLimit, l.contextCfg) {
+		return
+	}
+
+	l.logger.Info("post-response compression triggered",
+		"conversation_id", conversationID,
+		"prompt_tokens", promptTokens,
+		"model_context_limit", modelContextLimit,
+	)
+	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
+
+	result, err := l.compressionEngine.Compress(ctx, conversationID, l.contextCfg)
+	if err != nil {
+		l.logger.Error("post-response compression failed",
+			"conversation_id", conversationID,
+			"error", err,
+		)
+		l.emit(ErrorEvent{
+			ErrorCode:   "compression_failed",
+			Message:     fmt.Sprintf("Post-response compression failed: %s", err),
+			Recoverable: true,
+			Time:        l.now(),
+		})
+		return
+	}
+
+	l.logger.Info("post-response compression completed",
+		"conversation_id", conversationID,
+		"compressed", result.Compressed,
+		"compressed_messages", result.CompressedMessages,
+	)
+}
+
+// isContextOverflowError checks if an error from streamWithRetry is classified
+// as context overflow (400 context_length_exceeded or similar).
+func (l *AgentLoop) isContextOverflowError(err error) bool {
+	if err == nil {
+		return false
+	}
+	classification := classifyStreamError(err)
+	return classification.Code == ErrorCodeContextOverflow
+}
+
+// tryEmergencyCompression runs compression after a context overflow error and
+// retries the LLM call once. Returns the stream result if the retry succeeds,
+// or the retry error if it fails, or (nil, nil) if no compression engine is
+// available.
+func (l *AgentLoop) tryEmergencyCompression(
+	ctx stdctx.Context,
+	req RunTurnRequest,
+	turnCtx *TurnStartResult,
+	currentTurnMessages []provider.Message,
+	iteration int,
+	disableTools bool,
+) (*streamResult, error) {
+	if l.compressionEngine == nil {
+		return nil, nil
+	}
+
+	l.logger.Warn("emergency compression triggered by context overflow",
+		"conversation_id", req.ConversationID,
+		"turn", req.TurnNumber,
+		"iteration", iteration,
+	)
+	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
+
+	compResult, compErr := l.compressionEngine.Compress(ctx, req.ConversationID, l.contextCfg)
+	if compErr != nil {
+		l.emit(ErrorEvent{
+			ErrorCode:   "compression_failed",
+			Message:     fmt.Sprintf("Emergency compression failed: %s", compErr),
+			Recoverable: false,
+			Time:        l.now(),
+		})
+		return nil, fmt.Errorf("agent loop: emergency compression for iteration %d: %w", iteration, compErr)
+	}
+
+	if !compResult.Compressed {
+		l.emit(ErrorEvent{
+			ErrorCode:   ErrorCodeContextOverflow,
+			Message:     "Emergency compression ran but could not reduce context. Context overflow is unrecoverable.",
+			Recoverable: false,
+			Time:        l.now(),
+		})
+		return nil, fmt.Errorf("agent loop: context overflow on iteration %d: compression did not reduce context", iteration)
+	}
+
+	l.logger.Info("emergency compression completed, retrying LLM call",
+		"conversation_id", req.ConversationID,
+		"compressed_messages", compResult.CompressedMessages,
+	)
+
+	// Rebuild prompt with compressed history.
+	history, err := l.conversationManager.ReconstructHistory(ctx, req.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("agent loop: reconstruct history after emergency compression in iteration %d: %w", iteration, err)
+	}
+
+	promptReq, err := l.promptBuilder.BuildPrompt(PromptConfig{
+		BasePrompt:          l.cfg.BasePrompt,
+		ContextPackage:      turnCtx.ContextPackage,
+		History:             history,
+		CurrentTurnMessages: currentTurnMessages,
+		ProviderName:        l.cfg.ProviderName,
+		ModelName:           l.cfg.ModelName,
+		ContextLimit:        req.ModelContextLimit,
+		DisableTools:        disableTools,
+		Purpose:             "chat",
+		ConversationID:      req.ConversationID,
+		TurnNumber:          req.TurnNumber,
+		Iteration:           iteration,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent loop: rebuild prompt after emergency compression in iteration %d: %w", iteration, err)
+	}
+
+	l.emit(StatusEvent{State: StateWaitingForLLM, Time: l.now()})
+	result, err := l.streamWithRetry(ctx, promptReq, iteration, req.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("agent loop: stream after emergency compression in iteration %d: %w", iteration, err)
+	}
+
+	return result, nil
+}
+
+// updatePostTurnQuality calls ContextAssembler.UpdateQuality with the tool
+// call analysis from this turn. Errors are logged but non-fatal.
+func (l *AgentLoop) updatePostTurnQuality(ctx stdctx.Context, conversationID string, turnNumber int, calls []completedToolCall) {
+	if l.contextAssembler == nil {
+		return
+	}
+	usedSearch, readFiles := analyzeToolCalls(calls)
+	if err := l.contextAssembler.UpdateQuality(ctx, conversationID, turnNumber, usedSearch, readFiles); err != nil {
+		l.logger.Error("failed to update post-turn quality metrics",
+			"conversation_id", conversationID,
+			"turn", turnNumber,
+			"error", err,
+		)
+	}
+}
+
+// maybeGenerateTitle fires a non-blocking title generation goroutine for the
+// first turn of a new conversation (turnNumber == 1).
+func (l *AgentLoop) maybeGenerateTitle(conversationID string, turnNumber int) {
+	if l.titleGenerator == nil || turnNumber != 1 {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				l.logger.Error("title generation panicked",
+					"conversation_id", conversationID,
+					"panic", r,
+				)
+			}
+		}()
+		l.titleGenerator.GenerateTitle(stdctx.Background(), conversationID)
+	}()
 }
 
 func (l *AgentLoop) validate() error {
