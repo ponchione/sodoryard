@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bufio"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -47,6 +49,20 @@ func (w *statusWriter) WriteHeader(code int) {
 		w.wroteHeader = true
 	}
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap exposes the underlying ResponseWriter for http.ResponseController
+// and WebSocket hijack support.
+func (w *statusWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// Hijack implements http.Hijacker, required for WebSocket upgrade.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
 }
 
 // panicRecovery catches panics in handlers and returns 500.

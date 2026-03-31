@@ -1,0 +1,238 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"nhooyr.io/websocket"
+
+	"github.com/ponchione/sirtopham/internal/agent"
+)
+
+// AgentService is the interface the WebSocket handler needs from the agent loop.
+type AgentService interface {
+	RunTurn(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error)
+	Subscribe(sink agent.EventSink)
+	Unsubscribe(sink agent.EventSink)
+	Cancel()
+}
+
+// WebSocketHandler handles WebSocket connections for streaming agent events.
+type WebSocketHandler struct {
+	agent     AgentService
+	convSvc   ConversationService
+	projectID string
+	logger    *slog.Logger
+}
+
+// NewWebSocketHandler creates a handler and registers the WS route.
+func NewWebSocketHandler(s *Server, agentSvc AgentService, convSvc ConversationService, projectID string, logger *slog.Logger) *WebSocketHandler {
+	h := &WebSocketHandler{
+		agent:     agentSvc,
+		convSvc:   convSvc,
+		projectID: projectID,
+		logger:    logger,
+	}
+	s.HandleFunc("/api/ws", h.handleWS)
+	return h
+}
+
+// ClientMessage represents a message from the WebSocket client.
+type ClientMessage struct {
+	Type           string `json:"type"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	Content        string `json:"content,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+}
+
+// ServerMessage is the envelope for events sent to the WebSocket client.
+type ServerMessage struct {
+	Type      string    `json:"type"`
+	Timestamp time.Time `json:"timestamp"`
+	Data      any       `json:"data"`
+}
+
+func (h *WebSocketHandler) handleWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// In dev mode, Vite dev server connects from a different origin.
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		h.logger.Error("websocket accept failed", "error", err)
+		return
+	}
+	defer conn.CloseNow()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	h.logger.Info("websocket connected", "remote", r.RemoteAddr)
+
+	// Create a channel sink for this connection.
+	sink := agent.NewChannelSink(256)
+
+	// Track whether a turn is in progress.
+	var turnActive atomic.Bool
+
+	// Read loop goroutine (client → server).
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		h.readLoop(ctx, cancel, conn, sink, &turnActive)
+	}()
+
+	// Write loop (server → client) — blocks until ctx done or sink closed.
+	h.writeLoop(ctx, conn, sink)
+
+	// Wait for read loop to finish.
+	<-readDone
+	h.logger.Info("websocket disconnected", "remote", r.RemoteAddr)
+}
+
+// writeLoop sends events and heartbeats to the WebSocket client.
+func (h *WebSocketHandler) writeLoop(ctx context.Context, conn *websocket.Conn, sink *agent.ChannelSink) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	events := sink.Events()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case evt, ok := <-events:
+			if !ok {
+				return
+			}
+			msg := ServerMessage{
+				Type:      evt.EventType(),
+				Timestamp: evt.Timestamp(),
+				Data:      evt,
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				h.logger.Error("marshal event", "error", err, "type", evt.EventType())
+				continue
+			}
+			writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
+			err = conn.Write(writeCtx, websocket.MessageText, data)
+			writeCancel()
+			if err != nil {
+				h.logger.Debug("websocket write error", "error", err)
+				return
+			}
+		case <-ticker.C:
+			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+			err := conn.Ping(pingCtx)
+			pingCancel()
+			if err != nil {
+				h.logger.Debug("websocket ping failed", "error", err)
+				return
+			}
+		}
+	}
+}
+
+// readLoop reads client messages and dispatches them.
+func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, sink *agent.ChannelSink, turnActive *atomic.Bool) {
+	defer cancel()
+
+	var turnWg sync.WaitGroup
+
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			// Normal close or context cancelled.
+			h.logger.Debug("websocket read error", "error", err)
+			break
+		}
+
+		var msg ClientMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			h.logger.Warn("invalid websocket message", "error", err)
+			h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "invalid message"})
+			continue
+		}
+
+		switch msg.Type {
+		case "message":
+			if !turnActive.CompareAndSwap(false, true) {
+				h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "a turn is already in progress"})
+				continue
+			}
+
+			turnWg.Add(1)
+			go func() {
+				defer turnWg.Done()
+				defer turnActive.Store(false)
+				h.handleMessage(ctx, conn, sink, msg)
+			}()
+
+		case "cancel":
+			h.agent.Cancel()
+
+		default:
+			h.logger.Warn("unknown client message type", "type", msg.Type)
+		}
+	}
+
+	// Wait for any in-progress turn to finish before returning.
+	// The turn will continue even after disconnect (per spec: "turn continues,
+	// sink unsubscribed"). We unsubscribe the sink here so events stop flowing.
+	h.agent.Unsubscribe(sink)
+	sink.Close()
+	turnWg.Wait()
+}
+
+// handleMessage processes a "message" client command — creates or resumes a
+// conversation and runs a turn.
+func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Conn, sink *agent.ChannelSink, msg ClientMessage) {
+	// Subscribe sink to receive events for this turn.
+	h.agent.Subscribe(sink)
+	defer h.agent.Unsubscribe(sink)
+
+	convID := msg.ConversationID
+	if convID == "" {
+		c, err := h.convSvc.Create(ctx, h.projectID)
+		if err != nil {
+			h.logger.Error("create conversation for ws", "error", err)
+			h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "failed to create conversation"})
+			return
+		}
+		convID = c.ID
+		h.writeJSONMessage(ctx, conn, "conversation_created", map[string]string{"conversation_id": convID})
+	}
+
+	req := agent.RunTurnRequest{
+		ConversationID: convID,
+		Message:        msg.Content,
+	}
+
+	_, err := h.agent.RunTurn(ctx, req)
+	if err != nil {
+		h.logger.Error("run turn", "error", err, "conversation_id", convID)
+		// ErrorEvent is emitted by the agent loop itself; no need to send another.
+	}
+}
+
+// writeJSONMessage sends a JSON message to the WebSocket client.
+func (h *WebSocketHandler) writeJSONMessage(ctx context.Context, conn *websocket.Conn, msgType string, data any) {
+	msg := ServerMessage{
+		Type:      msgType,
+		Timestamp: time.Now(),
+		Data:      data,
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer writeCancel()
+	conn.Write(writeCtx, websocket.MessageText, raw)
+}

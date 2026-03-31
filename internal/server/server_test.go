@@ -9,7 +9,6 @@ import (
 
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/ponchione/sirtopham/internal/server"
 )
@@ -30,19 +29,8 @@ func newTestServer(t *testing.T, cfg server.Config) (*server.Server, string) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start(ctx) }()
 
-	// Wait for server to be ready.
-	deadline := time.Now().Add(2 * time.Second)
-	var addr string
-	for time.Now().Before(deadline) {
-		addr = srv.ListenAddr()
-		if addr != "127.0.0.1:0" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if addr == "127.0.0.1:0" {
-		t.Fatal("server did not start in time")
-	}
+	// ListenAddr blocks until ready — no polling needed.
+	addr := srv.ListenAddr()
 
 	t.Cleanup(func() {
 		cancel()
@@ -84,12 +72,7 @@ func TestServerStartAndShutdown(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start(ctx) }()
 
-	// Give server time to start.
-	time.Sleep(100 * time.Millisecond)
 	addr := srv.ListenAddr()
-	if addr == "127.0.0.1:0" {
-		t.Fatal("server did not bind")
-	}
 
 	// Verify it's listening.
 	resp, err := http.Get("http://" + addr + "/api/health")
@@ -106,25 +89,16 @@ func TestServerStartAndShutdown(t *testing.T) {
 }
 
 func TestHandleFuncRegistration(t *testing.T) {
-	cfg := server.Config{}
-	srv := server.New(cfg, newTestLogger())
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
 
 	srv.HandleFunc("GET /api/custom", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"custom":"yes"}`))
 	})
 
-	// Use httptest to test without starting a real server.
-	// We need to use the server's Start since mux is private.
-	// Instead, start the real server and hit the endpoint.
-	ctx, cancel := context.WithCancel(context.Background())
-	errCh := make(chan error, 1)
-	go func() { errCh <- srv.Start(ctx) }()
+	_, base := startServer(t, srv)
 
-	time.Sleep(100 * time.Millisecond)
-	addr := srv.ListenAddr()
-
-	resp, err := http.Get("http://" + addr + "/api/custom")
+	resp, err := http.Get(base + "/api/custom")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -133,9 +107,6 @@ func TestHandleFuncRegistration(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-
-	cancel()
-	<-errCh
 }
 
 func TestPanicRecovery(t *testing.T) {
@@ -312,15 +283,7 @@ func startServer(t *testing.T, srv *server.Server) (*server.Server, string) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start(ctx) }()
 
-	deadline := time.Now().Add(2 * time.Second)
-	var addr string
-	for time.Now().Before(deadline) {
-		addr = srv.ListenAddr()
-		if addr != "127.0.0.1:0" && addr != ":0" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	addr := srv.ListenAddr()
 
 	t.Cleanup(func() {
 		cancel()

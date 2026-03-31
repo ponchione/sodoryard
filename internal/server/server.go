@@ -29,8 +29,9 @@ type Server struct {
 	devMode    bool
 	frontendFS fs.FS
 
-	// listener is stored so Start can report the actual bound address (useful for port 0).
-	listener net.Listener
+	// ready is closed once the server is listening, after which listenAddr is safe to read.
+	ready      chan struct{}
+	listenAddr string
 }
 
 // New creates a new Server. Call Start to begin listening.
@@ -43,6 +44,7 @@ func New(cfg Config, logger *slog.Logger) *Server {
 		port:       cfg.Port,
 		devMode:    cfg.DevMode,
 		frontendFS: cfg.FrontendFS,
+		ready:      make(chan struct{}),
 		httpServer: &http.Server{
 			Handler:           mux, // middleware wraps this in applyMiddleware
 			ReadHeaderTimeout: 10 * time.Second,
@@ -59,12 +61,15 @@ func (s *Server) Addr() string {
 }
 
 // ListenAddr returns the actual address the server is listening on.
-// Only valid after Start has been called.
+// Blocks until the server is ready. Returns Addr() if Start hasn't been called.
 func (s *Server) ListenAddr() string {
-	if s.listener != nil {
-		return s.listener.Addr().String()
-	}
-	return s.Addr()
+	<-s.ready
+	return s.listenAddr
+}
+
+// Ready returns a channel that is closed when the server is listening.
+func (s *Server) Ready() <-chan struct{} {
+	return s.ready
 }
 
 // HandleFunc registers a handler on the server's mux.
@@ -84,8 +89,9 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("server listen: %w", err)
 	}
-	s.listener = ln
-	s.logger.Info("server listening", "addr", ln.Addr().String(), "dev_mode", s.devMode)
+	s.listenAddr = ln.Addr().String()
+	close(s.ready) // Signal that the server is listening and listenAddr is set.
+	s.logger.Info("server listening", "addr", s.listenAddr, "dev_mode", s.devMode)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.httpServer.Serve(ln) }()
