@@ -218,6 +218,9 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	// Register handlers.
 	server.NewConversationHandler(srv, convManager, projectID, logger)
 	server.NewWebSocketHandler(srv, agentLoop, convManager, projectID, logger)
+	server.NewProjectHandler(srv, cfg, logger)
+	server.NewConfigHandler(srv, cfg, provRouter, logger)
+	server.NewMetricsHandler(srv, queries, logger)
 
 	// ── 11. Signal handling + graceful shutdown ────────────────────────
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
