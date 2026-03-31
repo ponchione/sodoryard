@@ -5,6 +5,7 @@ import "./index.css";
 import { RootLayout } from "@/components/layout/root-layout";
 import { ConversationListPage } from "@/pages/conversation-list";
 import { ConversationPage } from "@/pages/conversation";
+import { SettingsPage } from "@/pages/settings";
 
 const router = createBrowserRouter([
   {
@@ -13,6 +14,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <ConversationListPage /> },
       { path: "c/:id", element: <ConversationPage /> },
+      { path: "settings", element: <SettingsPage /> },
     ],
   },
 ]);

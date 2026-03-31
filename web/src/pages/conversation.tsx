@@ -5,14 +5,18 @@ import {
   type ChatMessage,
   type ContentBlock,
 } from "@/hooks/use-conversation";
+import { useContextReport } from "@/hooks/use-context-report";
 import { api } from "@/lib/api";
 import { messageViewsToChat } from "@/lib/history";
 import type { MessageView } from "@/types/api";
+import type { ContextReport } from "@/types/metrics";
 import { Button } from "@/components/ui/button";
 import { ThinkingBlock } from "@/components/chat/thinking-block";
 import { ToolCallCard } from "@/components/chat/tool-call-card";
 import { TurnUsageBadge } from "@/components/chat/turn-usage-badge";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { ContextInspector } from "@/components/inspector/context-inspector";
+import { ConversationMetricsPanel } from "@/components/chat/conversation-metrics";
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
@@ -33,12 +37,23 @@ export function ConversationPage() {
     connectionStatus,
     conversationId,
     lastTurnUsage,
+    lastContextDebug,
     sendMessage,
     cancel,
     loadHistory,
   } = useConversation(convId);
 
   const [input, setInput] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [metricsOpen, setMetricsOpen] = useState(false);
+  const ctxReport = useContextReport(convId);
+
+  // Feed live context_debug events into the inspector.
+  useEffect(() => {
+    if (lastContextDebug) {
+      ctxReport.setLiveReport(lastContextDebug as unknown as ContextReport);
+    }
+  }, [lastContextDebug]); // eslint-disable-line react-hooks/exhaustive-deps
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load existing conversation history on mount.
@@ -100,13 +115,35 @@ export function ConversationPage() {
   })();
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Connection indicator */}
-      {connectionStatus !== "connected" && (
-        <div className="border-b border-border bg-muted px-4 py-1.5 text-center text-xs text-muted-foreground">
-          {connectionStatus === "connecting" ? "Connecting…" : "Disconnected — reconnecting…"}
+    <div className="flex flex-1 overflow-hidden">
+      {/* Main chat column */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Top bar with toggle buttons */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-1.5">
+          <div className="text-xs text-muted-foreground">
+            {connectionStatus !== "connected"
+              ? connectionStatus === "connecting" ? "Connecting…" : "Disconnected — reconnecting…"
+              : conversationId ? `${conversationId.slice(0, 8)}…` : "New conversation"}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setMetricsOpen(!metricsOpen)}
+              className={`rounded p-1 text-xs ${metricsOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              title="Conversation metrics"
+            >
+              📊
+            </button>
+            <button
+              type="button"
+              onClick={() => setInspectorOpen(!inspectorOpen)}
+              className={`rounded p-1 text-xs ${inspectorOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              title="Context inspector"
+            >
+              🔍
+            </button>
+          </div>
         </div>
-      )}
 
       {/* Message area */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -160,6 +197,15 @@ export function ConversationPage() {
         </div>
       </div>
 
+      {/* Metrics panel (below messages, above input) */}
+      {metricsOpen && convId && (
+        <div className="border-t border-border px-4 py-2 max-h-60 overflow-y-auto">
+          <div className="mx-auto max-w-3xl">
+            <ConversationMetricsPanel conversationId={convId} />
+          </div>
+        </div>
+      )}
+
       {/* Input area */}
       <div className="border-t border-border p-4">
         <div className="mx-auto flex max-w-3xl gap-2">
@@ -184,6 +230,12 @@ export function ConversationPage() {
           )}
         </div>
       </div>
+      </div>{/* end main chat column */}
+
+      {/* Context Inspector panel (right side) */}
+      {inspectorOpen && (
+        <ContextInspector ctx={ctxReport} onClose={() => setInspectorOpen(false)} />
+      )}
     </div>
   );
 }

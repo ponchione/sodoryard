@@ -1,15 +1,15 @@
-Fresh-session handoff: Layer 6 Epic 07 complete (slices 1-3)
+Fresh-session handoff: Layer 6 Epics 03, 07, 08 complete
 
-What was completed this session (1 commit, pushed to origin/main)
+What was completed this session (3 commits, pushed to origin/main)
 - `6af791c` — `feat(web): thinking blocks, tool call cards, markdown rendering, history loading (L6E07 slices 2-3)`
+- `80b81c7` — `feat(web): sidebar with conversation list, navigation, and mobile responsive layout (L6E08)`
+- `584beb2` — `feat(api): REST endpoints for project, config, providers, and metrics (L6E03)`
 
 Current state — what exists
 - Layers 0-5: fully implemented (tools, agent loop, context assembly, providers, conversations)
-- Layer 6 Epics 01, 02, 04, 05: complete (HTTP server, REST API, WebSocket, serve command)
-- Layer 6 Epic 06: COMPLETE (React scaffolding)
-- Layer 6 Epic 07: COMPLETE (all 3 slices)
-- Layer 6 Epic 03: NOT started (REST API for project/config/metrics)
-- Layer 6 Epics 08-10: NOT started
+- Layer 6 Epics 01-08: ALL COMPLETE
+- Layer 6 Epic 09: NOT started (Context Inspector debug panel)
+- Layer 6 Epic 10: NOT started (Settings & Metrics UI)
 - `make build` compiles frontend (Vite) → copies dist/ → builds Go binary with embed.FS
 - `make test` — all packages pass
 - Zero TypeScript errors
@@ -18,87 +18,77 @@ Layer 6 status map
 ```
   ✅ Epic 01 — HTTP Server Foundation
   ✅ Epic 02 — REST API: Conversations (6 endpoints)
-  ⬚  Epic 03 — REST API: Project, Config & Metrics
+  ✅ Epic 03 — REST API: Project, Config & Metrics (8 endpoints)
   ✅ Epic 04 — WebSocket Handler
   ✅ Epic 05 — Serve Command (composition root)
   ✅ Epic 06 — React Scaffolding (Vite + React + TS + Tailwind + shadcn/ui)
   ✅ Epic 07 — Conversation UI (all 3 slices complete)
-  ⬚  Epic 08 — Sidebar & Navigation
+  ✅ Epic 08 — Sidebar & Navigation
   ⬚  Epic 09 — Context Inspector (debug panel)
   ⬚  Epic 10 — Settings & Metrics UI
 ```
 
-Epic 07 — what was built (complete)
-Slice 1 (streaming chat plumbing):
-  - useWebSocket hook: connect /api/ws, auto-reconnect with exponential backoff
-  - useConversation hook: reducer-based state machine for messages + streaming
-  - ConversationPage: message bubbles, streaming text cursor, status indicator,
-    error banner, cancel button, auto-scroll
-  - ConversationListPage: input bar → navigates to /c/new with initial message
-  - URL updates to /c/:id on conversation_created event
-  - Enter to send, Shift+Enter for newline, disabled during turn
+Epic 03 — REST API endpoints (NEW this session)
+  GET /api/project           — project root_path, name, detected language
+  GET /api/project/tree      — nested JSON file tree (?depth=1-10)
+  GET /api/project/file      — file content (?path=relative/path)
+  GET /api/config            — default/fallback provider+model, agent settings
+  PUT /api/config            — runtime override default provider/model
+  GET /api/providers         — provider list with models and status
+  GET /api/metrics/conversation/:id — token usage, cache hit, tool usage, context quality
+  GET /api/metrics/conversation/:id/context/:turn — full context assembly report
 
-Slice 2 (thinking + tool call visualization):
-  - Block-based content model: ChatMessage.blocks[] with discriminated union
-    (ThinkingBlock | ToolCallBlock | TextBlock)
-  - Reducer handles thinking_start/delta/end, tool_call_start/output/end events
-  - ThinkingBlock component: collapsible, streaming indicator, char count
-  - ToolCallCard component: collapsible, tool name, JSON args, streaming output,
-    result, duration, success/fail status
-  - TurnUsageBadge: tokens in/out, duration, iteration count
-  - turn_complete carries usage summary into state
+Epic 08 — Sidebar & Navigation (NEW this session)
+  - useConversationList hook: fetch, delete, refresh
+  - Real conversation list with titles, relative timestamps
+  - Active conversation highlight (from URL path)
+  - Delete button (hover reveal, navigates home if active)
+  - Mobile responsive: hamburger menu, overlay sidebar with backdrop
+  - Close on conversation selection (mobile)
 
-Slice 3 (markdown + syntax highlighting + history + compressed):
-  - react-markdown + remark-gfm for rich text rendering
-  - react-syntax-highlighter (Prism/oneDark) for fenced code blocks
-  - MarkdownContent component: headings, lists, tables, blockquotes, code
-  - Load conversation history via REST GET /api/conversations/:id/messages
-  - history.ts: messageViewsToChat() converts MessageView[] to ChatMessage[]
-  - Compressed/summary message rendering: dashed border, greyed, [compressed] badge
-  - System message rendering (centered, italic)
+File map (new backend files)
+  internal/server/project.go   — project info, file tree, file content
+  internal/server/configapi.go — config CRUD, provider listing
+  internal/server/metrics.go   — per-conversation metrics, context reports
 
 File map (frontend)
-  web/src/hooks/use-conversation.ts  — block-based reducer, all event types
-  web/src/hooks/use-websocket.ts     — WebSocket connection management
-  web/src/pages/conversation.tsx     — main chat page with block rendering
-  web/src/pages/conversation-list.tsx — conversation list / home page
+  web/src/hooks/use-conversation.ts       — block-based reducer, all event types
+  web/src/hooks/use-conversation-list.ts  — REST conversation list
+  web/src/hooks/use-websocket.ts          — WebSocket connection management
+  web/src/pages/conversation.tsx          — main chat page with block rendering
+  web/src/pages/conversation-list.tsx     — conversation list / home page
+  web/src/components/layout/sidebar.tsx   — sidebar with nav, conv list, mobile
+  web/src/components/layout/root-layout.tsx — sidebar state, hamburger
   web/src/components/chat/
-    thinking-block.tsx               — collapsible thinking section
-    tool-call-card.tsx               — collapsible tool call card
-    turn-usage-badge.tsx             — token/duration usage pill
-    markdown-content.tsx             — markdown + syntax highlighting
-  web/src/lib/history.ts             — REST MessageView[] → ChatMessage[]
-  web/src/lib/api.ts                 — fetch wrapper
-  web/src/types/events.ts            — WS event types
-  web/src/types/api.ts               — REST API types
+    thinking-block.tsx                    — collapsible thinking section
+    tool-call-card.tsx                    — collapsible tool call card
+    turn-usage-badge.tsx                  — token/duration usage pill
+    markdown-content.tsx                  — markdown + syntax highlighting
+  web/src/lib/history.ts                  — REST MessageView[] → ChatMessage[]
+  web/src/lib/api.ts                      — fetch wrapper
 
 Important notes for next session
 - shadcn/ui v4 uses @base-ui/react (NOT Radix). No `asChild` prop on Button
 - `erasableSyntaxOnly` in tsconfig — no `public` constructor parameter properties
-- .gitignore: `**/node_modules/` covers all nested node_modules (ts-analyzer too)
-- .gitignore: `/lib/` and `/include/` root-anchored to avoid matching web/src/lib/
-- .gitignore: `/sirtopham` root-anchored to avoid matching cmd/sirtopham/
+- PUT /api/config is runtime-only, NOT persisted to sirtopham.yaml
 - react-syntax-highlighter bundle is ~1MB — consider lazy import if bundle size matters
+- `make test` not `go test ./...` — Makefile has CGo linker flags for lancedb
 
 Development workflow
 - Two terminals: `make dev-backend` + `make dev-frontend`
 - Or production: `make build && ./bin/sirtopham serve --config sirtopham.yaml`
 
 Next steps — recommended order
-1. Epic 08: Sidebar & Navigation
-   - Fetch conversation list from GET /api/conversations
-   - Clickable conversation list in sidebar
-   - New conversation button
-   - Active conversation highlight
-   - Responsive: hamburger menu on mobile
+1. Epic 09: Context Inspector (debug panel)
+   - Tab/drawer in conversation view for context_debug events
+   - Token budget visualization (budget_total, budget_used)
+   - Needs, signals, RAG/brain/graph results display
+   - Per-turn context report from GET /api/metrics/conversation/:id/context/:turn
 
-2. Epic 03: REST API for Project/Config/Metrics (independent, can parallel)
-
-3. Epic 09: Context Inspector (debug panel)
-   - Renders context_debug events
-   - Token budget visualization
-
-4. Epic 10: Settings & Metrics UI
+2. Epic 10: Settings & Metrics UI
+   - Settings page: model/provider selector (GET/PUT /api/config)
+   - Per-conversation metrics dashboard (GET /api/metrics/conversation/:id)
+   - Project info display (GET /api/project)
 
 Validation commands
 - `git log --oneline -10`

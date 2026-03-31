@@ -146,13 +146,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Footer / settings */}
         <div className="p-2">
-          <Link
-            to="/"
-            className="inline-flex w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <SettingsIcon />
-            Settings
-          </Link>
+        <Link
+          to="/settings"
+          onClick={onClose}
+          className="inline-flex w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <SettingsIcon />
+          Settings
+        </Link>
         </div>
       </aside>
     </>

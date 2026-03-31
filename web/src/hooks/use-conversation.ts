@@ -12,6 +12,7 @@ import type {
   ToolCallOutputEvent,
   ToolCallEndEvent,
   TurnCompleteEvent,
+  ContextDebugEvent,
   AgentState,
 } from "@/types/events";
 
@@ -77,6 +78,8 @@ export interface ConversationState {
   error: string | null;
   /** Usage summary from the most recent turn. */
   lastTurnUsage: TurnUsage | null;
+  /** Last context_debug event data (for the context inspector). */
+  lastContextDebug: Record<string, unknown> | null;
 }
 
 // ── Reducer ──────────────────────────────────────────────────────────
@@ -96,7 +99,8 @@ type Action =
   | { type: "turn_cancelled" }
   | { type: "error"; message: string }
   | { type: "set_conversation_id"; conversationId: string }
-  | { type: "load_history"; messages: ChatMessage[] };
+  | { type: "load_history"; messages: ChatMessage[] }
+  | { type: "context_debug"; report: Record<string, unknown> };
 
 const initialState: ConversationState = {
   conversationId: null,
@@ -106,6 +110,7 @@ const initialState: ConversationState = {
   agentState: null,
   error: null,
   lastTurnUsage: null,
+  lastContextDebug: null,
 };
 
 /**
@@ -323,6 +328,12 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         messages: action.messages,
       };
 
+    case "context_debug":
+      return {
+        ...state,
+        lastContextDebug: action.report,
+      };
+
     default:
       return state;
   }
@@ -435,6 +446,13 @@ export function useConversation(conversationId?: string) {
       case "conversation_created": {
         const data = msg.data as ConversationCreatedEvent;
         dispatch({ type: "conversation_created", conversationId: data.conversation_id });
+        break;
+      }
+      case "context_debug": {
+        const data = msg.data as ContextDebugEvent;
+        if (data.report) {
+          dispatch({ type: "context_debug", report: data.report as Record<string, unknown> });
+        }
         break;
       }
     }
