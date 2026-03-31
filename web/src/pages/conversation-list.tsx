@@ -1,13 +1,23 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 
 export function ConversationListPage() {
   const navigate = useNavigate();
+  const [input, setInput] = useState("");
 
-  const handleNewConversation = () => {
-    // TODO: Create conversation via API, then navigate to /c/:id
-    void navigate;
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text) return;
+    // Navigate to a new conversation page with the initial message as state.
+    navigate("/c/new", { state: { initialMessage: text } });
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   return (
@@ -17,19 +27,22 @@ export function ConversationListPage() {
         <p className="mt-2 text-muted-foreground">AI coding assistant</p>
       </div>
 
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle>Start a conversation</CardTitle>
-          <CardDescription>
-            Ask a question about your codebase or request a change.
-          </CardDescription>
-        </CardHeader>
-        <div className="p-6 pt-0">
-          <Button className="w-full" onClick={handleNewConversation}>
-            New conversation
+      <div className="w-full max-w-2xl">
+        <div className="flex gap-2">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask a question about your codebase…"
+            className="flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring/50 placeholder:text-muted-foreground focus-visible:ring-2"
+            rows={1}
+            autoFocus
+          />
+          <Button onClick={handleSend} disabled={!input.trim()}>
+            Send
           </Button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

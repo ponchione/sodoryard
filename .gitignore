@@ -4,10 +4,11 @@
 # Build output
 bin/
 
-# Frontend
+# Frontend & Node
 web/dist/
 web/node_modules/
 webfs/dist/
+**/node_modules/
 
 # SQLite databases
 *.db
