@@ -5,8 +5,9 @@
 bin/
 
 # Frontend
-frontend/dist/
-frontend/node_modules/
+web/dist/
+web/node_modules/
+webfs/dist/
 
 # SQLite databases
 *.db
@@ -20,9 +21,9 @@ frontend/node_modules/
 vendor/
 
 # Native libraries (LanceDB) — managed outside git
-lib/
-include/
+/lib/
+/include/
 
 .claude
 .hermes
-sirtopham
+/sirtopham

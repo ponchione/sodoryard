@@ -24,6 +24,7 @@ import (
 	"github.com/ponchione/sirtopham/internal/provider/tracking"
 	"github.com/ponchione/sirtopham/internal/server"
 	"github.com/ponchione/sirtopham/internal/tool"
+	"github.com/ponchione/sirtopham/webfs"
 )
 
 func newServeCmd(configPath *string) *cobra.Command {
@@ -196,11 +197,23 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	defer agentLoop.Close()
 
 	// ── 10. Build HTTP server ──────────────────────────────────────────
-	srv := server.New(server.Config{
+	serverCfg := server.Config{
 		Host:    cfg.Server.Host,
 		Port:    cfg.Server.Port,
 		DevMode: cfg.Server.DevMode,
-	}, logger)
+	}
+
+	// In production mode, embed the frontend built by `make build`.
+	if !cfg.Server.DevMode {
+		frontendFS, err := webfs.FS()
+		if err != nil {
+			logger.Warn("embedded frontend not available", "error", err)
+		} else {
+			serverCfg.FrontendFS = frontendFS
+		}
+	}
+
+	srv := server.New(serverCfg, logger)
 
 	// Register handlers.
 	server.NewConversationHandler(srv, convManager, projectID, logger)
