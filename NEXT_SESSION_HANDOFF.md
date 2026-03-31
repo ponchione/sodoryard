@@ -1,51 +1,77 @@
-Fresh-session handoff: Spec 11 (tool result normalization) fully complete
+Fresh-session handoff: Layer 6 backend — Epics 01, 02, 04 complete
 
-What was completed this session (1 commit, pushed)
-- `a0a9407` — `feat(tool): add Phase 2 history compression pipeline (spec 11)`
+What was completed this session (4 commits, not yet pushed)
+- `fc17d80` — `feat(server): add HTTP server foundation with middleware and static serving (L6E01)`
+- `bc3aae0` — `feat(server): add REST API for conversations (L6E02)`
+- `35ba0ff` — `feat(server): add WebSocket handler for agent event streaming (L6E04)`
+- `b6fffcb` — `docs: add Layer 6 backend implementation plan`
 
 Current state
-- Spec 11 fully complete: Phase 1 (write-time normalization, b30af71) + Phase 2 (history compression, a0a9407)
-- Layer 4 tool system fully complete (Epics 01-05 + wiring + normalization + compression)
-- Layer 5 Epic 02 (Conversation Manager) fully complete
-- Anthropic provider fully implemented (Complete, Stream, SSE parsing, retry, errors)
-- 166 tests in internal/tool/ (was 137 before this session)
-- All pushed to origin/main
+- Layer 6 Epic 01 (HTTP Server Foundation) — COMPLETE
+- Layer 6 Epic 02 (REST API Conversations) — COMPLETE
+- Layer 6 Epic 04 (WebSocket Handler) — COMPLETE
+- Layer 6 Epic 05 (Serve Command) — NOT STARTED (4 tasks remain)
+- 28 tests in internal/server/ (all pass with -race)
+- All pushed to origin/main: NO — push needed
 
-Phase 2 history compression — what's implemented
-- `internal/tool/historycompress.go`: HistoryCompressor with 4 transforms:
-  1. Duplicate result elision — older reads of the same file → pointer to latest
-  2. Stale result summarization — file_read/search_text older than N turns → one-liner
-  3. Line-number stripping — file_read prefixes removed from historical results
-  4. JSON re-minification — idempotent json.Compact on historical tool results
-- `internal/agent/prompt.go`: buildMessages applies compression when CompressHistoricalResults=true
-- `internal/config/config.go`: 4 new AgentConfig fields with defaults (all enabled, summarize after 10 turns)
-- `internal/agent/loop.go`: all 3 PromptConfig constructions pass compression settings through
+What's implemented in internal/server/
+- server.go: Server struct, Start/Shutdown, ListenAddr (blocks on ready chan), HandleFunc/Handle
+- middleware.go: requestLogger, panicRecovery, CORS (dev mode), statusWriter with Hijacker
+- static.go: staticHandler with SPA fallback via embed.FS
+- api.go: writeJSON, writeError, decodeJSON helpers
+- conversations.go: ConversationService interface, ConversationHandler with 6 REST endpoints
+- websocket.go: AgentService interface, WebSocketHandler with upgrade/read/write loops
+
+REST API endpoints
+- GET    /api/health                       → 200 {"status":"ok"}
+- GET    /api/conversations                → paginated list
+- POST   /api/conversations                → create (optional title/model/provider)
+- GET    /api/conversations/{id}           → get single (404 if not found)
+- GET    /api/conversations/{id}/messages  → all messages with compression flags
+- DELETE /api/conversations/{id}           → delete with cascade (204)
+- GET    /api/conversations/search?q=      → FTS5 full-text search with snippets
+- WS     /api/ws                           → WebSocket for agent event streaming
+
+Also added to conversation.Manager
+- GetMessages(ctx, conversationID) → []MessageView (includes is_compressed, is_summary)
+- Search(ctx, query) → []SearchResult
+- ListAllMessages sqlc query in internal/db/query/conversation.sql
 
 Key design decisions
-- HistoryCompressor takes CurrentTurn and SummarizeAfterTurns — no dependency on config package
-- Transforms operate on HistoryMessage (thin struct with Role, Content, ToolName, TurnNumber)
-- Prompt builder converts db.Message ↔ HistoryMessage at the integration boundary
-- Elision wins over summarization when both would apply (a file re-read 20 turns ago)
-- Only file_read and git_diff are deduplicable (shell/search may vary between runs)
-- Dedup tracking uses (toolName, filePath) keys extracted from file_read header format
+- Go stdlib net/http with Go 1.22+ pattern matching (no framework)
+- nhooyr.io/websocket v1.8.17 for WebSocket
+- Server.ListenAddr() blocks on a `ready` channel — race-free for tests
+- statusWriter implements http.Hijacker for WebSocket upgrade through middleware chain
+- ConversationService and AgentService are narrow interfaces in server package — testable with mocks
+- ChannelSink reused from agent.NewChannelSink (not duplicated)
+- One-turn-at-a-time enforced via atomic.Bool in WebSocket read loop
 
-Validation state
-- `go test -race -tags sqlite_fts5 ./internal/tool/... ./internal/agent/... ./internal/config/... ./internal/provider/... ./internal/db/... ./internal/conversation/...` green
-- `go vet ./internal/tool/... ./internal/agent/... ./internal/config/...` clean
+Pitfalls discovered
+- nhooyr/websocket v1.8.17 uses direct http.Hijacker type assertion, not Unwrap()
+  → statusWriter must implement Hijacker explicitly
+- Polling ListenAddr in tests causes data races with Start goroutine
+  → Use a ready channel that blocks until listener is bound
 
 What is NOT implemented
-- Epic 06: Obsidian Client & Brain Tools (deferred — v0.2 scope per docs)
-- Agent loop refactor for batch dispatch (adapter bridges the gap)
-- Streaming shell output (future Layer 5/7 concern)
-- Wire Manager/AgentLoop into actual startup (cmd/main.go serve command)
-- REST API layer (internal/server/ is a stub)
+- Epic 05: Serve Command — wires all layers into `sirtopham serve`
+- Epic 06-10: React frontend (out of scope for this plan)
+- Agent loop batch dispatch refactor (independent, lower priority)
+- Obsidian Client & Brain Tools (v0.2 scope)
 
-Next natural slices
-a. Wire Manager + AgentLoop into the serve command (cmd/main.go) — connect the built pieces
-b. REST API for conversations (Layer 6 Epic 02) — expose CRUD + streaming
-c. Agent loop refactor for native batch dispatch (replace adapter)
-d. Layer 4 Epic 06: Obsidian Client & Brain Tools (if v0.1 scope)
+Next natural slice
+a. Epic 05: Serve Command (composition root) — 4 tasks:
+   1. Wire init sequence: config → DB → providers → tools → context → agent loop → server
+   2. Graceful shutdown with signal handling (SIGINT/SIGTERM)
+   3. Startup logging + browser launch
+   4. Flag overrides (--port, --host, --dev)
+   See: docs/plans/2026-03-31-layer6-backend.md (Tasks 5.1-5.4)
+   Key files: cmd/sirtopham/main.go, internal/server/, internal/agent/loop.go
+
+Validation state
+- `make test` green (28 packages, 28 server tests)
+- `go test -race ./internal/server/... -count=1` clean
 
 Suggested commands
-- `git log --oneline -15`
-- `go test -race -tags sqlite_fts5 ./internal/tool/... ./internal/agent/... ./internal/config/...`
+- `git log --oneline -10`
+- `git push origin main`
+- `make test`
