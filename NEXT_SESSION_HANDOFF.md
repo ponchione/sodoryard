@@ -85,4 +85,4 @@ What's left for Epic 07 (future slices):
      - Thinking blocks, tool call cards
      - Markdown rendering, syntax highlighting
      - Load existing conversation history from REST
-     - Compressed message rendering
+     - Compressed message renderingRearearaerer
