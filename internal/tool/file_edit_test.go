@@ -123,6 +123,9 @@ func TestFileEditMultipleMatches(t *testing.T) {
 	if !strings.Contains(result.Content, "Candidate lines:") || !strings.Contains(result.Content, "1") {
 		t.Fatalf("expected candidate line info, got: %s", result.Content)
 	}
+	if !strings.Contains(result.Content, "Candidate snippets:") || !strings.Contains(result.Content, "line 1: foo bar foo baz foo") {
+		t.Fatalf("expected candidate snippet info, got: %s", result.Content)
+	}
 }
 
 func TestFileEditFileNotFound(t *testing.T) {

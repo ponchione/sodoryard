@@ -68,47 +68,80 @@ func filePreview(content string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-func candidateLineSummary(content, needle string, maxCandidates int) string {
+type candidateMatch struct {
+	line    int
+	snippet string
+}
+
+func candidateMatches(content, needle string) []candidateMatch {
 	if needle == "" {
-		return "none"
+		return nil
 	}
 	lines := strings.Split(content, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	candidateLines := make([]int, 0)
+	matches := make([]candidateMatch, 0)
 	for i, line := range lines {
 		if strings.Contains(line, needle) {
-			candidateLines = append(candidateLines, i+1)
+			matches = append(matches, candidateMatch{line: i + 1, snippet: line})
 		}
 	}
-	if len(candidateLines) == 0 {
-		for i := 0; i < len(content); {
-			idx := strings.Index(content[i:], needle)
-			if idx < 0 {
-				break
-			}
-			pos := i + idx
-			line := 1 + strings.Count(content[:pos], "\n")
-			candidateLines = append(candidateLines, line)
-			i = pos + len(needle)
-		}
+	if len(matches) > 0 {
+		return matches
 	}
-	if len(candidateLines) == 0 {
+	for i := 0; i < len(content); {
+		idx := strings.Index(content[i:], needle)
+		if idx < 0 {
+			break
+		}
+		pos := i + idx
+		line := 1 + strings.Count(content[:pos], "\n")
+		matches = append(matches, candidateMatch{line: line, snippet: fmt.Sprintf("contains %q", needle)})
+		i = pos + len(needle)
+	}
+	return matches
+}
+
+func candidateLineSummary(content, needle string, maxCandidates int) string {
+	matches := candidateMatches(content, needle)
+	if len(matches) == 0 {
 		return "unknown"
 	}
-	sort.Ints(candidateLines)
-	parts := make([]string, 0, min(len(candidateLines), maxCandidates))
-	for _, line := range candidateLines {
+	lines := make([]int, 0, len(matches))
+	for _, match := range matches {
+		lines = append(lines, match.line)
+	}
+	sort.Ints(lines)
+	parts := make([]string, 0, min(len(lines), maxCandidates))
+	for _, line := range lines {
 		if len(parts) >= maxCandidates {
 			break
 		}
 		parts = append(parts, fmt.Sprintf("line %d", line))
 	}
-	if len(candidateLines) > maxCandidates {
-		parts = append(parts, fmt.Sprintf("... (%d total)", len(candidateLines)))
+	if len(lines) > maxCandidates {
+		parts = append(parts, fmt.Sprintf("... (%d total)", len(lines)))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func candidateSnippetSummary(content, needle string, maxCandidates int) string {
+	matches := candidateMatches(content, needle)
+	if len(matches) == 0 {
+		return "unknown"
+	}
+	parts := make([]string, 0, min(len(matches), maxCandidates))
+	for _, match := range matches {
+		if len(parts) >= maxCandidates {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("line %d: %s", match.line, match.snippet))
+	}
+	if len(matches) > maxCandidates {
+		parts = append(parts, fmt.Sprintf("... (%d total)", len(matches)))
+	}
+	return strings.Join(parts, " | ")
 }
 
 func min(a, b int) int {
@@ -207,7 +240,7 @@ func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.Ra
 	default:
 		return &ToolResult{
 			Success: false,
-			Content: fmt.Sprintf("String appears %d times in the file. Provide a longer, more unique search string that includes surrounding context from the full file_read.\nCandidate lines: %s", count, candidateLineSummary(oldContent, params.OldStr, 5)),
+			Content: fmt.Sprintf("String appears %d times in the file. Provide a longer, more unique search string that includes surrounding context from the full file_read.\nCandidate lines: %s\nCandidate snippets: %s", count, candidateLineSummary(oldContent, params.OldStr, 5), candidateSnippetSummary(oldContent, params.OldStr, 3)),
 			Error:   "multiple_matches",
 		}, nil
 	}
