@@ -560,7 +560,7 @@ func TestClassifyError_StatusCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(http.StatusText(tt.statusCode), func(t *testing.T) {
-			pe := classifyError(tt.statusCode, []byte("test body"))
+			pe := classifyError(tt.statusCode, []byte("test body"), "")
 			if pe.Retriable != tt.expectedRetry {
 				t.Errorf("status %d: expected Retriable=%v, got %v", tt.statusCode, tt.expectedRetry, pe.Retriable)
 			}

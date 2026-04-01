@@ -136,6 +136,29 @@ var continuationPhrases = []string{
 	"too",
 }
 
+var questionPatterns = []string{
+	"can you explain",
+	"what does",
+	"how does",
+	"how do",
+	"what is",
+	"explain",
+	"why",
+}
+
+var debuggingPatterns = []string{
+	"error",
+	"panic",
+	"nil",
+	"crash",
+	"fail",
+	"bug",
+	"broken",
+	"stack trace",
+	"segfault",
+	"exception",
+}
+
 // RuleBasedAnalyzer implements the v0.1 deterministic TurnAnalyzer.
 //
 // It performs regex- and heuristic-based signal extraction only; semantic query
@@ -163,6 +186,8 @@ func (RuleBasedAnalyzer) AnalyzeTurn(message string, recentHistory []db.Message)
 	applyCreationIntent(message, needs)
 	applyGitContext(message, needs)
 	applyContinuation(message, recentHistory, needs)
+	applyQuestionIntent(message, needs)
+	applyDebuggingHints(message, needs)
 
 	return needs
 }
@@ -369,6 +394,33 @@ func applyContinuation(message string, recentHistory []db.Message, needs *Contex
 		Type:   "continuation",
 		Source: source,
 		Value:  "momentum_applied",
+	})
+}
+
+func applyQuestionIntent(message string, needs *ContextNeeds) {
+	source, _ := findPhrase(message, questionPatterns)
+	if source == "" {
+		return
+	}
+
+	needs.IncludeConventions = true
+	needs.Signals = append(needs.Signals, Signal{
+		Type:   "question_intent",
+		Source: source,
+		Value:  "documentation_boost",
+	})
+}
+
+func applyDebuggingHints(message string, needs *ContextNeeds) {
+	source, _ := findPhrase(message, debuggingPatterns)
+	if source == "" {
+		return
+	}
+
+	needs.Signals = append(needs.Signals, Signal{
+		Type:   "debugging_hints",
+		Source: source,
+		Value:  "error_handling_boost",
 	})
 }
 

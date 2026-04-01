@@ -353,6 +353,99 @@ func TestStreamWithRetry_NonProviderErrorNoRetry(t *testing.T) {
 	}
 }
 
+func TestStreamWithRetry_RetryAfterRespected(t *testing.T) {
+	// RetryAfter of 10s should override the default 1s backoff delay.
+	rateLimitErr := &provider.ProviderError{
+		Provider:   "anthropic",
+		StatusCode: 429,
+		Message:    "rate limited",
+		Retriable:  true,
+		RetryAfter: 10 * time.Second,
+	}
+	router := &retryProviderRouterStub{
+		responses: []retryResponse{
+			{err: rateLimitErr},
+			{events: textOnlyStreamEvents("recovered")},
+		},
+	}
+	loop := newRetryTestLoop(router, nil)
+
+	// Track the sleep duration that was used.
+	var sleepDuration time.Duration
+	loop.sleepFn = func(ctx stdctx.Context, d time.Duration) error {
+		sleepDuration = d
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+
+	result, err := loop.streamWithRetry(
+		stdctx.Background(),
+		&provider.Request{},
+		1,
+		"conv-retry-retryafter",
+	)
+	if err != nil {
+		t.Fatalf("streamWithRetry error: %v", err)
+	}
+	if result.TextContent != "recovered" {
+		t.Fatalf("TextContent = %q, want %q", result.TextContent, "recovered")
+	}
+	// The sleep duration should be max(1s backoff, 10s RetryAfter) = 10s.
+	if sleepDuration != 10*time.Second {
+		t.Fatalf("sleep duration = %v, want 10s (RetryAfter should override backoff)", sleepDuration)
+	}
+}
+
+func TestStreamWithRetry_RetryAfterSmallerThanBackoff(t *testing.T) {
+	// RetryAfter of 500ms is smaller than the 1s default backoff, so backoff wins.
+	rateLimitErr := &provider.ProviderError{
+		Provider:   "anthropic",
+		StatusCode: 429,
+		Message:    "rate limited",
+		Retriable:  true,
+		RetryAfter: 500 * time.Millisecond,
+	}
+	router := &retryProviderRouterStub{
+		responses: []retryResponse{
+			{err: rateLimitErr},
+			{events: textOnlyStreamEvents("recovered")},
+		},
+	}
+	loop := newRetryTestLoop(router, nil)
+
+	var sleepDuration time.Duration
+	loop.sleepFn = func(ctx stdctx.Context, d time.Duration) error {
+		sleepDuration = d
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+
+	result, err := loop.streamWithRetry(
+		stdctx.Background(),
+		&provider.Request{},
+		1,
+		"conv-retry-retryafter-small",
+	)
+	if err != nil {
+		t.Fatalf("streamWithRetry error: %v", err)
+	}
+	if result.TextContent != "recovered" {
+		t.Fatalf("TextContent = %q, want %q", result.TextContent, "recovered")
+	}
+	// The sleep duration should be max(1s backoff, 500ms RetryAfter) = 1s.
+	if sleepDuration != 1*time.Second {
+		t.Fatalf("sleep duration = %v, want 1s (backoff should win over smaller RetryAfter)", sleepDuration)
+	}
+}
+
 // --- helpers ---
 
 // drainUntilType reads events from the channel until it finds one with the

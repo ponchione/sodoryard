@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -85,3 +86,22 @@ func (p *AnthropicProvider) Models(ctx context.Context) ([]provider.Model, error
 
 // Compile-time assertion that AnthropicProvider satisfies provider.Provider.
 var _ provider.Provider = (*AnthropicProvider)(nil)
+
+// Compile-time assertion that AnthropicProvider satisfies provider.Pinger.
+var _ provider.Pinger = (*AnthropicProvider)(nil)
+
+// Ping performs a lightweight auth check by calling GetAuthHeader. This verifies
+// that credentials are configured and valid without making an API call.
+func (p *AnthropicProvider) Ping(ctx context.Context) error {
+	_, _, err := p.creds.GetAuthHeader(ctx)
+	if err != nil {
+		return &provider.ProviderError{
+			Provider:   "anthropic",
+			StatusCode: 0,
+			Message:    fmt.Sprintf("auth check failed: %s", err),
+			Retriable:  false,
+			Err:        err,
+		}
+	}
+	return nil
+}

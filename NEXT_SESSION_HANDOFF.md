@@ -1,114 +1,127 @@
-Fresh-session handoff: LAYER 6 COMPLETE — all 10 epics done
+# Next session handoff
 
-What was completed this session (3 commits, pushed to origin/main)
-- `6af791c` — `feat(web): thinking blocks, tool call cards, markdown rendering, history loading (L6E07 slices 2-3)`
-- `80b81c7` — `feat(web): sidebar with conversation list, navigation, and mobile responsive layout (L6E08)`
-- `584beb2` — `feat(api): REST endpoints for project, config, providers, and metrics (L6E03)`
-- `47fa85b` — `feat(web): context inspector debug panel, settings page, conversation metrics (L6E09+E10)`
+Date: 2026-04-01
+Repo: /home/gernsback/source/sirtopham
 
-Current state — LAYER 6 COMPLETE
-- Layers 0-5: fully implemented (tools, agent loop, context assembly, providers, conversations)
-- Layer 6 Epics 01-10: ALL COMPLETE
-- `make build` compiles frontend (Vite) → copies dist/ → builds Go binary with embed.FS
-- `make test` — all packages pass
-- Zero TypeScript errors
+What landed this session
 
-Layer 6 status map
-```
-  ✅ Epic 01 — HTTP Server Foundation
-  ✅ Epic 02 — REST API: Conversations (6 endpoints)
-  ✅ Epic 03 — REST API: Project, Config & Metrics (8 endpoints)
-  ✅ Epic 04 — WebSocket Handler
-  ✅ Epic 05 — Serve Command (composition root)
-  ✅ Epic 06 — React Scaffolding (Vite + React + TS + Tailwind + shadcn/ui)
-  ✅ Epic 07 — Conversation UI (streaming chat, thinking, tools, markdown)
-  ✅ Epic 08 — Sidebar & Navigation (conversation list, mobile responsive)
-  ✅ Epic 09 — Context Inspector (debug panel with all sections)
-  ✅ Epic 10 — Settings & Metrics UI (settings page, conversation metrics)
-```
+1. Aggregate fresh tool-result budgeting in the real agent loop path
+- Added aggregate cap over fresh tool results after tool execution and before:
+  - PersistIteration message assembly
+  - current-turn message append for the next request
+- Deterministic policy:
+  - sort largest-first
+  - deprioritize `file_read` for aggressive replacement when other tools can absorb the budget cut
+- Main files:
+  - `internal/agent/loop.go`
+  - `internal/agent/toolresult_budget.go`
+  - `internal/agent/loop_compression_test.go`
 
-Full REST API surface
-  GET    /api/health
-  GET    /api/conversations
-  POST   /api/conversations
-  GET    /api/conversations/:id
-  DELETE /api/conversations/:id
-  GET    /api/conversations/:id/messages
-  GET    /api/conversations/search?q=
-  GET    /api/project
-  GET    /api/project/tree?depth=
-  GET    /api/project/file?path=
-  GET    /api/config
-  PUT    /api/config
-  GET    /api/providers
-  GET    /api/metrics/conversation/:id
-  GET    /api/metrics/conversation/:id/context/:turn
-  WS     /api/ws
+2. Correctness/observability fix for tool execution recording
+- The agent loop previously went through `tool.AgentLoopAdapter.Execute(...)`, which called `Executor.Execute(...)` and bypassed `ExecuteWithMeta(...)`, so `tool_executions` recording could be skipped in the normal RunTurn path.
+- Fixed by passing `tool.ExecutionMeta` through context and having the adapter route single-call execution through `ExecuteWithMeta(...)` when that metadata is present.
+- Main files:
+  - `internal/tool/execution_context.go`
+  - `internal/tool/adapter.go`
+  - `internal/agent/loop.go`
+  - `internal/tool/adapter_persistence_test.go`
+  - `internal/agent/loop_test.go`
 
-Frontend routes
-  /           — Home (new conversation input)
-  /c/:id      — Conversation view (chat + inspector + metrics)
-  /settings   — Settings (providers, model selector, project info)
+3. Next win: persisted oversized tool outputs with preview/reference
+- Aggregate budgeter now prefers persisted-output replacement for oversized non-`file_read` results instead of only blunt inline shrinking.
+- Added a filesystem-backed store with a default tempdir location.
+- Model-visible replacement format currently looks like:
+  - `[Full tool output persisted to <path>]`
+  - `Preview:`
+  - compact preview text
+- Main files:
+  - `internal/agent/toolresult_store.go`
+  - `internal/agent/toolresult_budget.go`
+  - `internal/agent/loop_compression_test.go`
 
-Frontend file map
-  web/src/main.tsx                              — Router (3 routes)
-  web/src/pages/
-    conversation-list.tsx                       — Home page
-    conversation.tsx                            — Chat page + inspector + metrics
-    settings.tsx                                — Settings page
-  web/src/components/layout/
-    root-layout.tsx                             — Sidebar state + hamburger
-    sidebar.tsx                                 — Conv list, nav, mobile
-  web/src/components/chat/
-    thinking-block.tsx                          — Collapsible thinking
-    tool-call-card.tsx                          — Collapsible tool call
-    turn-usage-badge.tsx                        — Token/duration pill
-    markdown-content.tsx                        — Markdown + syntax highlight
-    conversation-metrics.tsx                    — Token/tool/quality metrics
-  web/src/components/inspector/
-    context-inspector.tsx                       — Full inspector panel
-    collapsible-section.tsx                     — Reusable collapsible
-    budget-bar.tsx                              — Token budget stacked bar
-  web/src/hooks/
-    use-conversation.ts                         — Block-based reducer
-    use-conversation-list.ts                    — REST list fetch
-    use-conversation-metrics.ts                 — REST metrics fetch
-    use-context-report.ts                       — REST/WS context reports
-    use-providers.ts                            — REST providers fetch
-    use-project-info.ts                         — REST project info fetch
-    use-websocket.ts                            — WebSocket connection
-  web/src/lib/
-    api.ts                                      — Fetch wrapper
-    history.ts                                  — MessageView → ChatMessage
-    utils.ts                                    — cn() utility
-  web/src/types/
-    api.ts                                      — REST conversation types
-    events.ts                                   — WebSocket event types
-    metrics.ts                                  — Metrics/config/provider types
+Important behavior now
 
-Backend handler files
-  internal/server/server.go                     — HTTP server
-  internal/server/api.go                        — JSON helpers
-  internal/server/conversations.go              — Conversation CRUD
-  internal/server/websocket.go                  — WebSocket streaming
-  internal/server/project.go                    — Project info/tree/file
-  internal/server/configapi.go                  — Config/providers
-  internal/server/metrics.go                    — Metrics/context reports
+- Fresh tool results are budgeted in aggregate, not only individually.
+- Non-`file_read` oversized outputs may be persisted to disk and replaced with a compact preview/reference.
+- `file_read` is still treated specially and is not the first candidate for persistence when another tool result can be reduced instead.
+- The agent loop now passes execution metadata to the tool layer, so adapter-based execution can record `tool_executions` rows.
 
-Important notes for next session
-- shadcn/ui v4 uses @base-ui/react (NOT Radix). No `asChild` prop on Button
-- `erasableSyntaxOnly` in tsconfig — no `public` constructor parameter properties
-- PUT /api/config is runtime-only, NOT persisted to sirtopham.yaml
-- react-syntax-highlighter bundle is ~1MB — consider lazy import if size matters
-- `make test` not `go test ./...` — Makefile has CGo linker flags for lancedb
-- Card and Input UI components exist but are unused (available for future)
+Tests run this session
 
-Development workflow
-- Two terminals: `make dev-backend` + `make dev-frontend`
-- Or production: `make build && ./bin/sirtopham serve --config sirtopham.yaml`
+- `go test ./internal/agent/...`
+- `go test -tags sqlite_fts5 ./internal/tool/...`
+- Focused regressions:
+  - `TestRunTurnAggregateToolResultBudgetShrinksLargestFreshResult`
+  - `TestRunTurnAggregateToolResultBudgetPersistsOversizedNonFileReadResult`
+  - `TestRunTurnPassesExecutionMetaToToolExecutor`
+  - `TestAdapterExecuteRecordsToolExecutionWhenContextMetaPresent`
 
-Validation commands
-- `git log --oneline -10`
-- `make test` (all packages green)
-- `make build && ./bin/sirtopham serve --config sirtopham.yaml`
-- `cd web && npx tsc --noEmit` (zero TS errors)
+Plan file created
+
+- `docs/plans/2026-04-01-aggregate-tool-result-budget-plan.md`
+
+Most important next steps
+
+1. Tighten persisted-output replacement format
+- Current preview/reference string is serviceable but crude.
+- Improve formatting so it is more stable and more useful to the model:
+  - include tool name and tool_use_id
+  - keep the path intact under very small budgets
+  - consider a structured marker format for later parsing/UI rendering
+- File: `internal/agent/toolresult_budget.go`
+
+2. Make artifact storage configurable instead of tempdir-only default
+- Right now the default store writes to:
+  - `filepath.Join(os.TempDir(), "sirtopham-tool-results")`
+- Add config for persisted tool result storage root.
+- Wire from config/serve into `AgentLoopDeps.ToolResultStore` or configurable default store root.
+- Likely files:
+  - `internal/config/config.go`
+  - `cmd/sirtopham/serve.go`
+  - `internal/agent/toolresult_store.go`
+
+3. Revisit iteration persistence atomicity
+- We fixed the adapter bypass for `tool_executions`, but message persistence vs analytics persistence is still not fully unified/transactional.
+- The known adjacent debt remains:
+  - `PersistIteration` only writes message rows
+  - `tool_executions` and `sub_calls` still have separate persistence paths
+- Next correctness slice should decide whether to:
+  - extend `conversation.IterationMessage` / `PersistIteration` to carry optional tool/subcall data, or
+  - explicitly document and tolerate non-atomic analytics persistence
+- Primary files:
+  - `internal/conversation/history.go`
+  - `internal/tool/persistence.go`
+  - `internal/provider/tracking/tracked.go`
+  - docs/spec alignment in `TECH-DEBT.md` / `docs/specs/08-data-model.md`
+
+4. Add observability around persisted-result replacement
+- Useful metrics/logging to add:
+  - number of fresh tool results replaced due to aggregate budget
+  - bytes/chars saved
+  - whether persistence vs inline shrinking was used
+- Best first place is probably debug logging in the agent loop or a tiny return-struct expansion from the budget helper.
+
+5. UI/REST follow-up only if desired
+- If surfaced later, the frontend could render persisted tool-result refs more explicitly.
+- Not required for correctness.
+
+Notes/caveats
+
+- The repo was already dirty before this session. Do not assume only this session’s files are modified.
+- `NEXT_SESSION_HANDOFF.md` previously contained stale UI/API notes from an older slice; it has now been repurposed as the real session handoff.
+- The aggregate budgeting work intentionally avoided schema churn.
+
+Files most worth reading first next session
+
+- `internal/agent/loop.go`
+- `internal/agent/toolresult_budget.go`
+- `internal/agent/toolresult_store.go`
+- `internal/tool/adapter.go`
+- `internal/tool/execution_context.go`
+- `internal/agent/loop_compression_test.go`
+- `internal/tool/adapter_persistence_test.go`
+- `TECH-DEBT.md`
+
+Suggested first command next session
+
+- `go test ./internal/agent/... && go test -tags sqlite_fts5 ./internal/tool/...`

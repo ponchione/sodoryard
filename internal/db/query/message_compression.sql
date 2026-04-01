@@ -44,3 +44,6 @@ INSERT INTO messages (
 UPDATE messages
 SET content = ?
 WHERE id = ?;
+
+-- name: MarkMessageCompressedByID :exec
+UPDATE messages SET is_compressed = 1 WHERE id = ?;

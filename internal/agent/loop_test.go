@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/conversation"
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
+	"github.com/ponchione/sirtopham/internal/conversation"
 	"github.com/ponchione/sirtopham/internal/db"
 	"github.com/ponchione/sirtopham/internal/provider"
+	toolpkg "github.com/ponchione/sirtopham/internal/tool"
 )
 
 // --- Stubs ---
@@ -141,12 +142,14 @@ type providerRouterStub struct {
 	streamEvents [][]provider.StreamEvent // one per call
 	callIndex    int
 	streamErr    error
+	requests     []*provider.Request
 }
 
 func (s *providerRouterStub) Stream(_ stdctx.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
 	if s.streamErr != nil {
 		return nil, s.streamErr
 	}
+	s.requests = append(s.requests, req)
 	idx := s.callIndex
 	if idx >= len(s.streamEvents) {
 		idx = len(s.streamEvents) - 1
@@ -181,6 +184,28 @@ func (s *toolExecutorStub) Execute(_ stdctx.Context, call provider.ToolCall) (*p
 		ToolUseID: call.ID,
 		Content:   "default result",
 	}, nil
+}
+
+type executionMetaCapture struct {
+	conversationID string
+	turnNumber     int
+	iteration      int
+	ok             bool
+}
+
+type toolExecutorMetaStub struct {
+	captures []executionMetaCapture
+}
+
+func (s *toolExecutorMetaStub) Execute(ctx stdctx.Context, call provider.ToolCall) (*provider.ToolResult, error) {
+	meta, ok := toolpkg.ExecutionMetaFromContext(ctx)
+	s.captures = append(s.captures, executionMetaCapture{
+		conversationID: meta.ConversationID,
+		turnNumber:     meta.TurnNumber,
+		iteration:      meta.Iteration,
+		ok:             ok,
+	})
+	return &provider.ToolResult{ToolUseID: call.ID, Content: "ok"}, nil
 }
 
 // --- Tests ---
@@ -785,7 +810,7 @@ func TestRunTurnLoopDetectionInjectsNudge(t *testing.T) {
 			toolResponse, // iteration 1
 			toolResponse, // iteration 2
 			toolResponse, // iteration 3 — loop detected here
-			{             // iteration 4 — different behavior after nudge
+			{ // iteration 4 — different behavior after nudge
 				provider.TokenDelta{Text: "I'll try something different."},
 				provider.StreamDone{
 					StopReason: provider.StopReasonEndTurn,
@@ -1936,6 +1961,51 @@ func TestRunTurnToolDefinitionsOmittedOnFinalIteration(t *testing.T) {
 	// Second request (final iteration) should have NO tools.
 	if len(router.requests[1].Tools) != 0 {
 		t.Fatalf("request 2 (final iteration) has %d tools, want 0", len(router.requests[1].Tools))
+	}
+}
+
+func TestRunTurnPassesExecutionMetaToToolExecutor(t *testing.T) {
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "ctx", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{history: []db.Message{}, seen: loopSeenFilesStub{}}
+	router := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.ToolCallStart{ID: "tc-1", Name: "file_read"},
+				provider.ToolCallEnd{ID: "tc-1", Input: json.RawMessage(`{"path":"main.go"}`)},
+				provider.StreamDone{StopReason: provider.StopReasonToolUse, Usage: provider.Usage{InputTokens: 10, OutputTokens: 5}},
+			},
+			textOnlyStream("done", 10, 3),
+		},
+	}
+	executor := &toolExecutorMetaStub{}
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      router,
+		ToolExecutor:        executor,
+		PromptBuilder:       NewPromptBuilder(nil),
+	})
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-meta",
+		TurnNumber:        7,
+		Message:           "read main.go",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+	if len(executor.captures) != 1 {
+		t.Fatalf("tool executor captures = %d, want 1", len(executor.captures))
+	}
+	capture := executor.captures[0]
+	if !capture.ok {
+		t.Fatal("tool executor context did not include execution meta")
+	}
+	if capture.conversationID != "conv-meta" || capture.turnNumber != 7 || capture.iteration != 1 {
+		t.Fatalf("execution meta = %+v, want conversation=conv-meta turn=7 iteration=1", capture)
 	}
 }
 

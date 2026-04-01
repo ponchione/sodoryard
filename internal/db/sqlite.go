@@ -70,6 +70,7 @@ func buildDSN(filePath string) (string, error) {
 	query.Set("_foreign_keys", "on")
 	query.Set("_journal_mode", "WAL")
 	query.Set("_synchronous", "NORMAL")
+	query.Set("_txlock", "immediate")
 
 	if filePath == ":memory:" {
 		query.Set("mode", "memory")

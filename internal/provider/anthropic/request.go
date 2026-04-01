@@ -35,8 +35,9 @@ type apiCacheControl struct {
 }
 
 type apiMessage struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
+	Role         string           `json:"role"`
+	Content      json.RawMessage  `json:"content"`
+	CacheControl *apiCacheControl `json:"cache_control,omitempty"`
 }
 
 type apiTool struct {
@@ -159,6 +160,12 @@ func (p *AnthropicProvider) buildRequestBody(req *provider.Request, stream bool)
 	// Convert messages.
 	ar.Messages = make([]apiMessage, len(req.Messages))
 	for i, msg := range req.Messages {
+		// Translate provider.CacheControl to apiCacheControl if present.
+		var cc *apiCacheControl
+		if msg.CacheControl != nil {
+			cc = &apiCacheControl{Type: msg.CacheControl.Type}
+		}
+
 		if msg.Role == provider.RoleTool {
 			// Tool result messages are wrapped as user messages with a tool_result
 			// content array.
@@ -176,13 +183,15 @@ func (p *AnthropicProvider) buildRequestBody(req *provider.Request, stream bool)
 			}
 			content, _ := json.Marshal(toolResult)
 			ar.Messages[i] = apiMessage{
-				Role:    "user",
-				Content: json.RawMessage(content),
+				Role:         "user",
+				Content:      json.RawMessage(content),
+				CacheControl: cc,
 			}
 		} else {
 			ar.Messages[i] = apiMessage{
-				Role:    string(msg.Role),
-				Content: msg.Content,
+				Role:         string(msg.Role),
+				Content:      msg.Content,
+				CacheControl: cc,
 			}
 		}
 	}

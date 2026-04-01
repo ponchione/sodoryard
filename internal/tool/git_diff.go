@@ -54,7 +54,13 @@ func (GitDiff) Schema() json.RawMessage {
 func (GitDiff) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
 	var params gitDiffInput
 	if len(input) > 0 {
-		json.Unmarshal(input, &params)
+		if err := json.Unmarshal(input, &params); err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: fmt.Sprintf("Invalid input: %v", err),
+				Error:   err.Error(),
+			}, nil
+		}
 	}
 
 	gitPath, err := exec.LookPath("git")

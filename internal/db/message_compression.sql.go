@@ -109,6 +109,15 @@ func (q *Queries) ListMessagesForCompression(ctx context.Context, conversationID
 	return items, nil
 }
 
+const markMessageCompressedByID = `-- name: MarkMessageCompressedByID :exec
+UPDATE messages SET is_compressed = 1 WHERE id = ?
+`
+
+func (q *Queries) MarkMessageCompressedByID(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, markMessageCompressedByID, id)
+	return err
+}
+
 const markMessagesCompressedBetweenSequences = `-- name: MarkMessagesCompressedBetweenSequences :exec
 UPDATE messages
 SET is_compressed = 1

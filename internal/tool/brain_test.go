@@ -1,0 +1,910 @@
+package tool
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/ponchione/sirtopham/internal/brain"
+	"github.com/ponchione/sirtopham/internal/config"
+)
+
+// ── helpers ──────────────────────────────────────────────────────────
+
+func brainConfig(enabled bool) config.BrainConfig {
+	return config.BrainConfig{Enabled: enabled}
+}
+
+func newMockObsidianServer(t *testing.T, docs map[string]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/vault/")
+
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/search/simple"):
+			w.Header().Set("Content-Type", "application/json")
+			// Return all docs as search results.
+			var results []map[string]interface{}
+			query := r.URL.Query().Get("query")
+			for docPath, content := range docs {
+				if strings.Contains(strings.ToLower(content), strings.ToLower(query)) ||
+					strings.Contains(strings.ToLower(docPath), strings.ToLower(query)) {
+					results = append(results, map[string]interface{}{
+						"filename": docPath,
+						"score":    0.8,
+						"matches": []map[string]interface{}{
+							{
+								"matches": []map[string]interface{}{
+									{"context": content[:min(100, len(content))]},
+								},
+							},
+						},
+					})
+				}
+			}
+			data, _ := json.Marshal(results)
+			w.Write(data)
+			return
+
+		case r.Method == http.MethodGet && strings.HasSuffix(path, "/"):
+			// Directory listing.
+			dir := strings.TrimSuffix(path, "/")
+			var files []string
+			for docPath := range docs {
+				if dir == "" || strings.HasPrefix(docPath, dir+"/") {
+					files = append(files, docPath)
+				}
+			}
+			data, _ := json.Marshal(map[string]interface{}{"files": files})
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data)
+			return
+
+		case r.Method == http.MethodGet:
+			content, ok := docs[path]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Write([]byte(content))
+			return
+
+		case r.Method == http.MethodPut:
+			body := make([]byte, 0, 4096)
+			buf := make([]byte, 1024)
+			for {
+				n, err := r.Body.Read(buf)
+				body = append(body, buf[:n]...)
+				if err != nil {
+					break
+				}
+			}
+			docs[path] = string(body)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+}
+
+// ── brain_search tests ──────────────────────────────────────────────
+
+func TestBrainSearchDisabled(t *testing.T) {
+	tool := NewBrainSearch(nil, brainConfig(false))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"test"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for disabled brain")
+	}
+	if !strings.Contains(result.Content, "not configured") {
+		t.Fatalf("content = %q, want 'not configured' message", result.Content)
+	}
+}
+
+func TestBrainSearchEmptyQuery(t *testing.T) {
+	tool := NewBrainSearch(nil, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":""}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for empty query")
+	}
+}
+
+func TestBrainSearchKeywordSuccess(t *testing.T) {
+	docs := map[string]string{
+		"arch/design.md": "---\ntags: [architecture]\n---\n# Design\nThe pipeline architecture uses channels.",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainSearch(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"pipeline"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "arch/design.md") {
+		t.Fatalf("content doesn't contain path: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Found 1 results") {
+		t.Fatalf("content doesn't contain result count: %q", result.Content)
+	}
+}
+
+func TestBrainSearchNoResults(t *testing.T) {
+	docs := map[string]string{}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainSearch(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"nonexistent"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false for zero results")
+	}
+	if !strings.Contains(result.Content, "No brain documents found") {
+		t.Fatalf("content = %q, want 'No brain documents found'", result.Content)
+	}
+}
+
+func TestBrainSearchSemanticFallback(t *testing.T) {
+	docs := map[string]string{
+		"notes/a.md": "architecture decisions about auth",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainSearch(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"auth","mode":"semantic"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Semantic search is not yet available") {
+		t.Fatalf("content missing semantic notice: %q", result.Content)
+	}
+	// Should still return results via keyword fallback.
+	if !strings.Contains(result.Content, "notes/a.md") {
+		t.Fatalf("content missing keyword results: %q", result.Content)
+	}
+}
+
+func TestBrainSearchWithTags(t *testing.T) {
+	docs := map[string]string{
+		"notes/tagged.md": "# Tagged\nContent with #debugging tag",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainSearch(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"tagged","tags":["debugging"]}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+}
+
+func TestBrainSearchMaxResults(t *testing.T) {
+	docs := map[string]string{
+		"a.md": "test content A",
+		"b.md": "test content B",
+		"c.md": "test content C",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainSearch(client, brainConfig(true))
+	maxResults := 1
+	input, _ := json.Marshal(brainSearchInput{Query: "test", MaxResults: &maxResults})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Found 1 results") {
+		t.Fatalf("expected 1 result, content = %q", result.Content)
+	}
+}
+
+// ── brain_read tests ────────────────────────────────────────────────
+
+func TestBrainReadDisabled(t *testing.T) {
+	tool := NewBrainRead(nil, brainConfig(false))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"test.md"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for disabled brain")
+	}
+}
+
+func TestBrainReadSuccess(t *testing.T) {
+	docs := map[string]string{
+		"arch/design.md": "---\ntags: [architecture]\nstatus: active\n---\n# Design\n\nThe auth system uses [[provider-design]] and [[error-handling]].\n",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainRead(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"arch/design.md"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Path: arch/design.md") {
+		t.Fatalf("missing path header: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "tags: [architecture]") {
+		t.Fatalf("missing frontmatter: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "[[provider-design]]") {
+		t.Fatalf("missing wikilinks: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "[[error-handling]]") {
+		t.Fatalf("missing wikilinks: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "# Design") {
+		t.Fatalf("missing content body: %q", result.Content)
+	}
+}
+
+func TestBrainReadNotFound(t *testing.T) {
+	docs := map[string]string{
+		"arch/other.md": "content",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainRead(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"arch/missing.md"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for missing document")
+	}
+	if !strings.Contains(result.Content, "Document not found") {
+		t.Fatalf("content = %q, want not found message", result.Content)
+	}
+	if !strings.Contains(result.Content, "arch/other.md") {
+		t.Fatalf("content = %q, want directory listing with arch/other.md", result.Content)
+	}
+}
+
+func TestBrainReadNoFrontmatter(t *testing.T) {
+	docs := map[string]string{
+		"notes/plain.md": "# Just a heading\nPlain content without frontmatter.",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainRead(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"notes/plain.md"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if strings.Contains(result.Content, "Frontmatter:") {
+		t.Fatalf("should not contain Frontmatter section: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "# Just a heading") {
+		t.Fatalf("missing content: %q", result.Content)
+	}
+}
+
+func TestBrainReadWithBacklinks(t *testing.T) {
+	docs := map[string]string{
+		"arch/design.md":    "# Design\nCore design document.",
+		"notes/session.md":  "Working on [[design]] today.",
+		"notes/review.md":   "Reviewed the design changes.",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainRead(client, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp",
+		json.RawMessage(`{"path":"arch/design.md","include_backlinks":true}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Referenced by:") {
+		t.Fatalf("missing backlinks section: %q", result.Content)
+	}
+}
+
+// ── brain_write tests ───────────────────────────────────────────────
+
+func TestBrainWriteDisabled(t *testing.T) {
+	tool := NewBrainWrite(nil, brainConfig(false))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"test.md","content":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for disabled brain")
+	}
+}
+
+func TestBrainWriteSuccess(t *testing.T) {
+	docs := map[string]string{}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainWrite(client, brainConfig(true))
+	content := "---\ntags: [test]\n---\n# New Document\nContent here."
+	input, _ := json.Marshal(brainWriteInput{Path: "notes/new.md", Content: content})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Brain document written: notes/new.md") {
+		t.Fatalf("content = %q, want confirmation", result.Content)
+	}
+	if !strings.Contains(result.Content, "bytes") {
+		t.Fatalf("content = %q, want byte count", result.Content)
+	}
+	// Verify the doc was actually stored.
+	if docs["notes/new.md"] != content {
+		t.Fatalf("stored content = %q, want original", docs["notes/new.md"])
+	}
+}
+
+func TestBrainWriteNoFrontmatterWarning(t *testing.T) {
+	docs := map[string]string{}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainWrite(client, brainConfig(true))
+	// No frontmatter — should still succeed but log warning.
+	input, _ := json.Marshal(brainWriteInput{Path: "notes/bare.md", Content: "# No Frontmatter\nJust content."})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+}
+
+func TestBrainWriteEmptyPath(t *testing.T) {
+	tool := NewBrainWrite(nil, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"","content":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for empty path")
+	}
+}
+
+func TestBrainWriteEmptyContent(t *testing.T) {
+	tool := NewBrainWrite(nil, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"test.md","content":""}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for empty content")
+	}
+}
+
+// ── brain_update tests ──────────────────────────────────────────────
+
+func TestBrainUpdateDisabled(t *testing.T) {
+	tool := NewBrainUpdate(nil, brainConfig(false))
+	result, err := tool.Execute(context.Background(), "/tmp",
+		json.RawMessage(`{"path":"test.md","operation":"append","content":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for disabled brain")
+	}
+}
+
+func TestBrainUpdateInvalidOperation(t *testing.T) {
+	tool := NewBrainUpdate(nil, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp",
+		json.RawMessage(`{"path":"test.md","operation":"delete","content":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for invalid operation")
+	}
+	if !strings.Contains(result.Content, "Invalid operation") {
+		t.Fatalf("content = %q, want invalid operation message", result.Content)
+	}
+}
+
+func TestBrainUpdateAppend(t *testing.T) {
+	docs := map[string]string{
+		"notes/journal.md": "---\ntags: [debug]\n---\n# Journal\n\nFirst entry.",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "notes/journal.md",
+		Operation: "append",
+		Content:   "## Second Entry\nMore notes here.",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(docs["notes/journal.md"], "First entry.") {
+		t.Fatal("original content missing after append")
+	}
+	if !strings.Contains(docs["notes/journal.md"], "Second Entry") {
+		t.Fatal("appended content missing")
+	}
+}
+
+func TestBrainUpdatePrependWithFrontmatter(t *testing.T) {
+	docs := map[string]string{
+		"notes/journal.md": "---\ntags: [debug]\n---\n# Journal\n\nExisting content.",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "notes/journal.md",
+		Operation: "prepend",
+		Content:   "## Prepended Section\nThis goes after frontmatter.",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	updated := docs["notes/journal.md"]
+	// Frontmatter should come first.
+	if !strings.HasPrefix(updated, "---") {
+		t.Fatalf("frontmatter should be first: %q", updated[:50])
+	}
+	// Prepended content should come before original content.
+	prependIdx := strings.Index(updated, "Prepended Section")
+	originalIdx := strings.Index(updated, "Existing content")
+	if prependIdx < 0 || originalIdx < 0 || prependIdx >= originalIdx {
+		t.Fatalf("prepend should come before original content. prepend=%d, original=%d\ncontent:\n%s",
+			prependIdx, originalIdx, updated)
+	}
+}
+
+func TestBrainUpdatePrependNoFrontmatter(t *testing.T) {
+	docs := map[string]string{
+		"notes/plain.md": "# Plain\n\nJust content.",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "notes/plain.md",
+		Operation: "prepend",
+		Content:   "## Notice\nThis is prepended.",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	updated := docs["notes/plain.md"]
+	if !strings.HasPrefix(updated, "## Notice") {
+		t.Fatalf("prepended content should be at start: %q", updated[:50])
+	}
+}
+
+func TestBrainUpdateReplaceSection(t *testing.T) {
+	docs := map[string]string{
+		"arch/design.md": "---\ntags: [arch]\n---\n# Design\n\nOverview text.\n\n## Problem\n\nOld problem description.\n\n### Sub Problem\n\nSub problem text.\n\n## Solution\n\nSolution text.\n",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "arch/design.md",
+		Operation: "replace_section",
+		Section:   "## Problem",
+		Content:   "\nNew problem description.\n",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	updated := docs["arch/design.md"]
+	if !strings.Contains(updated, "New problem description") {
+		t.Fatalf("replacement content missing: %s", updated)
+	}
+	if strings.Contains(updated, "Old problem description") {
+		t.Fatalf("old content should be replaced: %s", updated)
+	}
+	if strings.Contains(updated, "Sub Problem") {
+		t.Fatalf("sub-heading should be replaced: %s", updated)
+	}
+	if !strings.Contains(updated, "## Solution") {
+		t.Fatalf("next section should be preserved: %s", updated)
+	}
+}
+
+func TestBrainUpdateReplaceSectionNotFound(t *testing.T) {
+	docs := map[string]string{
+		"arch/design.md": "# Design\n\n## Overview\n\nText.\n\n## Conclusion\n\nEnd.\n",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "arch/design.md",
+		Operation: "replace_section",
+		Section:   "## Workaround",
+		Content:   "New content.",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for missing section")
+	}
+	if !strings.Contains(result.Content, "not found") {
+		t.Fatalf("content = %q, want section not found message", result.Content)
+	}
+	if !strings.Contains(result.Content, "## Overview") {
+		t.Fatalf("content = %q, want available headings", result.Content)
+	}
+}
+
+func TestBrainUpdateReplaceSectionMissingSectionParam(t *testing.T) {
+	docs := map[string]string{
+		"notes/a.md": "# Title\n\nContent.\n",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "notes/a.md",
+		Operation: "replace_section",
+		Content:   "New content.",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for missing section param")
+	}
+	if !strings.Contains(result.Content, "'section' parameter is required") {
+		t.Fatalf("content = %q, want section parameter message", result.Content)
+	}
+}
+
+func TestBrainUpdateDocumentNotFound(t *testing.T) {
+	docs := map[string]string{
+		"notes/existing.md": "content",
+	}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	client := brain.NewObsidianClient(srv.URL, "key")
+	tool := NewBrainUpdate(client, brainConfig(true))
+	input, _ := json.Marshal(brainUpdateInput{
+		Path:      "notes/missing.md",
+		Operation: "append",
+		Content:   "New content.",
+	})
+	result, err := tool.Execute(context.Background(), "/tmp", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for missing document")
+	}
+	if !strings.Contains(result.Content, "Document not found") {
+		t.Fatalf("content = %q, want not found message", result.Content)
+	}
+}
+
+// ── Schema validation ───────────────────────────────────────────────
+
+func TestBrainToolSchemas(t *testing.T) {
+	cfg := brainConfig(true)
+	tools := []Tool{
+		NewBrainSearch(nil, cfg),
+		NewBrainRead(nil, cfg),
+		NewBrainWrite(nil, cfg),
+		NewBrainUpdate(nil, cfg),
+	}
+
+	for _, tool := range tools {
+		t.Run(tool.Name(), func(t *testing.T) {
+			schema := tool.Schema()
+			var parsed map[string]interface{}
+			if err := json.Unmarshal(schema, &parsed); err != nil {
+				t.Fatalf("Schema() is not valid JSON: %v", err)
+			}
+			if parsed["name"] != tool.Name() {
+				t.Fatalf("schema name = %q, want %q", parsed["name"], tool.Name())
+			}
+			if _, ok := parsed["input_schema"]; !ok {
+				t.Fatal("schema missing input_schema")
+			}
+		})
+	}
+}
+
+// ── Registration ────────────────────────────────────────────────────
+
+func TestRegisterBrainTools(t *testing.T) {
+	reg := NewRegistry()
+	RegisterBrainTools(reg, nil, brainConfig(false))
+	names := make(map[string]bool)
+	for _, tool := range reg.All() {
+		names[tool.Name()] = true
+	}
+	for _, expected := range []string{"brain_search", "brain_read", "brain_write", "brain_update"} {
+		if !names[expected] {
+			t.Fatalf("missing tool %q in registry", expected)
+		}
+	}
+}
+
+func TestRegisterBrainToolsNilClient(t *testing.T) {
+	// Should not panic even with nil client.
+	reg := NewRegistry()
+	RegisterBrainTools(reg, nil, brainConfig(true))
+	if len(reg.All()) != 4 {
+		t.Fatalf("tool count = %d, want 4", len(reg.All()))
+	}
+}
+
+// ── Integration test ────────────────────────────────────────────────
+
+func TestBrainToolsIntegrationLifecycle(t *testing.T) {
+	docs := map[string]string{}
+	srv := newMockObsidianServer(t, docs)
+	defer srv.Close()
+
+	cfg := brainConfig(true)
+	client := brain.NewObsidianClient(srv.URL, "key")
+
+	writeT := NewBrainWrite(client, cfg)
+	readT := NewBrainRead(client, cfg)
+	searchT := NewBrainSearch(client, cfg)
+	updateT := NewBrainUpdate(client, cfg)
+
+	ctx := context.Background()
+
+	// 1. Write a document.
+	writeInput, _ := json.Marshal(brainWriteInput{
+		Path:    "decisions/error-handling.md",
+		Content: "---\ntags: [architecture, error-handling]\nstatus: active\n---\n# Error Handling Strategy\n\n## Overview\n\nTool errors are not Go errors, they are ToolResult values.\n\n## Workaround\n\nOld workaround text.\n\n## Impact\n\nMinimal.\n",
+	})
+	result, err := writeT.Execute(ctx, "/tmp", writeInput)
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("write failed: %s", result.Content)
+	}
+
+	// 2. Read it back.
+	readInput := json.RawMessage(`{"path":"decisions/error-handling.md"}`)
+	result, err = readT.Execute(ctx, "/tmp", readInput)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("read failed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Error Handling Strategy") {
+		t.Fatalf("read content missing title: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "tags: [architecture, error-handling]") {
+		t.Fatalf("read content missing frontmatter: %s", result.Content)
+	}
+
+	// 3. Search for it.
+	searchInput := json.RawMessage(`{"query":"error handling"}`)
+	result, err = searchT.Execute(ctx, "/tmp", searchInput)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("search failed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "decisions/error-handling.md") {
+		t.Fatalf("search didn't find document: %s", result.Content)
+	}
+
+	// 4. Update — replace the Workaround section.
+	updateInput, _ := json.Marshal(brainUpdateInput{
+		Path:      "decisions/error-handling.md",
+		Operation: "replace_section",
+		Section:   "## Workaround",
+		Content:   "\nNew workaround: use ToolResult.Error field instead of returning Go errors.\n",
+	})
+	result, err = updateT.Execute(ctx, "/tmp", updateInput)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("update failed: %s", result.Content)
+	}
+
+	// 5. Read again to verify the update.
+	result, err = readT.Execute(ctx, "/tmp", readInput)
+	if err != nil {
+		t.Fatalf("read after update: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("read after update failed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "New workaround") {
+		t.Fatalf("updated content missing: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "Old workaround") {
+		t.Fatalf("old content should be replaced: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "## Impact") {
+		t.Fatalf("next section should be preserved: %s", result.Content)
+	}
+}
+
+// ── wikilink extraction unit tests ──────────────────────────────────
+
+func TestExtractWikilinks(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{"basic", "See [[design]] and [[auth]].", []string{"design", "auth"}},
+		{"with display text", "See [[design|Design Doc]].", []string{"design"}},
+		{"duplicates", "[[a]] and [[a]] again.", []string{"a"}},
+		{"none", "No links here.", nil},
+		{"nested in context", "text\n- [[link1]]\n- [[link2]]\n", []string{"link1", "link2"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractWikilinks(tt.content)
+			if len(got) != len(tt.want) {
+				t.Fatalf("extractWikilinks() = %v, want %v", got, tt.want)
+			}
+			for i, link := range got {
+				if link != tt.want[i] {
+					t.Fatalf("link[%d] = %q, want %q", i, link, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// ── frontmatter extraction unit tests ───────────────────────────────
+
+func TestExtractFrontmatter(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantFM   string
+		wantBody string
+	}{
+		{
+			"with frontmatter",
+			"---\ntags: [test]\nstatus: active\n---\n# Title\nBody.",
+			"tags: [test]\nstatus: active",
+			"# Title\nBody.",
+		},
+		{
+			"no frontmatter",
+			"# Title\nBody.",
+			"",
+			"# Title\nBody.",
+		},
+		{
+			"unclosed frontmatter",
+			"---\ntags: [test]\n# Title",
+			"",
+			"---\ntags: [test]\n# Title",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fm, body := extractFrontmatter(tt.content)
+			if fm != tt.wantFM {
+				t.Fatalf("frontmatter = %q, want %q", fm, tt.wantFM)
+			}
+			if body != tt.wantBody {
+				t.Fatalf("body = %q, want %q", body, tt.wantBody)
+			}
+		})
+	}
+}
+
+// ── section replacement unit tests ──────────────────────────────────
+
+func TestReplaceSectionContent(t *testing.T) {
+	doc := "# Title\n\n## First\n\nFirst content.\n\n### Sub\n\nSub content.\n\n## Second\n\nSecond content.\n"
+
+	// Replace First section (should include Sub heading).
+	updated, err := replaceSectionContent(doc, "## First", "\nReplaced content.\n")
+	if err != nil {
+		t.Fatalf("replaceSectionContent returned error: %v", err)
+	}
+	if !strings.Contains(updated, "Replaced content") {
+		t.Fatalf("replacement missing: %s", updated)
+	}
+	if strings.Contains(updated, "First content") {
+		t.Fatalf("old content should be gone: %s", updated)
+	}
+	if strings.Contains(updated, "Sub content") {
+		t.Fatalf("sub section should be replaced: %s", updated)
+	}
+	if !strings.Contains(updated, "## Second") {
+		t.Fatalf("next section should be preserved: %s", updated)
+	}
+}

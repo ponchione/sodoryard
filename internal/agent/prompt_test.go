@@ -9,6 +9,7 @@ import (
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
 	"github.com/ponchione/sirtopham/internal/db"
 	"github.com/ponchione/sirtopham/internal/provider"
+	anthropicpkg "github.com/ponchione/sirtopham/internal/provider/anthropic"
 )
 
 func TestBuildPromptRequiresBasePrompt(t *testing.T) {
@@ -319,13 +320,28 @@ func TestBuildPromptHistoryGrowthStability(t *testing.T) {
 		t.Fatalf("BuildPrompt(4 history) returned error: %v", err)
 	}
 
-	// The first 2 messages should be byte-identical for cache hits.
+	// The first 2 messages should have identical role + content for cache hits.
+	// CacheControl may differ (the breakpoint moves to the last history message),
+	// so we compare role and content rather than full JSON byte equality.
 	for i := 0; i < 2; i++ {
-		c1, _ := json.Marshal(req1.Messages[i])
-		c2, _ := json.Marshal(req2.Messages[i])
-		if string(c1) != string(c2) {
-			t.Fatalf("Messages[%d] changed between builds: %s vs %s", i, c1, c2)
+		if string(req1.Messages[i].Role) != string(req2.Messages[i].Role) {
+			t.Fatalf("Messages[%d] role changed: %s vs %s", i, req1.Messages[i].Role, req2.Messages[i].Role)
 		}
+		if string(req1.Messages[i].Content) != string(req2.Messages[i].Content) {
+			t.Fatalf("Messages[%d] content changed: %s vs %s", i, req1.Messages[i].Content, req2.Messages[i].Content)
+		}
+	}
+
+	// Cache marker should be on the last history message in each build.
+	if req1.Messages[1].CacheControl == nil {
+		t.Fatal("req1: last history message (index 1) should have CacheControl set")
+	}
+	if req2.Messages[3].CacheControl == nil {
+		t.Fatal("req2: last history message (index 3) should have CacheControl set")
+	}
+	// Interior message in the longer build should NOT have a cache marker.
+	if req2.Messages[1].CacheControl != nil {
+		t.Fatal("req2: interior history message (index 1) should not have CacheControl")
 	}
 }
 
@@ -605,5 +621,47 @@ func TestBuildPromptPhase2CompressionDisabled(t *testing.T) {
 	}
 	if !strings.Contains(content, " 1\t") {
 		t.Errorf("with compression disabled, line numbers should be preserved, got: %q", content)
+	}
+}
+
+// --- Extended thinking tests ---
+
+func TestBuildPromptExtendedThinkingWiredForAnthropic(t *testing.T) {
+	b := NewPromptBuilder(nil)
+	req, err := b.BuildPrompt(PromptConfig{
+		BasePrompt:       "test",
+		ProviderName:     "anthropic",
+		ExtendedThinking: true,
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompt returned error: %v", err)
+	}
+	if req.ProviderOptions == nil {
+		t.Fatal("ProviderOptions is nil, want Anthropic options with thinking enabled")
+	}
+	var opts anthropicpkg.AnthropicOptions
+	if err := json.Unmarshal(req.ProviderOptions, &opts); err != nil {
+		t.Fatalf("failed to unmarshal ProviderOptions: %v", err)
+	}
+	if !opts.ThinkingEnabled {
+		t.Fatal("ThinkingEnabled = false, want true")
+	}
+	if opts.ThinkingBudget != anthropicpkg.DefaultThinkingBudget {
+		t.Fatalf("ThinkingBudget = %d, want %d", opts.ThinkingBudget, anthropicpkg.DefaultThinkingBudget)
+	}
+}
+
+func TestBuildPromptExtendedThinkingNotSetForNonAnthropic(t *testing.T) {
+	b := NewPromptBuilder(nil)
+	req, err := b.BuildPrompt(PromptConfig{
+		BasePrompt:       "test",
+		ProviderName:     "openai",
+		ExtendedThinking: true,
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompt returned error: %v", err)
+	}
+	if len(req.ProviderOptions) != 0 {
+		t.Fatalf("ProviderOptions = %s, want nil/empty for non-Anthropic provider", string(req.ProviderOptions))
 	}
 }

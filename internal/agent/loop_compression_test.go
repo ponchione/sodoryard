@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ type compressionEngineStub struct {
 	err           error
 	callCount     int
 	resultsByCall []*contextpkg.CompressionResult // per-call results if set
-	errsByCall    []error                          // per-call errors if set
+	errsByCall    []error                         // per-call errors if set
 }
 
 func (s *compressionEngineStub) Compress(_ stdctx.Context, conversationID string, _ config.ContextConfig) (*contextpkg.CompressionResult, error) {
@@ -56,10 +57,38 @@ func (s *titleGeneratorStub) GenerateTitle(_ stdctx.Context, conversationID stri
 	s.calls = append(s.calls, conversationID)
 }
 
+type toolResultStoreStub struct {
+	mu     sync.Mutex
+	refs   map[string]string
+	bodies map[string]string
+	err    error
+}
+
+func (s *toolResultStoreStub) PersistToolResult(_ stdctx.Context, toolUseID, toolName, content string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return "", s.err
+	}
+	if s.refs == nil {
+		s.refs = map[string]string{}
+	}
+	if s.bodies == nil {
+		s.bodies = map[string]string{}
+	}
+	ref := s.refs[toolUseID]
+	if ref == "" {
+		ref = fmt.Sprintf("/tmp/persisted/%s-%s.txt", toolName, toolUseID)
+		s.refs[toolUseID] = ref
+	}
+	s.bodies[toolUseID] = content
+	return ref, nil
+}
+
 type updateQualityCapture struct {
-	mu             sync.Mutex
-	calls          []updateQualityCall
-	err            error
+	mu    sync.Mutex
+	calls []updateQualityCall
+	err   error
 }
 
 type updateQualityCall struct {
@@ -159,7 +188,156 @@ func countEventType[T Event](events []Event) int {
 	return count
 }
 
+func mustJSONStringContent(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatalf("unmarshal JSON string content: %v", err)
+	}
+	return s
+}
+
 // --- Tests ---
+
+func TestRunTurnAggregateToolResultBudgetShrinksLargestFreshResult(t *testing.T) {
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	router := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.ToolCallStart{ID: "tc-1", Name: "search_text"},
+				provider.ToolCallEnd{ID: "tc-1", Input: json.RawMessage(`{"query":"auth"}`)},
+				provider.ToolCallStart{ID: "tc-2", Name: "file_read"},
+				provider.ToolCallEnd{ID: "tc-2", Input: json.RawMessage(`{"path":"main.go"}`)},
+				provider.StreamDone{StopReason: provider.StopReasonToolUse, Usage: provider.Usage{InputTokens: 10, OutputTokens: 5}},
+			},
+			textOnlyStream("done", 12, 4),
+		},
+	}
+
+	largeSearch := strings.Repeat("S", 220)
+	mediumRead := strings.Repeat("F", 180)
+	toolExec := &toolExecutorStub{
+		results: map[string]*provider.ToolResult{
+			"tc-1": {ToolUseID: "tc-1", Content: largeSearch},
+			"tc-2": {ToolUseID: "tc-2", Content: mediumRead},
+		},
+	}
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      router,
+		ToolExecutor:        toolExec,
+		PromptBuilder:       NewPromptBuilder(nil),
+		Config: AgentLoopConfig{
+			MaxToolResultsPerMessageChars: 300,
+		},
+	})
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-aggregate-budget",
+		TurnNumber:        1,
+		Message:           "inspect auth",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+
+	if len(router.requests) != 2 {
+		t.Fatalf("router request count = %d, want 2", len(router.requests))
+	}
+
+	secondReq := router.requests[1]
+	var toolContents []string
+	for _, msg := range secondReq.Messages {
+		if msg.Role == provider.RoleTool {
+			toolContents = append(toolContents, mustJSONStringContent(t, msg.Content))
+		}
+	}
+	if len(toolContents) != 2 {
+		t.Fatalf("tool message count in second request = %d, want 2", len(toolContents))
+	}
+
+	if got := len(toolContents[0]) + len(toolContents[1]); got > 300 {
+		t.Fatalf("aggregate fresh tool-result chars in second request = %d, want <= 300; contents=%q / %q", got, toolContents[0], toolContents[1])
+	}
+	if len(toolContents[0]) >= len(largeSearch) {
+		t.Fatalf("search_text result was not shrunk: len=%d original=%d", len(toolContents[0]), len(largeSearch))
+	}
+	if len(toolContents[1]) != len(mediumRead) {
+		t.Fatalf("file_read result should be preserved when non-file_read shrinking is sufficient: len=%d want=%d", len(toolContents[1]), len(mediumRead))
+	}
+}
+
+func TestRunTurnAggregateToolResultBudgetPersistsOversizedNonFileReadResult(t *testing.T) {
+	conversations := &loopConversationManagerStub{history: []db.Message{}, seen: loopSeenFilesStub{}}
+	assembler := &loopContextAssemblerStub{pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true}}
+	router := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.ToolCallStart{ID: "tc-1", Name: "search_text"},
+				provider.ToolCallEnd{ID: "tc-1", Input: json.RawMessage(`{"query":"auth"}`)},
+				provider.StreamDone{StopReason: provider.StopReasonToolUse, Usage: provider.Usage{InputTokens: 10, OutputTokens: 5}},
+			},
+			textOnlyStream("done", 10, 3),
+		},
+	}
+	fullOutput := strings.Repeat("SEARCH-RESULT-LINE\n", 40)
+	toolExec := &toolExecutorStub{results: map[string]*provider.ToolResult{
+		"tc-1": {ToolUseID: "tc-1", Content: fullOutput},
+	}}
+	store := &toolResultStoreStub{}
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      router,
+		ToolExecutor:        toolExec,
+		PromptBuilder:       NewPromptBuilder(nil),
+		ToolResultStore:     store,
+		Config:              AgentLoopConfig{MaxToolResultsPerMessageChars: 120},
+	})
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-persisted-tool-result",
+		TurnNumber:        1,
+		Message:           "inspect auth",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+	if got := store.bodies["tc-1"]; got != fullOutput {
+		t.Fatalf("persisted body = %q, want original full output", got)
+	}
+	secondReq := router.requests[1]
+	var toolContent string
+	for _, msg := range secondReq.Messages {
+		if msg.Role == provider.RoleTool {
+			toolContent = mustJSONStringContent(t, msg.Content)
+			break
+		}
+	}
+	if toolContent == "" {
+		t.Fatal("no tool content found in second request")
+	}
+	if !strings.Contains(toolContent, "/tmp/persisted/search_text-tc-1.txt") {
+		t.Fatalf("tool content = %q, want persisted reference path", toolContent)
+	}
+	if !strings.Contains(toolContent, "Preview:") {
+		t.Fatalf("tool content = %q, want preview marker", toolContent)
+	}
+	if len(toolContent) >= len(fullOutput) {
+		t.Fatalf("tool content len = %d, want less than original len %d", len(toolContent), len(fullOutput))
+	}
+}
 
 func TestRunTurnEmitsStateIdleOnCompletion(t *testing.T) {
 	sink := NewChannelSink(64)

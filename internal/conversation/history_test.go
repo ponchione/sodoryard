@@ -382,15 +382,12 @@ func TestHistoryManagerCancelIterationDeletesToolExecutionsAndSubCalls(t *testin
 		t.Fatalf("after cancel: sub_calls count = %d, want 0", subCallCount)
 	}
 
-	// NOTE: The user message was persisted with iteration=1 (hardcoded in
-	// InsertUserMessage), so cancelling iteration=1 also removes it. In
-	// practice the agent loop avoids this by re-persisting or by using a
-	// distinct iteration namespace for user messages. This test focuses on
-	// tool_executions and sub_calls cleanup, not user-message survival.
+	// The user message survives because DeleteIterationMessages excludes
+	// role='user'. Only assistant/tool messages are removed.
 	var msgCount int
 	database.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE conversation_id = ?`, conversationID).Scan(&msgCount)
-	if msgCount != 0 {
-		t.Fatalf("after cancel iter 1: message count = %d, want 0 (user shares iteration=1)", msgCount)
+	if msgCount != 1 {
+		t.Fatalf("after cancel iter 1: message count = %d, want 1 (user message should survive)", msgCount)
 	}
 }
 
@@ -444,15 +441,10 @@ func TestHistoryManagerCancelIterationPreservesUserMessage(t *testing.T) {
 		t.Fatalf("PersistIteration returned error: %v", err)
 	}
 
-	// Cancel iteration 1 — should remove the assistant but NOT the user message
-	// because the user message is inserted via InsertUserMessage with hardcoded
-	// iteration=1.
-	//
-	// NOTE: The current InsertUserMessage query hardcodes iteration=1. If the
-	// agent loop's CancelIteration targets iteration=1, the user message IS
-	// in the blast radius. In practice the agent loop will only cancel the
-	// in-flight assistant iteration (>= 1), and the user message was persisted
-	// before iterations begin. This test documents the current behavior.
+	// Cancel iteration 1 — should remove the assistant messages but NOT the
+	// user message. The DeleteIterationMessages query has a `role != 'user'`
+	// guard that protects user messages even though they share iteration=1
+	// with assistant messages.
 	if err := manager.CancelIteration(ctx, conversationID, 1, 1); err != nil {
 		t.Fatalf("CancelIteration returned error: %v", err)
 	}
@@ -461,13 +453,14 @@ func TestHistoryManagerCancelIterationPreservesUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTurnMessages returned error: %v", err)
 	}
-	// Both user (iteration=1) and assistant (iteration=1) share the same
-	// iteration value, so the DELETE removes both. This is the expected
-	// current behavior — the agent loop must avoid cancelling iteration=1
-	// for the first iteration of a turn, or a future schema refinement can
-	// separate user-message iteration numbering.
-	if len(rows) != 0 {
-		t.Fatalf("after cancel iter 1: row count = %d, want 0 (user message shares iteration=1)", len(rows))
+	// The user message (iteration=1, role=user) survives the cancel because
+	// DeleteIterationMessages excludes role='user'. Only the assistant
+	// message is deleted.
+	if len(rows) != 1 {
+		t.Fatalf("after cancel iter 1: row count = %d, want 1 (user message should survive)", len(rows))
+	}
+	if rows[0].Role != "user" {
+		t.Fatalf("surviving message role = %q, want \"user\"", rows[0].Role)
 	}
 }
 

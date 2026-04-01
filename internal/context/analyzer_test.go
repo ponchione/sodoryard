@@ -126,6 +126,57 @@ func TestRuleBasedAnalyzerFiltersPascalCaseStopwords(t *testing.T) {
 	}
 }
 
+func TestQuestionIntentSignal(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+
+	needs := analyzer.AnalyzeTurn("why does BuildPrompt return nil?", nil)
+
+	requireSignal(t, needs.Signals, "question_intent", "why", "documentation_boost")
+}
+
+func TestQuestionIntentNoMatch(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+
+	needs := analyzer.AnalyzeTurn("fix the router", nil)
+
+	for _, signal := range needs.Signals {
+		if signal.Type == "question_intent" {
+			t.Fatalf("unexpected question_intent signal: %v", signal)
+		}
+	}
+}
+
+func TestDebuggingHintsSignal(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+
+	needs := analyzer.AnalyzeTurn("there's a panic in the handler", nil)
+
+	requireSignal(t, needs.Signals, "debugging_hints", "panic", "error_handling_boost")
+}
+
+func TestDebuggingHintsNoMatch(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+
+	needs := analyzer.AnalyzeTurn("add a new endpoint", nil)
+
+	for _, signal := range needs.Signals {
+		if signal.Type == "debugging_hints" {
+			t.Fatalf("unexpected debugging_hints signal: %v", signal)
+		}
+	}
+}
+
+func TestQuestionIntentSetsConventions(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+
+	needs := analyzer.AnalyzeTurn("explain the auth flow", nil)
+
+	if !needs.IncludeConventions {
+		t.Fatal("IncludeConventions = false, want true")
+	}
+	requireSignal(t, needs.Signals, "question_intent", "explain", "documentation_boost")
+}
+
 func historyMessage(content string) db.Message {
 	return db.Message{
 		Content: sql.NullString{String: content, Valid: true},

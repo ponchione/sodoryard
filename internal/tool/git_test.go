@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,6 +76,48 @@ func TestGitStatusNormal(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "initial commit") {
 		t.Fatalf("expected commit in recent commits, got:\n%s", result.Content)
+	}
+}
+
+func TestGitStatusCustomRecentCommits(t *testing.T) {
+	requireGit(t)
+	dir := setupGitRepo(t)
+
+	// Create a couple more commits so we have at least 3.
+	for i := 0; i < 3; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file%d.go", i)), []byte(fmt.Sprintf("package p%d\n", i)), 0o644)
+		cmd := exec.Command("git", "add", ".")
+		cmd.Dir = dir
+		cmd.Run()
+		cmd = exec.Command("git", "commit", "-m", fmt.Sprintf("commit %d", i+2))
+		cmd.Dir = dir
+		cmd.Run()
+	}
+
+	// Request only 1 recent commit.
+	result, err := GitStatus{}.Execute(context.Background(), dir,
+		json.RawMessage(`{"recent_commits":1}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Content)
+	}
+	// Should show only 1 commit line in recent commits section.
+	lines := strings.Split(result.Content, "\n")
+	inRecent := false
+	commitLines := 0
+	for _, line := range lines {
+		if strings.Contains(line, "Recent commits:") {
+			inRecent = true
+			continue
+		}
+		if inRecent && strings.TrimSpace(line) != "" {
+			commitLines++
+		}
+	}
+	if commitLines != 1 {
+		t.Fatalf("expected 1 commit line with recent_commits=1, got %d. Output:\n%s", commitLines, result.Content)
 	}
 }
 

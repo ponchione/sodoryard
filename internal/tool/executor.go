@@ -124,7 +124,13 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 	for i := range results {
 		if results[i].Success {
 			results[i].Content = NormalizeToolResult(calls[i].Name, results[i].Content)
-			truncateResult(&results[i], e.config.MaxOutputTokens, calls[i].Name)
+			limit := e.config.MaxOutputTokens
+			if t, ok := e.registry.Get(calls[i].Name); ok {
+				if ol, ok := t.(OutputLimiter); ok {
+					limit = ol.OutputLimit()
+				}
+			}
+			truncateResult(&results[i], limit, calls[i].Name)
 		}
 	}
 

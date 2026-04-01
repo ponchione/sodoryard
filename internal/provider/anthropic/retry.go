@@ -12,9 +12,11 @@ import (
 	"github.com/ponchione/sirtopham/internal/provider"
 )
 
-// classifyError returns a ProviderError based on the HTTP status code and
-// response body.
-func classifyError(statusCode int, body []byte) *provider.ProviderError {
+// classifyError returns a ProviderError based on the HTTP status code,
+// response body, and Retry-After header value.
+func classifyError(statusCode int, body []byte, retryAfterHeader string) *provider.ProviderError {
+	retryAfter := provider.ParseRetryAfter(retryAfterHeader, time.Now())
+
 	switch statusCode {
 	case 401, 403:
 		return &provider.ProviderError{
@@ -29,6 +31,7 @@ func classifyError(statusCode int, body []byte) *provider.ProviderError {
 			StatusCode: statusCode,
 			Message:    "Anthropic rate limit exceeded",
 			Retriable:  true,
+			RetryAfter: retryAfter,
 		}
 	case 400:
 		bodyStr := string(body)
@@ -47,6 +50,7 @@ func classifyError(statusCode int, body []byte) *provider.ProviderError {
 			StatusCode: statusCode,
 			Message:    "Anthropic internal server error",
 			Retriable:  true,
+			RetryAfter: retryAfter,
 		}
 	case 502:
 		return &provider.ProviderError{
@@ -54,6 +58,7 @@ func classifyError(statusCode int, body []byte) *provider.ProviderError {
 			StatusCode: statusCode,
 			Message:    "Anthropic bad gateway",
 			Retriable:  true,
+			RetryAfter: retryAfter,
 		}
 	case 503:
 		return &provider.ProviderError{
@@ -61,6 +66,7 @@ func classifyError(statusCode int, body []byte) *provider.ProviderError {
 			StatusCode: statusCode,
 			Message:    "Anthropic service unavailable",
 			Retriable:  true,
+			RetryAfter: retryAfter,
 		}
 	default:
 		bodyStr := string(body)
@@ -127,10 +133,11 @@ func (p *AnthropicProvider) doWithRetry(ctx context.Context, fn func() (*http.Re
 		}
 
 		// Non-200: read body for error classification.
+		retryAfterHeader := resp.Header.Get("Retry-After")
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		resp.Body.Close()
 
-		lastErr = classifyError(resp.StatusCode, body)
+		lastErr = classifyError(resp.StatusCode, body, retryAfterHeader)
 		if !lastErr.Retriable || attempt == maxAttempts-1 {
 			return nil, lastErr
 		}

@@ -34,10 +34,10 @@ export interface MessageView {
 }
 
 export interface SearchResult {
-  conversation_id: string;
+  id: string;
   title?: string;
+  updated_at: string;
   snippet: string;
-  rank: number;
 }
 
 export interface HealthResponse {

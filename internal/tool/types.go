@@ -29,6 +29,12 @@ func (p Purity) String() string {
 	}
 }
 
+// OutputLimiter is optionally implemented by tools that need a different
+// truncation limit than the global default.
+type OutputLimiter interface {
+	OutputLimit() int
+}
+
 // Tool is the interface every tool implementation must satisfy.
 type Tool interface {
 	// Name returns the tool identifier (e.g., "file_read").

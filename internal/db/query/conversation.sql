@@ -78,7 +78,7 @@ INSERT INTO messages (
 
 -- name: DeleteIterationMessages :exec
 DELETE FROM messages
-WHERE conversation_id = ? AND turn_number = ? AND iteration = ?;
+WHERE conversation_id = ? AND turn_number = ? AND iteration = ? AND role != 'user';
 
 -- name: DeleteIterationToolExecutions :exec
 DELETE FROM tool_executions

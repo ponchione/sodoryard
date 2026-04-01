@@ -112,6 +112,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *provider.Request) (*
 			continue
 		}
 
+		retryAfter := provider.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+
 		switch resp.StatusCode {
 		case 200:
 			var chatResp chatResponse
@@ -139,6 +141,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *provider.Request) (*
 				StatusCode: resp.StatusCode,
 				Message:    fmt.Sprintf("OpenAI-compatible provider '%s': rate limited after %d attempts", p.name, maxRetryAttempts),
 				Retriable:  true,
+				RetryAfter: retryAfter,
 			}
 			continue
 
@@ -148,6 +151,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *provider.Request) (*
 				StatusCode: resp.StatusCode,
 				Message:    fmt.Sprintf("OpenAI-compatible provider '%s': server error (HTTP %d) after %d attempts", p.name, resp.StatusCode, maxRetryAttempts),
 				Retriable:  true,
+				RetryAfter: retryAfter,
 			}
 			continue
 

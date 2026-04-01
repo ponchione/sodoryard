@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useProviders } from "@/hooks/use-providers";
 import { useProjectInfo } from "@/hooks/use-project-info";
 import { api } from "@/lib/api";
@@ -14,7 +14,7 @@ export function SettingsPage() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   // Load config on mount.
-  useState(() => {
+  useEffect(() => {
     api
       .get<AppConfig>("/api/config")
       .then((c) => {
@@ -22,7 +22,7 @@ export function SettingsPage() {
         setConfigLoading(false);
       })
       .catch(() => setConfigLoading(false));
-  });
+  }, []);
 
   const handleModelChange = async (provider: string, model: string) => {
     try {

@@ -32,7 +32,7 @@ func (q *Queries) DeleteConversation(ctx context.Context, id string) error {
 
 const deleteIterationMessages = `-- name: DeleteIterationMessages :exec
 DELETE FROM messages
-WHERE conversation_id = ? AND turn_number = ? AND iteration = ?
+WHERE conversation_id = ? AND turn_number = ? AND iteration = ? AND role != 'user'
 `
 
 type DeleteIterationMessagesParams struct {

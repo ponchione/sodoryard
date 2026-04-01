@@ -3,6 +3,9 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strconv"
+	"time"
 )
 
 // Model describes an LLM model's capabilities. Returned by Provider.Models().
@@ -36,6 +39,8 @@ type ProviderError struct {
 	Message    string
 	Retriable  bool
 	Err        error
+	// RetryAfter is the server-suggested retry delay parsed from the Retry-After HTTP header.
+	RetryAfter time.Duration
 }
 
 // Error implements the error interface.
@@ -49,6 +54,32 @@ func (e *ProviderError) Error() string {
 // Unwrap returns the underlying error for errors.Is/errors.As chain traversal.
 func (e *ProviderError) Unwrap() error {
 	return e.Err
+}
+
+// ParseRetryAfter parses a Retry-After header value into a time.Duration.
+// The header can be either a number of seconds (e.g. "120") or an HTTP-date
+// (e.g. "Fri, 31 Dec 1999 23:59:59 GMT"). Returns 0 if the header is empty
+// or unparseable.
+func ParseRetryAfter(headerVal string, now time.Time) time.Duration {
+	if headerVal == "" {
+		return 0
+	}
+	// Try as seconds first.
+	if seconds, err := strconv.ParseFloat(headerVal, 64); err == nil {
+		if seconds > 0 {
+			return time.Duration(seconds * float64(time.Second))
+		}
+		return 0
+	}
+	// Try as HTTP-date.
+	if t, err := http.ParseTime(headerVal); err == nil {
+		d := t.Sub(now)
+		if d > 0 {
+			return d
+		}
+		return 0
+	}
+	return 0
 }
 
 // NewProviderError creates a ProviderError with automatic Retriable determination.

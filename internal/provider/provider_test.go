@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ponchione/sirtopham/internal/provider"
 )
@@ -158,5 +159,83 @@ func TestNewToolResultMessage(t *testing.T) {
 	}
 	if text != "file contents here" {
 		t.Fatalf("expected content %q, got %q", "file contents here", text)
+	}
+}
+
+func TestProviderErrorRetryAfterField(t *testing.T) {
+	pe := &provider.ProviderError{
+		Provider:   "test",
+		StatusCode: 429,
+		Message:    "rate limited",
+		Retriable:  true,
+		RetryAfter: 30 * time.Second,
+	}
+	if pe.RetryAfter != 30*time.Second {
+		t.Errorf("RetryAfter = %v, want 30s", pe.RetryAfter)
+	}
+
+	// Zero value when not set.
+	pe2 := provider.NewProviderError("test", 429, "rate limited", nil)
+	if pe2.RetryAfter != 0 {
+		t.Errorf("RetryAfter = %v, want 0 (not set)", pe2.RetryAfter)
+	}
+}
+
+func TestParseRetryAfter_Seconds(t *testing.T) {
+	now := time.Now()
+	d := provider.ParseRetryAfter("120", now)
+	if d != 120*time.Second {
+		t.Errorf("ParseRetryAfter(\"120\") = %v, want 120s", d)
+	}
+}
+
+func TestParseRetryAfter_FractionalSeconds(t *testing.T) {
+	now := time.Now()
+	d := provider.ParseRetryAfter("1.5", now)
+	if d != 1500*time.Millisecond {
+		t.Errorf("ParseRetryAfter(\"1.5\") = %v, want 1.5s", d)
+	}
+}
+
+func TestParseRetryAfter_HTTPDate(t *testing.T) {
+	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	future := now.Add(60 * time.Second)
+	// HTTP dates use RFC1123 with "GMT" (not "UTC").
+	headerVal := future.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
+	d := provider.ParseRetryAfter(headerVal, now)
+	// Allow small tolerance for rounding.
+	if d < 59*time.Second || d > 61*time.Second {
+		t.Errorf("ParseRetryAfter(HTTP-date) = %v, want ~60s", d)
+	}
+}
+
+func TestParseRetryAfter_Empty(t *testing.T) {
+	d := provider.ParseRetryAfter("", time.Now())
+	if d != 0 {
+		t.Errorf("ParseRetryAfter(\"\") = %v, want 0", d)
+	}
+}
+
+func TestParseRetryAfter_Invalid(t *testing.T) {
+	d := provider.ParseRetryAfter("not-a-number-or-date", time.Now())
+	if d != 0 {
+		t.Errorf("ParseRetryAfter(invalid) = %v, want 0", d)
+	}
+}
+
+func TestParseRetryAfter_ZeroSeconds(t *testing.T) {
+	d := provider.ParseRetryAfter("0", time.Now())
+	if d != 0 {
+		t.Errorf("ParseRetryAfter(\"0\") = %v, want 0", d)
+	}
+}
+
+func TestParseRetryAfter_PastDate(t *testing.T) {
+	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-60 * time.Second)
+	headerVal := past.UTC().Format(time.RFC1123)
+	d := provider.ParseRetryAfter(headerVal, now)
+	if d != 0 {
+		t.Errorf("ParseRetryAfter(past date) = %v, want 0", d)
 	}
 }

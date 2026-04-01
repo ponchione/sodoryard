@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ponchione/sirtopham/internal/provider"
 )
@@ -107,6 +108,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *provider.Request) (<-c
 
 	// Handle non-200 responses before streaming.
 	if resp.StatusCode != 200 {
+		retryAfter := provider.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 		resp.Body.Close()
 		switch resp.StatusCode {
 		case 401, 403:
@@ -122,6 +124,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *provider.Request) (<-c
 				StatusCode: resp.StatusCode,
 				Message:    fmt.Sprintf("OpenAI-compatible provider '%s': rate limited", p.name),
 				Retriable:  true,
+				RetryAfter: retryAfter,
 			}
 		case 500, 502, 503:
 			return nil, &provider.ProviderError{
@@ -129,6 +132,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *provider.Request) (<-c
 				StatusCode: resp.StatusCode,
 				Message:    fmt.Sprintf("OpenAI-compatible provider '%s': server error (HTTP %d)", p.name, resp.StatusCode),
 				Retriable:  true,
+				RetryAfter: retryAfter,
 			}
 		default:
 			return nil, &provider.ProviderError{

@@ -359,7 +359,10 @@ func TestIntegration_Validate_DefaultProviderUnavailable(t *testing.T) {
 
 	// Register both providers.
 	anthropicMock := &mockProvider{name: "anthropic"}
-	localMock := &mockProvider{name: "local"}
+	localMock := &mockProvider{
+		name:   "local",
+		models: []provider.Model{{ID: "local-model"}},
+	}
 	_ = r.RegisterProvider(anthropicMock)
 	_ = r.RegisterProvider(localMock)
 
@@ -377,10 +380,14 @@ func TestIntegration_Validate_DefaultProviderUnavailable(t *testing.T) {
 	// Default should now point to the remaining provider.
 	r.mu.RLock()
 	defaultProvider := r.config.Default.Provider
+	defaultModel := r.config.Default.Model
 	r.mu.RUnlock()
 
 	if defaultProvider != "local" {
 		t.Fatalf("expected default to be 'local', got '%s'", defaultProvider)
+	}
+	if defaultModel != "local-model" {
+		t.Fatalf("expected default model to be 'local-model', got '%s'", defaultModel)
 	}
 }
 

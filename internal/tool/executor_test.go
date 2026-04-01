@@ -368,3 +368,125 @@ func TestExecutorIntegrationMixedBatch(t *testing.T) {
 		}
 	}
 }
+
+// mockToolWithOutputLimit is a mockTool that also implements OutputLimiter.
+type mockToolWithOutputLimit struct {
+	*mockTool
+	outputLimit int
+}
+
+func (m *mockToolWithOutputLimit) OutputLimit() int {
+	return m.outputLimit
+}
+
+func TestExecutorPerToolTruncationOverride(t *testing.T) {
+	reg := NewRegistry()
+
+	// A tool with a small per-tool output limit (100 tokens ≈ 400 chars).
+	limitedTool := &mockToolWithOutputLimit{
+		mockTool:    newMockTool("limited_tool", Pure),
+		outputLimit: 100,
+	}
+	// Generate content that exceeds per-tool limit (100 tokens) but not global (50000).
+	bigContent := strings.Repeat("x", 2000) // 2000 chars ≈ 500 tokens
+	limitedTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		return &ToolResult{Success: true, Content: bigContent}, nil
+	}
+	reg.Register(limitedTool)
+
+	// A normal tool without OutputLimiter — should use global limit.
+	normalTool := newMockTool("normal_tool", Pure)
+	normalTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		return &ToolResult{Success: true, Content: bigContent}, nil
+	}
+	reg.Register(normalTool)
+
+	exec := NewExecutor(reg, ExecutorConfig{MaxOutputTokens: 50000}, nil)
+
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-1", Name: "limited_tool", Arguments: json.RawMessage(`{}`)},
+		{ID: "tc-2", Name: "normal_tool", Arguments: json.RawMessage(`{}`)},
+	})
+
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+
+	// limited_tool should have truncated output (100 tokens ≈ 400 chars max).
+	if !results[0].Success {
+		t.Fatalf("limited_tool failed: %s", results[0].Error)
+	}
+	// The per-tool limit is 100 tokens. At ~4 chars/token, that's ~400 chars.
+	// Our 2000-char content should be truncated.
+	if len(results[0].Content) >= len(bigContent) {
+		t.Fatalf("limited_tool output should be truncated, got %d chars (original %d)",
+			len(results[0].Content), len(bigContent))
+	}
+	if !strings.Contains(results[0].Content, "truncated") {
+		t.Fatalf("limited_tool output should contain truncation notice, got: %s",
+			results[0].Content[len(results[0].Content)-100:])
+	}
+
+	// normal_tool should NOT be truncated (2000 chars is well under 50000 tokens).
+	if !results[1].Success {
+		t.Fatalf("normal_tool failed: %s", results[1].Error)
+	}
+	if len(results[1].Content) != len(bigContent) {
+		t.Fatalf("normal_tool output should not be truncated, got %d chars (expected %d)",
+			len(results[1].Content), len(bigContent))
+	}
+}
+
+func TestExecutorOutputLimiterInterfaceCheck(t *testing.T) {
+	// Verify the type assertion works correctly.
+	limited := &mockToolWithOutputLimit{
+		mockTool:    newMockTool("test", Pure),
+		outputLimit: 42,
+	}
+
+	// Should satisfy both Tool and OutputLimiter.
+	var tool Tool = limited
+	ol, ok := tool.(OutputLimiter)
+	if !ok {
+		t.Fatal("mockToolWithOutputLimit should implement OutputLimiter")
+	}
+	if ol.OutputLimit() != 42 {
+		t.Fatalf("OutputLimit() = %d, want 42", ol.OutputLimit())
+	}
+
+	// Regular mockTool should NOT implement OutputLimiter.
+	var regularTool Tool = newMockTool("regular", Pure)
+	if _, ok := regularTool.(OutputLimiter); ok {
+		t.Fatal("regular mockTool should not implement OutputLimiter")
+	}
+}
+
+func TestExecutorPerToolTruncationZeroLimit(t *testing.T) {
+	// If per-tool limit is 0, truncateResult should treat it as unlimited
+	// (same as global 0 behavior).
+	reg := NewRegistry()
+
+	zeroLimitTool := &mockToolWithOutputLimit{
+		mockTool:    newMockTool("zero_limit", Pure),
+		outputLimit: 0,
+	}
+	content := strings.Repeat("a", 1000)
+	zeroLimitTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		return &ToolResult{Success: true, Content: content}, nil
+	}
+	reg.Register(zeroLimitTool)
+
+	exec := NewExecutor(reg, ExecutorConfig{MaxOutputTokens: 50000}, nil)
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-1", Name: "zero_limit", Arguments: json.RawMessage(`{}`)},
+	})
+
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	// With limit=0, truncateResult skips truncation, so content should be unchanged.
+	if results[0].Content != content {
+		t.Fatalf("zero limit should not truncate, got %d chars (expected %d)",
+			len(results[0].Content), len(content))
+	}
+}

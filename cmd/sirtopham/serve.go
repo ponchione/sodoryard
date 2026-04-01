@@ -13,10 +13,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ponchione/sirtopham/internal/agent"
+	"github.com/ponchione/sirtopham/internal/brain"
 	appconfig "github.com/ponchione/sirtopham/internal/config"
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
 	"github.com/ponchione/sirtopham/internal/conversation"
 	appdb "github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sirtopham/internal/logging"
 	"github.com/ponchione/sirtopham/internal/provider"
 	"github.com/ponchione/sirtopham/internal/provider/anthropic"
 	"github.com/ponchione/sirtopham/internal/provider/openai"
@@ -68,15 +70,10 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	}
 
 	// ── 2. Set up structured logger ────────────────────────────────────
-	var logHandler slog.Handler
-	logLevel := parseLogLevel(cfg.LogLevel)
-	if cfg.LogFormat == "json" {
-		logHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
-	} else {
-		logHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
+	logger, err := logging.Init(cfg.LogLevel, cfg.LogFormat)
+	if err != nil {
+		return fmt.Errorf("init logging: %w", err)
 	}
-	logger := slog.New(logHandler)
-	slog.SetDefault(logger)
 
 	// ── 3. Open database ───────────────────────────────────────────────
 	database, err := appdb.OpenDB(cmd.Context(), cfg.DatabasePath())
@@ -138,6 +135,17 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 		Denylist:       cfg.Agent.ShellDenylist,
 	})
 	tool.RegisterSearchTools(registry, nil) // No semantic searcher in v0.1 serve
+
+	// Brain tools — connect to Obsidian REST API if brain is enabled.
+	var brainClient *brain.ObsidianClient
+	if cfg.Brain.Enabled {
+		apiURL := cfg.Brain.ObsidianAPIURL
+		if apiURL == "" {
+			apiURL = "http://localhost:27124"
+		}
+		brainClient = brain.NewObsidianClient(apiURL, cfg.Brain.ObsidianAPIKey)
+	}
+	tool.RegisterBrainTools(registry, brainClient, cfg.Brain)
 
 	executor := tool.NewExecutor(registry, tool.ExecutorConfig{
 		MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens,
@@ -274,18 +282,7 @@ func buildProvider(name string, cfg appconfig.ProviderConfig) (provider.Provider
 	}
 }
 
-func parseLogLevel(level string) slog.Level {
-	switch level {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
+
 
 func launchBrowser(url string, logger *slog.Logger) {
 	time.Sleep(500 * time.Millisecond) // Let server start.

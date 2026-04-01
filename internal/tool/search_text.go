@@ -15,6 +15,7 @@ type SearchText struct{}
 
 type searchTextInput struct {
 	Pattern      string `json:"pattern"`
+	Path         string `json:"path,omitempty"`
 	FileGlob     string `json:"file_glob,omitempty"`
 	ContextLines *int   `json:"context_lines,omitempty"`
 	MaxResults   *int   `json:"max_results,omitempty"`
@@ -37,6 +38,10 @@ func (SearchText) Schema() json.RawMessage {
 				"pattern": {
 					"type": "string",
 					"description": "Search pattern (string or regex)"
+				},
+				"path": {
+					"type": "string",
+					"description": "Optional subdirectory to scope the search to (relative to project root)"
 				},
 				"file_glob": {
 					"type": "string",
@@ -113,6 +118,21 @@ func (SearchText) Execute(ctx context.Context, projectRoot string, input json.Ra
 	}
 
 	args = append(args, "--", params.Pattern)
+
+	// Determine search directory — default to project root ("."), or
+	// scope to a validated subdirectory if params.Path is set.
+	searchDir := "."
+	if params.Path != "" {
+		if _, err := resolvePath(projectRoot, params.Path); err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: err.Error(),
+				Error:   err.Error(),
+			}, nil
+		}
+		searchDir = params.Path
+	}
+	args = append(args, searchDir)
 
 	cmd := exec.CommandContext(ctx, rgPath, args...)
 	cmd.Dir = projectRoot

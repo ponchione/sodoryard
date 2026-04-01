@@ -40,7 +40,13 @@ func (GitStatus) Schema() json.RawMessage {
 func (GitStatus) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
 	var params gitStatusInput
 	if len(input) > 0 {
-		json.Unmarshal(input, &params)
+		if err := json.Unmarshal(input, &params); err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: fmt.Sprintf("Invalid input: %v", err),
+				Error:   err.Error(),
+			}, nil
+		}
 	}
 
 	recentCommits := 5

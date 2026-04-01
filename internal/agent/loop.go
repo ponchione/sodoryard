@@ -6,15 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/conversation"
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
+	"github.com/ponchione/sirtopham/internal/conversation"
 	"github.com/ponchione/sirtopham/internal/db"
 	"github.com/ponchione/sirtopham/internal/provider"
+	toolpkg "github.com/ponchione/sirtopham/internal/tool"
 )
 
 // ErrTurnCancelled is returned by RunTurn when the turn is cancelled via
@@ -22,8 +25,9 @@ import (
 var ErrTurnCancelled = errors.New("agent loop: turn cancelled")
 
 const (
-	defaultMaxIterations       = 50
-	defaultLoopDetectThreshold = 3
+	defaultMaxIterations                 = 50
+	defaultLoopDetectThreshold           = 3
+	defaultMaxToolResultsPerMessageChars = 200_000
 
 	// loopNudgeMessage is injected as a user message when the loop detector
 	// identifies repeated identical tool calls across consecutive iterations.
@@ -74,14 +78,15 @@ type ToolExecutor interface {
 // AgentLoopConfig carries the initial state-machine knobs for the future full
 // RunTurn implementation.
 type AgentLoopConfig struct {
-	MaxIterations          int                  `json:"max_iterations,omitempty"`
-	LoopDetectionThreshold int                  `json:"loop_detection_threshold,omitempty"`
-	ExtendedThinking       bool                 `json:"extended_thinking,omitempty"`
-	BasePrompt             string               `json:"base_prompt,omitempty"`
-	ProviderName           string               `json:"provider_name,omitempty"`
-	ModelName              string               `json:"model_name,omitempty"`
-	EmitContextDebug       bool                 `json:"emit_context_debug,omitempty"`
-	ContextConfig          config.ContextConfig  `json:"context_config,omitempty"`
+	MaxIterations                 int                  `json:"max_iterations,omitempty"`
+	LoopDetectionThreshold        int                  `json:"loop_detection_threshold,omitempty"`
+	ExtendedThinking              bool                 `json:"extended_thinking,omitempty"`
+	BasePrompt                    string               `json:"base_prompt,omitempty"`
+	ProviderName                  string               `json:"provider_name,omitempty"`
+	ModelName                     string               `json:"model_name,omitempty"`
+	EmitContextDebug              bool                 `json:"emit_context_debug,omitempty"`
+	ContextConfig                 config.ContextConfig `json:"context_config,omitempty"`
+	MaxToolResultsPerMessageChars int                  `json:"max_tool_results_per_message_chars,omitempty"`
 
 	// Phase 2 history compression (spec 11).
 	CompressHistoricalResults  bool `json:"compress_historical_results,omitempty"`
@@ -98,6 +103,7 @@ type AgentLoopDeps struct {
 	PromptBuilder       *PromptBuilder
 	EventSink           EventSink
 	CompressionEngine   CompressionEngine
+	ToolResultStore     ToolResultStore
 	TitleGenerator      TitleGenerator
 	Config              AgentLoopConfig
 	Logger              *slog.Logger
@@ -110,12 +116,21 @@ type RunTurnRequest struct {
 	Message           string `json:"message"`
 	ModelContextLimit int    `json:"model_context_limit"`
 	HistoryTokenCount int    `json:"history_token_count,omitempty"`
+
+	// Model overrides the default model for this turn. If empty, the router's
+	// default model is used. Populated by the WebSocket model_override event.
+	Model string `json:"model,omitempty"`
+
+	// Provider overrides the default provider for this turn. If empty, the
+	// router's default provider is used. Populated by the WebSocket
+	// model_override event.
+	Provider string `json:"provider,omitempty"`
 }
 
 // TurnStartResult holds the frozen per-turn context package plus the history
 // used to build it.
 type TurnStartResult struct {
-	History           []db.Message                  `json:"history,omitempty"`
+	History           []db.Message                   `json:"history,omitempty"`
 	ContextPackage    *contextpkg.FullContextPackage `json:"context_package,omitempty"`
 	CompressionNeeded bool                           `json:"compression_needed,omitempty"`
 }
@@ -132,6 +147,7 @@ type AgentLoop struct {
 	promptBuilder       *PromptBuilder
 	events              *MultiSink
 	compressionEngine   CompressionEngine
+	toolResultStore     ToolResultStore
 	titleGenerator      TitleGenerator
 	cfg                 AgentLoopConfig
 	contextCfg          config.ContextConfig
@@ -155,7 +171,7 @@ func NewAgentLoop(deps AgentLoopDeps) *AgentLoop {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &AgentLoop{
+	loop := &AgentLoop{
 		contextAssembler:    deps.ContextAssembler,
 		conversationManager: deps.ConversationManager,
 		providerRouter:      deps.ProviderRouter,
@@ -164,12 +180,17 @@ func NewAgentLoop(deps AgentLoopDeps) *AgentLoop {
 		promptBuilder:       deps.PromptBuilder,
 		events:              events,
 		compressionEngine:   deps.CompressionEngine,
+		toolResultStore:     deps.ToolResultStore,
 		titleGenerator:      deps.TitleGenerator,
 		cfg:                 withDefaultConfig(deps.Config),
 		contextCfg:          deps.Config.ContextConfig,
 		logger:              logger,
 		now:                 time.Now,
 	}
+	if loop.toolResultStore == nil {
+		loop.toolResultStore = NewFileToolResultStore(filepath.Join(os.TempDir(), "sirtopham-tool-results"))
+	}
+	return loop
 }
 
 // Subscribe adds another event sink to the loop's internal fan-out sink.
@@ -241,6 +262,12 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	if err := l.validate(); err != nil {
 		return nil, err
 	}
+	if l.providerRouter == nil {
+		return nil, fmt.Errorf("agent loop: provider router is nil")
+	}
+	if l.toolExecutor == nil {
+		return nil, fmt.Errorf("agent loop: tool executor is nil")
+	}
 	if err := validateRunTurnRequest(req); err != nil {
 		return nil, err
 	}
@@ -285,6 +312,19 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	}
 
 	// Step 3: Iteration loop.
+	//
+	// Resolve per-turn model/provider overrides. If the request carries an
+	// override (from the WebSocket model_override event), use it; otherwise
+	// use the config defaults.
+	effectiveModel := l.cfg.ModelName
+	if req.Model != "" {
+		effectiveModel = req.Model
+	}
+	effectiveProvider := l.cfg.ProviderName
+	if req.Provider != "" {
+		effectiveProvider = req.Provider
+	}
+
 	iteration := 1
 	completedIterations := 0
 	var totalUsage provider.Usage
@@ -295,7 +335,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	// Add the user message as the first current-turn message.
 	currentTurnMessages = append(currentTurnMessages, provider.NewUserMessage(req.Message))
 
-	for iteration <= l.cfg.MaxIterations {
+	for l.cfg.MaxIterations == 0 || iteration <= l.cfg.MaxIterations {
 		l.logger.Info("starting iteration",
 			"conversation_id", req.ConversationID,
 			"turn", req.TurnNumber,
@@ -317,7 +357,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 		}
 
 		// Determine if this is the last allowed iteration — disable tools to force text.
-		disableTools := iteration >= l.cfg.MaxIterations
+		disableTools := l.cfg.MaxIterations > 0 && iteration >= l.cfg.MaxIterations
 
 		// Inject directive on final iteration to guide the LLM toward a summary.
 		if disableTools {
@@ -339,8 +379,8 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			History:                    history,
 			CurrentTurnMessages:        currentTurnMessages,
 			ToolDefinitions:            l.toolDefinitions,
-			ProviderName:               l.cfg.ProviderName,
-			ModelName:                  l.cfg.ModelName,
+			ProviderName:               effectiveProvider,
+			ModelName:                  effectiveModel,
 			ContextLimit:               req.ModelContextLimit,
 			DisableTools:               disableTools,
 			Purpose:                    "chat",
@@ -349,6 +389,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			Iteration:                  iteration,
 			CompressHistoricalResults:  l.cfg.CompressHistoricalResults,
 			HistorySummarizeAfterTurns: l.cfg.HistorySummarizeAfterTurns,
+			ExtendedThinking:           l.cfg.ExtendedThinking,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("agent loop: build prompt for iteration %d: %w", iteration, err)
@@ -367,8 +408,8 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				History:                    history,
 				CurrentTurnMessages:        currentTurnMessages,
 				ToolDefinitions:            l.toolDefinitions,
-				ProviderName:               l.cfg.ProviderName,
-				ModelName:                  l.cfg.ModelName,
+				ProviderName:               effectiveProvider,
+				ModelName:                  effectiveModel,
 				ContextLimit:               req.ModelContextLimit,
 				DisableTools:               disableTools,
 				Purpose:                    "chat",
@@ -377,6 +418,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				Iteration:                  iteration,
 				CompressHistoricalResults:  l.cfg.CompressHistoricalResults,
 				HistorySummarizeAfterTurns: l.cfg.HistorySummarizeAfterTurns,
+				ExtendedThinking:           l.cfg.ExtendedThinking,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("agent loop: rebuild prompt after compression in iteration %d: %w", iteration, err)
@@ -527,7 +569,12 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			})
 
 			toolStart := l.now()
-			toolResult, toolErr := l.toolExecutor.Execute(ctx, tc)
+			execCtx := toolpkg.ContextWithExecutionMeta(ctx, toolpkg.ExecutionMeta{
+				ConversationID: req.ConversationID,
+				TurnNumber:     req.TurnNumber,
+				Iteration:      iteration,
+			})
+			toolResult, toolErr := l.toolExecutor.Execute(execCtx, tc)
 			toolDuration := l.now().Sub(toolStart)
 
 			// Check if tool execution was cancelled.
@@ -573,6 +620,8 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 		if toolsCancelled {
 			return nil, l.handleCancellation(req.ConversationID, req.TurnNumber, iteration, completedIterations, ctx.Err())
 		}
+
+		toolResults = applyAggregateToolResultBudget(ctx, l.toolResultStore, toolResults, result.ToolCalls, l.cfg.MaxToolResultsPerMessageChars)
 
 		// Build the iteration messages for persistence: assistant + tool results.
 		persistMessages := []conversation.IterationMessage{
@@ -899,14 +948,24 @@ func (l *AgentLoop) tryEmergencyCompression(
 		return nil, fmt.Errorf("agent loop: reconstruct history after emergency compression in iteration %d: %w", iteration, err)
 	}
 
+	// Resolve per-turn overrides for emergency compression path.
+	emerModel := l.cfg.ModelName
+	if req.Model != "" {
+		emerModel = req.Model
+	}
+	emerProvider := l.cfg.ProviderName
+	if req.Provider != "" {
+		emerProvider = req.Provider
+	}
+
 	promptReq, err := l.promptBuilder.BuildPrompt(PromptConfig{
 		BasePrompt:                 l.cfg.BasePrompt,
 		ContextPackage:             turnCtx.ContextPackage,
 		History:                    history,
 		CurrentTurnMessages:        currentTurnMessages,
 		ToolDefinitions:            l.toolDefinitions,
-		ProviderName:               l.cfg.ProviderName,
-		ModelName:                  l.cfg.ModelName,
+		ProviderName:               emerProvider,
+		ModelName:                  emerModel,
 		ContextLimit:               req.ModelContextLimit,
 		DisableTools:               disableTools,
 		Purpose:                    "chat",
@@ -915,6 +974,7 @@ func (l *AgentLoop) tryEmergencyCompression(
 		Iteration:                  iteration,
 		CompressHistoricalResults:  l.cfg.CompressHistoricalResults,
 		HistorySummarizeAfterTurns: l.cfg.HistorySummarizeAfterTurns,
+		ExtendedThinking:           l.cfg.ExtendedThinking,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("agent loop: rebuild prompt after emergency compression in iteration %d: %w", iteration, err)
@@ -1007,7 +1067,7 @@ func validateRunTurnRequest(req RunTurnRequest) error {
 }
 
 func withDefaultConfig(cfg AgentLoopConfig) AgentLoopConfig {
-	if cfg.MaxIterations <= 0 {
+	if cfg.MaxIterations < 0 {
 		cfg.MaxIterations = defaultMaxIterations
 	}
 	if cfg.LoopDetectionThreshold <= 0 {
@@ -1018,6 +1078,9 @@ func withDefaultConfig(cfg AgentLoopConfig) AgentLoopConfig {
 	}
 	if cfg.BasePrompt == "" {
 		cfg.BasePrompt = "You are a helpful AI assistant."
+	}
+	if cfg.MaxToolResultsPerMessageChars <= 0 {
+		cfg.MaxToolResultsPerMessageChars = defaultMaxToolResultsPerMessageChars
 	}
 	return cfg
 }

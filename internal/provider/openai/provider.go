@@ -98,3 +98,38 @@ func (p *OpenAIProvider) ContextLength() int {
 
 // Compile-time assertion that OpenAIProvider satisfies provider.Provider.
 var _ provider.Provider = (*OpenAIProvider)(nil)
+
+// Compile-time assertion that OpenAIProvider satisfies provider.Pinger.
+var _ provider.Pinger = (*OpenAIProvider)(nil)
+
+// Ping performs a lightweight reachability check by sending an HTTP HEAD request
+// to the provider's base URL. This is faster than a Models() call and sufficient
+// to verify that a local or OpenAI-compatible server is reachable.
+func (p *OpenAIProvider) Ping(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", p.baseURL, nil)
+	if err != nil {
+		return &provider.ProviderError{
+			Provider:   p.name,
+			StatusCode: 0,
+			Message:    fmt.Sprintf("failed to create ping request: %s", err),
+			Retriable:  false,
+			Err:        err,
+		}
+	}
+	if p.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return &provider.ProviderError{
+			Provider:   p.name,
+			StatusCode: 0,
+			Message:    fmt.Sprintf("server unreachable: %s", err),
+			Retriable:  false,
+			Err:        err,
+		}
+	}
+	resp.Body.Close()
+	// Any HTTP response (even 404) means the server is reachable.
+	return nil
+}

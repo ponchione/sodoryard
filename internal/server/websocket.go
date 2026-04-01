@@ -22,6 +22,15 @@ type AgentService interface {
 	Cancel()
 }
 
+// connOverride holds per-connection model/provider overrides set by the
+// "model_override" client event. Guarded by mu for goroutine safety between
+// the readLoop and handleMessage goroutines.
+type connOverride struct {
+	mu       sync.Mutex
+	model    string
+	provider string
+}
+
 // WebSocketHandler handles WebSocket connections for streaming agent events.
 type WebSocketHandler struct {
 	agent     AgentService
@@ -80,11 +89,14 @@ func (h *WebSocketHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 	// Track whether a turn is in progress.
 	var turnActive atomic.Bool
 
+	// Per-connection model/provider override.
+	override := &connOverride{}
+
 	// Read loop goroutine (client → server).
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
-		h.readLoop(ctx, cancel, conn, sink, &turnActive)
+		h.readLoop(ctx, cancel, conn, sink, &turnActive, override)
 	}()
 
 	// Write loop (server → client) — blocks until ctx done or sink closed.
@@ -140,7 +152,7 @@ func (h *WebSocketHandler) writeLoop(ctx context.Context, conn *websocket.Conn, 
 }
 
 // readLoop reads client messages and dispatches them.
-func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, sink *agent.ChannelSink, turnActive *atomic.Bool) {
+func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, sink *agent.ChannelSink, turnActive *atomic.Bool, override *connOverride) {
 	defer cancel()
 
 	var turnWg sync.WaitGroup
@@ -171,8 +183,19 @@ func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFu
 			go func() {
 				defer turnWg.Done()
 				defer turnActive.Store(false)
-				h.handleMessage(ctx, conn, sink, msg)
+				h.handleMessage(ctx, conn, sink, msg, override)
 			}()
+
+		case "model_override":
+			// Store the model/provider override for the next "message" turn.
+			override.mu.Lock()
+			override.model = msg.Model
+			override.provider = msg.Provider
+			override.mu.Unlock()
+			h.logger.Info("model override set",
+				"model", msg.Model,
+				"provider", msg.Provider,
+			)
 
 		case "cancel":
 			h.agent.Cancel()
@@ -192,7 +215,7 @@ func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFu
 
 // handleMessage processes a "message" client command — creates or resumes a
 // conversation and runs a turn.
-func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Conn, sink *agent.ChannelSink, msg ClientMessage) {
+func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Conn, sink *agent.ChannelSink, msg ClientMessage, override *connOverride) {
 	// Subscribe sink to receive events for this turn.
 	h.agent.Subscribe(sink)
 	defer h.agent.Unsubscribe(sink)
@@ -209,9 +232,27 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 		h.writeJSONMessage(ctx, conn, "conversation_created", map[string]string{"conversation_id": convID})
 	}
 
+	// Resolve model/provider: prefer inline fields on the message, then the
+	// stored override from a preceding "model_override" event.
+	model := msg.Model
+	prov := msg.Provider
+	override.mu.Lock()
+	if model == "" {
+		model = override.model
+	}
+	if prov == "" {
+		prov = override.provider
+	}
+	// Clear the stored override so it only applies to one turn.
+	override.model = ""
+	override.provider = ""
+	override.mu.Unlock()
+
 	req := agent.RunTurnRequest{
 		ConversationID: convID,
 		Message:        msg.Content,
+		Model:          model,
+		Provider:       prov,
 	}
 
 	_, err := h.agent.RunTurn(ctx, req)

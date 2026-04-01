@@ -78,8 +78,12 @@ func (l *AgentLoop) streamWithRetry(
 			break
 		}
 
-		// Wait with backoff.
-		if err := l.sleep(ctx, delay); err != nil {
+		// Wait with backoff, respecting server-suggested Retry-After.
+		sleepDelay := delay
+		if classification.ProviderError != nil && classification.ProviderError.RetryAfter > 0 {
+			sleepDelay = max(sleepDelay, classification.ProviderError.RetryAfter)
+		}
+		if err := l.sleep(ctx, sleepDelay); err != nil {
 			// Context cancelled during sleep.
 			return nil, err
 		}

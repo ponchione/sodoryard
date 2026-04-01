@@ -16,6 +16,18 @@ type Provider interface {
 	Name() string
 }
 
+// Pinger is an optional interface that providers may implement to provide a
+// lightweight reachability check. The router calls Ping during Validate()
+// instead of the heavier Models() call when a provider supports it.
+//
+// Implementations should be fast and targeted:
+//   - Anthropic: auth check (GetAuthHeader) with ~5s timeout
+//   - OpenAI-compatible/local: HTTP HEAD to baseURL with ~2s timeout
+//   - Codex: not needed (exec.LookPath is already lightweight)
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 // Request carries every parameter needed to make an LLM call.
 type Request struct {
 	Messages        []Message        `json:"messages"`

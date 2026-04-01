@@ -105,7 +105,7 @@ func (r *Router) Name() string {
 	return "router"
 }
 
-// ProviderHealthMap returns a deep copy of the health map. The returned map and
+// ProviderHealthMap returns a copy of the health map. The returned map and
 // ProviderHealth values are safe for callers to inspect and modify without
 // affecting the router's internal state.
 func (r *Router) ProviderHealthMap() map[string]*ProviderHealth {

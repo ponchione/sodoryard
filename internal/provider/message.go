@@ -24,6 +24,10 @@ type Message struct {
 	Content   json.RawMessage `json:"content"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	ToolName  string          `json:"tool_name,omitempty"`
+
+	// CacheControl optionally marks this message as a prompt cache breakpoint
+	// (Anthropic). Other providers ignore this field.
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 // ContentBlock represents a typed block within an assistant message.

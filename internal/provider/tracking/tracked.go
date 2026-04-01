@@ -39,6 +39,21 @@ func (tp *TrackedProvider) Models(ctx context.Context) ([]provider.Model, error)
 	return tp.inner.Models(ctx)
 }
 
+// Ping delegates to the inner provider if it implements provider.Pinger.
+// This allows the router to use lightweight reachability checks even when
+// the provider is wrapped with tracking.
+func (tp *TrackedProvider) Ping(ctx context.Context) error {
+	if pinger, ok := tp.inner.(provider.Pinger); ok {
+		return pinger.Ping(ctx)
+	}
+	// Inner provider does not implement Pinger — the router should fall back
+	// to Models() on its own, but to satisfy the interface we return nil.
+	return nil
+}
+
+// Compile-time check that TrackedProvider satisfies Pinger.
+var _ provider.Pinger = (*TrackedProvider)(nil)
+
 // Complete delegates to the inner provider, measures wall-clock latency, extracts
 // usage from the response, and writes a sub_calls row via the SubCallStore.
 // Tracking failures are logged but never block inference.

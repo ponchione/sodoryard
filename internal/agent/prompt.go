@@ -10,6 +10,7 @@ import (
 	contextpkg "github.com/ponchione/sirtopham/internal/context"
 	"github.com/ponchione/sirtopham/internal/db"
 	"github.com/ponchione/sirtopham/internal/provider"
+	anthropicpkg "github.com/ponchione/sirtopham/internal/provider/anthropic"
 	"github.com/ponchione/sirtopham/internal/tool"
 )
 
@@ -81,6 +82,10 @@ type PromptConfig struct {
 	// Tool results older than this many turns are replaced with a one-line
 	// summary. Set to 0 to disable summarization (other transforms still apply).
 	HistorySummarizeAfterTurns int
+
+	// ExtendedThinking enables extended thinking for providers that support it
+	// (currently Anthropic only).
+	ExtendedThinking bool
 }
 
 // PromptBuilder constructs provider.Request objects from PromptConfig inputs.
@@ -149,6 +154,11 @@ func (b *PromptBuilder) BuildPrompt(config PromptConfig) (*provider.Request, err
 		Iteration:      config.Iteration,
 	}
 
+	// Wire extended thinking options for Anthropic provider.
+	if config.ExtendedThinking && strings.EqualFold(config.ProviderName, providerAnthropic) {
+		req.ProviderOptions = anthropicpkg.NewAnthropicOptions(true, 0)
+	}
+
 	return req, nil
 }
 
@@ -208,14 +218,11 @@ func (b *PromptBuilder) buildMessages(config PromptConfig, wantCache bool) []pro
 	}
 
 	// Place cache marker on the last history message (block 3 breakpoint).
-	// NOTE: provider.Message does not currently carry a CacheControl field.
-	// The cache marker for Block 3 is left as a design placeholder. When the
-	// Anthropic request translator consumes this Request, it should mark the
-	// last history message for caching. For now we record the intent — the
-	// actual per-message CacheControl field will be added to provider.Message
-	// when the Anthropic request translator needs it. This avoids polluting
-	// the universal Message type for providers that don't use it.
-	_ = wantCache && historyLen > 0 // intent: mark messages[historyLen-1]
+	// For Anthropic, this enables prompt caching of the conversation prefix
+	// so that only current-turn messages are reprocessed on each LLM call.
+	if wantCache && historyLen > 0 {
+		messages[historyLen-1].CacheControl = ephemeralCacheControl()
+	}
 
 	// Fresh content: current turn messages (no cache markers).
 	messages = append(messages, config.CurrentTurnMessages...)

@@ -30,7 +30,12 @@ func NewAgentLoopAdapter(executor *Executor) *AgentLoopAdapter {
 // the executor, and converts the result back to provider types.
 func (a *AgentLoopAdapter) Execute(ctx context.Context, call provider.ToolCall) (*provider.ToolResult, error) {
 	toolCall := ToolCallFromProvider(call)
-	results := a.executor.Execute(ctx, []ToolCall{toolCall})
+	var results []ToolResult
+	if meta, ok := ExecutionMetaFromContext(ctx); ok {
+		results = a.executor.ExecuteWithMeta(ctx, []ToolCall{toolCall}, meta)
+	} else {
+		results = a.executor.Execute(ctx, []ToolCall{toolCall})
+	}
 	if len(results) == 0 {
 		return nil, fmt.Errorf("tool executor returned no results for %q", call.Name)
 	}
