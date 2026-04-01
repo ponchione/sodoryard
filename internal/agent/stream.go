@@ -62,7 +62,10 @@ func consumeStream(
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			result.TextContent = textBuilder.String()
+			result.ThinkingContent = thinkingBuilder.String()
+			result.ContentBlocks = buildContentBlocks(result.ThinkingContent, result.TextContent, result.ContentBlocks)
+			return result, ctx.Err()
 		case event, ok := <-ch:
 			if !ok {
 				// Channel closed — finalize.
@@ -141,22 +144,7 @@ func consumeStream(
 				result.TextContent = textBuilder.String()
 				result.ThinkingContent = thinkingBuilder.String()
 
-				// Build final content blocks in order:
-				// thinking (if any) → text (if any) → tool_use blocks (already added).
-				finalBlocks := make([]provider.ContentBlock, 0, len(result.ContentBlocks)+2)
-				if result.ThinkingContent != "" {
-					finalBlocks = append(finalBlocks, provider.NewThinkingBlock(result.ThinkingContent))
-				}
-				if result.TextContent != "" {
-					finalBlocks = append(finalBlocks, provider.NewTextBlock(result.TextContent))
-				}
-				// Append tool_use blocks (already collected during ToolCallEnd).
-				for _, cb := range result.ContentBlocks {
-					if cb.Type == "tool_use" {
-						finalBlocks = append(finalBlocks, cb)
-					}
-				}
-				result.ContentBlocks = finalBlocks
+				result.ContentBlocks = buildContentBlocks(result.ThinkingContent, result.TextContent, result.ContentBlocks)
 
 				return result, nil
 
@@ -177,6 +165,22 @@ func consumeStream(
 
 // contentBlocksToJSON serializes content blocks to a JSON array string suitable
 // for storing as the assistant message content in the database.
+func buildContentBlocks(thinkingContent, textContent string, existing []provider.ContentBlock) []provider.ContentBlock {
+	finalBlocks := make([]provider.ContentBlock, 0, len(existing)+2)
+	if thinkingContent != "" {
+		finalBlocks = append(finalBlocks, provider.NewThinkingBlock(thinkingContent))
+	}
+	if textContent != "" {
+		finalBlocks = append(finalBlocks, provider.NewTextBlock(textContent))
+	}
+	for _, cb := range existing {
+		if cb.Type == "tool_use" {
+			finalBlocks = append(finalBlocks, cb)
+		}
+	}
+	return finalBlocks
+}
+
 func contentBlocksToJSON(blocks []provider.ContentBlock) (string, error) {
 	data, err := json.Marshal(blocks)
 	if err != nil {

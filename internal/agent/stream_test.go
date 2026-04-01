@@ -249,9 +249,35 @@ func TestConsumeStreamContextCancelled(t *testing.T) {
 	// Channel that never sends — should hit ctx.Done.
 	ch := make(chan provider.StreamEvent)
 
-	_, err := consumeStream(ctx, ch, noopEmit, testNow)
+	result, err := consumeStream(ctx, ch, noopEmit, testNow)
 	if err == nil {
 		t.Fatal("consumeStream error = nil, want context cancelled")
+	}
+	if result == nil {
+		t.Fatal("consumeStream result = nil, want partial result")
+	}
+}
+
+func TestConsumeStreamContextCancelledReturnsPartialText(t *testing.T) {
+	ctx, cancel := stdctx.WithCancel(stdctx.Background())
+	ch := make(chan provider.StreamEvent, 1)
+	ch <- provider.TokenDelta{Text: "partial"}
+	go func() {
+		cancel()
+	}()
+
+	result, err := consumeStream(ctx, ch, noopEmit, testNow)
+	if err == nil {
+		t.Fatal("consumeStream error = nil, want context cancelled")
+	}
+	if result == nil {
+		t.Fatal("consumeStream result = nil, want partial result")
+	}
+	if result.TextContent != "partial" {
+		t.Fatalf("TextContent = %q, want partial", result.TextContent)
+	}
+	if len(result.ContentBlocks) != 1 || result.ContentBlocks[0].Type != "text" {
+		t.Fatalf("ContentBlocks = %+v, want one text block", result.ContentBlocks)
 	}
 }
 

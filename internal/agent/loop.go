@@ -154,10 +154,12 @@ type AgentLoop struct {
 	now                 func() time.Time
 	sleepFn             func(ctx stdctx.Context, d time.Duration) error
 
-	// cancelMu protects cancelFn for thread-safe Cancel() calls.
+	// cancelMu protects cancellation state for thread-safe Cancel() calls.
 	cancelMu sync.Mutex
 	// cancelFn cancels the in-flight turn's derived context. Nil when idle.
 	cancelFn stdctx.CancelFunc
+	// interruptRequested distinguishes loop.Cancel() from external context cancellation.
+	interruptRequested bool
 }
 
 // NewAgentLoop constructs the agent loop and applies default config values.
@@ -226,6 +228,7 @@ func (l *AgentLoop) Cancel() {
 	l.cancelMu.Lock()
 	defer l.cancelMu.Unlock()
 	if l.cancelFn != nil {
+		l.interruptRequested = true
 		l.cancelFn()
 	}
 }
@@ -235,6 +238,7 @@ func (l *AgentLoop) setCancel(fn stdctx.CancelFunc) {
 	l.cancelMu.Lock()
 	defer l.cancelMu.Unlock()
 	l.cancelFn = fn
+	l.interruptRequested = false
 }
 
 // clearCancel clears the stored cancel function (turn is done).
@@ -242,6 +246,21 @@ func (l *AgentLoop) clearCancel() {
 	l.cancelMu.Lock()
 	defer l.cancelMu.Unlock()
 	l.cancelFn = nil
+	l.interruptRequested = false
+}
+
+func (l *AgentLoop) cancellationReason(cause error) turnCleanupReason {
+	if errors.Is(cause, stdctx.DeadlineExceeded) {
+		return cleanupReasonDeadlineExceeded
+	}
+
+	l.cancelMu.Lock()
+	interruptRequested := l.interruptRequested
+	l.cancelMu.Unlock()
+	if interruptRequested {
+		return cleanupReasonInterrupt
+	}
+	return cleanupReasonCancel
 }
 
 // RunTurn executes a full turn: persist user message → context assembly →
@@ -430,6 +449,20 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 		result, err := l.streamWithRetry(ctx, promptReq, iteration, req.ConversationID)
 		if err != nil {
 			if isCancelled(ctx) {
+				if result != nil {
+					assistantContentJSON := ""
+					if len(result.ContentBlocks) > 0 {
+						assistantContentJSON, _ = contentBlocksToJSON(sanitizeContentBlocks(result.ContentBlocks))
+					}
+					return nil, l.handleTurnCancellation(inflightTurn{
+						ConversationID:           req.ConversationID,
+						TurnNumber:               req.TurnNumber,
+						Iteration:                iteration,
+						CompletedIterations:      completedIterations,
+						AssistantResponseStarted: result.TextContent != "" || len(result.ContentBlocks) > 0,
+						AssistantMessageContent:  assistantContentJSON,
+					}, ctx.Err())
+				}
 				return nil, l.handleCancellation(req.ConversationID, req.TurnNumber, iteration, completedIterations, ctx.Err())
 			}
 
@@ -445,6 +478,20 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				}
 			}
 			if err != nil {
+				if result != nil && (result.TextContent != "" || len(result.ContentBlocks) > 0) {
+					assistantContentJSON := ""
+					if len(result.ContentBlocks) > 0 {
+						assistantContentJSON, _ = contentBlocksToJSON(sanitizeContentBlocks(result.ContentBlocks))
+					}
+					return nil, l.handleTurnStreamFailure(inflightTurn{
+						ConversationID:           req.ConversationID,
+						TurnNumber:               req.TurnNumber,
+						Iteration:                iteration,
+						CompletedIterations:      completedIterations,
+						AssistantResponseStarted: true,
+						AssistantMessageContent:  assistantContentJSON,
+					}, err)
+				}
 				return nil, err
 			}
 		}
@@ -475,7 +522,14 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			}
 			if err := l.conversationManager.PersistIteration(ctx, req.ConversationID, req.TurnNumber, iteration, persistMessages); err != nil {
 				if isCancelled(ctx) {
-					return nil, l.handleCancellation(req.ConversationID, req.TurnNumber, iteration, completedIterations, ctx.Err())
+					return nil, l.handleTurnCancellation(inflightTurn{
+						ConversationID:           req.ConversationID,
+						TurnNumber:               req.TurnNumber,
+						Iteration:                iteration,
+						CompletedIterations:      completedIterations,
+						AssistantResponseStarted: true,
+						AssistantMessageContent:  assistantContentJSON,
+					}, ctx.Err())
 				}
 				return nil, fmt.Errorf("agent loop: persist final iteration %d: %w", iteration, err)
 			}
@@ -513,8 +567,20 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 		l.emit(StatusEvent{State: StateExecutingTools, Time: l.now()})
 
 		var toolResults []provider.ToolResult
+		inflight := inflightTurn{
+			ConversationID:           req.ConversationID,
+			TurnNumber:               req.TurnNumber,
+			Iteration:                iteration,
+			CompletedIterations:      completedIterations,
+			AssistantResponseStarted: true,
+			AssistantMessageContent:  assistantContentJSON,
+			ToolCalls:                make([]inflightToolCall, len(result.ToolCalls)),
+		}
+		for i, tc := range result.ToolCalls {
+			inflight.ToolCalls[i] = inflightToolCall{ToolCallID: tc.ID, ToolName: tc.Name}
+		}
 		toolsCancelled := false
-		for _, tc := range result.ToolCalls {
+		for idx, tc := range result.ToolCalls {
 			// Check for cancellation before each tool call.
 			if isCancelled(ctx) {
 				toolsCancelled = true
@@ -566,6 +632,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 				Arguments:  tc.Input,
 				Time:       l.now(),
 			})
+			inflight.ToolCalls[idx].Started = true
 
 			toolStart := l.now()
 			execCtx := toolpkg.ContextWithExecutionMeta(ctx, toolpkg.ExecutionMeta{
@@ -601,6 +668,14 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			}
 
 			toolResults = append(toolResults, *toolResult)
+			inflight.ToolCalls[idx].Completed = true
+			inflight.ToolCalls[idx].ResultStored = true
+			inflight.ToolMessages = append(inflight.ToolMessages, conversation.IterationMessage{
+				Role:      "tool",
+				Content:   toolResult.Content,
+				ToolUseID: tc.ID,
+				ToolName:  tc.Name,
+			})
 
 			l.emit(ToolCallOutputEvent{
 				ToolCallID: tc.ID,
@@ -617,7 +692,7 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 		}
 
 		if toolsCancelled {
-			return nil, l.handleCancellation(req.ConversationID, req.TurnNumber, iteration, completedIterations, ctx.Err())
+			return nil, l.handleTurnCancellation(inflight, ctx.Err())
 		}
 
 		toolResults, budgetReport := applyAggregateToolResultBudget(ctx, l.toolResultStore, toolResults, result.ToolCalls, l.cfg.MaxToolResultsPerMessageChars)
@@ -701,40 +776,56 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	return nil, fmt.Errorf("agent loop: exceeded max iterations (%d)", l.cfg.MaxIterations)
 }
 
-// handleCancellation performs post-cancellation cleanup: calls CancelIteration
-// for the in-flight iteration, emits TurnCancelledEvent and StatusEvent(StateIdle),
+// handleCancellation performs post-cancellation cleanup for any in-flight
+// assistant/tool state, emits TurnCancelledEvent and StatusEvent(StateIdle),
 // and returns ErrTurnCancelled wrapping the underlying cause.
 func (l *AgentLoop) handleCancellation(conversationID string, turnNumber, currentIteration, completedIterations int, cause error) error {
-	reason := "user_cancelled"
-	if errors.Is(cause, stdctx.DeadlineExceeded) {
-		reason = "context_deadline_exceeded"
-	}
+	return l.handleTurnCancellation(inflightTurn{
+		ConversationID:           conversationID,
+		TurnNumber:               turnNumber,
+		Iteration:                currentIteration,
+		CompletedIterations:      completedIterations,
+		AssistantResponseStarted: currentIteration > 0,
+	}, cause)
+}
+
+func (l *AgentLoop) handleTurnCancellation(turn inflightTurn, cause error) error {
+	cleanupReason := l.cancellationReason(cause)
+	return l.handleTurnCleanup(turn, cleanupReason, cause)
+}
+
+func (l *AgentLoop) handleTurnStreamFailure(turn inflightTurn, cause error) error {
+	return l.handleTurnCleanup(turn, cleanupReasonStreamFailure, cause)
+}
+
+func (l *AgentLoop) handleTurnCleanup(turn inflightTurn, cleanupReason turnCleanupReason, cause error) error {
+	plan := buildCleanupPlan(turn, cleanupReason)
+	reason := cleanupReasonEventValue(plan.Reason)
 
 	l.logger.Warn("turn cancelled",
-		"conversation_id", conversationID,
-		"turn", turnNumber,
-		"current_iteration", currentIteration,
-		"completed_iterations", completedIterations,
+		"conversation_id", turn.ConversationID,
+		"turn", turn.TurnNumber,
+		"current_iteration", turn.Iteration,
+		"completed_iterations", turn.CompletedIterations,
 		"reason", reason,
+		"cleanup_actions", len(plan.Actions),
 	)
 
-	// Clean up the in-flight iteration if one was started.
-	if currentIteration > 0 && currentIteration > completedIterations {
-		// Use a fresh background context for cleanup — the original is cancelled.
+	if len(plan.Actions) > 0 {
 		cleanupCtx := stdctx.Background()
-		if err := l.conversationManager.CancelIteration(cleanupCtx, conversationID, turnNumber, currentIteration); err != nil {
-			l.logger.Error("failed to cancel in-flight iteration",
-				"conversation_id", conversationID,
-				"turn", turnNumber,
-				"iteration", currentIteration,
+		if err := l.applyCleanupPlan(cleanupCtx, turn, plan); err != nil {
+			l.logger.Error("failed to apply cancellation cleanup plan",
+				"conversation_id", turn.ConversationID,
+				"turn", turn.TurnNumber,
+				"iteration", turn.Iteration,
 				"error", err,
 			)
 		}
 	}
 
 	l.emit(TurnCancelledEvent{
-		TurnNumber:          turnNumber,
-		CompletedIterations: completedIterations,
+		TurnNumber:          turn.TurnNumber,
+		CompletedIterations: turn.CompletedIterations,
 		Reason:              reason,
 		Time:                l.now(),
 	})

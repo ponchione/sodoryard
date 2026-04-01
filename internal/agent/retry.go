@@ -52,7 +52,7 @@ func (l *AgentLoop) streamWithRetry(
 				Recoverable: false,
 				Time:        l.now(),
 			})
-			return nil, fmt.Errorf("agent loop: stream for iteration %d: %w", iteration, err)
+			return result, fmt.Errorf("agent loop: stream for iteration %d: %w", iteration, err)
 		}
 
 		// Retriable: log, emit, and wait.

@@ -479,6 +479,38 @@ func assistantJSON(t *testing.T, blocks ...provider.ContentBlock) string {
 	return string(raw)
 }
 
+func TestRenderCompressionMessageSummarizesInterruptedAssistantTombstone(t *testing.T) {
+	msg := dbpkg.Message{
+		Role:       "assistant",
+		TurnNumber: 4,
+		Iteration:  1,
+		Content:    sql.NullString{Valid: true, String: assistantJSON(t, provider.NewTextBlock("[interrupted_assistant]\nreason=interrupt\nmessage=Assistant output was interrupted before turn completion.\npartial_text=working on it"))},
+	}
+	got := renderCompressionMessage(msg)
+	if strings.Contains(got, "partial_text=working on it") {
+		t.Fatalf("renderCompressionMessage leaked partial tombstone text: %q", got)
+	}
+	if !strings.Contains(got, "[assistant interrupted tombstone]") {
+		t.Fatalf("renderCompressionMessage = %q, want interrupted tombstone summary", got)
+	}
+}
+
+func TestRenderCompressionMessageSummarizesFailedAssistantTombstone(t *testing.T) {
+	msg := dbpkg.Message{
+		Role:       "assistant",
+		TurnNumber: 4,
+		Iteration:  1,
+		Content:    sql.NullString{Valid: true, String: assistantJSON(t, provider.NewTextBlock("[failed_assistant]\nreason=stream_failure\nmessage=Assistant output ended due to a stream failure before turn completion.\npartial_text=working on it"))},
+	}
+	got := renderCompressionMessage(msg)
+	if strings.Contains(got, "partial_text=working on it") {
+		t.Fatalf("renderCompressionMessage leaked failed tombstone partial text: %q", got)
+	}
+	if !strings.Contains(got, "[assistant stream failure tombstone]") {
+		t.Fatalf("renderCompressionMessage = %q, want failed tombstone summary", got)
+	}
+}
+
 func ftsCountForQuery(t *testing.T, sqlDB *sql.DB, query string) int {
 	t.Helper()
 	var count int

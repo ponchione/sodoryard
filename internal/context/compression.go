@@ -370,8 +370,8 @@ func renderCompressionMessage(msg dbpkg.Message) string {
 		for _, block := range blocks {
 			switch block.Type {
 			case "text":
-				if strings.TrimSpace(block.Text) != "" {
-					parts = append(parts, block.Text)
+				if text := summarizeAssistantTextForCompression(block.Text); text != "" {
+					parts = append(parts, text)
 				}
 			case "tool_use":
 				input := strings.TrimSpace(string(block.Input))
@@ -395,6 +395,20 @@ func renderCompressionMessage(msg dbpkg.Message) string {
 	default:
 		return prefix + ": " + strings.TrimSpace(content)
 	}
+}
+
+func summarizeAssistantTextForCompression(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if strings.Contains(text, "[failed_assistant]") {
+		return "[assistant stream failure tombstone]"
+	}
+	if strings.Contains(text, "[interrupted_assistant]") {
+		return "[assistant interrupted tombstone]"
+	}
+	return text
 }
 
 func extractCompressionSummaryText(response *provider.Response) string {

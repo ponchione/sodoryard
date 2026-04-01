@@ -3,7 +3,7 @@
 Date: 2026-04-01
 Repo: /home/gernsback/source/sirtopham
 Branch: main
-State: working tree dirty only for NEXT_SESSION_HANDOFF.md, ahead of origin/main by 4 commits
+State: working tree dirty for cancellation-cleanup/tombstone follow-through files plus docs, ahead of origin/main by 5 commits
 
 What is actually complete from the Claude Code / sirtopham handoff
 
@@ -117,16 +117,44 @@ What is substantially complete is the highest-priority tool-output slice plus a 
   - `internal/tool/file_edit_analysis_test.go`
   - `internal/tool/register.go`
 
+9. Cancellation cleanup now has a phase-6 follow-through for tombstone-aware compression inputs
+- The loop now builds a structured cleanup plan from explicit in-flight turn state instead of open-coding raw `CancelIteration` calls.
+- `loop.Cancel()` is now distinguished from generic external context cancellation:
+  - loop-triggered cancel emits `user_interrupted`
+  - external context cancellation still emits `user_cancelled`
+  - deadlines still emit `context_deadline_exceeded`
+- If the assistant already produced a complete tool-use message and the turn is interrupted before tool results are durably persisted, cleanup now persists a coherent interrupted iteration instead of deleting it outright.
+- The synthesized tool-result payload is a deterministic text placeholder beginning with `[interrupted_tool_result]` and includes reason/tool/tool_use_id/status fields.
+- Partial assistant responses now persist as dedicated tombstone content inside assistant content blocks.
+- Interrupt/cancel and stream failure now diverge in durable assistant transcript treatment:
+  - interruption/cancel => `[interrupted_assistant]`
+  - stream failure => `[failed_assistant]`
+- `consumeStream` now returns partial accumulated content on context cancellation so the cleanup path can preserve partial assistant text when available.
+- Compression input rendering now collapses assistant tombstones to compact summaries instead of leaking full tombstone payloads / partial text back into compression prompts.
+- This is still not the full Claude-Code-style cleanup model.
+- Remaining gap: interrupted assistant/tool state still reuses the existing message/content-block schema rather than a first-class DB record type, and the web UI/search/export layers do not yet render or filter these tombstones specially.
+- Main files:
+  - `internal/agent/turn_cleanup.go`
+  - `internal/agent/turn_cleanup_test.go`
+  - `internal/agent/loop.go`
+  - `internal/agent/loop_test.go`
+  - `internal/agent/stream.go`
+  - `internal/agent/stream_test.go`
+  - `internal/agent/retry.go`
+  - `internal/context/compression.go`
+  - `internal/context/compression_test.go`
+  - `TECH-DEBT.md`
+
 What is NOT complete from the Claude Code / sirtopham handoff
 
 The overall retrofit handoff is still incomplete. The following major areas remain mostly unimplemented:
 
 1. Cancellation cleanup / transcript invariants
-- Existing cancellation cleanup is present and tested.
-- The richer Claude-Code-style cleanup model is not implemented:
-  - no tombstones/synthesized terminal records for partial state
-  - no explicit interrupt-vs-cancel cleanup semantics
-  - no `InflightTurn` / `CleanupPlan` subsystem wired into the loop
+- Existing cancellation cleanup is present, tested, and now has a structured planner/executor seam that covers synthesized interrupted tool results, divergent assistant tombstones for interruption vs stream failure, and tombstone-aware compression input rendering.
+- The richer Claude-Code-style cleanup model is still not implemented:
+  - no first-class DB record type for assistant/tool tombstones yet
+  - cleanup still relies on the existing assistant message/content-block schema rather than a richer interrupted-state taxonomy
+  - no broader `InflightTurn` / `CleanupPlan` subsystem shared beyond the current agent-loop seam
 - Relevant handoff stub:
   - `sirtopham-handoff/stubs/turnstate/turnstate.go`
 
@@ -187,13 +215,13 @@ Only a few things feel worth active verification before doing more implementatio
 
 Recommended next implementation slice
 
-Unless priorities changed, the best next Claude-handoff-aligned slice is:
-- cancellation cleanup / transcript invariants
+Unless priorities changed, the best next Claude-handoff-aligned slice is still:
+- cancellation cleanup / transcript invariants, phase 7
 
 Why this should be next
-- File-edit hardening is now in good shape and no longer looks like the highest-risk deterministic gap.
-- Cancellation cleanup is the next major correctness area from the handoff that can still cause confusing durable state.
-- It is a better next investment than speculative prompt-cache or broader token-budget architecture.
+- The first seam now exists, so the next meaningful work is to make cleanup behavior richer rather than starting another subsystem.
+- File-edit hardening is still in good shape and does not look like the highest-risk deterministic gap.
+- This remains a better next investment than speculative prompt-cache or broader token-budget architecture.
 
 Suggested exact next-session plan
 
@@ -201,20 +229,22 @@ Suggested exact next-session plan
 - `sirtopham-handoff/03-implementation-plan.md`
 - `sirtopham-handoff/01-priority-recommendations.md`
 - `sirtopham-handoff/stubs/turnstate/turnstate.go`
+- `internal/agent/turn_cleanup.go`
 - current cancellation/cleanup paths in the agent loop and conversation persistence
 - current tests covering cancellation and iteration cleanup behavior
 
-2. Confirm current cancellation-path realities
-- What gets persisted before cancellation cleanup runs
-- Which partial assistant/tool states can currently survive interruption
-- How current cleanup interacts with message persistence vs analytics persistence
+2. Confirm the remaining cancellation-path realities
+- What partial assistant/tool states are observable before iteration persistence
+- Which interrupted states should be deleted vs tombstoned vs synthesized
+- How current cleanup should interact with message persistence vs analytics persistence
 
-3. Implement cancellation cleanup in narrow TDD slices
-Minimum worthwhile target:
-- explicit structured model of in-flight assistant/tool state
-- deterministic cleanup plan for interrupted turns
-- no transcript entry appears complete when it was interrupted mid-stream
-- no stranded in-progress tool state after cleanup
+3. Implement the next narrow TDD slice
+Minimum worthwhile target now:
+- preserve the structured planner/executor seam
+- decide whether interrupted/failed tombstones need dedicated UI/rendering affordances or transcript filtering behavior
+- make search/export and any title-adjacent transcript consumers explicitly ignore, down-rank, or specially render tombstone markers
+- if one downstream consumer is chosen first, prefer the web/transcript rendering path over speculative broader architecture
+- keep completed iterations durable and next-turn startup clean
 
 4. Validate with focused tests first, then broader suite
 At minimum run targeted cancellation-path tests and then the relevant broader package suites.
@@ -241,5 +271,5 @@ Useful recent commits
 
 Suggested first commands next session
 - `git status --short --branch`
-- `go test ./internal/server ./internal/agent/... ./internal/config ./internal/conversation ./cmd/sirtopham && go test -tags sqlite_fts5 ./internal/tool/...`
-- then inspect cancellation cleanup codepaths and begin the cancellation/transcript-invariants slice
+- `go test ./internal/server ./internal/agent/... ./internal/config ./internal/conversation ./cmd/sirtopham && go test -tags sqlite_fts5 ./internal/tool/... ./internal/context`
+- then inspect tombstone downstream-consumer paths (`web`, transcript rendering, search/export/title-adjacent utilities) and begin the cancellation/transcript-invariants phase-7 slice

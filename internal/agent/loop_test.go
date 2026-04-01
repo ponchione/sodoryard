@@ -1073,6 +1073,26 @@ func (b *blockingProviderRouter) Stream(ctx stdctx.Context, req *provider.Reques
 	return nil, ctx.Err()
 }
 
+type partialTokenBlockingProviderRouter struct {
+	started chan struct{}
+	token   string
+}
+
+func (b *partialTokenBlockingProviderRouter) Stream(ctx stdctx.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	ch := make(chan provider.StreamEvent, 1)
+	if b.token != "" {
+		ch <- provider.TokenDelta{Text: b.token}
+	}
+	if b.started != nil {
+		close(b.started)
+	}
+	go func() {
+		<-ctx.Done()
+		close(ch)
+	}()
+	return ch, nil
+}
+
 // blockingToolExecutor blocks on Execute until context is cancelled.
 type blockingToolExecutor struct {
 	started chan struct{}
@@ -1142,8 +1162,8 @@ func TestRunTurnCancelDuringStream(t *testing.T) {
 				if tc.TurnNumber != 1 {
 					t.Fatalf("TurnCancelled.TurnNumber = %d, want 1", tc.TurnNumber)
 				}
-				if tc.Reason != "user_cancelled" {
-					t.Fatalf("TurnCancelled.Reason = %q, want user_cancelled", tc.Reason)
+				if tc.Reason != "user_interrupted" {
+					t.Fatalf("TurnCancelled.Reason = %q, want user_interrupted", tc.Reason)
 				}
 			}
 			if se, ok := e.(StatusEvent); ok && se.State == StateIdle {
@@ -1157,6 +1177,69 @@ func TestRunTurnCancelDuringStream(t *testing.T) {
 	}
 	if !foundIdle {
 		t.Fatal("StatusEvent(StateIdle) not emitted after cancellation")
+	}
+}
+
+func TestHandleTurnCancellationPersistsInterruptedAssistant(t *testing.T) {
+	conversations := &loopConversationManagerStub{}
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    &loopContextAssemblerStub{},
+		ConversationManager: conversations,
+		ProviderRouter:      &providerRouterStub{},
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
+	})
+
+	err := loop.handleTurnCancellation(inflightTurn{
+		ConversationID:           "conv-partial-stream",
+		TurnNumber:               1,
+		Iteration:                1,
+		CompletedIterations:      0,
+		AssistantResponseStarted: true,
+		AssistantMessageContent:  `[{"type":"text","text":"hello"}]`,
+	}, stdctx.Canceled)
+	if err == nil || !errors.Is(err, ErrTurnCancelled) {
+		t.Fatalf("error = %v, want ErrTurnCancelled", err)
+	}
+	if len(conversations.persistIterCalls) != 1 {
+		t.Fatalf("PersistIteration calls = %d, want 1 interrupted assistant iteration", len(conversations.persistIterCalls))
+	}
+	if len(conversations.cancelIterCalls) != 0 {
+		t.Fatalf("CancelIteration calls = %d, want 0", len(conversations.cancelIterCalls))
+	}
+	pi := conversations.persistIterCalls[0]
+	if len(pi.messages) != 1 || pi.messages[0].Role != "assistant" || !strings.Contains(pi.messages[0].Content, "[interrupted_assistant]") || !strings.Contains(pi.messages[0].Content, "hello") {
+		t.Fatalf("persisted interrupted assistant messages = %#v, want interrupted assistant tombstone with partial text", pi.messages)
+	}
+}
+
+func TestHandleTurnStreamFailurePersistsFailedAssistant(t *testing.T) {
+	conversations := &loopConversationManagerStub{}
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    &loopContextAssemblerStub{},
+		ConversationManager: conversations,
+		ProviderRouter:      &providerRouterStub{},
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
+	})
+
+	err := loop.handleTurnStreamFailure(inflightTurn{
+		ConversationID:           "conv-stream-fail",
+		TurnNumber:               1,
+		Iteration:                1,
+		CompletedIterations:      0,
+		AssistantResponseStarted: true,
+		AssistantMessageContent:  `[{"type":"text","text":"partial"}]`,
+	}, errors.New("stream error: connection reset"))
+	if err == nil {
+		t.Fatal("error = nil, want stream failure error")
+	}
+	if len(conversations.persistIterCalls) != 1 {
+		t.Fatalf("PersistIteration calls = %d, want 1 failed assistant iteration", len(conversations.persistIterCalls))
+	}
+	pi := conversations.persistIterCalls[0]
+	if len(pi.messages) != 1 || !strings.Contains(pi.messages[0].Content, "[failed_assistant]") || !strings.Contains(pi.messages[0].Content, "reason=stream_failure") {
+		t.Fatalf("persisted failed assistant messages = %#v, want failed assistant tombstone", pi.messages)
 	}
 }
 
@@ -1221,18 +1304,28 @@ func TestRunTurnCancelDuringToolExecution(t *testing.T) {
 		t.Fatalf("error = %v, want ErrTurnCancelled", err)
 	}
 
-	// CancelIteration should have been called for the in-flight iteration.
-	if len(conversations.cancelIterCalls) != 1 {
-		t.Fatalf("CancelIteration calls = %d, want 1", len(conversations.cancelIterCalls))
+	// Interrupted tool execution should persist a coherent interrupted iteration.
+	if len(conversations.cancelIterCalls) != 0 {
+		t.Fatalf("CancelIteration calls = %d, want 0", len(conversations.cancelIterCalls))
 	}
-	ci := conversations.cancelIterCalls[0]
-	if ci.conversationID != "conv-1" || ci.turnNumber != 1 || ci.iteration != 1 {
-		t.Fatalf("CancelIteration call = %+v, want conv-1/1/1", ci)
+	if len(conversations.persistIterCalls) != 1 {
+		t.Fatalf("PersistIteration calls = %d, want 1", len(conversations.persistIterCalls))
+	}
+	pi := conversations.persistIterCalls[0]
+	if pi.conversationID != "conv-1" || pi.turnNumber != 1 || pi.iteration != 1 {
+		t.Fatalf("PersistIteration call = %+v, want conv-1/1/1", pi)
+	}
+	if len(pi.messages) != 2 {
+		t.Fatalf("Persisted messages = %d, want 2", len(pi.messages))
+	}
+	if pi.messages[1].Role != "tool" || !strings.Contains(pi.messages[1].Content, "[interrupted_tool_result]") {
+		t.Fatalf("interrupted tool message = %#v, want synthesized interrupted tool result", pi.messages[1])
 	}
 }
 
 func TestRunTurnCtxCancellation(t *testing.T) {
 	// Cancel via the context passed to RunTurn (simulating HTTP disconnect).
+	sink := NewChannelSink(32)
 	assembler := &loopContextAssemblerStub{
 		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
 	}
@@ -1250,6 +1343,7 @@ func TestRunTurnCtxCancellation(t *testing.T) {
 		ProviderRouter:      router,
 		ToolExecutor:        &toolExecutorStub{},
 		PromptBuilder:       NewPromptBuilder(nil),
+		EventSink:           sink,
 	})
 	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
 
@@ -1274,6 +1368,23 @@ func TestRunTurnCtxCancellation(t *testing.T) {
 	}
 	if !errors.Is(err, ErrTurnCancelled) {
 		t.Fatalf("error = %v, want ErrTurnCancelled", err)
+	}
+
+	var foundCancelled bool
+	for i := 0; i < 20; i++ {
+		select {
+		case e := <-sink.Events():
+			if tc, ok := e.(TurnCancelledEvent); ok {
+				foundCancelled = true
+				if tc.Reason != "user_cancelled" {
+					t.Fatalf("Reason = %q, want user_cancelled", tc.Reason)
+				}
+			}
+		default:
+		}
+	}
+	if !foundCancelled {
+		t.Fatal("TurnCancelledEvent not emitted")
 	}
 }
 

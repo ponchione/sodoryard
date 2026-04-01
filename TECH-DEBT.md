@@ -167,6 +167,25 @@ single transaction.
 
 ---
 
+### Interrupted assistant/tool tombstones still reuse existing message schemas
+**Severity:** Low | **Source:** Claude-handoff cancellation cleanup follow-up (2026-04-01)
+
+Cancellation cleanup now persists two distinct durable markers inside existing message content:
+- assistant tombstones: `[interrupted_assistant]` or `[failed_assistant]`
+- tool tombstones: `[interrupted_tool_result]`
+
+This is good enough to preserve transcript truthfulness today, but it still has follow-up debt:
+- no first-class DB/message type distinguishes tombstones from ordinary assistant/tool payloads
+- frontend/UI rendering may eventually want special treatment rather than showing raw marker text
+- compression now collapses assistant tombstones to compact summaries, but other downstream consumers (search, title-adjacent transcript utilities, any future transcript exports) may still need explicit rules for these markers
+
+**Future fix direction:** If interrupted-state UX or analytics become important, introduce a
+first-class durable representation (schema field, content-block type, or explicit metadata)
+for interrupted assistant/tool records and teach the web UI plus transcript utilities to render,
+filter, or down-rank them intentionally.
+
+---
+
 ### Executor.Execute signature differs from spec (agent loop interface)
 **Severity:** Info | **Source:** Layer 5 audit (2026-04-01)
 
