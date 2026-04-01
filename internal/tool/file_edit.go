@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 )
 
@@ -52,125 +51,6 @@ func (FileEdit) Schema() json.RawMessage {
 			"required": ["path", "old_str", "new_str"]
 		}
 	}`)
-}
-
-func filePreview(content string, maxLines int) string {
-	lines := strings.Split(content, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) == 0 {
-		return "(empty file)"
-	}
-	if maxLines > 0 && len(lines) > maxLines {
-		lines = lines[:maxLines]
-	}
-	return strings.Join(lines, "\n")
-}
-
-type candidateMatch struct {
-	line    int
-	snippet string
-}
-
-func snippetFromLineWindow(lines []string, startLine, maxLines int) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	if startLine < 1 {
-		startLine = 1
-	}
-	if maxLines <= 0 {
-		maxLines = 1
-	}
-	startIdx := startLine - 1
-	if startIdx >= len(lines) {
-		startIdx = len(lines) - 1
-	}
-	endIdx := startIdx + maxLines
-	if endIdx > len(lines) {
-		endIdx = len(lines)
-	}
-	return strings.Join(lines[startIdx:endIdx], "\\n")
-}
-
-func candidateMatches(content, needle string) []candidateMatch {
-	if needle == "" {
-		return nil
-	}
-	lines := strings.Split(content, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	matches := make([]candidateMatch, 0)
-	needleLineCount := strings.Count(needle, "\n") + 1
-	for i, line := range lines {
-		if strings.Contains(line, needle) {
-			matches = append(matches, candidateMatch{line: i + 1, snippet: line})
-		}
-	}
-	if len(matches) > 0 {
-		return matches
-	}
-	for i := 0; i < len(content); {
-		idx := strings.Index(content[i:], needle)
-		if idx < 0 {
-			break
-		}
-		pos := i + idx
-		line := 1 + strings.Count(content[:pos], "\n")
-		matches = append(matches, candidateMatch{line: line, snippet: snippetFromLineWindow(lines, line, min(needleLineCount+1, 3))})
-		i = pos + len(needle)
-	}
-	return matches
-}
-
-func candidateLineSummary(content, needle string, maxCandidates int) string {
-	matches := candidateMatches(content, needle)
-	if len(matches) == 0 {
-		return "unknown"
-	}
-	lines := make([]int, 0, len(matches))
-	for _, match := range matches {
-		lines = append(lines, match.line)
-	}
-	sort.Ints(lines)
-	parts := make([]string, 0, min(len(lines), maxCandidates))
-	for _, line := range lines {
-		if len(parts) >= maxCandidates {
-			break
-		}
-		parts = append(parts, fmt.Sprintf("line %d", line))
-	}
-	if len(lines) > maxCandidates {
-		parts = append(parts, fmt.Sprintf("... (%d total)", len(lines)))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func candidateSnippetSummary(content, needle string, maxCandidates int) string {
-	matches := candidateMatches(content, needle)
-	if len(matches) == 0 {
-		return "unknown"
-	}
-	parts := make([]string, 0, min(len(matches), maxCandidates))
-	for _, match := range matches {
-		if len(parts) >= maxCandidates {
-			break
-		}
-		parts = append(parts, fmt.Sprintf("line %d: %s", match.line, match.snippet))
-	}
-	if len(matches) > maxCandidates {
-		parts = append(parts, fmt.Sprintf("... (%d total)", len(matches)))
-	}
-	return strings.Join(parts, " | ")
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
@@ -248,9 +128,9 @@ func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.Ra
 	}
 
 	oldContent := string(data)
-	count := strings.Count(oldContent, params.OldStr)
+	analysis := analyzeFileEditMatches(oldContent, params.OldStr)
 
-	switch count {
+	switch analysis.count {
 	case 0:
 		return &ToolResult{
 			Success: false,
@@ -262,7 +142,7 @@ func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.Ra
 	default:
 		return &ToolResult{
 			Success: false,
-			Content: fmt.Sprintf("String appears %d times in the file. Provide a longer, more unique search string that includes surrounding context from the full file_read.\nCandidate lines: %s\nCandidate snippets: %s", count, candidateLineSummary(oldContent, params.OldStr, 5), candidateSnippetSummary(oldContent, params.OldStr, 3)),
+			Content: fmt.Sprintf("String appears %d times in the file. Provide a longer, more unique search string that includes surrounding context from the full file_read.\nCandidate lines: %s\nCandidate snippets: %s", analysis.count, analysis.candidateLines, analysis.candidateSnippets),
 			Error:   "multiple_matches",
 		}, nil
 	}
