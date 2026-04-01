@@ -14,13 +14,21 @@ func TestFileEditSuccess(t *testing.T) {
 	content := "func main() {\n\tfmt.Println(\"hello\")\n}\n"
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(content), 0o644)
 
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"main.go"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+
 	input, _ := json.Marshal(fileEditInput{
 		Path:   "main.go",
 		OldStr: "\"hello\"",
 		NewStr: "\"world\"",
 	})
 
-	result, err := FileEdit{}.Execute(context.Background(), dir, input)
+	result, err := editor.Execute(context.Background(), dir, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,6 +57,13 @@ func TestFileEditSuccess(t *testing.T) {
 func TestFileEditZeroMatches(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello world\n"), 0o644)
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"file.txt"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
 
 	input, _ := json.Marshal(fileEditInput{
 		Path:   "file.txt",
@@ -56,7 +71,7 @@ func TestFileEditZeroMatches(t *testing.T) {
 		NewStr: "replacement",
 	})
 
-	result, err := FileEdit{}.Execute(context.Background(), dir, input)
+	result, err := editor.Execute(context.Background(), dir, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,6 +87,13 @@ func TestFileEditMultipleMatches(t *testing.T) {
 	dir := t.TempDir()
 	content := "foo bar foo baz foo\n"
 	os.WriteFile(filepath.Join(dir, "file.txt"), []byte(content), 0o644)
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"file.txt"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
 
 	input, _ := json.Marshal(fileEditInput{
 		Path:   "file.txt",
@@ -79,7 +101,7 @@ func TestFileEditMultipleMatches(t *testing.T) {
 		NewStr: "qux",
 	})
 
-	result, err := FileEdit{}.Execute(context.Background(), dir, input)
+	result, err := editor.Execute(context.Background(), dir, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,6 +135,100 @@ func TestFileEditFileNotFound(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "other.go") {
 		t.Fatalf("expected directory listing, got: %s", result.Content)
+	}
+}
+
+func TestFileEditRequiresFullReadFirst(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello world\n"), 0o644)
+
+	store := newMemoryReadStateStore()
+	editor := NewFileEdit(store)
+	input, _ := json.Marshal(fileEditInput{
+		Path:   "file.txt",
+		OldStr: "world",
+		NewStr: "there",
+	})
+
+	result, err := editor.Execute(context.Background(), dir, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected failure without prior full read")
+	}
+	if result.Error != "not_read_first" {
+		t.Fatalf("expected not_read_first, got %q", result.Error)
+	}
+	if !strings.Contains(result.Content, "full file_read") {
+		t.Fatalf("expected recovery hint, got: %s", result.Content)
+	}
+}
+
+func TestFileEditRejectsPartialReadAsPrecondition(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "file.txt"), []byte("line1\nline2\nline3\n"), 0o644)
+
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"file.txt","line_start":1,"line_end":2}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+
+	input, _ := json.Marshal(fileEditInput{
+		Path:   "file.txt",
+		OldStr: "line2",
+		NewStr: "LINE2",
+	})
+
+	result, err := editor.Execute(context.Background(), dir, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected failure after partial read")
+	}
+	if result.Error != "not_read_first" {
+		t.Fatalf("expected not_read_first, got %q", result.Error)
+	}
+}
+
+func TestFileEditRejectsStaleReadSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.txt")
+	os.WriteFile(path, []byte("hello world\n"), 0o644)
+
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"file.txt"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("hello changed world\n"), 0o644); err != nil {
+		t.Fatalf("failed to mutate file: %v", err)
+	}
+
+	input, _ := json.Marshal(fileEditInput{
+		Path:   "file.txt",
+		OldStr: "world",
+		NewStr: "there",
+	})
+
+	result, err := editor.Execute(context.Background(), dir, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected stale snapshot failure")
+	}
+	if result.Error != "stale_write" {
+		t.Fatalf("expected stale_write, got %q", result.Error)
+	}
+	if !strings.Contains(result.Content, "Re-run file_read") {
+		t.Fatalf("expected recovery hint, got: %s", result.Content)
 	}
 }
 
@@ -160,6 +276,13 @@ func TestFileEditPreservesPermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "script.sh")
 	os.WriteFile(path, []byte("#!/bin/bash\necho old\n"), 0o755)
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"script.sh"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
 
 	input, _ := json.Marshal(fileEditInput{
 		Path:   "script.sh",
@@ -167,7 +290,7 @@ func TestFileEditPreservesPermissions(t *testing.T) {
 		NewStr: "echo new",
 	})
 
-	result, err := FileEdit{}.Execute(context.Background(), dir, input)
+	result, err := editor.Execute(context.Background(), dir, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

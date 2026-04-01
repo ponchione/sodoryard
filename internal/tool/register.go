@@ -8,9 +8,10 @@ import (
 // RegisterFileTools registers all file tools (file_read, file_write, file_edit)
 // in the given registry.
 func RegisterFileTools(r *Registry) {
-	r.Register(FileRead{})
+	store := newMemoryReadStateStore()
+	r.Register(NewFileRead(store))
 	r.Register(FileWrite{})
-	r.Register(FileEdit{})
+	r.Register(NewFileEdit(store))
 }
 
 // RegisterGitTools registers all git tools (git_status, git_diff) in the

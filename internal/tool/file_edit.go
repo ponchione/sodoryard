@@ -10,7 +10,13 @@ import (
 
 // FileEdit implements the file_edit tool — search-and-replace within a file,
 // validating that the search string appears exactly once.
-type FileEdit struct{}
+type FileEdit struct {
+	store readStateStore
+}
+
+func NewFileEdit(store readStateStore) FileEdit {
+	return FileEdit{store: store}
+}
 
 type fileEditInput struct {
 	Path   string `json:"path"`
@@ -47,7 +53,7 @@ func (FileEdit) Schema() json.RawMessage {
 	}`)
 }
 
-func (FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
+func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
 	var params fileEditInput
 	if err := json.Unmarshal(input, &params); err != nil {
 		return &ToolResult{
@@ -87,6 +93,40 @@ func (FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawM
 		}, nil
 	}
 
+	store := f.store
+	if store == nil {
+		store = defaultReadStateStore
+	}
+	scopeKey := readScopeKey(ctx)
+	snapshot, ok, err := store.Get(ctx, scopeKey, absPath)
+	if err != nil {
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Failed to load read state: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+	if !ok || snapshot.Kind != readKindFull {
+		return notReadFirstError(params.Path), nil
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			msg := fileNotFoundError(projectRoot, params.Path)
+			return &ToolResult{Success: false, Content: msg, Error: "file not found"}, nil
+		}
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Error stating file: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+	currentFingerprint := fileFingerprint(data)
+	if snapshot.Fingerprint != currentFingerprint || snapshot.SizeBytes != info.Size() || !snapshot.MTime.Equal(info.ModTime()) {
+		_ = store.Clear(ctx, scopeKey, absPath)
+		return staleReadError(params.Path), nil
+	}
+
 	oldContent := string(data)
 	count := strings.Count(oldContent, params.OldStr)
 
@@ -111,10 +151,37 @@ func (FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawM
 	newContent := strings.Replace(oldContent, params.OldStr, params.NewStr, 1)
 
 	// Write the file.
-	info, _ := os.Stat(absPath)
 	perm := os.FileMode(0o644)
 	if info != nil {
 		perm = info.Mode()
+	}
+	latestInfo, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			msg := fileNotFoundError(projectRoot, params.Path)
+			return &ToolResult{Success: false, Content: msg, Error: "file not found"}, nil
+		}
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Error stating file before write: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+	latestData, err := os.ReadFile(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			msg := fileNotFoundError(projectRoot, params.Path)
+			return &ToolResult{Success: false, Content: msg, Error: "file not found"}, nil
+		}
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Error reading file before write: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+	if snapshot.Fingerprint != fileFingerprint(latestData) || snapshot.SizeBytes != latestInfo.Size() || !snapshot.MTime.Equal(latestInfo.ModTime()) {
+		_ = store.Clear(ctx, scopeKey, absPath)
+		return staleReadError(params.Path), nil
 	}
 	if err := os.WriteFile(absPath, []byte(newContent), perm); err != nil {
 		return &ToolResult{
@@ -123,6 +190,7 @@ func (FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawM
 			Error:   err.Error(),
 		}, nil
 	}
+	_ = store.Clear(ctx, scopeKey, absPath)
 
 	// Generate diff.
 	diff := unifiedDiff("a/"+params.Path, "b/"+params.Path, oldContent, newContent, 3)

@@ -7,11 +7,18 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 )
 
 // FileRead implements the file_read tool — reads file contents with optional
 // line range selection and returns content with line numbers.
-type FileRead struct{}
+type FileRead struct {
+	store readStateStore
+}
+
+func NewFileRead(store readStateStore) FileRead {
+	return FileRead{store: store}
+}
 
 type fileReadInput struct {
 	Path      string `json:"path"`
@@ -48,7 +55,7 @@ func (FileRead) Schema() json.RawMessage {
 	}`)
 }
 
-func (FileRead) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
+func (f FileRead) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
 	var params fileReadInput
 	if err := json.Unmarshal(input, &params); err != nil {
 		return &ToolResult{
@@ -99,6 +106,7 @@ func (FileRead) Execute(ctx context.Context, projectRoot string, input json.RawM
 
 	content := string(data)
 	lines := strings.Split(content, "\n")
+	kind := readKindFull
 	// Remove trailing empty line from trailing newline.
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -110,9 +118,11 @@ func (FileRead) Execute(ctx context.Context, projectRoot string, input json.RawM
 	lineEnd := totalLines
 	if params.LineStart != nil {
 		lineStart = *params.LineStart
+		kind = readKindPartial
 	}
 	if params.LineEnd != nil {
 		lineEnd = *params.LineEnd
+		kind = readKindPartial
 	}
 
 	// Clamp to valid range.
@@ -124,6 +134,7 @@ func (FileRead) Execute(ctx context.Context, projectRoot string, input json.RawM
 	}
 
 	if lineStart > totalLines {
+		kind = readKindPartial
 		return &ToolResult{
 			Success: true,
 			Content: fmt.Sprintf("File: %s (%d lines)\n(line_start %d is beyond end of file)", params.Path, totalLines, lineStart),
@@ -147,6 +158,20 @@ func (FileRead) Execute(ctx context.Context, projectRoot string, input json.RawM
 	for i, line := range selectedLines {
 		lineNum := lineStart + i
 		sb.WriteString(fmt.Sprintf("%*d\t%s\n", width, lineNum, line))
+	}
+
+	if lineStart == 1 && lineEnd == totalLines {
+		kind = readKindFull
+	}
+	if kind == readKindFull {
+		info, err := os.Stat(absPath)
+		if err == nil {
+			store := f.store
+			if store == nil {
+				store = defaultReadStateStore
+			}
+			_ = store.Put(ctx, snapshotForFile(ctx, absPath, data, info, kind, time.Now()))
+		}
 	}
 
 	return &ToolResult{
