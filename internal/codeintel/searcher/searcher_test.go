@@ -25,10 +25,12 @@ func (f *fakeEmbedder) EmbedQuery(_ context.Context, _ string) ([]float32, error
 type fakeStore struct {
 	searchResults []codeintel.SearchResult
 	byName        map[string][]codeintel.Chunk
+	lastFilter    codeintel.Filter
 }
 
 func (f *fakeStore) Upsert(_ context.Context, _ []codeintel.Chunk) error { return nil }
-func (f *fakeStore) VectorSearch(_ context.Context, _ []float32, topK int, _ codeintel.Filter) ([]codeintel.SearchResult, error) {
+func (f *fakeStore) VectorSearch(_ context.Context, _ []float32, topK int, filter codeintel.Filter) ([]codeintel.SearchResult, error) {
+	f.lastFilter = filter
 	if topK < len(f.searchResults) {
 		return f.searchResults[:topK], nil
 	}
@@ -230,6 +232,112 @@ func TestSearch_AllQueriesFail(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when all queries fail to embed")
+	}
+}
+
+func TestSearch_HopDepthRespected(t *testing.T) {
+	// Chain: A calls B, B calls C.
+	// Direct search finds only A.
+	// HopDepth=1 should find A + B.
+	// HopDepth=2 should find A + B + C.
+	store := &fakeStore{
+		searchResults: []codeintel.SearchResult{
+			{Chunk: codeintel.Chunk{
+				ID:   "a",
+				Name: "FuncA",
+				Calls: []codeintel.FuncRef{{Name: "FuncB", Package: "pkg"}},
+			}, Score: 0.9},
+		},
+		byName: map[string][]codeintel.Chunk{
+			"FuncB": {{
+				ID:   "b",
+				Name: "FuncB",
+				Calls: []codeintel.FuncRef{{Name: "FuncC", Package: "pkg"}},
+			}},
+			"FuncC": {{
+				ID:   "c",
+				Name: "FuncC",
+			}},
+		},
+	}
+	embedder := &fakeEmbedder{vec: make([]float32, 10)}
+
+	s := New(store, embedder)
+
+	// HopDepth=1: should find A and B, but not C.
+	results, err := s.Search(context.Background(), []string{"find func"}, codeintel.SearchOptions{
+		TopK:               10,
+		MaxResults:         10,
+		EnableHopExpansion: true,
+		HopBudgetFraction:  0.5,
+		HopDepth:           1,
+	})
+	if err != nil {
+		t.Fatalf("Search HopDepth=1: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, r := range results {
+		names[r.Chunk.Name] = true
+	}
+	if !names["FuncA"] {
+		t.Error("HopDepth=1: expected FuncA in results")
+	}
+	if !names["FuncB"] {
+		t.Error("HopDepth=1: expected FuncB in results")
+	}
+	if names["FuncC"] {
+		t.Error("HopDepth=1: did not expect FuncC in results")
+	}
+
+	// HopDepth=2: should find A, B, and C.
+	results, err = s.Search(context.Background(), []string{"find func"}, codeintel.SearchOptions{
+		TopK:               10,
+		MaxResults:         10,
+		EnableHopExpansion: true,
+		HopBudgetFraction:  0.5,
+		HopDepth:           2,
+	})
+	if err != nil {
+		t.Fatalf("Search HopDepth=2: %v", err)
+	}
+
+	names = map[string]bool{}
+	for _, r := range results {
+		names[r.Chunk.Name] = true
+	}
+	if !names["FuncA"] {
+		t.Error("HopDepth=2: expected FuncA in results")
+	}
+	if !names["FuncB"] {
+		t.Error("HopDepth=2: expected FuncB in results")
+	}
+	if !names["FuncC"] {
+		t.Error("HopDepth=2: expected FuncC in results")
+	}
+}
+
+func TestSearch_FilterPassthrough(t *testing.T) {
+	store := &fakeStore{
+		searchResults: []codeintel.SearchResult{
+			{Chunk: codeintel.Chunk{ID: "a", Name: "FuncA"}, Score: 0.9},
+		},
+	}
+	embedder := &fakeEmbedder{vec: make([]float32, 10)}
+
+	s := New(store, embedder)
+
+	wantFilter := codeintel.Filter{Language: "go"}
+	_, err := s.Search(context.Background(), []string{"find auth"}, codeintel.SearchOptions{
+		TopK:       10,
+		MaxResults: 5,
+		Filter:     wantFilter,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if store.lastFilter != wantFilter {
+		t.Errorf("filter not passed through: got %+v, want %+v", store.lastFilter, wantFilter)
 	}
 }
 

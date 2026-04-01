@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sirtopham/internal/codeintel/treesitter"
 )
 
 // repoRoot returns the root of the sirtopham repository.
@@ -191,4 +192,163 @@ func TestParse_NonGoFile_ReturnsEmptySlice(t *testing.T) {
 
 func TestParserImplementsInterface(t *testing.T) {
 	var _ codeintel.Parser = (*Parser)(nil)
+}
+
+func TestParse_NonGoFile_FallsBackToTreeSitter(t *testing.T) {
+	root := repoRoot(t)
+	p, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	p.WithFallback(treesitter.New())
+
+	pyContent := []byte("def greet(name):\n    return f'Hello, {name}'\n\nclass Greeter:\n    pass\n")
+	chunks, err := p.Parse("example.py", pyContent)
+	if err != nil {
+		t.Fatalf("Parse python: %v", err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("expected tree-sitter to return chunks for .py file, got 0")
+	}
+}
+
+func TestParse_Generics(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write go.mod
+	goMod := "module example\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	// Write generic Go file
+	goSrc := `package example
+
+type Set[T comparable] struct { items map[T]bool }
+
+func NewSet[T comparable]() *Set[T] { return &Set[T]{items: make(map[T]bool)} }
+
+func (s *Set[T]) Add(item T) { s.items[item] = true }
+`
+	srcPath := filepath.Join(tmpDir, "set.go")
+	if err := os.WriteFile(srcPath, []byte(goSrc), 0644); err != nil {
+		t.Fatalf("write set.go: %v", err)
+	}
+
+	p, err := New(tmpDir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read set.go: %v", err)
+	}
+
+	chunks, err := p.Parse(srcPath, content)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	if len(chunks) < 3 {
+		t.Fatalf("expected at least 3 chunks (Set type, NewSet func, Add method), got %d", len(chunks))
+	}
+
+	names := make(map[string]bool)
+	for _, c := range chunks {
+		names[c.Name] = true
+	}
+	for _, want := range []string{"Set", "NewSet", "Add"} {
+		if !names[want] {
+			t.Errorf("chunk %q not found in parsed chunks", want)
+		}
+	}
+}
+
+func TestParse_InterfaceExtraction(t *testing.T) {
+	root := repoRoot(t)
+	p, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ifacePath := filepath.Join(root, "internal", "codeintel", "interfaces.go")
+	content, err := os.ReadFile(ifacePath)
+	if err != nil {
+		t.Fatalf("read interfaces.go: %v", err)
+	}
+
+	chunks, err := p.Parse(ifacePath, content)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	var foundInterface bool
+	var foundParser bool
+	for _, c := range chunks {
+		if c.ChunkType == codeintel.ChunkTypeInterface {
+			foundInterface = true
+		}
+		if c.Name == "Parser" && c.ChunkType == codeintel.ChunkTypeInterface {
+			foundParser = true
+		}
+	}
+	if !foundInterface {
+		t.Error("expected at least one chunk with ChunkType == ChunkTypeInterface")
+	}
+	if !foundParser {
+		t.Error("Parser interface not found by name in parsed chunks")
+	}
+}
+
+func TestParse_EmbeddedTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write go.mod
+	goMod := "module example\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	// Write Go file with embedded types
+	goSrc := `package example
+
+type Base struct { ID int }
+
+type Child struct {
+	Base
+	Name string
+}
+`
+	srcPath := filepath.Join(tmpDir, "types.go")
+	if err := os.WriteFile(srcPath, []byte(goSrc), 0644); err != nil {
+		t.Fatalf("write types.go: %v", err)
+	}
+
+	p, err := New(tmpDir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read types.go: %v", err)
+	}
+
+	chunks, err := p.Parse(srcPath, content)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	names := make(map[string]bool)
+	for _, c := range chunks {
+		names[c.Name] = true
+	}
+
+	if !names["Base"] {
+		t.Error("Base type not found in parsed chunks")
+	}
+	if !names["Child"] {
+		t.Error("Child type not found in parsed chunks")
+	}
 }

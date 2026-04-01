@@ -60,6 +60,29 @@ func (c *Config) Validate() error {
 	}
 }
 
+func TestParseGo_Interface(t *testing.T) {
+	source := `package main
+
+type Reader interface {
+	Read(p []byte) (n int, err error)
+}
+`
+	p := New()
+	chunks, err := p.Parse("reader.go", []byte(source))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("got %d chunks, want 1; names: %v", len(chunks), chunkNames(chunks))
+	}
+	if chunks[0].Name != "Reader" {
+		t.Errorf("Name = %q, want Reader", chunks[0].Name)
+	}
+	if chunks[0].ChunkType != codeintel.ChunkTypeInterface {
+		t.Errorf("ChunkType = %q, want interface", chunks[0].ChunkType)
+	}
+}
+
 // --- Python ---
 
 func TestParsePython_TopLevelFunction(t *testing.T) {
@@ -292,6 +315,19 @@ func TestLanguageDetection(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("detectLanguage(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+func TestParseGo_InvalidSyntax(t *testing.T) {
+	// Binary garbage — tree-sitter should not error, just return empty/nil.
+	garbage := []byte{0x00, 0xFF, 0xFE, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85}
+	p := New()
+	chunks, err := p.Parse("garbage.go", garbage)
+	if err != nil {
+		t.Fatalf("expected no error for invalid syntax, got: %v", err)
+	}
+	if len(chunks) != 0 {
+		t.Errorf("expected empty/nil slice, got %d chunks", len(chunks))
 	}
 }
 

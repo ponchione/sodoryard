@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -22,7 +23,8 @@ func parsePython(content []byte) ([]codeintel.RawChunk, error) {
 
 	tree := parser.Parse(content, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("tree-sitter parse returned nil tree")
+		slog.Warn("tree-sitter returned nil tree", "language", "python")
+		return nil, nil
 	}
 	defer tree.Close()
 

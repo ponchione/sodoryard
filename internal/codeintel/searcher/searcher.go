@@ -116,7 +116,11 @@ func (s *Searcher) Search(ctx context.Context, queries []string, opts codeintel.
 	}
 
 	if hopBudget > 0 {
-		hops := s.expandHops(ctx, results, seenIDs, hopBudget)
+		hopDepth := opts.HopDepth
+		if hopDepth == 0 {
+			hopDepth = 1
+		}
+		hops := s.expandHops(ctx, results, seenIDs, hopBudget, hopDepth)
 		results = append(results, hops...)
 	}
 
@@ -127,49 +131,70 @@ func (s *Searcher) Search(ctx context.Context, queries []string, opts codeintel.
 	return results, nil
 }
 
-// expandHops performs one-hop expansion through the call graph.
+// expandHops performs iterative hop expansion through the call graph.
+// It runs up to depth rounds, where each round expands the results
+// discovered in the previous round. All rounds share seenIDs for
+// deduplication and are collectively capped by budget.
 func (s *Searcher) expandHops(
 	ctx context.Context,
 	directHits []codeintel.SearchResult,
 	seenIDs map[string]bool,
 	budget int,
+	depth int,
 ) []codeintel.SearchResult {
-	var hops []codeintel.SearchResult
+	var allHops []codeintel.SearchResult
 
-	for _, hit := range directHits {
-		if len(hops) >= budget {
-			break
-		}
+	// The first round expands from directHits; subsequent rounds expand
+	// from the results discovered in the previous round.
+	frontier := directHits
 
-		allRefs := make([]codeintel.FuncRef, 0, len(hit.Chunk.Calls)+len(hit.Chunk.CalledBy))
-		allRefs = append(allRefs, hit.Chunk.Calls...)
-		allRefs = append(allRefs, hit.Chunk.CalledBy...)
+	for round := 0; round < depth; round++ {
+		var roundHops []codeintel.SearchResult
 
-		for _, ref := range allRefs {
-			if len(hops) >= budget {
+		for _, hit := range frontier {
+			if len(allHops) >= budget {
 				break
 			}
-			chunks, err := s.store.GetByName(ctx, ref.Name)
-			if err != nil {
-				slog.Debug("hop lookup failed", "name", ref.Name, "error", err)
-				continue
-			}
-			for _, c := range chunks {
-				if len(hops) >= budget {
+
+			allRefs := make([]codeintel.FuncRef, 0, len(hit.Chunk.Calls)+len(hit.Chunk.CalledBy))
+			allRefs = append(allRefs, hit.Chunk.Calls...)
+			allRefs = append(allRefs, hit.Chunk.CalledBy...)
+
+			for _, ref := range allRefs {
+				if len(allHops) >= budget {
 					break
 				}
-				if seenIDs[c.ID] {
+				chunks, err := s.store.GetByName(ctx, ref.Name)
+				if err != nil {
+					slog.Debug("hop lookup failed", "name", ref.Name, "error", err)
 					continue
 				}
-				seenIDs[c.ID] = true
-				hops = append(hops, codeintel.SearchResult{
-					Chunk:   c,
-					Score:   0,
-					FromHop: true,
-				})
+				for _, c := range chunks {
+					if len(allHops) >= budget {
+						break
+					}
+					if seenIDs[c.ID] {
+						continue
+					}
+					seenIDs[c.ID] = true
+					r := codeintel.SearchResult{
+						Chunk:   c,
+						Score:   0,
+						FromHop: true,
+					}
+					allHops = append(allHops, r)
+					roundHops = append(roundHops, r)
+				}
 			}
+		}
+
+		// Next round expands from this round's discoveries.
+		frontier = roundHops
+
+		if len(allHops) >= budget || len(frontier) == 0 {
+			break
 		}
 	}
 
-	return hops
+	return allHops
 }

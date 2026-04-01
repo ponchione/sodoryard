@@ -14,11 +14,21 @@ import (
 )
 
 // Parser uses go/packages and go/ast to extract rich relationship metadata
-// from Go source files. Non-Go files return an empty slice.
+// from Go source files. Non-Go files return an empty slice unless a fallback
+// tree-sitter parser is configured via WithFallback.
 type Parser struct {
 	fset       *token.FileSet
 	pkgsByFile map[string]*packages.Package // abs file path → package
 	allIfaces  []ifaceInfo
+	treeSitter codeintel.Parser // optional fallback for non-Go or unloaded files
+}
+
+// WithFallback sets a fallback parser (typically tree-sitter) that handles
+// non-Go files or Go files not found in the loaded packages. Returns the
+// receiver for chaining.
+func (p *Parser) WithFallback(fallback codeintel.Parser) *Parser {
+	p.treeSitter = fallback
+	return p
 }
 
 // ifaceInfo holds a named interface type for Implements checking.
@@ -107,6 +117,9 @@ func New(rootDir string) (*Parser, error) {
 // Non-Go files return an empty slice and nil error.
 func (p *Parser) Parse(filePath string, content []byte) ([]codeintel.RawChunk, error) {
 	if !strings.HasSuffix(filePath, ".go") {
+		if p.treeSitter != nil {
+			return p.treeSitter.Parse(filePath, content)
+		}
 		return []codeintel.RawChunk{}, nil
 	}
 
@@ -118,6 +131,9 @@ func (p *Parser) Parse(filePath string, content []byte) ([]codeintel.RawChunk, e
 	pkg, ok := p.pkgsByFile[absPath]
 	if !ok || pkg.TypesInfo == nil {
 		slog.Debug("file not in loaded packages", "path", filePath)
+		if p.treeSitter != nil {
+			return p.treeSitter.Parse(filePath, content)
+		}
 		return []codeintel.RawChunk{}, nil
 	}
 

@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -70,7 +71,8 @@ func parseGo(content []byte) ([]codeintel.RawChunk, error) {
 
 	tree := parser.Parse(content, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("tree-sitter parse returned nil tree")
+		slog.Warn("tree-sitter returned nil tree", "language", "go")
+		return nil, nil
 	}
 	defer tree.Close()
 
@@ -92,6 +94,17 @@ func parseGo(content []byte) ([]codeintel.RawChunk, error) {
 			chunkType = codeintel.ChunkTypeMethod
 		case "type_declaration":
 			chunkType = codeintel.ChunkTypeType
+			// Inspect child type_spec to distinguish interface types.
+			for j := uint(0); j < node.ChildCount(); j++ {
+				spec := node.Child(j)
+				if spec != nil && spec.Kind() == "type_spec" {
+					typeBody := spec.ChildByFieldName("type")
+					if typeBody != nil && typeBody.Kind() == "interface_type" {
+						chunkType = codeintel.ChunkTypeInterface
+					}
+					break
+				}
+			}
 		default:
 			continue
 		}
@@ -121,7 +134,7 @@ func parseGo(content []byte) ([]codeintel.RawChunk, error) {
 }
 
 func extractGoName(node *sitter.Node, chunkType codeintel.ChunkType, content []byte) string {
-	if chunkType == codeintel.ChunkTypeType {
+	if chunkType == codeintel.ChunkTypeType || chunkType == codeintel.ChunkTypeInterface {
 		for i := uint(0); i < node.ChildCount(); i++ {
 			child := node.Child(i)
 			if child == nil {
@@ -144,7 +157,7 @@ func extractGoName(node *sitter.Node, chunkType codeintel.ChunkType, content []b
 }
 
 func extractGoSignature(node *sitter.Node, chunkType codeintel.ChunkType, content []byte) string {
-	if chunkType == codeintel.ChunkTypeType {
+	if chunkType == codeintel.ChunkTypeType || chunkType == codeintel.ChunkTypeInterface {
 		text := string(content[node.StartByte():node.EndByte()])
 		if idx := strings.Index(text, "{"); idx != -1 {
 			return strings.TrimRight(text[:idx], " \t\n\r")
