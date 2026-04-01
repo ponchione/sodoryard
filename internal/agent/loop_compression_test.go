@@ -328,11 +328,16 @@ func TestRunTurnAggregateToolResultBudgetPersistsOversizedNonFileReadResult(t *t
 	if toolContent == "" {
 		t.Fatal("no tool content found in second request")
 	}
-	if !strings.Contains(toolContent, "/tmp/persisted/search_text-tc-1.txt") {
-		t.Fatalf("tool content = %q, want persisted reference path", toolContent)
-	}
-	if !strings.Contains(toolContent, "Preview:") {
-		t.Fatalf("tool content = %q, want preview marker", toolContent)
+	for _, want := range []string{
+		"[persisted_tool_result]",
+		"path=/tmp/persisted/search_text-tc-1.txt",
+		"tool=search_text",
+		"tool_use_id=tc-1",
+		"preview=",
+	} {
+		if !strings.Contains(toolContent, want) {
+			t.Fatalf("tool content = %q, want %q", toolContent, want)
+		}
 	}
 	if len(toolContent) >= len(fullOutput) {
 		t.Fatalf("tool content len = %d, want less than original len %d", len(toolContent), len(fullOutput))

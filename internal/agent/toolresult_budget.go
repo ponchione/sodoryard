@@ -59,7 +59,7 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 		shrunk := current.Content
 		if candidate.toolName != "file_read" && store != nil {
 			if ref, err := store.PersistToolResult(ctx, current.ToolUseID, candidate.toolName, current.Content); err == nil {
-				persisted := buildPersistedToolResultMessage(ref, current.Content, targetLen)
+				persisted := buildPersistedToolResultMessage(ref, current.ToolUseID, candidate.toolName, current.Content, targetLen)
 				if len(persisted) < len(current.Content) {
 					shrunk = persisted
 				}
@@ -101,28 +101,51 @@ func shrinkToolResultForAggregateBudget(content string, maxChars int, toolName s
 	return content[:contentBudget] + "\n" + notice
 }
 
-func buildPersistedToolResultMessage(ref string, content string, maxChars int) string {
-	base := fmt.Sprintf("[Full tool output persisted to %s]", ref)
-	if maxChars > 0 && len(base) >= maxChars {
-		return base[:maxChars]
+func buildPersistedToolResultMessage(ref string, toolUseID string, toolName string, content string, maxChars int) string {
+	baseLines := []string{"[persisted_tool_result]", "path=" + ref}
+	if toolName != "" {
+		baseLines = append(baseLines, "tool="+toolName)
 	}
-	previewHeader := "\nPreview:\n"
-	previewBudget := 160
-	if maxChars > 0 {
-		previewBudget = maxChars - len(base) - len(previewHeader)
-		if previewBudget < 0 {
-			previewBudget = 0
-		}
+	if toolUseID != "" {
+		baseLines = append(baseLines, "tool_use_id="+toolUseID)
 	}
+	base := strings.Join(baseLines, "\n")
+	if maxChars > 0 && len(base) > maxChars {
+		return compactPersistedToolResultReference(ref, maxChars)
+	}
+
 	preview := strings.TrimSpace(content)
 	if preview == "" {
 		preview = "(no preview available)"
 	}
-	if len(preview) > previewBudget && previewBudget > 0 {
+	previewHeader := "\npreview=\n"
+	previewBudget := 160
+	if maxChars > 0 {
+		previewBudget = maxChars - len(base) - len(previewHeader)
+		if previewBudget <= 0 {
+			return base
+		}
+	}
+	if len(preview) > previewBudget {
 		preview = preview[:previewBudget]
 	}
-	if previewBudget <= 0 {
+	return base + previewHeader + preview
+}
+
+func compactPersistedToolResultReference(ref string, maxChars int) string {
+	if maxChars <= 0 {
+		return ref
+	}
+	if len(ref) <= maxChars {
+		return ref
+	}
+	pathLine := "path=" + ref
+	if len(pathLine) <= maxChars {
+		return pathLine
+	}
+	base := "[persisted_tool_result]\n" + pathLine
+	if len(base) <= maxChars {
 		return base
 	}
-	return base + previewHeader + preview
+	return ref[:maxChars]
 }
