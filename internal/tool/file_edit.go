@@ -73,6 +73,27 @@ type candidateMatch struct {
 	snippet string
 }
 
+func snippetFromLineWindow(lines []string, startLine, maxLines int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	if startLine < 1 {
+		startLine = 1
+	}
+	if maxLines <= 0 {
+		maxLines = 1
+	}
+	startIdx := startLine - 1
+	if startIdx >= len(lines) {
+		startIdx = len(lines) - 1
+	}
+	endIdx := startIdx + maxLines
+	if endIdx > len(lines) {
+		endIdx = len(lines)
+	}
+	return strings.Join(lines[startIdx:endIdx], "\\n")
+}
+
 func candidateMatches(content, needle string) []candidateMatch {
 	if needle == "" {
 		return nil
@@ -82,6 +103,7 @@ func candidateMatches(content, needle string) []candidateMatch {
 		lines = lines[:len(lines)-1]
 	}
 	matches := make([]candidateMatch, 0)
+	needleLineCount := strings.Count(needle, "\n") + 1
 	for i, line := range lines {
 		if strings.Contains(line, needle) {
 			matches = append(matches, candidateMatch{line: i + 1, snippet: line})
@@ -97,7 +119,7 @@ func candidateMatches(content, needle string) []candidateMatch {
 		}
 		pos := i + idx
 		line := 1 + strings.Count(content[:pos], "\n")
-		matches = append(matches, candidateMatch{line: line, snippet: fmt.Sprintf("contains %q", needle)})
+		matches = append(matches, candidateMatch{line: line, snippet: snippetFromLineWindow(lines, line, min(needleLineCount+1, 3))})
 		i = pos + len(needle)
 	}
 	return matches

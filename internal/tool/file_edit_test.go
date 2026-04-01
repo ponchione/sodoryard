@@ -128,6 +128,42 @@ func TestFileEditMultipleMatches(t *testing.T) {
 	}
 }
 
+func TestFileEditMultipleMatchesMultilineSnippet(t *testing.T) {
+	dir := t.TempDir()
+	content := "start\nalpha\nbeta\nmid\nalpha\nbeta\nend\n"
+	os.WriteFile(filepath.Join(dir, "file.txt"), []byte(content), 0o644)
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"file.txt"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+
+	input, _ := json.Marshal(fileEditInput{
+		Path:   "file.txt",
+		OldStr: "alpha\nbeta",
+		NewStr: "ALPHA\nBETA",
+	})
+
+	result, err := editor.Execute(context.Background(), dir, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected failure for multiple multiline matches")
+	}
+	if result.Error != "multiple_matches" {
+		t.Fatalf("expected multiple_matches error code, got %q", result.Error)
+	}
+	if !strings.Contains(result.Content, "Candidate lines: line 2, line 5") {
+		t.Fatalf("expected multiline candidate line summary, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "line 2: alpha\\nbeta\\nmid") || !strings.Contains(result.Content, "line 5: alpha\\nbeta\\nend") {
+		t.Fatalf("expected multiline candidate snippets, got: %s", result.Content)
+	}
+}
+
 func TestFileEditFileNotFound(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "other.go"), []byte("x"), 0o644)
