@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/ponchione/sirtopham/internal/provider"
 )
 
@@ -77,6 +79,11 @@ func (p *CodexProvider) getAccessToken(ctx context.Context) (string, error) {
 // authFilePath is a package-level variable to allow tests to override the home directory.
 var homeDir = os.UserHomeDir
 
+var stdinIsTerminal = func() bool {
+	fd := os.Stdin.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
+}
+
 // readAuthFile reads and parses ~/.codex/auth.json.
 func (p *CodexProvider) readAuthFile() (string, time.Time, error) {
 	home, err := homeDir()
@@ -142,6 +149,15 @@ func jwtExpiry(token string) (time.Time, error) {
 
 // refreshToken shells out to `codex refresh` to obtain fresh credentials.
 func (p *CodexProvider) refreshToken(ctx context.Context) error {
+	if !stdinIsTerminal() {
+		return &provider.ProviderError{
+			Provider:   "codex",
+			StatusCode: 0,
+			Message:    "Codex credentials need interactive renewal, but this runtime has no TTY. Run `codex auth` or `codex refresh` in a terminal, then retry.",
+			Retriable:  false,
+		}
+	}
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
