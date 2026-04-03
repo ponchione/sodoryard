@@ -97,10 +97,7 @@ func extractNamedDecl(node *sitter.Node, content []byte, chunkType codeintel.Chu
 	text := string(content[node.StartByte():node.EndByte()])
 	sig := extractTSSignature(text)
 
-	body := text
-	if len(body) > codeintel.MaxBodyLength {
-		body = body[:codeintel.MaxBodyLength]
-	}
+	body := codeintel.TruncateUTF8(text, codeintel.MaxBodyLength)
 
 	return []codeintel.RawChunk{{
 		Name:      name,
@@ -122,10 +119,7 @@ func extractTypeAlias(node *sitter.Node, content []byte) []codeintel.RawChunk {
 		return nil
 	}
 
-	text := string(content[node.StartByte():node.EndByte()])
-	if len(text) > codeintel.MaxBodyLength {
-		text = text[:codeintel.MaxBodyLength]
-	}
+	text := codeintel.TruncateUTF8(string(content[node.StartByte():node.EndByte()]), codeintel.MaxBodyLength)
 
 	return []codeintel.RawChunk{{
 		Name:      name,
@@ -165,10 +159,7 @@ func extractLexicalDecl(node *sitter.Node, content []byte) []codeintel.RawChunk 
 		text := string(content[node.StartByte():node.EndByte()])
 		sig := extractTSSignature(text)
 
-		body := text
-		if len(body) > codeintel.MaxBodyLength {
-			body = body[:codeintel.MaxBodyLength]
-		}
+		body := codeintel.TruncateUTF8(text, codeintel.MaxBodyLength)
 
 		chunks = append(chunks, codeintel.RawChunk{
 			Name:      name,

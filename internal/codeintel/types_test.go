@@ -1,8 +1,10 @@
 package codeintel
 
 import (
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestChunkTypeConstants(t *testing.T) {
@@ -38,6 +40,17 @@ func TestPipelineConstants(t *testing.T) {
 	}
 	if QueryPrefix != "Represent this query for searching relevant code: " {
 		t.Fatalf("QueryPrefix = %q, want expected nomic query prefix", QueryPrefix)
+	}
+}
+
+func TestTruncateUTF8_PreservesValidUTF8(t *testing.T) {
+	input := strings.Repeat("é", MaxBodyLength/2) + "🙂"
+	got := TruncateUTF8(input, MaxBodyLength+1)
+	if !utf8.ValidString(got) {
+		t.Fatal("TruncateUTF8 returned invalid UTF-8")
+	}
+	if len(got) > MaxBodyLength+1 {
+		t.Fatalf("len(got) = %d, want <= %d", len(got), MaxBodyLength+1)
 	}
 }
 

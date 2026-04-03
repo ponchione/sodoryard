@@ -1,6 +1,9 @@
 package codeintel
 
-import "time"
+import (
+	"time"
+	"unicode/utf8"
+)
 
 // ChunkType classifies a parsed code or document chunk by syntactic role.
 type ChunkType string
@@ -36,6 +39,23 @@ const (
 	// QueryPrefix is prepended to queries before embedding for asymmetric retrieval.
 	QueryPrefix = "Represent this query for searching relevant code: "
 )
+
+// TruncateUTF8 trims a string to at most maxBytes without leaving an invalid
+// trailing UTF-8 sequence.
+func TruncateUTF8(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	truncated := value[:maxBytes]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		_, size := utf8.DecodeLastRuneInString(truncated)
+		if size <= 0 {
+			break
+		}
+		truncated = truncated[:len(truncated)-size]
+	}
+	return truncated
+}
 
 // FuncRef identifies a function or method in the call graph.
 type FuncRef struct {

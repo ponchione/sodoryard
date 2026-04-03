@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ponchione/sirtopham/internal/codeintel"
 	"github.com/ponchione/sirtopham/internal/pathglob"
@@ -40,7 +39,7 @@ func matchesGlob(pattern, relPath string) bool {
 
 // newChunk creates a fully populated Chunk from a RawChunk.
 func newChunk(raw codeintel.RawChunk, projectName, filePath, language, description string) codeintel.Chunk {
-	body := truncateUTF8(raw.Body, codeintel.MaxBodyLength)
+	body := codeintel.TruncateUTF8(raw.Body, codeintel.MaxBodyLength)
 
 	return codeintel.Chunk{
 		ID:               codeintel.ChunkID(filePath, raw.ChunkType, raw.Name, raw.LineStart),
@@ -65,21 +64,6 @@ func newChunk(raw codeintel.RawChunk, projectName, filePath, language, descripti
 
 // formatRelationshipContext renders chunk relationship metadata as text
 // for the describer's relationshipContext parameter.
-func truncateUTF8(value string, maxBytes int) string {
-	if maxBytes <= 0 || len(value) <= maxBytes {
-		return value
-	}
-	truncated := value[:maxBytes]
-	for len(truncated) > 0 && !utf8.ValidString(truncated) {
-		_, size := utf8.DecodeLastRuneInString(truncated)
-		if size <= 0 {
-			break
-		}
-		truncated = truncated[:len(truncated)-size]
-	}
-	return truncated
-}
-
 func formatRelationshipContext(chunks []codeintel.Chunk) string {
 	if len(chunks) == 0 {
 		return ""

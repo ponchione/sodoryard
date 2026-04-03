@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ponchione/sirtopham/internal/codeintel"
 	"github.com/ponchione/sirtopham/internal/codeintel/treesitter"
@@ -350,5 +352,47 @@ type Child struct {
 	}
 	if !names["Child"] {
 		t.Error("Child type not found in parsed chunks")
+	}
+}
+
+func TestParse_TruncatesFunctionBodyOnUTF8Boundary(t *testing.T) {
+	tmpDir := t.TempDir()
+	goMod := "module example\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	bodyLine := strings.Repeat("é", codeintel.MaxBodyLength/2) + "🙂"
+	goSrc := "package example\n\nfunc Demo() string {\n    return \"" + bodyLine + "\"\n}\n"
+	srcPath := filepath.Join(tmpDir, "demo.go")
+	if err := os.WriteFile(srcPath, []byte(goSrc), 0644); err != nil {
+		t.Fatalf("write demo.go: %v", err)
+	}
+	p, err := New(tmpDir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read demo.go: %v", err)
+	}
+	chunks, err := p.Parse(srcPath, content)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	var demo *codeintel.RawChunk
+	for i := range chunks {
+		if chunks[i].Name == "Demo" {
+			demo = &chunks[i]
+			break
+		}
+	}
+	if demo == nil {
+		t.Fatal("Demo function not found")
+	}
+	if !utf8.ValidString(demo.Body) {
+		t.Fatal("function body is invalid UTF-8")
+	}
+	if len(demo.Body) > codeintel.MaxBodyLength {
+		t.Fatalf("len(body) = %d, want <= %d", len(demo.Body), codeintel.MaxBodyLength)
 	}
 }

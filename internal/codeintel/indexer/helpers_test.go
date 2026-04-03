@@ -3,7 +3,6 @@ package indexer
 import (
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/ponchione/sirtopham/internal/codeintel"
 )
@@ -119,16 +118,7 @@ func TestNewChunk_TruncatesBody(t *testing.T) {
 	}
 }
 
-func TestTruncateUTF8_PreservesValidUTF8(t *testing.T) {
-	input := strings.Repeat("é", codeintel.MaxBodyLength/2) + "🙂"
-	got := truncateUTF8(input, codeintel.MaxBodyLength+1)
-	if !utf8.ValidString(got) {
-		t.Fatal("truncateUTF8 returned invalid UTF-8")
-	}
-	if len(got) > codeintel.MaxBodyLength+1 {
-		t.Fatalf("len(got) = %d, want <= %d", len(got), codeintel.MaxBodyLength+1)
-	}
-}
+
 
 func TestFormatRelationshipContext(t *testing.T) {
 	chunks := []codeintel.Chunk{

@@ -90,10 +90,7 @@ func extractPyFunc(spanNode, defNode *sitter.Node, content []byte, chunkType cod
 		sig = strings.TrimRight(string(content[spanNode.StartByte():spanNode.EndByte()]), " \t\n\r")
 	}
 
-	body := string(content[spanNode.StartByte():spanNode.EndByte()])
-	if len(body) > codeintel.MaxBodyLength {
-		body = body[:codeintel.MaxBodyLength]
-	}
+	body := codeintel.TruncateUTF8(string(content[spanNode.StartByte():spanNode.EndByte()]), codeintel.MaxBodyLength)
 
 	return []codeintel.RawChunk{{
 		Name:      name,
@@ -123,10 +120,7 @@ func extractPyClass(spanNode, defNode *sitter.Node, content []byte) []codeintel.
 		sig = strings.TrimRight(string(content[spanNode.StartByte():spanNode.EndByte()]), " \t\n\r")
 	}
 
-	classBody := string(content[spanNode.StartByte():spanNode.EndByte()])
-	if len(classBody) > codeintel.MaxBodyLength {
-		classBody = classBody[:codeintel.MaxBodyLength]
-	}
+	classBody := codeintel.TruncateUTF8(string(content[spanNode.StartByte():spanNode.EndByte()]), codeintel.MaxBodyLength)
 
 	chunks := []codeintel.RawChunk{{
 		Name:      name,

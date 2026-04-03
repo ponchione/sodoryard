@@ -208,10 +208,7 @@ func (p *Parser) parseFuncDecl(
 	} else {
 		sig = strings.TrimRight(body, " \t\n\r")
 	}
-
-	if len(body) > codeintel.MaxBodyLength {
-		body = body[:codeintel.MaxBodyLength]
-	}
+	body = codeintel.TruncateUTF8(body, codeintel.MaxBodyLength)
 
 	calls := p.extractCalls(decl.Body, pkg)
 
@@ -365,10 +362,7 @@ func (p *Parser) parseGenDecl(
 		} else if idx := strings.Index(sig, "\n"); idx != -1 {
 			sig = sig[:idx]
 		}
-
-		if len(body) > codeintel.MaxBodyLength {
-			body = body[:codeintel.MaxBodyLength]
-		}
+		body = codeintel.TruncateUTF8(body, codeintel.MaxBodyLength)
 
 		chunkType := codeintel.ChunkTypeType
 		if _, ok := ts.Type.(*ast.InterfaceType); ok {

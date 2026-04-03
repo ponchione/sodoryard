@@ -3,6 +3,7 @@ package treesitter
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ponchione/sirtopham/internal/codeintel"
 )
@@ -267,6 +268,25 @@ More content
 	}
 	if chunks[1].Name != "Section Two" || chunks[1].ChunkType != codeintel.ChunkTypeSection {
 		t.Errorf("chunk[1] = %s(%s)", chunks[1].Name, chunks[1].ChunkType)
+	}
+}
+
+func TestParseMarkdown_TruncatesOnUTF8Boundary(t *testing.T) {
+	longLine := strings.Repeat("é", codeintel.MaxBodyLength/2) + "🙂"
+	source := "## Section One\n" + longLine + "\n"
+	p := New()
+	chunks, err := p.Parse("readme.md", []byte(source))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("got %d chunks, want 1", len(chunks))
+	}
+	if !utf8.ValidString(chunks[0].Body) {
+		t.Fatal("markdown chunk body is invalid UTF-8")
+	}
+	if len(chunks[0].Body) > codeintel.MaxBodyLength {
+		t.Fatalf("len(body) = %d, want <= %d", len(chunks[0].Body), codeintel.MaxBodyLength)
 	}
 }
 

@@ -115,10 +115,7 @@ func parseGo(content []byte) ([]codeintel.RawChunk, error) {
 		}
 
 		sig := extractGoSignature(node, chunkType, content)
-		body := string(content[node.StartByte():node.EndByte()])
-		if len(body) > codeintel.MaxBodyLength {
-			body = body[:codeintel.MaxBodyLength]
-		}
+		body := codeintel.TruncateUTF8(string(content[node.StartByte():node.EndByte()]), codeintel.MaxBodyLength)
 
 		chunks = append(chunks, codeintel.RawChunk{
 			Name:      name,
@@ -190,10 +187,7 @@ func parseMarkdown(content []byte) ([]codeintel.RawChunk, error) {
 
 		if strings.HasPrefix(line, "## ") {
 			if inSection && currentName != "" {
-				body := strings.Join(bodyLines, "\n")
-				if len(body) > codeintel.MaxBodyLength {
-					body = body[:codeintel.MaxBodyLength]
-				}
+				body := codeintel.TruncateUTF8(strings.Join(bodyLines, "\n"), codeintel.MaxBodyLength)
 				chunks = append(chunks, codeintel.RawChunk{
 					Name:      currentName,
 					ChunkType: codeintel.ChunkTypeSection,
@@ -213,10 +207,7 @@ func parseMarkdown(content []byte) ([]codeintel.RawChunk, error) {
 	}
 
 	if inSection && currentName != "" {
-		body := strings.Join(bodyLines, "\n")
-		if len(body) > codeintel.MaxBodyLength {
-			body = body[:codeintel.MaxBodyLength]
-		}
+		body := codeintel.TruncateUTF8(strings.Join(bodyLines, "\n"), codeintel.MaxBodyLength)
 		chunks = append(chunks, codeintel.RawChunk{
 			Name:      currentName,
 			ChunkType: codeintel.ChunkTypeSection,
@@ -239,10 +230,7 @@ func parseFallback(filePath string, content []byte) []codeintel.RawChunk {
 		if end > len(lines) {
 			end = len(lines)
 		}
-		body := strings.Join(lines[start:end], "\n")
-		if len(body) > codeintel.MaxBodyLength {
-			body = body[:codeintel.MaxBodyLength]
-		}
+		body := codeintel.TruncateUTF8(strings.Join(lines[start:end], "\n"), codeintel.MaxBodyLength)
 		chunks = append(chunks, codeintel.RawChunk{
 			Name:      fmt.Sprintf("%s:%d-%d", filePath, start+1, end),
 			ChunkType: codeintel.ChunkTypeFallback,
