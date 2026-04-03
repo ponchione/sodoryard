@@ -101,11 +101,12 @@ The developer has a Codex subscription and uses the Codex CLI. Unlike the Anthro
 
 ### Credential Flow
 
-Hermes's approach (which we replicate):
-1. Check if `codex` CLI is installed and credentials exist at `~/.codex/auth.json`.
-2. Before each inference call, run `codex refresh` to ensure the JWT is valid.
-3. Read the access token from `~/.codex/auth.json`.
-4. Make direct API calls to OpenAI's endpoints using that token.
+Hermes's approach (adapted to Sirtopham's local runtime contract):
+1. Check if the `codex` CLI is installed.
+2. If `~/.sirtopham/auth.json` is missing Codex state, import from `~/.codex/auth.json` once.
+3. Read access/refresh tokens from `~/.sirtopham/auth.json` for runtime use.
+4. Refresh directly against the Codex OAuth token endpoint when needed, persisting only to `~/.sirtopham/auth.json`.
+5. Make direct API calls to the ChatGPT Codex-compatible backend using that token.
 
 **Why delegate to the CLI?** OpenAI's OAuth flow for Codex is more complex than Anthropic's, and the Codex CLI handles device-code auth, token storage, and refresh. Reimplementing this would be fragile and would break whenever OpenAI changes their auth flow. Delegating to the CLI is the pragmatic choice.
 
@@ -202,12 +203,12 @@ This is explicitly out of scope for v0.1. Start manual, automate later.
 
 ## Credential Storage & Security
 
-**Principle:** sirtopham does not store credentials itself. It reads them from the credential stores managed by Claude Code and Codex CLI.
+**Principle:** sirtopham reuses CLI-managed credentials where practical, but may keep a provider-owned local auth store when that produces a safer runtime contract.
 
 - Anthropic credentials: read from `~/.claude/.credentials.json` (managed by Claude Code)
-- Codex credentials: read from `~/.codex/auth.json` (managed by Codex CLI)
+- Codex credentials: imported from `~/.codex/auth.json` only when needed, then stored/refreshed in `~/.sirtopham/auth.json`
 - API keys (OpenRouter, etc.): read from environment variables or `sirtopham.yaml`
-- No credentials are stored in sirtopham's own database or config files (except API keys for optional services that don't have a CLI tool).
+- No credentials are stored in sirtopham's SQLite database. API keys may still come from environment variables or `sirtopham.yaml`, and Codex keeps provider auth state in `~/.sirtopham/auth.json` rather than mutating the shared CLI store.
 
 **File locking:** When reading/writing credential files (especially for Anthropic token refresh), use advisory file locking to avoid races with Claude Code itself accessing the same file.
 

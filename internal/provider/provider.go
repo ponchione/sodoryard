@@ -23,7 +23,7 @@ type Provider interface {
 // Implementations should be fast and targeted:
 //   - Anthropic: auth check (GetAuthHeader) with ~5s timeout
 //   - OpenAI-compatible/local: HTTP HEAD to baseURL with ~2s timeout
-//   - Codex: not needed (exec.LookPath is already lightweight)
+//   - Codex: lightweight authenticated probe against the configured endpoint
 type Pinger interface {
 	Ping(ctx context.Context) error
 }

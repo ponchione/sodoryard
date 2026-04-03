@@ -20,6 +20,8 @@ type mockProvider struct {
 	streamCh     <-chan provider.StreamEvent
 	streamErr    error
 	modelsList   []provider.Model
+	authStatus   *provider.AuthStatus
+	authErr      error
 }
 
 func (m *mockProvider) Name() string { return m.name }
@@ -32,6 +34,12 @@ func (m *mockProvider) Complete(_ context.Context, _ *provider.Request) (*provid
 func (m *mockProvider) Stream(_ context.Context, _ *provider.Request) (<-chan provider.StreamEvent, error) {
 	return m.streamCh, m.streamErr
 }
+func (m *mockProvider) AuthStatus(_ context.Context) (*provider.AuthStatus, error) {
+	if m.authErr != nil {
+		return nil, m.authErr
+	}
+	return m.authStatus, nil
+}
 
 // mockStore implements tracking.SubCallStore with call recording.
 type mockStore struct {
@@ -42,6 +50,27 @@ type mockStore struct {
 func (m *mockStore) InsertSubCall(_ context.Context, params tracking.InsertSubCallParams) error {
 	m.calls = append(m.calls, params)
 	return m.err
+}
+
+func TestTrackedProvider_DelegatesAuthStatus(t *testing.T) {
+	mp := &mockProvider{
+		name:       "codex",
+		authStatus: &provider.AuthStatus{Provider: "codex", Mode: "oauth", Source: "sirtopham_store", HasAccessToken: true},
+	}
+	store := &mockStore{}
+	tp := tracking.NewTrackedProvider(mp, store, slog.Default())
+
+	reporter, ok := any(tp).(provider.AuthStatusReporter)
+	if !ok {
+		t.Fatal("expected tracked provider to implement AuthStatusReporter")
+	}
+	status, err := reporter.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() error: %v", err)
+	}
+	if status == nil || status.Provider != "codex" || status.Source != "sirtopham_store" {
+		t.Fatalf("unexpected status: %+v", status)
+	}
 }
 
 func TestComplete_SuccessfulCall(t *testing.T) {

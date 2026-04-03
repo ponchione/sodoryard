@@ -95,7 +95,7 @@ func TestReadAuthFile_NestedTokensJWTExpiry(t *testing.T) {
 	overrideHomeDir(t, tmpDir)
 	expected := time.Date(2026, 4, 3, 17, 45, 59, 0, time.UTC)
 	token := testJWT(t, expected)
-	writeAuthFile(t, tmpDir, `{"auth_mode":"chatgpt","last_refresh":"2026-03-24T17:45:59Z","tokens":{"access_token":"`+token+`","refresh_token":"redacted"}}`)
+	writeAuthFile(t, tmpDir, `{"auth_mode":"chatgpt","last_refresh":"2026-03-24T17:45:59Z","tokens":{"access_token": "`+token+`","refresh_token": "refresh_token"}}`)
 
 	p := &CodexProvider{}
 	gotToken, expiry, err := p.readAuthFile()
@@ -110,6 +110,55 @@ func TestReadAuthFile_NestedTokensJWTExpiry(t *testing.T) {
 	}
 }
 
+func TestReadAuthFile_NonJWTWithoutExpiryStillLoads(t *testing.T) {
+	tmpDir := t.TempDir()
+	overrideHomeDir(t, tmpDir)
+	writeAuthFile(t, tmpDir, `{"auth_mode":"chatgpt","tokens":{"access_token": "opaque-token","refresh_token": "refresh_token"}}`)
+
+	p := &CodexProvider{}
+	token, expiry, err := p.readAuthFile()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != "opaque-token" {
+		t.Fatalf("expected opaque token, got %q", token)
+	}
+	if !expiry.IsZero() {
+		t.Fatalf("expected zero expiry when token format is opaque, got %v", expiry)
+	}
+	status, err := p.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() error: %v", err)
+	}
+	if status.StorePath == "" || status.Source != "sirtopham_store" || !status.HasRefreshToken {
+		t.Fatalf("unexpected auth status: %+v", status)
+	}
+}
+
+func TestAuthStatus_DoesNotImportSharedStoreOnInspection(t *testing.T) {
+	tmpDir := t.TempDir()
+	overrideHomeDir(t, tmpDir)
+	writeAuthFile(t, tmpDir, `{"auth_mode":"chatgpt","tokens":{"access_token": "opaque-token","refresh_token": "refresh-token"}}`)
+
+	p := &CodexProvider{}
+	status, err := p.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() error: %v", err)
+	}
+	if status.Source != "codex_cli_store" {
+		t.Fatalf("expected shared-store source, got %+v", status)
+	}
+	if status.StorePath != "" {
+		t.Fatalf("expected no private store path during inspection, got %+v", status)
+	}
+	if !strings.HasSuffix(status.SourcePath, filepath.Join(".codex", "auth.json")) {
+		t.Fatalf("expected shared auth source path, got %+v", status)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, ".sirtopham", "auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected AuthStatus inspection not to create private auth store, stat err=%v", err)
+	}
+}
+
 func TestReadAuthFile_Missing(t *testing.T) {
 	tmpDir := t.TempDir()
 	overrideHomeDir(t, tmpDir)
@@ -119,8 +168,8 @@ func TestReadAuthFile_Missing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing auth file")
 	}
-	if !strings.Contains(err.Error(), "auth file not found at") {
-		t.Errorf("expected error containing %q, got %q", "auth file not found at", err.Error())
+	if !strings.Contains(err.Error(), "auth not found in") {
+		t.Errorf("expected error containing %q, got %q", "auth not found in", err.Error())
 	}
 }
 
@@ -134,8 +183,8 @@ func TestReadAuthFile_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
-	if !strings.Contains(err.Error(), "invalid auth file format") {
-		t.Errorf("expected error containing %q, got %q", "invalid auth file format", err.Error())
+	if !strings.Contains(err.Error(), "failed to import Codex auth") {
+		t.Errorf("expected error containing %q, got %q", "failed to import Codex auth", err.Error())
 	}
 }
 
@@ -325,12 +374,19 @@ func TestRefreshToken_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".codex", "auth.json"))
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".sirtopham", "auth.json"))
 	if err != nil {
 		t.Fatalf("read auth file: %v", err)
 	}
 	if !strings.Contains(string(data), "fresh_access") {
 		t.Fatalf("expected refreshed access token to be persisted, got %s", string(data))
+	}
+	sharedData, err := os.ReadFile(filepath.Join(tmpDir, ".codex", "auth.json"))
+	if err != nil {
+		t.Fatalf("read shared auth file: %v", err)
+	}
+	if strings.Contains(string(sharedData), "fresh_access") {
+		t.Fatalf("expected shared Codex auth file to remain unchanged, got %s", string(sharedData))
 	}
 }
 

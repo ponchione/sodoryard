@@ -481,3 +481,7 @@ worth hardening.
 
 Only escapes single quotes. Other injection vectors may exist in LanceDB filter
 syntax.
+
+---
+
+

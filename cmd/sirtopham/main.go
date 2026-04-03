@@ -37,10 +37,12 @@ func main() {
 		},
 	}
 
+	authCmd := newAuthCmd(&configPath)
+	doctorCmd := newDoctorCmd(&configPath)
 	serveCmd := newServeCmd(&configPath)
 	brainServeCmd := newBrainServeCmd()
 
-	rootCmd.AddCommand(serveCmd, brainServeCmd, initCmd, indexCmd, configCmd)
+	rootCmd.AddCommand(serveCmd, brainServeCmd, initCmd, indexCmd, configCmd, authCmd, doctorCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

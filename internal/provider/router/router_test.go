@@ -288,7 +288,7 @@ func TestComplete_AuthErrorWrapped(t *testing.T) {
 	if !contains(err.Error(), "authentication failed") {
 		t.Fatalf("expected auth error message, got: %s", err.Error())
 	}
-	if !contains(err.Error(), "Check your API key") {
+	if !contains(err.Error(), "ANTHROPIC_API_KEY") && !contains(err.Error(), "claude login") {
 		t.Fatalf("expected remediation message, got: %s", err.Error())
 	}
 }
@@ -450,7 +450,7 @@ func TestStream_AuthErrorWrapped(t *testing.T) {
 	if !contains(err.Error(), "authentication failed") {
 		t.Fatalf("expected auth error message, got: %s", err.Error())
 	}
-	if !contains(err.Error(), "Check your API key") {
+	if !contains(err.Error(), "ANTHROPIC_API_KEY") && !contains(err.Error(), "claude login") {
 		t.Fatalf("expected remediation message, got: %s", err.Error())
 	}
 }
@@ -803,13 +803,22 @@ func TestValidate_DefaultProviderUnavailableHardStop(t *testing.T) {
 // mockPingProvider is a mock that implements both provider.Provider and provider.Pinger.
 type mockPingProvider struct {
 	mockProvider
-	pingErr   error
-	pingCalls int
+	pingErr    error
+	pingCalls  int
+	authStatus *provider.AuthStatus
+	authErr    error
 }
 
 func (m *mockPingProvider) Ping(_ context.Context) error {
 	m.pingCalls++
 	return m.pingErr
+}
+
+func (m *mockPingProvider) AuthStatus(_ context.Context) (*provider.AuthStatus, error) {
+	if m.authErr != nil {
+		return nil, m.authErr
+	}
+	return m.authStatus, nil
 }
 
 func TestValidate_UsesPingWhenAvailable(t *testing.T) {
@@ -854,6 +863,82 @@ func TestValidate_PingFailureUnregistersProvider(t *testing.T) {
 	err := r.Validate(context.Background())
 	if err == nil {
 		t.Fatal("expected hard error when default provider fails Ping()")
+	}
+}
+
+func TestValidate_DefaultProviderAuthFailureReturnsRemediation(t *testing.T) {
+	r, _ := NewRouter(validConfig(), nil, nil)
+	failingPing := &mockPingProvider{
+		mockProvider: mockProvider{
+			name:   "anthropic",
+			models: []provider.Model{{ID: "claude-sonnet-4-6"}},
+		},
+		pingErr: provider.NewAuthProviderError("anthropic", provider.AuthMissingCredentials, 401, "invalid api key", "Configure ANTHROPIC_API_KEY or run `claude login`.", nil),
+	}
+	_ = r.RegisterProvider(failingPing)
+
+	err := r.Validate(context.Background())
+	if err == nil {
+		t.Fatal("expected hard error when default provider auth fails Ping()")
+	}
+	if !contains(err.Error(), "authentication failed for provider anthropic") {
+		t.Fatalf("unexpected error: %s", err.Error())
+	}
+	if !contains(err.Error(), "ANTHROPIC_API_KEY") && !contains(err.Error(), "claude login") {
+		t.Fatalf("expected remediation guidance, got: %s", err.Error())
+	}
+}
+
+func TestValidate_NonDefaultAuthFailureUnregistersProvider(t *testing.T) {
+	cfg := validConfig()
+	r, _ := NewRouter(cfg, nil, nil)
+
+	defaultProvider := &mockProvider{name: "anthropic", models: []provider.Model{{ID: "claude-sonnet-4-6"}}}
+	badSecondary := &mockPingProvider{
+		mockProvider: mockProvider{name: "secondary", models: []provider.Model{{ID: "gpt-5.1-codex-mini"}}},
+		pingErr:      provider.NewAuthProviderError("secondary", provider.AuthInvalidCredentials, 401, "secondary auth rejected", "Refresh the secondary provider credentials.", nil),
+	}
+
+	_ = r.RegisterProvider(defaultProvider)
+	_ = r.RegisterProvider(badSecondary)
+
+	if err := r.Validate(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	health := r.ProviderHealthMap()
+	if _, ok := health["secondary"]; ok {
+		t.Fatal("expected failing non-default provider to be unregistered")
+	}
+	if _, ok := health["anthropic"]; !ok {
+		t.Fatal("expected default provider to remain registered")
+	}
+}
+
+func TestAuthStatuses_ReturnsProviderStatusesAndErrors(t *testing.T) {
+	r, _ := NewRouter(validConfig(), nil, nil)
+	good := &mockPingProvider{
+		mockProvider: mockProvider{name: "anthropic", models: []provider.Model{{ID: "claude-sonnet-4-6"}}},
+		authStatus:   &provider.AuthStatus{Provider: "anthropic", Mode: "api_key", Source: "env:ANTHROPIC_API_KEY", HasAccessToken: true},
+	}
+	bad := &mockPingProvider{
+		mockProvider: mockProvider{name: "codex", models: []provider.Model{{ID: "gpt-5.1-codex-mini"}}},
+		authErr:      provider.NewAuthProviderError("codex", provider.AuthMissingCredentials, 0, "missing Codex auth", "Run `codex auth`.", nil),
+	}
+	_ = r.RegisterProvider(good)
+	_ = r.RegisterProvider(bad)
+
+	statuses, err := r.AuthStatuses(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if statuses["anthropic"] == nil || statuses["anthropic"].Mode != "api_key" {
+		t.Fatalf("unexpected anthropic status: %+v", statuses["anthropic"])
+	}
+	if statuses["codex"] == nil || !contains(statuses["codex"].Detail, "missing Codex auth") {
+		t.Fatalf("unexpected codex status: %+v", statuses["codex"])
+	}
+	if !contains(statuses["codex"].Remediation, "codex auth") {
+		t.Fatalf("expected remediation in codex status, got %+v", statuses["codex"])
 	}
 }
 

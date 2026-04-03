@@ -89,19 +89,22 @@ var _ provider.Provider = (*AnthropicProvider)(nil)
 
 // Compile-time assertion that AnthropicProvider satisfies provider.Pinger.
 var _ provider.Pinger = (*AnthropicProvider)(nil)
+var _ provider.AuthStatusReporter = (*AnthropicProvider)(nil)
 
 // Ping performs a lightweight auth check by calling GetAuthHeader. This verifies
 // that credentials are configured and valid without making an API call.
 func (p *AnthropicProvider) Ping(ctx context.Context) error {
 	_, _, err := p.creds.GetAuthHeader(ctx)
 	if err != nil {
-		return &provider.ProviderError{
-			Provider:   "anthropic",
-			StatusCode: 0,
-			Message:    fmt.Sprintf("auth check failed: %s", err),
-			Retriable:  false,
-			Err:        err,
-		}
+		return provider.NewAuthProviderError("anthropic", provider.AuthMissingCredentials, 0, fmt.Sprintf("auth check failed: %s", err), "Configure ANTHROPIC_API_KEY or run `claude login`.", err)
 	}
 	return nil
+}
+
+func (p *AnthropicProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, error) {
+	reporter, ok := p.creds.(provider.AuthStatusReporter)
+	if !ok {
+		return &provider.AuthStatus{Provider: "anthropic", Detail: "auth status unavailable", Remediation: "Configure ANTHROPIC_API_KEY or run `claude login`."}, nil
+	}
+	return reporter.AuthStatus(ctx)
 }

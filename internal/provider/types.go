@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -35,11 +36,13 @@ type ToolResult struct {
 // ProviderError is a structured error type for provider failures. It carries
 // the HTTP status code, retry eligibility, and originating provider name.
 type ProviderError struct {
-	Provider   string
-	StatusCode int
-	Message    string
-	Retriable  bool
-	Err        error
+	Provider    string
+	StatusCode  int
+	Message     string
+	Retriable   bool
+	Err         error
+	AuthKind    AuthErrorKind
+	Remediation string
 	// RetryAfter is the server-suggested retry delay parsed from the Retry-After HTTP header.
 	RetryAfter time.Duration
 }
@@ -101,4 +104,27 @@ func NewProviderError(provider string, statusCode int, message string, err error
 		Retriable:  retriable,
 		Err:        err,
 	}
+}
+
+// NewAuthProviderError creates a non-retriable ProviderError tagged as an
+// authentication failure with provider-specific remediation guidance.
+func NewAuthProviderError(provider string, kind AuthErrorKind, statusCode int, message, remediation string, err error) *ProviderError {
+	return &ProviderError{
+		Provider:    provider,
+		StatusCode:  statusCode,
+		Message:     message,
+		Retriable:   false,
+		Err:         err,
+		AuthKind:    kind,
+		Remediation: remediation,
+	}
+}
+
+// IsAuthenticationFailure reports whether err is a provider auth failure.
+func IsAuthenticationFailure(err error) bool {
+	var pe *ProviderError
+	if !errors.As(err, &pe) {
+		return false
+	}
+	return pe.AuthKind != "" || pe.StatusCode == http.StatusUnauthorized || pe.StatusCode == http.StatusForbidden
 }

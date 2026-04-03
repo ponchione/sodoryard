@@ -151,9 +151,7 @@ func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider
 
 	r.markFailure(targetName, callErr)
 
-	// Wrap auth errors with actionable message.
-	var pe *provider.ProviderError
-	if errors.As(callErr, &pe) && (pe.StatusCode == 401 || pe.StatusCode == 403) {
+	if provider.IsAuthenticationFailure(callErr) {
 		return nil, wrapAuthError(targetName, callErr)
 	}
 	return nil, callErr
@@ -177,9 +175,7 @@ func (r *Router) Stream(ctx context.Context, req *provider.Request) (<-chan prov
 
 	r.markFailure(targetName, callErr)
 
-	// Wrap auth errors with actionable message.
-	var pe *provider.ProviderError
-	if errors.As(callErr, &pe) && (pe.StatusCode == 401 || pe.StatusCode == 403) {
+	if provider.IsAuthenticationFailure(callErr) {
 		return nil, wrapAuthError(targetName, callErr)
 	}
 	return nil, callErr
@@ -210,6 +206,35 @@ func (r *Router) Models(ctx context.Context) ([]provider.Model, error) {
 		}
 	}
 	return all, nil
+}
+
+func (r *Router) AuthStatuses(ctx context.Context) (map[string]*provider.AuthStatus, error) {
+	r.mu.RLock()
+	providers := make(map[string]provider.Provider, len(r.providers))
+	for k, v := range r.providers {
+		providers[k] = v
+	}
+	r.mu.RUnlock()
+
+	statuses := make(map[string]*provider.AuthStatus, len(providers))
+	for name, p := range providers {
+		reporter, ok := p.(provider.AuthStatusReporter)
+		if !ok {
+			statuses[name] = nil
+			continue
+		}
+		status, err := reporter.AuthStatus(ctx)
+		if err != nil {
+			statuses[name] = &provider.AuthStatus{Provider: name, Detail: err.Error()}
+			var pe *provider.ProviderError
+			if errors.As(err, &pe) {
+				statuses[name].Remediation = pe.Remediation
+			}
+			continue
+		}
+		statuses[name] = status
+	}
+	return statuses, nil
 }
 
 // resolveTarget determines which provider and provider name should handle the
@@ -284,8 +309,25 @@ func cloneRequestWithModel(req *provider.Request, model string) *provider.Reques
 // wrapAuthError wraps an error with an actionable authentication failure message.
 func wrapAuthError(providerName string, err error) error {
 	var pe *provider.ProviderError
-	if errors.As(err, &pe) {
-		return fmt.Errorf("authentication failed for provider %s (HTTP %d): %s. Check your API key in the project's YAML config or environment variables.", providerName, pe.StatusCode, pe.Message)
+	if !errors.As(err, &pe) {
+		return err
 	}
-	return err
+	status := ""
+	if pe.StatusCode > 0 {
+		status = fmt.Sprintf(" (HTTP %d)", pe.StatusCode)
+	}
+	message := fmt.Sprintf("authentication failed for provider %s%s: %s", providerName, status, pe.Message)
+	remediation := pe.Remediation
+	if remediation == "" {
+		switch providerName {
+		case "anthropic":
+			remediation = "Configure ANTHROPIC_API_KEY or run `claude login`."
+		default:
+			remediation = "Check the provider's configured credentials."
+		}
+	}
+	if remediation != "" {
+		message += ". " + remediation
+	}
+	return fmt.Errorf("%s", message)
 }

@@ -203,12 +203,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 
 		// Auth errors: no retry
 		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			return nil, &provider.ProviderError{
-				Provider:   "codex",
-				StatusCode: resp.StatusCode,
-				Message:    "Codex authentication failed. Run `codex auth` to re-authenticate.",
-				Retriable:  false,
-			}
+			return nil, provider.NewAuthProviderError("codex", provider.AuthInvalidCredentials, resp.StatusCode, "Codex authentication failed.", codexAuthRemediation(), nil)
 		}
 
 		// Retryable errors

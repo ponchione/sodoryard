@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ponchione/sirtopham/internal/provider"
 )
 
 // AuthMode indicates how the CredentialManager authenticates with Anthropic.
@@ -39,12 +41,13 @@ type oauthToken struct {
 // CredentialManager handles Anthropic credential discovery, caching,
 // and transparent OAuth token refresh.
 type CredentialManager struct {
-	credPath   string       // default: ~/.claude/.credentials.json
-	mu         sync.RWMutex
-	cached     *oauthToken  // cached OAuth credentials
-	mode       AuthMode
-	apiKey     string       // only set in API key mode
-	httpClient *http.Client // used for token refresh requests
+	credPath     string // default: ~/.claude/.credentials.json
+	mu           sync.RWMutex
+	cached       *oauthToken // cached OAuth credentials
+	mode         AuthMode
+	apiKey       string // only set in API key mode
+	apiKeySource string
+	httpClient   *http.Client // used for token refresh requests
 }
 
 // CredentialOption is a functional option for NewCredentialManager.
@@ -57,8 +60,16 @@ func WithCredentialPath(path string) CredentialOption {
 	}
 }
 
+// WithAPIKey forces API key mode using the resolved provider secret source.
+func WithAPIKey(apiKey string) CredentialOption {
+	return func(cm *CredentialManager) {
+		cm.apiKey = apiKey
+		cm.apiKeySource = "config"
+	}
+}
+
 // NewCredentialManager creates a CredentialManager with credential discovery.
-// It checks ANTHROPIC_API_KEY first, then falls back to OAuth mode.
+// It prefers an explicitly supplied API key, then ANTHROPIC_API_KEY, then OAuth mode.
 func NewCredentialManager(opts ...CredentialOption) (*CredentialManager, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -75,12 +86,15 @@ func NewCredentialManager(opts ...CredentialOption) (*CredentialManager, error) 
 	}
 
 	// Credential discovery.
-	if val, ok := os.LookupEnv("ANTHROPIC_API_KEY"); ok {
+	if cm.apiKey != "" {
+		cm.mode = AuthModeAPIKey
+	} else if val, ok := os.LookupEnv("ANTHROPIC_API_KEY"); ok {
 		if val == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY is set but empty.")
 		}
 		cm.mode = AuthModeAPIKey
 		cm.apiKey = val
+		cm.apiKeySource = "env:ANTHROPIC_API_KEY"
 	} else {
 		cm.mode = AuthModeOAuth
 	}
@@ -226,4 +240,47 @@ func (cm *CredentialManager) refreshToken(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (cm *CredentialManager) AuthStatus(ctx context.Context) (*provider.AuthStatus, error) {
+	status := &provider.AuthStatus{
+		Provider:    "anthropic",
+		Remediation: "Configure ANTHROPIC_API_KEY or run `claude login`.",
+	}
+
+	switch cm.mode {
+	case AuthModeAPIKey:
+		status.Mode = "api_key"
+		status.Source = cm.apiKeySource
+		status.HasAccessToken = cm.apiKey != ""
+		status.Detail = "Anthropic is configured for API key auth."
+		return status, nil
+	default:
+		status.Mode = "oauth"
+		status.Source = "credential_file"
+		status.StorePath = cm.credPath
+		status.SourcePath = cm.credPath
+		status.ActiveProvider = "anthropic"
+	}
+
+	cm.mu.RLock()
+	cached := cm.cached
+	cm.mu.RUnlock()
+	if cached != nil {
+		status.HasAccessToken = cached.AccessToken != ""
+		status.HasRefreshToken = cached.RefreshToken != ""
+		status.ExpiresAt = cached.ExpiresAt
+		status.Detail = "Anthropic OAuth credentials loaded from the cached credential manager state."
+		return status, nil
+	}
+
+	token, err := readCredentialFile(cm.credPath)
+	if err != nil {
+		return nil, provider.NewAuthProviderError("anthropic", provider.AuthMissingCredentials, 0, err.Error(), status.Remediation, err)
+	}
+	status.HasAccessToken = token.AccessToken != ""
+	status.HasRefreshToken = token.RefreshToken != ""
+	status.ExpiresAt = token.ExpiresAt
+	status.Detail = "Anthropic OAuth credentials loaded from ~/.claude/.credentials.json."
+	return status, nil
 }

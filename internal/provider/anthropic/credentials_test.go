@@ -70,14 +70,43 @@ func TestAPIKeyModeRejectsEmptyEnvVar(t *testing.T) {
 	}
 }
 
+func TestWithAPIKeyOverridesEnvAndOAuth(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "env-key")
+	dir := t.TempDir()
+	credPath := writeTestCredFile(t, dir, "sk-ant-valid", "rt-ant-valid", time.Now().Add(30*time.Minute))
+
+	cm, err := NewCredentialManager(WithCredentialPath(credPath), WithAPIKey("config-key"))
+	if err != nil {
+		t.Fatalf("NewCredentialManager() error: %v", err)
+	}
+
+	headerName, headerValue, err := cm.GetAuthHeader(context.Background())
+	if err != nil {
+		t.Fatalf("GetAuthHeader() error: %v", err)
+	}
+	if headerName != "X-Api-Key" || headerValue != "config-key" {
+		t.Fatalf("expected explicit API key to win, got %s=%q", headerName, headerValue)
+	}
+	status, err := cm.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() error: %v", err)
+	}
+	if status.Mode != "api_key" || status.Source != "config" {
+		t.Fatalf("unexpected auth status: %+v", status)
+	}
+	if status.SourcePath != "" {
+		t.Fatalf("expected SourcePath to be empty for api_key mode, got %+v", status)
+	}
+}
+
 // Test 3 — OAuth mode with valid non-expired credential file.
 func TestOAuthModeValidCredentialFile(t *testing.T) {
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	t.Cleanup(func() { os.Unsetenv("ANTHROPIC_API_KEY") })
 
 	dir := t.TempDir()
-	credPath := writeTestCredFile(t, dir, "sk-ant-valid", "rt-ant-valid",
-		time.Now().Add(30*time.Minute))
+	expiresAt := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Second)
+	credPath := writeTestCredFile(t, dir, "sk-ant-valid", "rt-ant-valid", expiresAt)
 
 	cm, err := NewCredentialManager(WithCredentialPath(credPath))
 	if err != nil {
@@ -93,6 +122,13 @@ func TestOAuthModeValidCredentialFile(t *testing.T) {
 	}
 	if headerValue != "Bearer sk-ant-valid" {
 		t.Errorf("headerValue = %q, want %q", headerValue, "Bearer sk-ant-valid")
+	}
+	status, err := cm.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() error: %v", err)
+	}
+	if status.Mode != "oauth" || status.StorePath != credPath || !status.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("unexpected auth status: %+v", status)
 	}
 }
 

@@ -61,10 +61,15 @@ func (r *Router) Validate(ctx context.Context) error {
 
 	// Phase 2: Validate without holding any lock.
 	var toRemove []string
+	defaultProvider := r.config.Default.Provider
 
 	// Check codex binary availability.
 	if _, ok := snapshot["codex"]; ok {
 		if _, err := exec.LookPath("codex"); err != nil {
+			wrapped := fmt.Errorf("Codex CLI not found on PATH")
+			if defaultProvider == "codex" {
+				return fmt.Errorf("default provider %q failed startup validation: %w", defaultProvider, wrapped)
+			}
 			r.logger.Warn("codex binary not found on PATH, unregistering codex provider")
 			toRemove = append(toRemove, "codex")
 		}
@@ -105,6 +110,12 @@ func (r *Router) Validate(ctx context.Context) error {
 		}
 
 		if err != nil {
+			if name == defaultProvider {
+				if provider.IsAuthenticationFailure(err) {
+					return wrapAuthError(name, err)
+				}
+				return fmt.Errorf("default provider %q failed startup validation: %w", defaultProvider, err)
+			}
 			toRemove = append(toRemove, name)
 		}
 	}

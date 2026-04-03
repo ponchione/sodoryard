@@ -176,7 +176,7 @@ func TestIntegration_AuthErrorSurfacesImmediately(t *testing.T) {
 	if !contains(errMsg, "authentication failed for provider anthropic (HTTP 401)") {
 		t.Fatalf("unexpected error: %s", errMsg)
 	}
-	if !contains(errMsg, "Check your API key") {
+	if !contains(errMsg, "ANTHROPIC_API_KEY") && !contains(errMsg, "claude login") {
 		t.Fatalf("missing remediation message: %s", errMsg)
 	}
 

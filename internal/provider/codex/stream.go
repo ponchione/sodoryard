@@ -77,9 +77,9 @@ type sseCompleted struct {
 }
 
 type sseCompletedResponse struct {
-	ID     string            `json:"id"`
-	Status string            `json:"status"`
-	Usage  responsesUsage    `json:"usage"`
+	ID     string              `json:"id"`
+	Status string              `json:"status"`
+	Usage  responsesUsage      `json:"usage"`
 	Output []sseOutputItemData `json:"output,omitempty"`
 }
 
@@ -145,12 +145,7 @@ func (p *CodexProvider) Stream(ctx context.Context, req *provider.Request) (<-ch
 
 		switch {
 		case resp.StatusCode == 401 || resp.StatusCode == 403:
-			return nil, &provider.ProviderError{
-				Provider:   "codex",
-				StatusCode: resp.StatusCode,
-				Message:    "Codex authentication failed. Run 'codex auth' to re-authenticate.",
-				Retriable:  false,
-			}
+			return nil, provider.NewAuthProviderError("codex", provider.AuthInvalidCredentials, resp.StatusCode, "Codex authentication failed.", codexAuthRemediation(), nil)
 		case resp.StatusCode == 429:
 			return nil, &provider.ProviderError{
 				Provider:   "codex",

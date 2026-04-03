@@ -139,7 +139,10 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 		if err := provRouter.RegisterProvider(p); err != nil {
 			return fmt.Errorf("register provider %q: %w", name, err)
 		}
-		logger.Info("registered provider", "name", name, "type", provCfg.Type)
+		logProviderAuthStatus(cmd.Context(), logger, name, provCfg, p)
+	}
+	if err := provRouter.Validate(cmd.Context()); err != nil {
+		return fmt.Errorf("validate providers: %w", err)
 	}
 
 	// ── 5. Build semantic retrieval runtime ────────────────────────────
@@ -275,16 +278,27 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	return nil
 }
 
+func resolveProviderAPIKey(cfg appconfig.ProviderConfig) string {
+	if cfg.APIKey != "" {
+		return cfg.APIKey
+	}
+	if cfg.APIKeyEnv != "" {
+		return os.Getenv(cfg.APIKeyEnv)
+	}
+	return ""
+}
+
 // buildProvider constructs a provider.Provider from config.
 func buildProvider(name string, cfg appconfig.ProviderConfig) (provider.Provider, error) {
-	apiKey := cfg.APIKey
-	if apiKey == "" && cfg.APIKeyEnv != "" {
-		apiKey = os.Getenv(cfg.APIKeyEnv)
-	}
+	apiKey := resolveProviderAPIKey(cfg)
 
 	switch cfg.Type {
 	case "anthropic":
-		creds, err := anthropic.NewCredentialManager()
+		var credOpts []anthropic.CredentialOption
+		if apiKey != "" {
+			credOpts = append(credOpts, anthropic.WithAPIKey(apiKey))
+		}
+		creds, err := anthropic.NewCredentialManager(credOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("anthropic credentials: %w", err)
 		}

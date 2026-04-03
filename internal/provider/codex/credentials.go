@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -16,16 +17,20 @@ import (
 	"github.com/ponchione/sirtopham/internal/provider"
 )
 
-// codexAuthFile represents the JSON structure of ~/.codex/auth.json.
-type codexAuthFile struct {
-	AccessToken  string `json:"access_token"`
+type codexAuthTokens struct {
+	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
-	ExpiresAt    string `json:"expires_at"` // RFC3339 format, e.g. "2026-03-28T16:00:00Z"`
-	LastRefresh  string `json:"last_refresh"`
-	Tokens       struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token,omitempty"`
-	} `json:"tokens"`
+}
+
+// codexAuthFile represents the JSON structure persisted in Sirtopham's own
+// auth store for the Codex provider.
+type codexAuthFile struct {
+	AuthMode     string          `json:"auth_mode,omitempty"`
+	AccessToken  string          `json:"access_token,omitempty"`
+	RefreshToken string          `json:"refresh_token,omitempty"`
+	ExpiresAt    string          `json:"expires_at,omitempty"`
+	LastRefresh  string          `json:"last_refresh,omitempty"`
+	Tokens       codexAuthTokens `json:"tokens,omitempty"`
 }
 
 type codexRefreshResponse struct {
@@ -37,63 +42,21 @@ type codexRefreshResponse struct {
 }
 
 type codexAuthState struct {
-	path   string
-	auth   codexAuthFile
-	token  string
-	expiry time.Time
+	path           string
+	sourcePath     string
+	version        int
+	activeProvider string
+	fromSharedCLI  bool
+	auth           codexAuthFile
+	token          string
+	expiry         time.Time
+	hasTokenExpiry bool
 }
 
 type jwtClaims struct {
 	Exp int64 `json:"exp"`
 }
 
-// getAccessToken obtains a valid access token, refreshing if needed.
-// It uses a read-lock fast path when the cached token is still valid,
-// and a write-lock slow path with double-check to avoid redundant refreshes.
-func (p *CodexProvider) getAccessToken(ctx context.Context) (string, error) {
-	// Fast path: read lock
-	p.mu.RLock()
-	if p.cachedToken != "" && time.Until(p.tokenExpiry) > 120*time.Second {
-		token := p.cachedToken
-		p.mu.RUnlock()
-		return token, nil
-	}
-	p.mu.RUnlock()
-
-	// Slow path: write lock
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Double-check: another goroutine may have refreshed while we waited
-	if p.cachedToken != "" && time.Until(p.tokenExpiry) > 120*time.Second {
-		return p.cachedToken, nil
-	}
-
-	// Try reading the auth file first (it may already have a valid token).
-	token, expiry, err := p.readAuthFile()
-	if err == nil && token != "" && time.Until(expiry) > 30*time.Second {
-		p.cachedToken = token
-		p.tokenExpiry = expiry
-		return token, nil
-	}
-
-	// Fall back to CLI refresh only when the auth file is missing/expired.
-	if refreshErr := p.refreshToken(ctx); refreshErr != nil {
-		return "", refreshErr
-	}
-
-	// Read the updated auth file.
-	token, expiry, err = p.readAuthFile()
-	if err != nil {
-		return "", err
-	}
-	p.cachedToken = token
-	p.tokenExpiry = expiry
-	return token, nil
-}
-
-
-// authFilePath is a package-level variable to allow tests to override the home directory.
 var homeDir = os.UserHomeDir
 
 var stdinIsTerminal = func() bool {
@@ -104,51 +67,142 @@ var stdinIsTerminal = func() bool {
 var codexOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 var codexOAuthTokenURL = "https://auth.openai.com/oauth/token"
 
+func codexAuthRemediation() string {
+	return "Run `codex auth` to refresh Codex login. Sirtopham keeps its own copy in ~/.sirtopham/auth.json and only imports from ~/.codex/auth.json when its store is empty."
+}
+
+// getAccessToken obtains a valid access token, refreshing Sirtopham's private
+// Codex auth store when needed.
+func (p *CodexProvider) getAccessToken(ctx context.Context) (string, error) {
+	p.mu.RLock()
+	if p.cachedToken != "" && (p.tokenExpiry.IsZero() || time.Until(p.tokenExpiry) > 120*time.Second) {
+		token := p.cachedToken
+		p.mu.RUnlock()
+		return token, nil
+	}
+	p.mu.RUnlock()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.cachedToken != "" && (p.tokenExpiry.IsZero() || time.Until(p.tokenExpiry) > 120*time.Second) {
+		return p.cachedToken, nil
+	}
+
+	state, err := p.readAuthState()
+	if err == nil && state.token != "" {
+		p.cachedToken = state.token
+		p.tokenExpiry = state.expiry
+		if !state.hasTokenExpiry || time.Until(state.expiry) > 30*time.Second {
+			return state.token, nil
+		}
+	}
+
+	if refreshErr := p.refreshToken(ctx); refreshErr != nil {
+		return "", refreshErr
+	}
+
+	token, expiry, err := p.readAuthFile()
+	if err != nil {
+		return "", err
+	}
+	p.cachedToken = token
+	p.tokenExpiry = expiry
+	return token, nil
+}
+
 func (p *CodexProvider) readAuthState() (*codexAuthState, error) {
+	return p.readAuthStateWithImport(true)
+}
+
+func (p *CodexProvider) inspectAuthState() (*codexAuthState, error) {
+	return p.readAuthStateWithImport(false)
+}
+
+func (p *CodexProvider) readAuthStateWithImport(allowImport bool) (*codexAuthState, error) {
 	home, err := homeDir()
 	if err != nil {
 		return nil, fmt.Errorf("codex: cannot determine home directory: %w", err)
 	}
 
-	path := home + "/.codex/auth.json"
-	data, err := os.ReadFile(path)
+	storePath := sirtophamAuthStorePath(home)
+	state, err := readCodexStoreState(storePath)
+	if err == nil {
+		return state, nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errCodexStoreStateNotFound) {
+		return nil, fmt.Errorf("codex: invalid Sirtopham auth store %s: %w", storePath, err)
+	}
+
+	sharedPath := codexCLIAuthPath(home)
+	var sharedAuth codexAuthFile
+	if err := readJSONFileLocked(sharedPath, &sharedAuth); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("codex: auth not found in %s or %s. %s", storePath, sharedPath, codexAuthRemediation())
+		}
+		return nil, fmt.Errorf("codex: failed to import Codex auth from %s: %w", sharedPath, err)
+	}
+
+	path := sharedPath
+	if allowImport {
+		path = storePath
+	}
+	sharedState, err := buildCodexAuthState(path, sharedPath, sirtophamAuthStoreVersion, "codex", !allowImport, sharedAuth)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("codex: auth file not found at %s. Run `codex auth` to authenticate.", path)
-		}
-		return nil, fmt.Errorf("codex: cannot read auth file: %w", err)
+		return nil, err
 	}
-
-	var auth codexAuthFile
-	if err := json.Unmarshal(data, &auth); err != nil {
-		return nil, fmt.Errorf("codex: invalid auth file format: %w", err)
+	if !allowImport {
+		return sharedState, nil
 	}
-
-	token := auth.AccessToken
-	if token == "" {
-		token = auth.Tokens.AccessToken
+	if err := writeCodexStore(storePath, sharedState.auth); err != nil {
+		return nil, fmt.Errorf("codex: failed to persist imported auth state to %s: %w", storePath, err)
 	}
-	if token == "" {
-		return nil, fmt.Errorf("codex: auth file contains empty access_token. Run `codex auth` to re-authenticate.")
-	}
-
-	var expiry time.Time
-	if auth.ExpiresAt != "" {
-		expiry, err = time.Parse(time.RFC3339, auth.ExpiresAt)
-		if err != nil {
-			return nil, fmt.Errorf("codex: invalid expires_at timestamp in auth file: %w", err)
-		}
-	} else {
-		expiry, err = jwtExpiry(token)
-		if err != nil {
-			return nil, fmt.Errorf("codex: auth file missing expires_at and token exp claim: %w", err)
-		}
-	}
-
-	return &codexAuthState{path: path, auth: auth, token: token, expiry: expiry}, nil
+	return sharedState, nil
 }
 
-// readAuthFile reads and parses ~/.codex/auth.json.
+func buildCodexAuthState(path, sourcePath string, version int, activeProvider string, fromSharedCLI bool, auth codexAuthFile) (*codexAuthState, error) {
+	token := strings.TrimSpace(auth.Tokens.AccessToken)
+	if token == "" {
+		token = strings.TrimSpace(auth.AccessToken)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("codex: auth state contains empty access_token. %s", codexAuthRemediation())
+	}
+
+	expiry, known, err := codexTokenExpiry(auth, token)
+	if err != nil {
+		return nil, err
+	}
+
+	return &codexAuthState{
+		path:           path,
+		sourcePath:     sourcePath,
+		version:        version,
+		activeProvider: activeProvider,
+		fromSharedCLI:  fromSharedCLI,
+		auth:           auth,
+		token:          token,
+		expiry:         expiry,
+		hasTokenExpiry: known,
+	}, nil
+}
+
+func codexTokenExpiry(auth codexAuthFile, token string) (time.Time, bool, error) {
+	if strings.TrimSpace(auth.ExpiresAt) != "" {
+		expiry, err := time.Parse(time.RFC3339, auth.ExpiresAt)
+		if err != nil {
+			return time.Time{}, false, fmt.Errorf("codex: invalid expires_at timestamp in auth state: %w", err)
+		}
+		return expiry, true, nil
+	}
+	if expiry, err := jwtExpiry(token); err == nil {
+		return expiry, true, nil
+	}
+	return time.Time{}, false, nil
+}
+
+// readAuthFile reads and parses Sirtopham's Codex auth store, importing the
+// user's Codex CLI auth once when the local store is empty.
 func (p *CodexProvider) readAuthFile() (string, time.Time, error) {
 	state, err := p.readAuthState()
 	if err != nil {
@@ -176,37 +230,20 @@ func jwtExpiry(token string) (time.Time, error) {
 	return time.Unix(claims.Exp, 0).UTC(), nil
 }
 
-// refreshToken refreshes Codex OAuth credentials via the token endpoint and persists them back to ~/.codex/auth.json.
+// refreshToken refreshes Codex OAuth credentials via the token endpoint and
+// persists them only to Sirtopham's private auth store.
 func (p *CodexProvider) refreshToken(ctx context.Context) error {
-	home, err := homeDir()
+	state, err := p.readAuthState()
 	if err != nil {
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("codex: cannot determine home directory: %v", err), Retriable: false, Err: err}
+		return provider.NewAuthProviderError("codex", provider.AuthMissingCredentials, 0, err.Error(), codexAuthRemediation(), err)
 	}
-	path := home + "/.codex/auth.json"
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("codex: auth file not found at %s. Run `codex auth` to authenticate.", path), Retriable: false, Err: err}
-		}
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("codex: cannot read auth file: %v", err), Retriable: false, Err: err}
-	}
-	var auth codexAuthFile
-	if err := json.Unmarshal(data, &auth); err != nil {
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("codex: invalid auth file format: %v", err), Retriable: false, Err: err}
-	}
-	state := &codexAuthState{path: path, auth: auth}
 
 	refreshToken := strings.TrimSpace(state.auth.Tokens.RefreshToken)
 	if refreshToken == "" {
 		refreshToken = strings.TrimSpace(state.auth.RefreshToken)
 	}
 	if refreshToken == "" {
-		return &provider.ProviderError{
-			Provider:   "codex",
-			StatusCode: 0,
-			Message:    "Codex auth file is missing refresh_token. Run `codex auth` in a terminal to re-authenticate.",
-			Retriable:  false,
-		}
+		return provider.NewAuthProviderError("codex", provider.AuthMissingCredentials, 0, "Codex auth state is missing refresh_token.", codexAuthRemediation(), nil)
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -219,7 +256,7 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodPost, codexOAuthTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("Codex credential refresh request build failed: %v", err), Retriable: false}
+		return provider.NewAuthProviderError("codex", provider.AuthMisconfigured, 0, fmt.Sprintf("Codex credential refresh request build failed: %v", err), codexAuthRemediation(), err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -231,13 +268,13 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 		if timeoutCtx.Err() != nil {
 			message = "Codex credential refresh timed out after 30s"
 		}
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: message, Retriable: retriable, Err: err}
+		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: message, Retriable: retriable, Err: err, AuthKind: provider.AuthRefreshFailed, Remediation: codexAuthRemediation()}
 	}
 	defer resp.Body.Close()
 
 	var payload codexRefreshResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return &provider.ProviderError{Provider: "codex", StatusCode: resp.StatusCode, Message: fmt.Sprintf("Codex credential refresh returned invalid JSON: %v", err), Retriable: false, Err: err}
+		return provider.NewAuthProviderError("codex", provider.AuthRefreshFailed, resp.StatusCode, fmt.Sprintf("Codex credential refresh returned invalid JSON: %v", err), codexAuthRemediation(), err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -247,11 +284,15 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 		} else if payload.Message != "" {
 			message = fmt.Sprintf("Codex token refresh failed: %s", payload.Message)
 		}
-		return &provider.ProviderError{Provider: "codex", StatusCode: resp.StatusCode, Message: message, Retriable: false}
+		kind := provider.AuthRefreshFailed
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || payload.Error == "invalid_grant" {
+			kind = provider.AuthExpiredCredentials
+		}
+		return provider.NewAuthProviderError("codex", kind, resp.StatusCode, message, codexAuthRemediation(), nil)
 	}
 
 	if strings.TrimSpace(payload.AccessToken) == "" {
-		return &provider.ProviderError{Provider: "codex", StatusCode: resp.StatusCode, Message: "Codex token refresh response was missing access_token.", Retriable: false}
+		return provider.NewAuthProviderError("codex", provider.AuthRefreshFailed, resp.StatusCode, "Codex token refresh response was missing access_token.", codexAuthRemediation(), nil)
 	}
 
 	state.auth.AccessToken = payload.AccessToken
@@ -259,28 +300,61 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 	if strings.TrimSpace(payload.RefreshToken) != "" {
 		state.auth.RefreshToken = payload.RefreshToken
 		state.auth.Tokens.RefreshToken = payload.RefreshToken
-		refreshToken = payload.RefreshToken
 	}
+	state.auth.AuthMode = "chatgpt"
 	state.auth.LastRefresh = time.Now().UTC().Format(time.RFC3339)
 	if expiry, err := jwtExpiry(payload.AccessToken); err == nil {
 		state.auth.ExpiresAt = expiry.Format(time.RFC3339)
 		state.expiry = expiry
+		state.hasTokenExpiry = true
 	} else {
 		state.auth.ExpiresAt = ""
 		state.expiry = time.Time{}
+		state.hasTokenExpiry = false
 	}
 	state.token = payload.AccessToken
 
-	data, marshalErr := json.MarshalIndent(state.auth, "", "  ")
-	if marshalErr != nil {
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("Codex credential refresh could not serialize auth state: %v", marshalErr), Retriable: false, Err: marshalErr}
-	}
-	if err := os.WriteFile(state.path, data, 0o600); err != nil {
-		return &provider.ProviderError{Provider: "codex", StatusCode: 0, Message: fmt.Sprintf("Codex credential refresh could not persist auth state: %v", err), Retriable: false, Err: err}
+	if err := writeCodexStore(state.path, state.auth); err != nil {
+		return provider.NewAuthProviderError("codex", provider.AuthMisconfigured, 0, fmt.Sprintf("Codex credential refresh could not persist auth state: %v", err), codexAuthRemediation(), err)
 	}
 
 	p.cachedToken = payload.AccessToken
 	p.tokenExpiry = state.expiry
-	_ = refreshToken
 	return nil
+}
+
+func (p *CodexProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, error) {
+	_ = ctx
+	state, err := p.inspectAuthState()
+	if err != nil {
+		return nil, err
+	}
+	source := "sirtopham_store"
+	storePath := state.path
+	detail := ""
+	if state.fromSharedCLI {
+		source = "codex_cli_store"
+		storePath = ""
+		detail = "Available in the shared Codex CLI store and will be imported into ~/.sirtopham/auth.json on first use."
+	}
+	status := &provider.AuthStatus{
+		Provider:        "codex",
+		Mode:            state.auth.AuthMode,
+		Source:          source,
+		StorePath:       storePath,
+		SourcePath:      state.sourcePath,
+		ActiveProvider:  state.activeProvider,
+		Version:         state.version,
+		ExpiresAt:       state.expiry,
+		HasAccessToken:  strings.TrimSpace(state.token) != "",
+		HasRefreshToken: strings.TrimSpace(state.auth.Tokens.RefreshToken) != "" || strings.TrimSpace(state.auth.RefreshToken) != "",
+		Detail:          detail,
+		Remediation:     codexAuthRemediation(),
+	}
+	if state.auth.LastRefresh != "" {
+		if t, err := time.Parse(time.RFC3339, state.auth.LastRefresh); err == nil {
+			status.LastRefresh = t
+		}
+	}
+	return status, nil
 }

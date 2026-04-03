@@ -104,6 +104,7 @@ GET    /api/project/file?path=...      Plain-text file contents plus path/langua
 GET    /api/config                     Current UI-relevant runtime config
 PUT    /api/config                     Update mutable runtime config (v0.1: default provider/model)
 GET    /api/providers                  Configured providers and available models
+GET    /api/auth/providers             Provider auth/status diagnostics for operator-facing surfaces
 
 GET    /api/metrics/conversation/:id              Per-conversation token/tool/context metrics
 GET    /api/metrics/conversation/:id/context/:turn ContextAssemblyReport for a specific turn

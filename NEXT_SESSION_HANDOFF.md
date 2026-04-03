@@ -3,186 +3,176 @@
 Date: 2026-04-03
 Repo: /home/gernsback/source/sirtopham
 Branch: main
-State: working tree mostly clean; proactive code retrieval fix is committed and Codex non-interactive refresh hardening is committed; nothing pushed
+State: working tree intentionally dirty with completed auth/runtime reconciliation fixes; nothing pushed
 
-## What was completed today
+## What was completed this session
 
-1. Stopped treating sirtopham-self as the primary validation target
-   - Used `/home/gernsback/source/my-website` as the smoke-test repo instead
-   - Created a focused smoke config at `/tmp/sirtopham-smoke.yaml`
-   - Disabled brain in the smoke config and excluded docs/specs/audit/plans noise from code indexing
+This session did not just audit the recent auth/runtime work; it fixed the main mismatches found in that audit.
 
-2. Confirmed the backend code-index path works on a normal smaller repo
-   - `./bin/sirtopham index --config /tmp/sirtopham-smoke.yaml --json` succeeded cleanly
-   - Indexed `my-website` into repo-local state under:
-     - `/home/gernsback/source/my-website/.my-website/`
-     - code LanceDB path: `.my-website/lancedb/code`
-   - This proved the code index itself is functional when not polluted by large markdown/spec trees
+### 1. Auth status vs doctor semantics were split cleanly
 
-3. Tightened the default `sirtopham.yaml` code index scope
-   - Removed `**/*.md` from the default include list
-   - Added excludes for:
-     - `**/docs/**`
-     - `**/specs/**`
-     - `**/design/**`
-     - `**/plans/**`
-     - `**/audit/**`
-     - `**/README.md`
-     - `**/NEXT_SESSION_HANDOFF.md`
-     - `**/TECH-DEBT.md`
-   - Goal: keep project-brain / documentation material out of the code semantic index
+`cmd/sirtopham/auth.go` now distinguishes:
 
-4. Fixed remaining UTF-8 truncation bugs in codeintel producers
-   - Root cause: several parser/chunker paths were still slicing raw bytes at `MaxBodyLength`, leaving invalid trailing UTF-8 for LanceDB writes
-   - Centralized UTF-8-safe truncation in `internal/codeintel/types.go`
-   - Updated all remaining codeintel truncation sites to use the shared helper
-   - Added regression tests
-   - This removed the earlier invalid UTF-8 upsert failure class
+- `sirtopham auth status`
+  - read-only inspection
+  - does not run provider `Ping()` probes
+  - intended to show auth source/mode/expiry/store state without connectivity validation side effects
+- `sirtopham doctor`
+  - active diagnostics
+  - does run provider `Ping()` probes
+  - still surfaces connectivity/auth failures and can trigger real validation behavior
 
-5. Investigated why proactive retrieval still showed `rag_results: null`
-   - Symptom on successful live turns: answers were correct, but context reports showed:
-     - `rag_results: null`
-     - `budget_used: 0`
-     - `agent_used_search_tool: 1`
-     - UI showed `Reactive search ...` and `Avg hit rate 0%`
-   - Verified direct semantic search against the built code index returned relevant hits for the same queries
-   - Found the real bug in `internal/vectorstore/store.go`:
-     - LanceDB `_distance` was converted to score as `1 - distance`
-     - Real distances were often `> 1.0`
-     - This produced negative scores
-     - Context-layer thresholding (`0.35`) then filtered out every RAG hit
+There are new focused tests in `cmd/sirtopham/auth_test.go` proving:
 
-6. Fixed retrieval score calibration
-   - Changed score conversion from `1 - distance` to a bounded monotonic transform:
-     - `1 / (1 + distance)`
-   - Added vectorstore regression tests for the conversion
-   - Rebuilt with `make build` so the live binary actually picked up the fix
+- auth status skips `Ping()`
+- doctor runs `Ping()` and reflects failures
 
-7. Re-validated proactive retrieval end-to-end on `my-website`
-   - Fresh live turn after rebuild:
-     - question: `How is blog frontmatter parsed and turned into routes?`
-     - context report showed non-empty `rag_results`, non-zero `budget_used`, and `agent_used_search_tool = 0`
-   - Another live turn:
-     - question: `Where is the mobile navigation behavior implemented, especially opening and closing the sidebar on small screens?`
-     - context report again showed non-empty `rag_results` and real RAG budget use
-   - Final thorough pass:
-     - question: `Trace how document titles are managed across pages, including any shared hook and where different pages set their titles.`
-     - context report showed proactive RAG with no reactive search tool use
+### 2. Codex auth inspection no longer imports/mutates on plain status reads
 
-8. Hardened Codex non-interactive credential refresh behavior
-   - Inspected `internal/provider/codex/credentials.go` and compared the runtime policy against the local Hermes Agent reference
-   - Confirmed the live `~/.codex/auth.json` shape includes nested `tokens.{access_token,refresh_token,...}` and `last_refresh`
-   - Added a non-interactive guard before shelling out to `codex refresh`
-   - New behavior: if the auth file is missing/expired in a non-TTY runtime, the provider now returns an actionable error telling the operator to run `codex auth` or `codex refresh` manually in a terminal instead of surfacing raw `stdin is not a terminal`
-   - Added focused Codex provider tests proving:
-     - refresh still works in interactive mode
-     - refresh is skipped entirely in non-interactive mode
-     - expired-token `getAccessToken()` paths do not shell out when there is no TTY
+`internal/provider/codex/credentials.go` now has a read-only inspection path for `AuthStatus()`.
 
-## Validation run today
+Behavior after the fix:
 
-Passed:
-- `go test ./internal/codeintel/...`
-- `CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sirtopham/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sirtopham/lib/linux_amd64' go test -tags sqlite_fts5 ./internal/vectorstore ./internal/context`
-- `go test ./internal/provider/codex`
-- `go test ./internal/provider/...`
+- runtime token use / refresh still goes through the Sirtopham-owned auth store path
+- plain `AuthStatus()` no longer imports shared Codex CLI state into `~/.sirtopham/auth.json`
+- when only `~/.codex/auth.json` exists, `AuthStatus()` reports that shared-store state as read-only inspection truth
+- the returned source is `codex_cli_store` in that case
+- the returned `store_path` stays empty in that case
+- `source_path` points at the shared Codex CLI auth file
+
+Focused regression test:
+
+- `TestAuthStatus_DoesNotImportSharedStoreOnInspection`
+
+### 3. Anthropic auth status field semantics were cleaned up
+
+`internal/provider/anthropic/credentials.go` no longer abuses `SourcePath` for non-path values in API-key mode.
+
+Behavior after the fix:
+
+- API-key auth still reports `Source` like `config` / `env:...`
+- `SourcePath` is now empty for API-key mode instead of echoing a non-path label
+
+Focused regression test updated:
+
+- `TestWithAPIKeyOverridesEnvAndOAuth`
+
+### 4. `/api/config` now preserves partial runtime truth
+
+`internal/server/configapi.go` previously fell all the way back to config-only provider data unless both runtime model lookup and runtime auth-status lookup succeeded.
+
+That meant `/api/config` could silently hide live runtime model/health truth if only one runtime subcall failed.
+
+Behavior after the fix:
+
+- if runtime models succeed but auth statuses fail, `/api/config` still uses runtime models + runtime health
+- if auth statuses succeed but models fail, `/api/config` still uses runtime auth + runtime health
+- only the missing runtime slice falls back/omits, instead of collapsing the whole provider list to config-only truth
+
+Focused regression test added:
+
+- `TestConfigEndpointUsesAvailableRuntimeModelsEvenIfAuthStatusesFail`
+
+### 5. Spec/docs reconciliation was completed
+
+Updated docs:
+
+- `docs/specs/02-tech-stack-decisions.md`
+- `docs/specs/03-provider-architecture.md`
+- `docs/specs/07-web-interface-and-streaming.md`
+
+The docs now reflect:
+
+- Codex one-time import from `~/.codex/auth.json`
+- Sirtopham-owned Codex auth store at `~/.sirtopham/auth.json`
+- direct refresh/persistence to the Sirtopham store
+- ChatGPT Codex-compatible runtime path
+- `GET /api/auth/providers`
+
+Corresponding resolved debt entries were removed from `TECH-DEBT.md`.
+
+## Files changed this session
+
+### CLI / runtime surface
+
+- `cmd/sirtopham/auth.go`
+- `cmd/sirtopham/auth_test.go`
+
+### Provider auth semantics
+
+- `internal/provider/anthropic/credentials.go`
+- `internal/provider/anthropic/credentials_test.go`
+- `internal/provider/codex/authstore.go`
+- `internal/provider/codex/credentials.go`
+- `internal/provider/codex/credentials_test.go`
+
+### Server surface
+
+- `internal/server/configapi.go`
+- `internal/server/configapi_test.go`
+
+### Docs / debt
+
+- `docs/specs/02-tech-stack-decisions.md`
+- `docs/specs/03-provider-architecture.md`
+- `docs/specs/07-web-interface-and-streaming.md`
+- `TECH-DEBT.md`
+- `NEXT_SESSION_HANDOFF.md`
+
+## Validation run this session
+
+Passing:
+
+- `go test ./internal/provider/codex ./internal/provider/router ./internal/provider/anthropic ./internal/server`
+- `CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sirtopham/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sirtopham/lib/linux_amd64' go test ./cmd/sirtopham -run 'TestCollectProviderAuthReports_(StatusSkipsPing|DoctorRunsPing)'`
+
+Known environment caveat still applies:
+
+- plain `go test ./cmd/sirtopham ...` still needs the repo-native LanceDB CGO/LDFLAGS setup in this environment
+- do not treat that link requirement as a regression in the auth/runtime work
+
+## Current conclusions
+
+### Resolved
+
+- auth status vs doctor semantic drift
+- Codex status-read mutation/import side effect
+- Anthropic `SourcePath` misuse in API-key mode
+- `/api/config` hiding partial runtime truth
+- stale Codex auth/storage docs
+
+### Remaining notable risks / next worthwhile work
+
+1. Live runtime smoke remains worthwhile.
+   - The code-level contracts are now tighter, but the next high-value check is a real run using:
+     - `sirtopham auth status`
+     - `sirtopham doctor`
+     - `serve`
+     - `GET /api/auth/providers`
+     - `GET /api/providers`
+     - `GET /api/config`
+
+2. If doing live smoke, verify operator-facing clarity specifically.
+   - Confirm `auth status` is now read-only in practice.
+   - Confirm `doctor` gives useful remediation when probing fails.
+   - Confirm Codex shared-store-only state is reported clearly before first use/import.
+
+3. Retrieval/RAG work should not be forgotten.
+   - The earlier retrieval/indexing hardening and real proactive retrieval validation are still part of the current truth.
+   - Do not let the auth/runtime fixes rewrite project history as if the only recent work was provider/auth work.
+
+## Recommended next move
+
+Do a narrow live smoke / operator-truth pass rather than more architecture work.
+
+Suggested commands:
+
 - `make build`
+- `./bin/sirtopham auth status --config <config-path>`
+- `./bin/sirtopham doctor --config <config-path>`
+- `./bin/sirtopham serve --config <config-path>`
+- `curl -fsS http://localhost:8090/api/auth/providers`
+- `curl -fsS http://localhost:8090/api/providers`
+- `curl -fsS http://localhost:8090/api/config`
 
-Successful runtime validations:
-- `./bin/sirtopham index --config /tmp/sirtopham-smoke.yaml --json`
-- `./bin/sirtopham serve --config /tmp/sirtopham-smoke.yaml`
-- Multiple successful live UI turns against `/home/gernsback/source/my-website`
-- Direct context-report inspection via API confirmed proactive RAG is now being persisted and budgeted
-
-Representative successful context report facts after the score fix:
-- blog-frontmatter turn:
-  - `rag_results`: populated
-  - `budget_used`: `1084`
-  - `included_count`: `10`
-  - `agent_used_search_tool`: `0`
-- document-title turn:
-  - `rag_results`: populated
-  - `budget_used`: `2620`
-  - `included_count`: `10`
-  - `agent_used_search_tool`: `0`
-
-## Current remaining issue
-
-The next real blocker is narrower now.
-
-Current blocker:
-- The raw non-interactive `stdin is not a terminal` failure path is hardened in unit-tested provider code, but it has not yet been re-validated end-to-end through a live server turn after forcing the stale-token path
-- So the remaining work is runtime confirmation, not first-principles provider debugging
-
-Important nuance:
-- The retrieval fix remains validated and committed
-- The Codex provider slice now fails more cleanly in non-interactive contexts, but the next session should confirm the real UX in the running app
-
-## Most likely next session focus
-
-Re-validate Codex auth behavior end-to-end with the existing `my-website` smoke setup.
-
-### Strong hypotheses to test first
-
-1. The new non-TTY guard may already be enough
-   - If a live turn reaches the expired-token path, the app should now surface an actionable provider error telling the operator to refresh/login in a real terminal
-   - The raw CLI `stdin is not a terminal` text should no longer leak through
-
-2. The auth file may still be usable often enough to avoid refresh entirely
-   - Current `readAuthFile()` already accepts both top-level `access_token` and nested `tokens.access_token`
-   - The real local `~/.codex/auth.json` shape matches the nested-token case
-   - If the token is still valid, server turns should continue without any refresh attempt
-
-3. If live validation still feels brittle, the next follow-up is policy, not endpoint shape
-   - The next likely improvement would be more nuanced refresh policy or expiry-skew handling in `getAccessToken()`, not a return to retrieval or vectorstore work
-
-## Recommended next session
-
-1. Run a live smoke validation with the same smaller repo config
-   - `./bin/sirtopham serve --config /tmp/sirtopham-smoke.yaml`
-   - Ask at least one fresh question against `/home/gernsback/source/my-website`
-
-2. Force or observe the stale-token path if practical
-   - Confirm the app now reports the actionable non-interactive renewal error instead of raw `stdin is not a terminal`
-   - If the local auth token is still valid and refresh is skipped, note that result explicitly
-
-3. Only if the live UX is still poor, tighten policy in `internal/provider/codex/credentials.go`
-   - Candidate follow-up areas:
-     - refresh skew / expiry thresholds
-     - richer provider error wording in the server/UI path
-     - any callsites that may be swallowing or rewriting the new provider error
-
-## Useful commands
-
-- Focused build/test:
-  - `make build`
-  - `CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sirtopham/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sirtopham/lib/linux_amd64' go test -tags sqlite_fts5 ./internal/vectorstore ./internal/context`
-
-- Smoke index on smaller repo:
-  - `./bin/sirtopham index --config /tmp/sirtopham-smoke.yaml --json`
-
-- Smoke serve on smaller repo:
-  - `./bin/sirtopham serve --config /tmp/sirtopham-smoke.yaml`
-
-- Inspect latest conversations:
-  - `curl -fsS http://localhost:8090/api/conversations`
-
-- Inspect context report for a turn:
-  - `curl -fsS http://localhost:8090/api/metrics/conversation/<conversation_id>/context/<turn_number>`
-
-## Current git state to expect
-
-Committed this session:
-- `cfb3a95 feat(index): calibrate retrieval scoring`
-- `955c487 feat(provider): harden codex noninteractive refresh`
-
-Likely remaining untracked:
-- `tmp/`
-  - contains temporary debug helpers created during investigation
-  - cleanup was not completed because a direct `rm` attempt was blocked by the environment safety layer
-
-## Bottom line
-
-The code-index / proactive-retrieval slice is now genuinely working.
-The next session should NOT go back to indexing theory or RAG score debugging unless new evidence appears.
-The next practical blocker is Codex non-interactive credential refresh reliability, with `/home/gernsback/source/hermes-agent` available locally as a comparison target for how Hermes handles Codex runtime credentials.
+If that passes, the next session should switch back to real runtime/usability blockers or broader retrieval/runtime validation instead of more auth-surface churn.
