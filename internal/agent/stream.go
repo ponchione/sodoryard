@@ -96,7 +96,6 @@ func consumeStream(
 
 				pendingToolArgs[e.ID] = &strings.Builder{}
 				pendingToolNames[e.ID] = e.Name
-				emit(ToolCallStartEvent{ToolCallID: e.ID, ToolName: e.Name})
 
 			case provider.ToolCallDelta:
 				if builder, ok := pendingToolArgs[e.ID]; ok {

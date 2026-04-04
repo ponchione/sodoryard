@@ -547,6 +547,49 @@ func TestTitleGenSkipsTombstoneTitle(t *testing.T) {
 	}
 }
 
+func TestTitleGenFallsBackToAssistantTextForMisleadingAccessTitle(t *testing.T) {
+	ctx := context.Background()
+	database := newTestDB(t)
+	projectID := seedProject(t, database)
+	mgr := newTestManager(t, database)
+	mgr.HistoryManager.now = func() time.Time { return time.Unix(1700001000, 0).UTC() }
+
+	conv, err := mgr.Create(ctx, projectID)
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+	if err := mgr.PersistUserMessage(ctx, conv.ID, 1, "Use file_read on NEXT_SESSION_HANDOFF.md and reply with exactly the first line of that file and nothing else."); err != nil {
+		t.Fatalf("PersistUserMessage error: %v", err)
+	}
+	if err := mgr.PersistIteration(ctx, conv.ID, 1, 1, []IterationMessage{
+		{Role: "assistant", Content: `[{"type":"text","text":"# Next session handoff"}]`},
+	}); err != nil {
+		t.Fatalf("PersistIteration error: %v", err)
+	}
+
+	mockProvider := &mockTitleProvider{
+		response: &provider.Response{
+			Content: []provider.ContentBlock{
+				provider.NewTextBlock("Unable to Access NEXT_SESSION_HANDOFF"),
+			},
+		},
+	}
+
+	gen := NewTitleGen(mgr, mockProvider, "fast-model", nil)
+	gen.GenerateTitle(ctx, conv.ID)
+
+	got, err := mgr.Get(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if got.Title == nil {
+		t.Fatal("Title should not be nil after fallback generation")
+	}
+	if *got.Title != "Next session handoff" {
+		t.Fatalf("Title = %q, want fallback assistant-derived title", *got.Title)
+	}
+}
+
 func TestTitleGenNoUserMessage(t *testing.T) {
 	ctx := context.Background()
 	database := newTestDB(t)

@@ -3,129 +3,77 @@
 Date: 2026-04-04
 Repo: /home/gernsback/source/sirtopham
 Branch: main
-State: cancellation/runtime follow-through plus cleanup/harness-validation follow-up remain in the working tree. Nothing pushed.
+State: title-generation/runtime follow-through completed; next slice is cancellation persistence semantics audit. Nothing pushed.
 
-## What happened across the latest validation follow-through
+## Current state
 
-Completed after the prior cleanup pass:
+Latest session completed two concrete runtime-quality fixes:
 
-1. Broader live harness validation
-- validated real websocket turns against Codex-backed config
-- validated omitted provider/model routing behavior
-- validated a longer multi-step coding-agent task with real tool use
-- confirmed `make test` and `make build` were green before moving on
+1. Title generation quality
+- `internal/conversation/title.go`
+- title generation no longer relies only on the first user message
+- it now uses the opening exchange and can fall back to the first assistant text when the model returns a misleading access/failure-style title
+- live validation improved the reproduced bad title from `Unable to Access NEXT_SESSION_HANDOFF` to `Delivered requested file line response`
 
-2. Search/transcript consumer hardening
-- `internal/conversation/manager.go`
-  - `sanitizeSearchSnippet()` now does more than tombstones
-  - normal assistant JSON content-block snippets are collapsed to visible assistant text
-  - tool-only assistant snippets are summarized as `[assistant tool call: <name>]`
-  - truncated assistant JSON snippets from FTS `snippet(...)` output are sanitized heuristically instead of leaking raw JSON
-- `internal/conversation/manager_test.go`
-  - added coverage for:
-    - assistant text extraction from JSON blocks
-    - tool-only assistant snippet summarization
-    - truncated tool JSON sanitization
-    - truncated text JSON sanitization
-    - end-to-end search sanitization for normal assistant/tool JSON
-    - tombstone-backed search sanitization
+2. Duplicate websocket tool-start events
+- `internal/agent/stream.go`
+- `internal/agent/loop_event_test.go`
+- removed the extra early `ToolCallStartEvent` emission from stream consumption
+- canonical ordering is now loop-driven: `executing_tools -> tool_call_start -> tool_call_output -> tool_call_end`
+- live validation no longer showed duplicate `tool_call_start` events
 
-3. Analyzer false-positive reduction
-- `internal/context/analyzer.go`
-  - generic slash-pair phrases like `provider/model` and `file/function` are no longer treated as explicit file references
-- `internal/context/analyzer_test.go`
-  - added regression coverage for the generic slash-pair case
-
-4. Websocket token-forwarding validation lock-in
-- `internal/server/websocket_test.go`
-  - strengthened forwarding test so websocket token events must arrive as `type=token` with the real forwarded token payload
-- practical result from reruns: the earlier `***` token observation did not reproduce as a current app bug during follow-up live validation
-
-5. Live cancellation validation
-- ran a real websocket turn that reached `tool_call_start`
-- sent websocket `cancel` immediately after tool start
-- observed:
-  - terminal websocket event was `turn_cancelled`
-  - persisted conversation history contained only the user message afterward
-  - `search?q=interrupted` returned `[]`
-- this confirms the current cancellation cleanup path is behaving correctly in the live tested case
-
-6. Broader downstream surface audit
-- checked the current main downstream consumers
-  - compression: already sanitizes assistant/tool tombstones and avoids leaking `partial_text`
-  - title generation: already rejects tombstone-like titles
-  - web persisted history renderer: already humanizes interrupted/failed assistant/tool tombstones
-- did not find a separate concrete export/share transcript surface in active code that obviously still needs cleanup
-
-## Files changed in the latest validation slices
+## Files changed this session
 
 - `NEXT_SESSION_HANDOFF.md`
-- `internal/context/analyzer.go`
-- `internal/context/analyzer_test.go`
-- `internal/conversation/manager.go`
+- `internal/agent/loop_event_test.go`
+- `internal/agent/stream.go`
 - `internal/conversation/manager_test.go`
-- `internal/server/websocket_test.go`
+- `internal/conversation/title.go`
 
 ## Tests run
 
 Passing targeted tests:
-- `go test ./internal/context -run TestRuleBasedAnalyzerIgnoresGenericSlashPairs -count=1`
-- `go test ./internal/server -run TestWebSocketEventForwarding -count=1`
-- `go test -tags sqlite_fts5 ./internal/conversation -run 'TestSearchSnippetExtractsAssistantTextFromJSONBlocks|TestSearchSnippetSummarizesToolOnlyAssistantJSON|TestSearchSnippetSanitizesTruncatedToolJSON|TestSearchSnippetSanitizesTruncatedTextJSON|TestManagerSearchSanitizesNormalAssistantToolJSONSnippets|TestManagerSearchSanitizesTombstoneSnippets' -count=1`
-- `go test ./internal/context ./internal/server -count=1`
+- `go test -tags sqlite_fts5 ./internal/conversation -run TestTitleGenFallsBackToAssistantTextForMisleadingAccessTitle -count=1`
+- `go test ./internal/agent -run TestRunTurnEventOrderingWithToolUse -count=1`
+- `go test ./internal/agent -run TestRunTurnMultiIterationEventSequence -count=1`
 - `go test -tags sqlite_fts5 ./internal/conversation -count=1`
+- `go test ./internal/agent -count=1`
 
 Passing full validation:
 - `make test`
 - `make build`
 
-## Important current reality
+## Most important runtime observation from the rerun
 
-Now true in code/live validation:
-- websocket token forwarding is locked down by regression test and looked correct in follow-up live validation
-- generic slash-pair phrases no longer pollute explicit-file retrieval
-- conversation search snippets are materially cleaner for:
-  - assistant tombstones
-  - tool tombstones
-  - normal assistant JSON content blocks
-  - truncated FTS snippets derived from assistant JSON
-- live cancellation during tool execution cleaned up persisted iteration state correctly in the tested case
-- title/compression/web-history downstream consumers look reasonably aligned with the current tombstone semantics
+The live rerun exposed a cancellation-state discrepancy that should be the next slice:
 
-Practical caveats still worth remembering:
-- there are still old in-repo probe files `tmp_ws_validate_client.go` and `tmp_ws_validate_local.go`, but they were overwritten with `//go:build ignore` so they no longer break builds/tests
-- broad search results can still legitimately include compact summaries like `[assistant tool call: shell]`; that is now intentional behavior, not a raw JSON leak
+- earlier validation/handoff said: cancelling immediately after tool start left only the user message persisted
+- latest live rerun showed a different persisted result for the cancelled tool turn:
+  - assistant tool_use message persisted
+  - tool tombstone persisted as `[interrupted_tool_result] ...`
+  - follow-up turn correctly understood that the shell request was cancelled
+- I did not modify cancellation code in this session, so this appears to be an existing timing/path distinction or a previously missed inconsistency rather than fallout from the title/event fixes
 
 ## Recommended next slice
 
-Best next work:
-1. broader multi-turn real-use harness validation again, but now focused on runtime quality rather than cleanup
-- multi-turn websocket conversations over several iterations/turns
-- retrieval quality after prior turns exist in history
-- cancellation + retry/follow-up behavior in the same conversation
-- title generation quality after interrupted and successful turns mix together
+Immediate next work:
+1. audit cancellation persistence semantics with a narrow reproducible test matrix
+- cancel before tool dispatch
+- cancel immediately after `tool_call_start`
+- cancel during tool execution after assistant tool_use is durable
+- confirm exactly which messages persist in each path
 
-2. if a new pain point appears, prefer concrete runtime/value slices over more cleanup
-- likely worthwhile areas then:
-  - codeintel/runtime bottlenecks surfaced by real tasks
-  - vectorstore/index bring-up behavior under longer sessions
-  - any real downstream consumer that still mishandles persisted transcript content
-
-## Remaining notable debt / open questions
-
-Still plausibly high-value from `TECH-DEBT.md` / runtime reality:
-- codeintel duplication / performance items (`goparser` vs `go_analyzer`, reverse call graph)
-- vectorstore delete batching
-- budget dedupe O(n²)
-- dual SQLite drivers in one binary
-- broader retry-subsystem consolidation only if real runtime use proves it worthwhile
+2. decide whether the current behavior is intentional or inconsistent
+- if intentional: document the real contract in code/comments/handoff and make sure search/history expectations match it
+- if inconsistent: fix it with a narrow TDD slice and rerun the same live websocket validation
 
 ## Useful commands
 
 - `make test`
 - `make build`
-- `./bin/sirtopham serve --config /tmp/<config>.yaml`
+- `./bin/sirtopham serve --config /home/gernsback/source/sirtopham/sirtopham.yaml`
 - websocket smoke via a tiny Go client using `nhooyr.io/websocket`
+- `go run -tags sqlite_fts5 /tmp/ws_runtime_validate.go`
 
 ## Operator preferences to remember
 
@@ -135,4 +83,4 @@ Still plausibly high-value from `TECH-DEBT.md` / runtime reality:
 
 ## Bottom line
 
-The repo has now moved past cleanup into real-use validation. Search snippet sanitization was hardened for normal/truncated assistant JSON, the analyzer no longer mistakes generic slash-pair phrases for file refs, live cancellation during tool execution cleaned up persisted iteration state correctly in the tested case, and the obvious downstream tombstone consumers (compression, title generation, web history, search snippets) are in decent shape. The next fresh session should spend less time on housekeeping and more time on multi-turn runtime-quality validation.
+The runtime-quality issues found in the latest validation pass were addressed: title generation is materially better for tool-first turns, and duplicate `tool_call_start` websocket events are gone. The next fresh session should focus on one concrete question: what the true cancellation persistence contract is across the different cancel timing paths, and whether the live discrepancy is expected behavior or a bug.

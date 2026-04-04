@@ -125,20 +125,16 @@ func TestRunTurnEventOrderingWithToolUse(t *testing.T) {
 
 	// Key ordering constraints:
 	// assembling_context comes first
-	// waiting_for_llm comes before tool events
-	// executing_tools comes before tool_call_output (the loop-emitted output)
+	// waiting_for_llm comes before tool execution
+	// executing_tools comes before tool_call_start
+	// tool_call_start comes before tool_call_output
 	// tool_call_output comes before tool_call_end
 	// turn_complete comes before idle
-	//
-	// NOTE: consumeStream also emits ToolCallStartEvent from the stream before
-	// the loop dispatches tools, so the stream's tool_call_start may appear
-	// before status:executing_tools. This is known tech debt — the canonical
-	// ordering for the loop's dispatch events is:
-	//   executing_tools → tool_call_start → tool_call_output → tool_call_end
 
 	assertEventBefore(t, types, "status:assembling_context", "status:waiting_for_llm")
 	assertEventBefore(t, types, "status:waiting_for_llm", "status:executing_tools")
-	assertEventBefore(t, types, "status:executing_tools", "tool_call_output")
+	assertEventBefore(t, types, "status:executing_tools", "tool_call_start")
+	assertEventBefore(t, types, "tool_call_start", "tool_call_output")
 	assertEventBefore(t, types, "tool_call_output", "tool_call_end")
 	assertEventBefore(t, types, "turn_complete", "status:idle")
 
@@ -619,10 +615,8 @@ func TestRunTurnMultiIterationEventSequence(t *testing.T) {
 		t.Fatalf("ExecutingTools events = %d, want 2", executingCount)
 	}
 	// Two tool calls (one per tool-use iteration).
-	if toolStartCount < 2 {
-		// Note: stream also emits ToolCallStartEvent, so we might have more.
-		// But from loop.go dispatch we should have exactly 2.
-		t.Fatalf("ToolCallStart events = %d, want at least 2", toolStartCount)
+	if toolStartCount != 2 {
+		t.Fatalf("ToolCallStart events = %d, want 2", toolStartCount)
 	}
 	// Two ToolCallOutputEvents (one per dispatched tool).
 	if toolOutputCount != 2 {

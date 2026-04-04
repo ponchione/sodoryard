@@ -2,13 +2,14 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 
 	"github.com/ponchione/sirtopham/internal/provider"
 )
 
-const titleSystemPrompt = `Generate a short, descriptive title (5-8 words) for a conversation that starts with the following user message. Return only the title text, no quotes or formatting.`
+const titleSystemPrompt = `Generate a short, descriptive title (5-8 words) for a conversation based on its opening exchange. Prefer the actual subject matter or result over tool mechanics, file-access wording, or failure phrasing. Return only the title text, no quotes or formatting.`
 
 const titleMaxTokens = 50
 
@@ -64,11 +65,17 @@ func (g *TitleGen) GenerateTitle(ctx context.Context, conversationID string) {
 		return
 	}
 
-	// Find the first user message.
+	// Find the first user message and first assistant text.
 	var firstMessage string
+	assistantFallback := ""
 	for _, msg := range messages {
-		if msg.Role == "user" && msg.Content.Valid {
+		if firstMessage == "" && msg.Role == "user" && msg.Content.Valid {
 			firstMessage = msg.Content.String
+		}
+		if assistantFallback == "" && msg.Role == "assistant" && msg.Content.Valid {
+			assistantFallback = assistantTitleCandidate(msg.Content.String)
+		}
+		if firstMessage != "" && assistantFallback != "" {
 			break
 		}
 	}
@@ -79,13 +86,15 @@ func (g *TitleGen) GenerateTitle(ctx context.Context, conversationID string) {
 		return
 	}
 
+	promptInput := buildTitlePromptInput(firstMessage, assistantFallback)
+
 	// Make a lightweight LLM call.
 	req := &provider.Request{
 		SystemBlocks: []provider.SystemBlock{
 			{Text: titleSystemPrompt},
 		},
 		Messages: []provider.Message{
-			provider.NewUserMessage(firstMessage),
+			provider.NewUserMessage(promptInput),
 		},
 		Model:          g.model,
 		MaxTokens:      titleMaxTokens,
@@ -103,6 +112,9 @@ func (g *TitleGen) GenerateTitle(ctx context.Context, conversationID string) {
 	}
 
 	title := cleanTitle(extractText(resp))
+	if looksLikeMisleadingAccessTitle(title) && assistantFallback != "" {
+		title = assistantFallback
+	}
 	if title == "" {
 		g.logger.Warn("title generation: empty title returned",
 			"conversation_id", conversationID,
@@ -159,6 +171,73 @@ func looksLikeTranscriptTombstone(text string) bool {
 	return strings.Contains(trimmed, "[interrupted_assistant]") ||
 		strings.Contains(trimmed, "[failed_assistant]") ||
 		strings.Contains(trimmed, "[interrupted_tool_result]")
+}
+
+func buildTitlePromptInput(firstUserMessage, firstAssistantText string) string {
+	var sb strings.Builder
+	sb.WriteString("First user message:\n")
+	sb.WriteString(strings.TrimSpace(firstUserMessage))
+	if firstAssistantText != "" {
+		sb.WriteString("\n\nFirst assistant reply:\n")
+		sb.WriteString(firstAssistantText)
+	}
+	return sb.String()
+}
+
+func assistantTitleCandidate(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	var blocks []provider.ContentBlock
+	if err := json.Unmarshal([]byte(trimmed), &blocks); err != nil {
+		return ""
+	}
+	for _, block := range blocks {
+		if block.Type != "text" {
+			continue
+		}
+		candidate := cleanTitle(firstMeaningfulLine(block.Text))
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func firstMeaningfulLine(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		trimmed = strings.TrimLeft(trimmed, "#*- ")
+		trimmed = strings.Trim(trimmed, "`\"'")
+		trimmed = strings.TrimSpace(trimmed)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func looksLikeMisleadingAccessTitle(title string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(title))
+	if normalized == "" {
+		return false
+	}
+	for _, prefix := range []string{
+		"unable to access",
+		"cannot access",
+		"can't access",
+		"failed to access",
+		"error accessing",
+		"file not found",
+		"missing file",
+		"permission denied",
+	} {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractText concatenates all text content blocks from a response.
