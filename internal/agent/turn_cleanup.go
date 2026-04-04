@@ -53,6 +53,9 @@ type cleanupPlan struct {
 	Actions []cleanupAction
 }
 
+// buildCleanupPlan preserves already-materialized assistant/tool state when it
+// would be useful to future turns, and only falls back to CancelIteration when
+// nothing durable should remain from the interrupted iteration.
 func buildCleanupPlan(turn inflightTurn, reason turnCleanupReason) cleanupPlan {
 	plan := cleanupPlan{Reason: reason}
 	if turn.Iteration <= 0 || turn.Iteration <= turn.CompletedIterations {

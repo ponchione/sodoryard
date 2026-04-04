@@ -270,9 +270,12 @@ func (l *AgentLoop) cancellationReason(cause error) turnCleanupReason {
 // cancelled, or fails. Events stream via EventSink throughout.
 //
 // Cancellation is supported via the ctx parameter and the Cancel() method.
-// On cancellation, completed iterations are preserved and the in-flight
-// iteration is cleaned up via CancelIteration. RunTurn returns
-// ErrTurnCancelled (wrapping the underlying context error).
+// On cancellation, completed iterations are preserved. The in-flight
+// iteration is then either discarded via CancelIteration (when no assistant/tool
+// state was materialized) or persisted as an interrupted iteration tombstone
+// (for example assistant partial text or assistant tool_use plus interrupted
+// tool results). RunTurn returns ErrTurnCancelled (wrapping the underlying
+// context error).
 func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult, error) {
 	if ctx == nil {
 		ctx = stdctx.Background()

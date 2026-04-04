@@ -3,73 +3,64 @@
 Date: 2026-04-04
 Repo: /home/gernsback/source/sirtopham
 Branch: main
-State: title-generation/runtime follow-through completed; next slice is cancellation persistence semantics audit. Nothing pushed.
+State: cancellation persistence semantics audit completed in tests/code comments; latest slice not pushed.
 
 ## Current state
 
-Latest session completed two concrete runtime-quality fixes:
+Latest session completed one concrete follow-through slice from the prior handoff:
 
-1. Title generation quality
-- `internal/conversation/title.go`
-- title generation no longer relies only on the first user message
-- it now uses the opening exchange and can fall back to the first assistant text when the model returns a misleading access/failure-style title
-- live validation improved the reproduced bad title from `Unable to Access NEXT_SESSION_HANDOFF` to `Delivered requested file line response`
-
-2. Duplicate websocket tool-start events
-- `internal/agent/stream.go`
-- `internal/agent/loop_event_test.go`
-- removed the extra early `ToolCallStartEvent` emission from stream consumption
-- canonical ordering is now loop-driven: `executing_tools -> tool_call_start -> tool_call_output -> tool_call_end`
-- live validation no longer showed duplicate `tool_call_start` events
+1. Cancellation persistence semantics audit
+- `internal/agent/loop_test.go`
+- `internal/agent/loop.go`
+- `internal/agent/turn_cleanup.go`
+- added a narrow reproducible cancellation matrix around the agent loop
+- confirmed the currently implemented behavior is intentional, not a random regression:
+  - cancel before any assistant/tool state exists: persist only the user message, no iteration cleanup persistence
+  - cancel after assistant tool_use is materialized but before tool dispatch: persist assistant tool_use plus `[interrupted_tool_result]` with `status=cancelled_before_execution`
+  - cancel during tool execution: persist assistant tool_use plus `[interrupted_tool_result]` with `status=interrupted_during_execution`
+- updated loop/cleanup comments so the contract no longer claims all cancellation paths go through raw `CancelIteration`
 
 ## Files changed this session
 
 - `NEXT_SESSION_HANDOFF.md`
-- `internal/agent/loop_event_test.go`
-- `internal/agent/stream.go`
-- `internal/conversation/manager_test.go`
-- `internal/conversation/title.go`
+- `internal/agent/loop.go`
+- `internal/agent/loop_test.go`
+- `internal/agent/turn_cleanup.go`
 
 ## Tests run
 
 Passing targeted tests:
-- `go test -tags sqlite_fts5 ./internal/conversation -run TestTitleGenFallsBackToAssistantTextForMisleadingAccessTitle -count=1`
-- `go test ./internal/agent -run TestRunTurnEventOrderingWithToolUse -count=1`
-- `go test ./internal/agent -run TestRunTurnMultiIterationEventSequence -count=1`
-- `go test -tags sqlite_fts5 ./internal/conversation -count=1`
-- `go test ./internal/agent -count=1`
+- `go test ./internal/agent -run 'TestRunTurnCancelBeforeToolDispatchPersistsCancelledToolTombstone|TestRunTurnCancelDuringToolExecution|TestRunTurnCancelDuringStream|TestRunTurnCancellationDuringIterationSetupSkipsIterationCleanup' -count=1`
 
-Passing full validation:
-- `make test`
+Passing broader validation:
+- `go test ./internal/agent -count=1`
 - `make build`
 
-## Most important runtime observation from the rerun
+## Important current reality
 
-The live rerun exposed a cancellation-state discrepancy that should be the next slice:
+The earlier live-validation discrepancy is now explained by timing-path semantics already present in code:
 
-- earlier validation/handoff said: cancelling immediately after tool start left only the user message persisted
-- latest live rerun showed a different persisted result for the cancelled tool turn:
-  - assistant tool_use message persisted
-  - tool tombstone persisted as `[interrupted_tool_result] ...`
-  - follow-up turn correctly understood that the shell request was cancelled
-- I did not modify cancellation code in this session, so this appears to be an existing timing/path distinction or a previously missed inconsistency rather than fallout from the title/event fixes
+- cancellation before any materialized assistant/tool state does not persist an interrupted iteration
+- once the assistant tool_use payload exists, cancellation preserves that assistant message and synthesizes interrupted tool tombstones instead of deleting the iteration outright
+- the key distinction is not only "cancelled turn" vs "not cancelled turn"; it is whether useful assistant/tool state had already materialized for the active iteration
+
+This means the latest live rerun that preserved assistant tool_use + interrupted tool tombstone is compatible with the current implementation.
 
 ## Recommended next slice
 
-Immediate next work:
-1. audit cancellation persistence semantics with a narrow reproducible test matrix
-- cancel before tool dispatch
+Best next work:
+1. do one real websocket/runtime validation pass specifically for the two tool-cancellation timing paths
 - cancel immediately after `tool_call_start`
-- cancel during tool execution after assistant tool_use is durable
-- confirm exactly which messages persist in each path
+- cancel during longer-running tool execution
+- confirm live persisted history matches the now-locked test contract
 
-2. decide whether the current behavior is intentional or inconsistent
-- if intentional: document the real contract in code/comments/handoff and make sure search/history expectations match it
-- if inconsistent: fix it with a narrow TDD slice and rerun the same live websocket validation
+2. if live behavior matches, move on from cancellation semantics
+- update any remaining runtime notes if needed
+- return to concrete usability/runtime issues instead of more speculative cleanup
 
 ## Useful commands
 
-- `make test`
+- `go test ./internal/agent -count=1`
 - `make build`
 - `./bin/sirtopham serve --config /home/gernsback/source/sirtopham/sirtopham.yaml`
 - websocket smoke via a tiny Go client using `nhooyr.io/websocket`
@@ -83,4 +74,4 @@ Immediate next work:
 
 ## Bottom line
 
-The runtime-quality issues found in the latest validation pass were addressed: title generation is materially better for tool-first turns, and duplicate `tool_call_start` websocket events are gone. The next fresh session should focus on one concrete question: what the true cancellation persistence contract is across the different cancel timing paths, and whether the live discrepancy is expected behavior or a bug.
+The cancellation-persistence discrepancy from the last rerun was worth auditing, but it currently looks like intentional path-sensitive behavior rather than a fresh bug. The contract is now locked down in tests/comments: early cancellation drops the in-flight iteration, while cancellation after assistant tool_use materializes preserves assistant/tool tombstone state. The next fresh session should do a focused live websocket rerun for those timing paths and then move on if reality matches the tests.

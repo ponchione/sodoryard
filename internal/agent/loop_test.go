@@ -1110,6 +1110,24 @@ func (b *blockingToolExecutor) Execute(ctx stdctx.Context, call provider.ToolCal
 	return nil, ctx.Err()
 }
 
+type cancelOnEventSink struct {
+	match func(Event) bool
+	cancel func()
+	once   bool
+}
+
+func (s *cancelOnEventSink) Emit(event Event) {
+	if s == nil || s.match == nil || s.cancel == nil || !s.match(event) {
+		return
+	}
+	s.cancel()
+	if s.once {
+		s.cancel = nil
+	}
+}
+
+func (s *cancelOnEventSink) Close() {}
+
 func TestRunTurnCancelDuringStream(t *testing.T) {
 	sink := NewChannelSink(32)
 	assembler := &loopContextAssemblerStub{
@@ -1370,8 +1388,90 @@ func TestRunTurnCancelDuringToolExecution(t *testing.T) {
 	if len(pi.messages) != 2 {
 		t.Fatalf("Persisted messages = %d, want 2", len(pi.messages))
 	}
+	if pi.messages[0].Role != "assistant" || !strings.Contains(pi.messages[0].Content, `"type":"tool_use"`) {
+		t.Fatalf("assistant message = %#v, want persisted tool_use assistant message", pi.messages[0])
+	}
 	if pi.messages[1].Role != "tool" || !strings.Contains(pi.messages[1].Content, "[interrupted_tool_result]") {
 		t.Fatalf("interrupted tool message = %#v, want synthesized interrupted tool result", pi.messages[1])
+	}
+	if !strings.Contains(pi.messages[1].Content, "status=interrupted_during_execution") {
+		t.Fatalf("interrupted tool message = %#v, want interrupted_during_execution status", pi.messages[1])
+	}
+}
+
+func TestRunTurnCancelBeforeToolDispatchPersistsCancelledToolTombstone(t *testing.T) {
+	sink := NewChannelSink(64)
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+	routerStub := &providerRouterStub{
+		streamEvents: [][]provider.StreamEvent{{
+			provider.ToolCallStart{ID: "t1", Name: "shell"},
+			provider.ToolCallEnd{ID: "t1", Input: json.RawMessage(`{"cmd":"pwd"}`)},
+			provider.StreamDone{
+				StopReason: provider.StopReasonToolUse,
+				Usage:      provider.Usage{InputTokens: 10, OutputTokens: 5},
+			},
+		}},
+	}
+
+	var loop *AgentLoop
+	cancelSink := &cancelOnEventSink{
+		once: true,
+		match: func(event Event) bool {
+			status, ok := event.(StatusEvent)
+			return ok && status.State == StateExecutingTools
+		},
+		cancel: func() {
+			loop.Cancel()
+		},
+	}
+
+	loop = NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        &toolExecutorStub{},
+		PromptBuilder:       NewPromptBuilder(nil),
+		EventSink:           sink,
+	})
+	loop.Subscribe(cancelSink)
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	_, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-before-dispatch",
+		TurnNumber:        1,
+		Message:           "run pwd",
+		ModelContextLimit: 200000,
+	})
+	if err == nil {
+		t.Fatal("RunTurn error = nil, want cancellation error")
+	}
+	if !errors.Is(err, ErrTurnCancelled) {
+		t.Fatalf("error = %v, want ErrTurnCancelled", err)
+	}
+	if len(conversations.cancelIterCalls) != 0 {
+		t.Fatalf("CancelIteration calls = %d, want 0", len(conversations.cancelIterCalls))
+	}
+	if len(conversations.persistIterCalls) != 1 {
+		t.Fatalf("PersistIteration calls = %d, want 1", len(conversations.persistIterCalls))
+	}
+	pi := conversations.persistIterCalls[0]
+	if len(pi.messages) != 2 {
+		t.Fatalf("Persisted messages = %d, want 2", len(pi.messages))
+	}
+	if pi.messages[0].Role != "assistant" || !strings.Contains(pi.messages[0].Content, `"type":"tool_use"`) {
+		t.Fatalf("assistant message = %#v, want persisted tool_use assistant message", pi.messages[0])
+	}
+	if pi.messages[1].Role != "tool" || !strings.Contains(pi.messages[1].Content, "[interrupted_tool_result]") {
+		t.Fatalf("interrupted tool message = %#v, want synthesized interrupted tool result", pi.messages[1])
+	}
+	if !strings.Contains(pi.messages[1].Content, "status=cancelled_before_execution") {
+		t.Fatalf("interrupted tool message = %#v, want cancelled_before_execution status", pi.messages[1])
 	}
 }
 
