@@ -97,9 +97,7 @@ context:
 # --- Project Brain (doc 09) ---
 brain:
   # enabled: true
-  # vault_path: ~/obsidian-vaults/sirtopham-brain
-  # obsidian_api_url: http://localhost:27124
-  # obsidian_api_key: "your-api-key-here"
+  # vault_path: .brain   # repo-local markdown vault used by the in-process brain MCP backend
 
   # v0.2+ indexing / retrieval configuration retained for future use
   # embedding_model: nomic-embed-code
