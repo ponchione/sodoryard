@@ -361,6 +361,48 @@ func TestFileEditPreservesPermissions(t *testing.T) {
 	}
 }
 
+func TestFileEditRejectsIdenticalReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(path, []byte("alpha beta\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	store := newMemoryReadStateStore()
+	reader := NewFileRead(store)
+	editor := NewFileEdit(store)
+	_, err := reader.Execute(context.Background(), dir, json.RawMessage(`{"path":"file.txt"}`))
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+
+	input, _ := json.Marshal(fileEditInput{
+		Path:   "file.txt",
+		OldStr: "beta",
+		NewStr: "beta",
+	})
+	result, err := editor.Execute(context.Background(), dir, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("expected identical replacement failure, got success: %s", result.Content)
+	}
+	if result.Error != "old_equals_new" {
+		t.Fatalf("expected old_equals_new, got %q", result.Error)
+	}
+	if !strings.Contains(result.Content, "new_str is identical") || !strings.Contains(result.Content, "different replacement") {
+		t.Fatalf("expected recovery guidance, got: %s", result.Content)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(data) != "alpha beta\n" {
+		t.Fatalf("file changed unexpectedly: %q", string(data))
+	}
+}
+
 func TestFileEditRequiresFreshReadAfterSuccessfulEdit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file.txt")

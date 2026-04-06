@@ -2,10 +2,12 @@ package agent
 
 import (
 	stdctx "context"
-	"testing"
+	"encoding/json"
 	"strings"
+	"testing"
 
 	"github.com/ponchione/sirtopham/internal/conversation"
+	"github.com/ponchione/sirtopham/internal/provider"
 )
 
 func TestBuildCleanupPlanSkipsCompletedIteration(t *testing.T) {
@@ -70,6 +72,75 @@ func TestBuildCleanupPlanPersistsFailedAssistantMessageForStreamFailure(t *testi
 	}
 	if !strings.Contains(plan.Actions[0].Messages[0].Content, "reason=stream_failure") {
 		t.Fatalf("assistant tombstone content = %q, want stream_failure reason", plan.Actions[0].Messages[0].Content)
+	}
+}
+
+func TestBuildCleanupPlanPersistsInterruptedAssistantMessageWhenFirstBlockIsThinking(t *testing.T) {
+	raw, err := json.Marshal([]provider.ContentBlock{
+		provider.NewThinkingBlock("reasoning"),
+		provider.NewTextBlock("partial"),
+	})
+	if err != nil {
+		t.Fatalf("marshal content blocks: %v", err)
+	}
+
+	plan := buildCleanupPlan(inflightTurn{
+		ConversationID:           "conv-1",
+		TurnNumber:               2,
+		Iteration:                3,
+		CompletedIterations:      2,
+		AssistantResponseStarted: true,
+		AssistantMessageContent:  string(raw),
+	}, cleanupReasonInterrupt)
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != cleanupActionPersistIteration {
+		t.Fatalf("cleanup actions = %#v, want one persist_iteration", plan.Actions)
+	}
+	blocks, err := provider.ContentBlocksFromRaw(json.RawMessage(plan.Actions[0].Messages[0].Content))
+	if err != nil {
+		t.Fatalf("ContentBlocksFromRaw: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("persisted assistant blocks = %#v, want 2", blocks)
+	}
+	if blocks[0].Type != "thinking" || blocks[0].Thinking != "reasoning" {
+		t.Fatalf("first block = %#v, want original thinking block preserved", blocks[0])
+	}
+	if blocks[1].Type != "text" || !strings.Contains(blocks[1].Text, "[interrupted_assistant]") || !strings.Contains(blocks[1].Text, "partial_text=partial") {
+		t.Fatalf("second block = %#v, want interrupted tombstone text preserving partial text", blocks[1])
+	}
+}
+
+func TestBuildCleanupPlanPersistsInterruptedAssistantMessageWhenOnlyThinkingBlockExists(t *testing.T) {
+	raw, err := json.Marshal([]provider.ContentBlock{
+		provider.NewThinkingBlock("reasoning"),
+	})
+	if err != nil {
+		t.Fatalf("marshal content blocks: %v", err)
+	}
+
+	plan := buildCleanupPlan(inflightTurn{
+		ConversationID:           "conv-1",
+		TurnNumber:               2,
+		Iteration:                3,
+		CompletedIterations:      2,
+		AssistantResponseStarted: true,
+		AssistantMessageContent:  string(raw),
+	}, cleanupReasonInterrupt)
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != cleanupActionPersistIteration {
+		t.Fatalf("cleanup actions = %#v, want one persist_iteration", plan.Actions)
+	}
+	blocks, err := provider.ContentBlocksFromRaw(json.RawMessage(plan.Actions[0].Messages[0].Content))
+	if err != nil {
+		t.Fatalf("ContentBlocksFromRaw: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("persisted assistant blocks = %#v, want original thinking plus appended tombstone text", blocks)
+	}
+	if blocks[0].Type != "thinking" || blocks[0].Thinking != "reasoning" {
+		t.Fatalf("first block = %#v, want original thinking block preserved", blocks[0])
+	}
+	if blocks[1].Type != "text" || !strings.Contains(blocks[1].Text, "[interrupted_assistant]") || strings.Contains(blocks[1].Text, "partial_text=") {
+		t.Fatalf("second block = %#v, want appended interrupted tombstone text without partial_text", blocks[1])
 	}
 }
 

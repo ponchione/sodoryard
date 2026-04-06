@@ -2,10 +2,12 @@ package agent
 
 import (
 	stdctx "context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/ponchione/sirtopham/internal/conversation"
+	"github.com/ponchione/sirtopham/internal/provider"
 )
 
 type turnCleanupReason string
@@ -127,7 +129,36 @@ func interruptedAssistantMessageContent(raw string, reason turnCleanupReason) st
 	if trimmed == "" {
 		return raw
 	}
-	return strings.Replace(raw, `"text":"`, `"text":"`+message+`\npartial_text=`, 1)
+
+	blocks, err := provider.ContentBlocksFromRaw(json.RawMessage(raw))
+	if err != nil {
+		return strings.Replace(raw, `"text":"`, `"text":"`+message+`\npartial_text=`, 1)
+	}
+	hadTextBlock := false
+	for i := range blocks {
+		if blocks[i].Type != "text" {
+			continue
+		}
+		hadTextBlock = true
+		if strings.TrimSpace(blocks[i].Text) == "" {
+			blocks[i].Text = message
+		} else {
+			blocks[i].Text = message + "\npartial_text=" + blocks[i].Text
+		}
+		encoded, err := contentBlocksToJSON(blocks)
+		if err == nil {
+			return encoded
+		}
+		break
+	}
+	if !hadTextBlock {
+		blocks = append(blocks, provider.NewTextBlock(message))
+		encoded, err := contentBlocksToJSON(blocks)
+		if err == nil {
+			return encoded
+		}
+	}
+	return raw
 }
 
 func interruptedToolResultContent(tc inflightToolCall, reason turnCleanupReason) string {

@@ -128,6 +128,13 @@ func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.Ra
 	}
 
 	oldContent := string(data)
+	if params.OldStr == params.NewStr {
+		return &ToolResult{
+			Success: false,
+			Content: "file_edit new_str is identical to old_str. Provide a different replacement string or skip the edit.",
+			Error:   "old_equals_new",
+		}, nil
+	}
 	analysis := analyzeFileEditMatches(oldContent, params.OldStr)
 
 	switch analysis.count {
