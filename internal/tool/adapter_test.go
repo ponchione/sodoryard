@@ -100,3 +100,45 @@ func TestAdapterToolFailure(t *testing.T) {
 		t.Fatalf("Content = %q, want to contain 'permission denied'", pr.Content)
 	}
 }
+
+func TestAdapterFileEditFailureAddsStableRecoveryHint(t *testing.T) {
+	reg := NewRegistry()
+	m := newMockTool("file_edit", Mutating)
+	m.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		return &ToolResult{
+			Success: false,
+			Content: "file_edit requires a prior full file_read of file.txt. Read the entire file first, then retry the edit.",
+			Error:   "not_read_first",
+		}, nil
+	}
+	reg.Register(m)
+
+	exec := NewExecutor(reg, ExecutorConfig{}, nil)
+	adapter := NewAgentLoopAdapter(exec)
+
+	pr, err := adapter.Execute(context.Background(), provider.ToolCall{
+		ID:    "tc-2",
+		Name:  "file_edit",
+		Input: json.RawMessage(`{"path":"file.txt","old_str":"a","new_str":"b"}`),
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !pr.IsError {
+		t.Fatal("IsError = false, want true for failed file_edit")
+	}
+	if !strings.Contains(pr.Content, "Hint: Run file_read on the full file immediately before retrying file_edit") {
+		t.Fatalf("Content = %q, want stable not_read_first recovery hint", pr.Content)
+	}
+}
+
+func TestEnrichToolResultForAgent_FileEditOldEqualsNew(t *testing.T) {
+	result := enrichToolResultForAgent("file_edit", ToolResult{
+		Success: false,
+		Content: "file_edit new_str is identical to old_str. Provide a different replacement string or skip the edit.",
+		Error:   "old_equals_new",
+	})
+	if !strings.Contains(result.Content, "Choose a different new_str") {
+		t.Fatalf("Content = %q, want old_equals_new recovery hint", result.Content)
+	}
+}
