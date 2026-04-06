@@ -561,7 +561,7 @@ func TestHealthTracking_SuccessUpdatesHealth(t *testing.T) {
 	}
 }
 
-func TestHealthTracking_FailureUpdatesHealth(t *testing.T) {
+func TestHealthTracking_RequestValidationFailureDoesNotPoisonHealth(t *testing.T) {
 	r, _ := NewRouter(validConfig(), nil, nil)
 	testErr := &provider.ProviderError{
 		Provider:   "anthropic",
@@ -580,11 +580,44 @@ func TestHealthTracking_FailureUpdatesHealth(t *testing.T) {
 
 	health := r.ProviderHealthMap()
 	h := health["anthropic"]
+	if !h.Healthy {
+		t.Fatal("expected provider to remain healthy after request validation failure")
+	}
+	if h.LastError != nil {
+		t.Fatalf("expected LastError to remain empty, got %v", h.LastError)
+	}
+	if !h.LastErrorAt.IsZero() {
+		t.Fatalf("expected LastErrorAt to remain zero, got %v", h.LastErrorAt)
+	}
+	if !h.LastSuccessAt.IsZero() && h.LastSuccessAt.Before(before) {
+		t.Fatal("unexpected stale LastSuccessAt timestamp")
+	}
+}
+
+func TestHealthTracking_AuthFailureUpdatesHealth(t *testing.T) {
+	r, _ := NewRouter(validConfig(), nil, nil)
+	testErr := &provider.ProviderError{
+		Provider:   "anthropic",
+		StatusCode: 401,
+		Message:    "invalid api key",
+		Retriable:  false,
+	}
+	mp := &mockProvider{
+		name:        "anthropic",
+		completeErr: testErr,
+	}
+	_ = r.RegisterProvider(mp)
+
+	before := time.Now()
+	_, _ = r.Complete(context.Background(), &provider.Request{})
+
+	health := r.ProviderHealthMap()
+	h := health["anthropic"]
 	if h.Healthy {
-		t.Fatal("expected unhealthy after failure")
+		t.Fatal("expected unhealthy after auth failure")
 	}
 	if h.LastError != testErr {
-		t.Fatal("expected LastError to be the test error")
+		t.Fatal("expected LastError to be the auth error")
 	}
 	if h.LastErrorAt.Before(before) {
 		t.Fatal("expected LastErrorAt to be recent")

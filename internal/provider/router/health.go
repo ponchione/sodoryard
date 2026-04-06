@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"slices"
@@ -24,7 +25,13 @@ func (r *Router) markSuccess(providerName string) {
 }
 
 // markFailure updates a provider's health record after a failed call.
+// Client-side request validation errors (for example a bad runtime model override)
+// are preserved as request errors but do not poison the provider's global health.
 func (r *Router) markFailure(providerName string, err error) {
+	if !shouldAffectProviderHealth(err) {
+		return
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -35,6 +42,23 @@ func (r *Router) markFailure(providerName string, err error) {
 	h.Healthy = false
 	h.LastError = err
 	h.LastErrorAt = time.Now()
+}
+
+func shouldAffectProviderHealth(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var pe *provider.ProviderError
+	if !errors.As(err, &pe) {
+		return true
+	}
+
+	if provider.IsAuthenticationFailure(err) {
+		return true
+	}
+
+	return pe.StatusCode != 400
 }
 
 // Validate performs startup validation of all registered providers and ensures

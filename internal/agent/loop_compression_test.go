@@ -58,10 +58,11 @@ func (s *titleGeneratorStub) GenerateTitle(_ stdctx.Context, conversationID stri
 }
 
 type toolResultStoreStub struct {
-	mu     sync.Mutex
-	refs   map[string]string
-	bodies map[string]string
-	err    error
+	mu        sync.Mutex
+	refs      map[string]string
+	bodies    map[string]string
+	callOrder []string
+	err       error
 }
 
 func (s *toolResultStoreStub) PersistToolResult(_ stdctx.Context, toolUseID, toolName, content string) (string, error) {
@@ -76,6 +77,7 @@ func (s *toolResultStoreStub) PersistToolResult(_ stdctx.Context, toolUseID, too
 	if s.bodies == nil {
 		s.bodies = map[string]string{}
 	}
+	s.callOrder = append(s.callOrder, toolUseID)
 	ref := s.refs[toolUseID]
 	if ref == "" {
 		ref = fmt.Sprintf("/tmp/persisted/%s-%s.txt", toolName, toolUseID)

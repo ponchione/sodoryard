@@ -903,6 +903,44 @@ func TestManagerSearchPrefersNaturalLanguageSnippetOverToolOutput(t *testing.T) 
 	}
 }
 
+func TestManagerSearchPrefersNaturalLanguageAssistantSnippetOverBrainToolDocumentBody(t *testing.T) {
+	ctx := context.Background()
+	database := newTestDB(t)
+	projectID := seedProject(t, database)
+	mgr := newTestManager(t, database)
+	mgr.HistoryManager.now = func() time.Time { return time.Unix(1700001000, 0).UTC() }
+
+	conv, err := mgr.Create(ctx, projectID, WithTitle("Brain tool snippet quality"))
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+	token := "runtime-token-brain-tool-snippet"
+	notePath := "notes/runtime/runtime-token-brain-tool-snippet.md"
+	if err := mgr.PersistUserMessage(ctx, conv.ID, 1, "Read back "+notePath+" and search for "+token); err != nil {
+		t.Fatalf("PersistUserMessage error: %v", err)
+	}
+	if err := mgr.PersistIteration(ctx, conv.ID, 1, 1, []IterationMessage{
+		{Role: "assistant", Content: `[{"type":"tool_use","id":"call1","name":"brain_read","input":{"path":"notes/runtime/runtime-token-brain-tool-snippet.md"}},{"type":"tool_use","id":"call2","name":"brain_search","input":{"query":"runtime-token-brain-tool-snippet"}}]`},
+		{Role: "tool", Content: "Brain document: notes/runtime/runtime-token-brain-tool-snippet.md\n\nContent:\n```md\n# Runtime Token Brain Tool Snippet\n\nExact token: `runtime-token-brain-tool-snippet`\n\nSummary: a long brain document body that should not win snippet selection over the assistant's short natural-language answer.\n```", ToolUseID: "call1", ToolName: "brain_read"},
+		{Role: "tool", Content: "Found 1 brain document for \"runtime-token-brain-tool-snippet\":\n- notes/runtime/runtime-token-brain-tool-snippet.md — Runtime Token Brain Tool Snippet\n  Exact token: `runtime-token-brain-tool-snippet`", ToolUseID: "call2", ToolName: "brain_search"},
+		{Role: "assistant", Content: "[{\"type\":\"text\",\"text\":\"Exact note path: `notes/runtime/runtime-token-brain-tool-snippet.md`\\n\\nDid search find that same note? Yes.\"}]"},
+	}); err != nil {
+		t.Fatalf("PersistIteration error: %v", err)
+	}
+
+	results, err := mgr.Search(ctx, token)
+	if err != nil {
+		t.Fatalf("Search error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Search returned %d results, want 1 deduplicated conversation result", len(results))
+	}
+	want := "Exact note path: `notes/runtime/runtime-token-brain-tool-snippet.md` Did search find that same note? Yes."
+	if got := results[0].Snippet; got != want {
+		t.Fatalf("Search snippet = %q, want %q", got, want)
+	}
+}
+
 // --- SeenFiles Integration ---
 
 func TestManagerSeenFilesIntegration(t *testing.T) {

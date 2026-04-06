@@ -40,6 +40,31 @@ func TestBuildPersistedToolResultMessageFallsBackToBarePathForTinyBudget(t *test
 	}
 }
 
+func TestBuildPersistedToolResultMessageUsesTailPreviewForShellOutput(t *testing.T) {
+	ref := "/tmp/persisted/shell-tc-1.txt"
+	content := strings.Join([]string{
+		"go test ./...",
+		"running package a",
+		"running package b",
+		"running package c",
+		"FAIL: final assertion exploded",
+		"stacktrace line 1",
+		"stacktrace line 2",
+	}, "\n")
+
+	got := buildPersistedToolResultMessage(ref, "tc-1", "shell", content, 180)
+
+	if !strings.Contains(got, "preview=") {
+		t.Fatalf("message missing preview header: %q", got)
+	}
+	if !strings.Contains(got, "FAIL: final assertion exploded") {
+		t.Fatalf("shell preview should preserve tail error context, got: %q", got)
+	}
+	if strings.Contains(got, "go test ./...") {
+		t.Fatalf("shell preview should prefer tail over head for constrained budgets, got: %q", got)
+	}
+}
+
 func TestApplyAggregateToolResultBudgetReportsPersistenceAndSavings(t *testing.T) {
 	fullOutput := strings.Repeat("SEARCH-RESULT-LINE\n", 40)
 	store := &toolResultStoreStub{}
@@ -101,5 +126,96 @@ func TestApplyAggregateToolResultBudgetReportsInlineShrinkWhenPersistenceUnavail
 	}
 	if report.CharsSaved <= 0 {
 		t.Fatalf("report.CharsSaved = %d, want > 0", report.CharsSaved)
+	}
+}
+
+func TestToolOutputManagerApplyAggregateBudgetReturnsBudgetedResultsAndReport(t *testing.T) {
+	fullOutput := strings.Repeat("SEARCH-RESULT-LINE\n", 40)
+	store := &toolResultStoreStub{}
+	manager := NewToolOutputManager(store)
+
+	managed := manager.ApplyAggregateBudget(
+		stdctx.Background(),
+		[]provider.ToolResult{{ToolUseID: "tc-1", Content: fullOutput}},
+		[]provider.ToolCall{{ID: "tc-1", Name: "search_text"}},
+		120,
+	)
+
+	if len(managed.Results) != 1 {
+		t.Fatalf("managed result count = %d, want 1", len(managed.Results))
+	}
+	if managed.Report.PersistedResults != 1 {
+		t.Fatalf("managed.Report.PersistedResults = %d, want 1", managed.Report.PersistedResults)
+	}
+	if managed.Report.ReplacedResults != 1 {
+		t.Fatalf("managed.Report.ReplacedResults = %d, want 1", managed.Report.ReplacedResults)
+	}
+	if managed.Report.CharsSaved <= 0 {
+		t.Fatalf("managed.Report.CharsSaved = %d, want > 0", managed.Report.CharsSaved)
+	}
+	if !strings.Contains(managed.Results[0].Content, "[persisted_tool_result]") {
+		t.Fatalf("managed result should contain persisted-tool-result marker, got: %q", managed.Results[0].Content)
+	}
+}
+
+func TestToolOutputManagerApplyAggregateBudgetPrioritizesShellThenOtherPersistableResultsBeforeFileRead(t *testing.T) {
+	store := &toolResultStoreStub{}
+	manager := NewToolOutputManager(store)
+
+	shellOutput := strings.Join([]string{
+		"go test ./...",
+		"package a ok",
+		"package b ok",
+		"FAIL: final assertion exploded",
+		"stacktrace line 1",
+		"stacktrace line 2",
+	}, "\n") + strings.Repeat("\nextra failure context", 6)
+	searchOutput := strings.Repeat("SEARCH-RESULT-LINE\n", 24)
+	brainOutput := strings.Repeat("BRAIN-RESULT-LINE\n", 8)
+	fileReadOutput := strings.Repeat("120|package main\n", 8)
+
+	managed := manager.ApplyAggregateBudget(
+		stdctx.Background(),
+		[]provider.ToolResult{
+			{ToolUseID: "tc-shell", Content: shellOutput},
+			{ToolUseID: "tc-search", Content: searchOutput},
+			{ToolUseID: "tc-brain", Content: brainOutput},
+			{ToolUseID: "tc-file", Content: fileReadOutput},
+		},
+		[]provider.ToolCall{
+			{ID: "tc-shell", Name: "shell"},
+			{ID: "tc-search", Name: "search_text"},
+			{ID: "tc-brain", Name: "brain_search"},
+			{ID: "tc-file", Name: "file_read"},
+		},
+		580,
+	)
+
+	if got, want := strings.Join(store.callOrder, ","), "tc-shell,tc-search"; got != want {
+		t.Fatalf("persist call order = %q, want %q", got, want)
+	}
+	if managed.Report.PersistedResults != 2 {
+		t.Fatalf("managed.Report.PersistedResults = %d, want 2", managed.Report.PersistedResults)
+	}
+	if managed.Report.InlineShrunkResults != 0 {
+		t.Fatalf("managed.Report.InlineShrunkResults = %d, want 0", managed.Report.InlineShrunkResults)
+	}
+	if managed.Report.ReplacedResults != 2 {
+		t.Fatalf("managed.Report.ReplacedResults = %d, want 2", managed.Report.ReplacedResults)
+	}
+	if !strings.Contains(managed.Results[0].Content, "[persisted_tool_result]") {
+		t.Fatalf("shell result should be persisted, got: %q", managed.Results[0].Content)
+	}
+	if !strings.Contains(managed.Results[0].Content, "FAIL: final assertion exploded") {
+		t.Fatalf("shell persisted preview should keep tail failure context, got: %q", managed.Results[0].Content)
+	}
+	if !strings.Contains(managed.Results[1].Content, "[persisted_tool_result]") {
+		t.Fatalf("search result should be persisted, got: %q", managed.Results[1].Content)
+	}
+	if strings.Contains(managed.Results[2].Content, "[persisted_tool_result]") {
+		t.Fatalf("brain result should remain inline once budget is satisfied, got: %q", managed.Results[2].Content)
+	}
+	if strings.Contains(managed.Results[3].Content, "[persisted_tool_result]") {
+		t.Fatalf("file_read should not be persisted ahead of other tool classes, got: %q", managed.Results[3].Content)
 	}
 }

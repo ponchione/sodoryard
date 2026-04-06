@@ -483,6 +483,7 @@ func extractAssistantTextSnippet(trimmed string) (string, bool) {
 	}
 	text = strings.ReplaceAll(text, `\"`, `"`)
 	text = strings.ReplaceAll(text, `\n`, " ")
+	text = strings.Join(strings.Fields(text), " ")
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return "", false

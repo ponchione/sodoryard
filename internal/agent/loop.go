@@ -153,6 +153,7 @@ type AgentLoop struct {
 	events              *MultiSink
 	compressionEngine   CompressionEngine
 	toolResultStore     ToolResultStore
+	toolOutputManager   *ToolOutputManager
 	titleGenerator      TitleGenerator
 	cfg                 AgentLoopConfig
 	contextCfg          config.ContextConfig
@@ -197,6 +198,7 @@ func NewAgentLoop(deps AgentLoopDeps) *AgentLoop {
 	if loop.toolResultStore == nil {
 		loop.toolResultStore = NewFileToolResultStore(loop.cfg.ToolResultStoreRoot)
 	}
+	loop.toolOutputManager = NewToolOutputManager(loop.toolResultStore)
 	return loop
 }
 
@@ -670,7 +672,9 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			return nil, l.handleTurnCancellation(inflight, ctx.Err())
 		}
 
-		toolResults, budgetReport := applyAggregateToolResultBudget(ctx, l.toolResultStore, toolResults, result.ToolCalls, l.cfg.MaxToolResultsPerMessageChars)
+		managedToolResults := l.toolOutputManager.ApplyAggregateBudget(ctx, toolResults, result.ToolCalls, l.cfg.MaxToolResultsPerMessageChars)
+		toolResults = managedToolResults.Results
+		budgetReport := managedToolResults.Report
 		if budgetReport.ReplacedResults > 0 {
 			l.logger.Debug("aggregate tool-result budget applied",
 				"conversation_id", req.ConversationID,

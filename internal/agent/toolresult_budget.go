@@ -52,12 +52,17 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 	sort.SliceStable(candidates, func(i, j int) bool {
 		left := candidates[i]
 		right := candidates[j]
-		leftFileRead := left.toolName == "file_read"
-		rightFileRead := right.toolName == "file_read"
-		if leftFileRead != rightFileRead {
-			return !leftFileRead
+		leftRank := aggregateBudgetPriority(left.toolName)
+		rightRank := aggregateBudgetPriority(right.toolName)
+		if leftRank != rightRank {
+			return leftRank < rightRank
 		}
-		return len(budgeted[left.index].Content) > len(budgeted[right.index].Content)
+		leftLen := len(budgeted[left.index].Content)
+		rightLen := len(budgeted[right.index].Content)
+		if leftLen != rightLen {
+			return leftLen > rightLen
+		}
+		return left.index < right.index
 	})
 
 	for _, candidate := range candidates {
@@ -77,14 +82,15 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 		usedPersistence := false
 		if candidate.toolName != "file_read" && store != nil {
 			if ref, err := store.PersistToolResult(ctx, current.ToolUseID, candidate.toolName, current.Content); err == nil {
-				persisted := buildPersistedToolResultMessage(ref, current.ToolUseID, candidate.toolName, current.Content, targetLen)
+				persistedBudget := preferredPersistedToolResultBudget(candidate.toolName, targetLen, len(current.Content))
+				persisted := buildPersistedToolResultMessage(ref, current.ToolUseID, candidate.toolName, current.Content, persistedBudget)
 				if len(persisted) < len(current.Content) {
 					shrunk = persisted
 					usedPersistence = true
 				}
 			}
 		}
-		if len(shrunk) > targetLen {
+		if !usedPersistence && len(shrunk) > targetLen {
 			shrunk = shrinkToolResultForAggregateBudget(shrunk, targetLen, candidate.toolName)
 		}
 		if shrunk == current.Content {
@@ -103,6 +109,34 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 	report.FinalChars = totalChars
 	report.CharsSaved = report.OriginalChars - report.FinalChars
 	return budgeted, report
+}
+
+func aggregateBudgetPriority(toolName string) int {
+	switch toolName {
+	case "shell":
+		return 0
+	case "file_read":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func preferredPersistedToolResultBudget(toolName string, targetLen int, contentLen int) int {
+	minPersistedBudget := 120
+	if toolName == "shell" {
+		minPersistedBudget = 180
+	}
+	if contentLen <= 1 {
+		return targetLen
+	}
+	if targetLen >= minPersistedBudget {
+		return targetLen
+	}
+	if contentLen <= minPersistedBudget {
+		return contentLen - 1
+	}
+	return minPersistedBudget
 }
 
 func shrinkToolResultForAggregateBudget(content string, maxChars int, toolName string) string {
@@ -156,10 +190,63 @@ func buildPersistedToolResultMessage(ref string, toolUseID string, toolName stri
 			return base
 		}
 	}
-	if len(preview) > previewBudget {
-		preview = preview[:previewBudget]
-	}
+	preview = buildPersistedToolResultPreview(toolName, preview, previewBudget)
 	return base + previewHeader + preview
+}
+
+func buildPersistedToolResultPreview(toolName string, content string, maxChars int) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	if len(content) <= maxChars {
+		return content
+	}
+	if toolName == "shell" {
+		if failureFocused := buildShellFailurePreview(content, maxChars); failureFocused != "" {
+			return failureFocused
+		}
+		tail := content[len(content)-maxChars:]
+		if idx := strings.Index(tail, "\n"); idx >= 0 && idx < len(tail)-1 {
+			tail = tail[idx+1:]
+		}
+		if len(tail) > maxChars {
+			tail = tail[len(tail)-maxChars:]
+		}
+		if tail != "" {
+			return tail
+		}
+	}
+	return content[:maxChars]
+}
+
+func buildShellFailurePreview(content string, maxChars int) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	start := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "FAIL") || strings.HasPrefix(upper, "ERROR") || strings.Contains(line, "panic:") || strings.Contains(line, "PANIC:") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	preview := strings.TrimSpace(strings.Join(lines[start:], "\n"))
+	if preview == "" {
+		return ""
+	}
+	if len(preview) <= maxChars {
+		return preview
+	}
+	return strings.TrimSpace(preview[:maxChars])
 }
 
 func compactPersistedToolResultReference(ref string, maxChars int) string {

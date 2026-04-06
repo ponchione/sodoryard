@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -118,9 +119,22 @@ func (f *fakeBackend) SearchKeyword(ctx context.Context, query string) ([]brain.
 		}
 	}
 	if len(hits) > 0 {
-		return hits, nil
+		return sortSearchHits(hits), nil
 	}
-	return append([]brain.SearchHit(nil), f.searches[lowerQuery]...), nil
+	return sortSearchHits(append([]brain.SearchHit(nil), f.searches[lowerQuery]...)), nil
+}
+
+func sortSearchHits(hits []brain.SearchHit) []brain.SearchHit {
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].Score != hits[j].Score {
+			return hits[i].Score > hits[j].Score
+		}
+		if hits[i].Path != hits[j].Path {
+			return hits[i].Path < hits[j].Path
+		}
+		return hits[i].Snippet < hits[j].Snippet
+	})
+	return hits
 }
 
 func (f *fakeBackend) ListDocuments(ctx context.Context, directory string) ([]string, error) {
