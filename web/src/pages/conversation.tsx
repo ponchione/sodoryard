@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useMemo, type KeyboardEvent } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   useConversation,
@@ -6,10 +6,11 @@ import {
   type ContentBlock,
 } from "@/hooks/use-conversation";
 import { useContextReport } from "@/hooks/use-context-report";
+import { useProviders } from "@/hooks/use-providers";
 import { api } from "@/lib/api";
 import { messageViewsToChat } from "@/lib/history";
-import type { MessageView } from "@/types/api";
-import type { ContextReport } from "@/types/metrics";
+import type { Conversation, MessageView } from "@/types/api";
+import type { AppConfig, ContextReport } from "@/types/metrics";
 import { Button } from "@/components/ui/button";
 import { ThinkingBlock } from "@/components/chat/thinking-block";
 import { ToolCallCard } from "@/components/chat/tool-call-card";
@@ -40,6 +41,7 @@ export function ConversationPage() {
     lastTurnUsage,
     lastContextDebug,
     sendMessage,
+    setModelOverride,
     cancel,
     loadHistory,
   } = useConversation(convId);
@@ -47,7 +49,12 @@ export function ConversationPage() {
   const [input, setInput] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [conversationMeta, setConversationMeta] = useState<Conversation | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string>("");
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const ctxReport = useContextReport(convId);
+  const { providers } = useProviders();
 
   // Feed live context_debug events into the inspector.
   useEffect(() => {
@@ -56,6 +63,50 @@ export function ConversationPage() {
     }
   }, [lastContextDebug]); // eslint-disable-line react-hooks/exhaustive-deps
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    historyLoaded.current = false;
+  }, [convId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<AppConfig>("/api/config")
+      .then((data) => {
+        if (!cancelled) {
+          setConfig(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load app config:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!convId) {
+      setConversationMeta(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    api
+      .get<Conversation>(`/api/conversations/${convId}`)
+      .then((data) => {
+        if (!cancelled) {
+          setConversationMeta(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load conversation metadata:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [convId]);
 
   // Load existing conversation history on mount.
   useEffect(() => {
@@ -66,20 +117,78 @@ export function ConversationPage() {
         .then((views) => {
           const chatMessages = messageViewsToChat(views);
           loadHistory(chatMessages);
+          const maxTurn = views.reduce((max, view) => Math.max(max, view.turn_number ?? 0), 0);
+          ctxReport.setHistoryTurns(maxTurn);
         })
         .catch((err) => {
           console.error("Failed to load conversation history:", err);
         });
     }
-  }, [convId, loadHistory]);
+  }, [convId, loadHistory, ctxReport]);
+
+  const selectedProviderModels = useMemo(
+    () => providers.find((provider) => provider.name === selectedProvider)?.models ?? [],
+    [providers, selectedProvider],
+  );
+
+  useEffect(() => {
+    const fallbackProvider = config?.default_provider ?? "";
+    const fallbackModel = config?.default_model ?? "";
+    const nextProvider = conversationMeta?.provider ?? fallbackProvider;
+    const nextModel = conversationMeta?.model ?? fallbackModel;
+
+    if (!nextProvider || !nextModel) {
+      return;
+    }
+
+    setSelectedProvider(nextProvider);
+    setSelectedModel(nextModel);
+  }, [conversationMeta?.model, conversationMeta?.provider, config?.default_model, config?.default_provider]);
+
+  useEffect(() => {
+    if (!selectedProvider) {
+      return;
+    }
+    const provider = providers.find((item) => item.name === selectedProvider);
+    if (!provider) {
+      return;
+    }
+    if (provider.models.some((model) => model.id === selectedModel)) {
+      return;
+    }
+    if (provider.models.length > 0) {
+      setSelectedModel(provider.models[0].id);
+      return;
+    }
+    if (config?.default_provider === selectedProvider && config.default_model) {
+      setSelectedModel(config.default_model);
+    }
+  }, [config?.default_model, config?.default_provider, providers, selectedModel, selectedProvider]);
+
+  const isConversationOverrideActive = !!(
+    config &&
+    selectedProvider &&
+    selectedModel &&
+    (selectedProvider !== config.default_provider || selectedModel !== config.default_model)
+  );
+
+  const messageOverride = isConversationOverrideActive
+    ? { provider: selectedProvider, model: selectedModel }
+    : undefined;
+
+  const handleModelOverrideChange = (provider: string, model: string) => {
+    setSelectedProvider(provider);
+    setSelectedModel(model);
+    setModelOverride(provider, model);
+  };
 
   // Send initial message once when navigating from home with text.
   useEffect(() => {
     if (initialMessage && !sentInitial.current && connectionStatus === "connected") {
       sentInitial.current = true;
-      sendMessage(initialMessage);
+      sendMessage(initialMessage, messageOverride);
     }
-  }, [initialMessage, connectionStatus, sendMessage]);
+  }, [initialMessage, connectionStatus, messageOverride, sendMessage]);
 
   // When backend creates a conversation, update the URL without re-mounting.
   useEffect(() => {
@@ -97,7 +206,7 @@ export function ConversationPage() {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput("");
-    sendMessage(text);
+    sendMessage(text, messageOverride);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -120,13 +229,54 @@ export function ConversationPage() {
       {/* Main chat column */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar with toggle buttons */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-1.5">
-          <div className="text-xs text-muted-foreground">
-            {connectionStatus !== "connected"
-              ? connectionStatus === "connecting" ? "Connecting…" : "Disconnected — reconnecting…"
-              : conversationId ? `${conversationId.slice(0, 8)}…` : "New conversation"}
+        <div className="flex items-center justify-between border-b border-border px-4 py-1.5 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="text-xs text-muted-foreground shrink-0">
+              {connectionStatus !== "connected"
+                ? connectionStatus === "connecting" ? "Connecting…" : "Disconnected — reconnecting…"
+                : conversationId ? `${conversationId.slice(0, 8)}…` : "New conversation"}
+            </div>
+            {config && selectedProvider && (
+              <div className="flex items-center gap-2 min-w-0">
+                <select
+                  value={selectedProvider}
+                  onChange={(e) => {
+                    const provider = e.target.value;
+                    const providerModels = providers.find((item) => item.name === provider)?.models ?? [];
+                    const nextModel = providerModels[0]?.id ?? "";
+                    handleModelOverrideChange(provider, nextModel);
+                  }}
+                  className="h-7 rounded border border-border bg-input px-2 text-xs text-foreground"
+                  aria-label="Conversation provider"
+                >
+                  {providers.map((provider) => (
+                    <option key={provider.name} value={provider.name}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => handleModelOverrideChange(selectedProvider, e.target.value)}
+                  className="h-7 max-w-56 rounded border border-border bg-input px-2 text-xs text-foreground"
+                  aria-label="Conversation model"
+                  disabled={selectedProviderModels.length === 0}
+                >
+                  {selectedProviderModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.id}
+                    </option>
+                  ))}
+                </select>
+                {isConversationOverrideActive && (
+                  <span className="shrink-0 bg-primary/15 px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-primary">
+                    override
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={() => setMetricsOpen(!metricsOpen)}
@@ -210,7 +360,10 @@ export function ConversationPage() {
       {metricsOpen && convId && (
         <div className="border-t border-border px-4 py-2 max-h-60 overflow-y-auto">
           <div className="mx-auto max-w-3xl">
-            <ConversationMetricsPanel conversationId={convId} />
+            <ConversationMetricsPanel
+              conversationId={convId}
+              refreshKey={lastTurnUsage?.turnNumber}
+            />
           </div>
         </div>
       )}

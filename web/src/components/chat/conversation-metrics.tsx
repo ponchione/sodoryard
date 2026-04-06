@@ -3,6 +3,7 @@ import { CollapsibleSection } from "@/components/inspector/collapsible-section";
 
 interface ConversationMetricsProps {
   conversationId?: string;
+  refreshKey?: number;
 }
 
 function formatNum(n: number): string {
@@ -11,8 +12,8 @@ function formatNum(n: number): string {
   return String(n);
 }
 
-export function ConversationMetricsPanel({ conversationId }: ConversationMetricsProps) {
-  const { metrics, loading } = useConversationMetrics(conversationId);
+export function ConversationMetricsPanel({ conversationId, refreshKey }: ConversationMetricsProps) {
+  const { metrics, loading } = useConversationMetrics(conversationId, refreshKey);
 
   if (loading) {
     return (

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { ConversationMetrics } from "@/types/metrics";
 
-export function useConversationMetrics(conversationId?: string) {
+export function useConversationMetrics(conversationId?: string, refreshKey?: number) {
   const [metrics, setMetrics] = useState<ConversationMetrics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,9 +26,13 @@ export function useConversationMetrics(conversationId?: string) {
 
   useEffect(() => {
     mounted.current = true;
-    fetch_();
-    return () => { mounted.current = false; };
-  }, [fetch_]);
+    if (conversationId) {
+      fetch_();
+    }
+    return () => {
+      mounted.current = false;
+    };
+  }, [conversationId, fetch_, refreshKey]);
 
   return { metrics, loading, error, refresh: fetch_ };
 }
