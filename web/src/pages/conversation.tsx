@@ -20,6 +20,10 @@ import { ContextInspector } from "@/components/inspector/context-inspector";
 import { ConversationMetricsPanel } from "@/components/chat/conversation-metrics";
 import { getDisplayBlocks } from "@/lib/tool-transcript";
 
+const conversationPageSessionState = {
+  inspectorOpen: false,
+};
+
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -47,7 +51,7 @@ export function ConversationPage() {
   } = useConversation(convId);
 
   const [input, setInput] = useState("");
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(() => conversationPageSessionState.inspectorOpen);
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [conversationMeta, setConversationMeta] = useState<Conversation | null>(null);
@@ -67,6 +71,10 @@ export function ConversationPage() {
   useEffect(() => {
     historyLoaded.current = false;
   }, [convId]);
+
+  useEffect(() => {
+    conversationPageSessionState.inspectorOpen = inspectorOpen;
+  }, [inspectorOpen]);
 
   useEffect(() => {
     let cancelled = false;
