@@ -335,18 +335,88 @@ func TestBrainSearchSemanticFallback(t *testing.T) {
 	}
 }
 
-func TestBrainSearchWithTags(t *testing.T) {
+func TestBrainSearchWithTagsFiltersHitsByTag(t *testing.T) {
 	docs := map[string]string{
-		"notes/tagged.md": "# Tagged\nContent with #debugging tag",
+		"_log.md": "## [2026-04-07T16:41:44Z] query | vite rebuild loop fix (tags: debug history) Returned 0 results via keyword search.",
+		"notes/debug-loop.md": "---\ntags: [debug-history]\n---\n# Debug Loop\nThe vite rebuild loop fix moved generated code out of src.",
+		"notes/untagged-loop.md": "# Untagged Loop\nThe vite rebuild loop fix moved generated code out of src.",
 	}
 	backend := newFakeBackend(docs)
 	tool := NewBrainSearch(backend, brainConfig(true))
-	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"tagged","tags":["debugging"]}`))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"vite rebuild loop fix","tags":["debug-history"]}`))
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
 	if !result.Success {
 		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "notes/debug-loop.md") {
+		t.Fatalf("content = %q, want tagged hit", result.Content)
+	}
+	if strings.Contains(result.Content, "notes/untagged-loop.md") {
+		t.Fatalf("content = %q, should exclude untagged hit", result.Content)
+	}
+	if strings.Contains(result.Content, "_log.md") {
+		t.Fatalf("content = %q, should exclude operational log note", result.Content)
+	}
+}
+
+func TestBrainSearchWithTagsFallsBackToLooseMatchWithinTaggedDocs(t *testing.T) {
+	docs := map[string]string{
+		"notes/debug-loop.md": "# Past debugging: vite rebuild loop\n\nDate: 2026-04-07\nFamily: debug-history\n\n## Fix\nMoved the generated barrel out of src and into .generated/barrel.ts.",
+	}
+	backend := newFakeBackend(docs)
+	tool := NewBrainSearch(backend, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"vite rebuild loop fix","tags":["debug-history"]}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "notes/debug-loop.md") {
+		t.Fatalf("content = %q, want loose tagged match", result.Content)
+	}
+}
+
+func TestBrainSearchWithTagsExcludesMissingTags(t *testing.T) {
+	docs := map[string]string{
+		"notes/untagged-loop.md": "# Untagged Loop\nThe vite rebuild loop fix moved generated code out of src.",
+	}
+	backend := newFakeBackend(docs)
+	tool := NewBrainSearch(backend, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"vite rebuild loop fix","tags":["debug-history"]}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false for missing tags, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "No brain documents found") {
+		t.Fatalf("content = %q, want no-results message", result.Content)
+	}
+}
+
+func TestBrainSearchWithTagOnlyQueryReturnsTaggedNotes(t *testing.T) {
+	docs := map[string]string{
+		"notes/debug-loop.md": "---\ntags: [debug-history]\n---\n# Debug Loop\nGenerated barrel loop notes.",
+		"notes/debug-lint.md": "# Debug Lint\nKeep the #debug-history journal up to date.",
+		"notes/rationale.md": "---\ntags: [rationale]\n---\n# Layout\nMinimal content first rationale.",
+	}
+	backend := newFakeBackend(docs)
+	tool := NewBrainSearch(backend, brainConfig(true))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"","tags":["debug-history"]}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "notes/debug-loop.md") || !strings.Contains(result.Content, "notes/debug-lint.md") {
+		t.Fatalf("content = %q, want both tagged notes", result.Content)
+	}
+	if strings.Contains(result.Content, "notes/rationale.md") {
+		t.Fatalf("content = %q, should exclude differently tagged note", result.Content)
 	}
 }
 

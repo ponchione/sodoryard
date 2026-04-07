@@ -81,6 +81,7 @@ func (a *ContextAssembler) Assemble(
 	if a.extractor != nil {
 		queries = a.extractor.ExtractQueries(message, needs)
 	}
+	applySemanticQueries(needs, queries)
 
 	retrievalStart := time.Now()
 	results, err := a.retriever.Retrieve(ctx, needs, queries, a.cfg)
@@ -417,4 +418,14 @@ func sliceToSet(values []string) map[string]struct{} {
 		set[value] = struct{}{}
 	}
 	return set
+}
+
+func applySemanticQueries(needs *ContextNeeds, queries []string) {
+	if needs == nil {
+		return
+	}
+	needs.SemanticQueries = nil
+	for _, query := range queries {
+		appendUniqueQuery(&needs.SemanticQueries, query)
+	}
 }

@@ -214,6 +214,45 @@ func TestRetrievalOrchestratorExcludesOperationalBrainLogHits(t *testing.T) {
 	}
 }
 
+func TestRetrievalOrchestratorSuppressesProactiveBrainTraceWhenDisabled(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"runtime brain proof canary": {{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "ORBIT LANTERN 642", Score: 0.91}},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+	var traceCalls []string
+	orchestrator.brainQueryTrace = func(msg string, args ...any) {
+		traceCalls = append(traceCalls, msg)
+	}
+
+	_, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{}, []string{"runtime brain proof canary"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if len(traceCalls) != 0 {
+		t.Fatalf("trace calls = %v, want none when logBrainQueries disabled", traceCalls)
+	}
+}
+
+func TestRetrievalOrchestratorEmitsProactiveBrainTraceWhenEnabled(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"runtime brain proof canary": {{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "ORBIT LANTERN 642", Score: 0.91}},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+	orchestrator.logBrainQueries = true
+	var traceCalls []string
+	orchestrator.brainQueryTrace = func(msg string, args ...any) {
+		traceCalls = append(traceCalls, msg)
+	}
+
+	_, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{}, []string{"runtime brain proof canary"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if !slices.Equal(traceCalls, []string{"proactive brain search", "proactive brain search result"}) {
+		t.Fatalf("trace calls = %v, want proactive brain search traces", traceCalls)
+	}
+}
+
 func TestRetrievalOrchestratorSkipsSemanticSearchForBrainPreferredTurns(t *testing.T) {
 	searcher := &retrievalSearcherStub{results: []codeintel.SearchResult{{
 		Chunk: codeintel.Chunk{ID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken"},

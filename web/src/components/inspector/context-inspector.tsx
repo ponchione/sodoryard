@@ -5,6 +5,7 @@ import type {
   BudgetCategory,
   ContextNeeds,
   ContextSignal,
+  ContextSignalStreamEntry,
   ExplicitFileResult,
   GraphResult,
   BrainResult,
@@ -116,6 +117,12 @@ export function ContextInspector({ ctx, onClose }: ContextInspectorProps) {
 
             <CollapsibleSection title="Signals" sectionColor="#b388ff" defaultOpen>
               <SignalsList signals={report.signals ?? report.needs?.signals ?? []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Signal Flow" sectionColor="#7c4dff" defaultOpen>
+              <SignalFlowList
+                stream={report.signal_stream ?? buildSignalFlowFallback(report.needs, report.signals)}
+              />
             </CollapsibleSection>
 
             <CollapsibleSection title="Queries" sectionColor="#00e5ff" defaultOpen>
@@ -280,6 +287,85 @@ function SignalsList({ signals }: { signals: ContextSignal[] }) {
       ))}
     </div>
   );
+}
+
+function SignalFlowList({ stream }: { stream: ContextSignalStreamEntry[] }) {
+  if (stream.length === 0) {
+    return <p className="text-xs text-muted-foreground">No ordered signal flow recorded</p>;
+  }
+
+  return (
+    <div className="space-y-1">
+      {stream.map((entry) => (
+        <div
+          key={`${entry.index}-${entry.kind}-${entry.type ?? ""}-${entry.value ?? ""}`}
+          className="border border-border/50 bg-muted/30 px-2 py-1.5 text-[10px] space-y-1"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-foreground">#{entry.index} {entry.kind}</span>
+            {entry.type && <span className="text-muted-foreground">{entry.type}</span>}
+          </div>
+          <MetricRow label="Value" value={entry.value || "—"} mono={entry.kind !== "signal"} />
+          {entry.source && <MetricRow label="Source" value={entry.source} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function buildSignalFlowFallback(
+  needs?: ContextNeeds,
+  signals?: ContextSignal[],
+): ContextSignalStreamEntry[] {
+  if (!needs && (!signals || signals.length === 0)) {
+    return [];
+  }
+
+  const stream: ContextSignalStreamEntry[] = [];
+  const append = (kind: string, type: string | undefined, source: string | undefined, value: string) => {
+    stream.push({
+      index: stream.length,
+      kind,
+      type,
+      source,
+      value,
+    });
+  };
+
+  for (const signal of signals ?? needs?.signals ?? []) {
+    append("signal", signal.type, signal.source, signal.value);
+  }
+  for (const query of needs?.semantic_queries ?? needs?.queries ?? []) {
+    append("semantic_query", undefined, undefined, query);
+  }
+  for (const path of needs?.explicit_files ?? []) {
+    append("explicit_file", undefined, undefined, path);
+  }
+  for (const symbol of needs?.explicit_symbols ?? []) {
+    append("explicit_symbol", undefined, undefined, symbol);
+  }
+  for (const path of needs?.momentum_files ?? []) {
+    append("momentum_file", undefined, undefined, path);
+  }
+  if (needs?.momentum_module) {
+    append("momentum_module", undefined, undefined, needs.momentum_module);
+  }
+  if (needs?.prefer_brain_context) {
+    append("flag", "prefer_brain_context", undefined, "true");
+  }
+  if (needs?.include_conventions) {
+    append("flag", "include_conventions", undefined, "true");
+  }
+  if (needs?.include_git_context) {
+    append(
+      "flag",
+      "include_git_context",
+      undefined,
+      needs.git_context_depth ? `depth=${needs.git_context_depth}` : "true",
+    );
+  }
+
+  return stream;
 }
 
 function QueriesList({ needs }: { needs?: ContextNeeds }) {

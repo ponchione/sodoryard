@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
+	contextpkg "github.com/ponchione/sirtopham/internal/context"
 	appdb "github.com/ponchione/sirtopham/internal/db"
 )
 
@@ -22,6 +24,7 @@ func NewMetricsHandler(s *Server, queries *appdb.Queries, logger *slog.Logger) *
 
 	s.HandleFunc("GET /api/metrics/conversation/{id}", h.handleConversationMetrics)
 	s.HandleFunc("GET /api/metrics/conversation/{id}/context/{turn}", h.handleContextReport)
+	s.HandleFunc("GET /api/metrics/conversation/{id}/context/{turn}/signals", h.handleContextSignalStream)
 
 	return h
 }
@@ -177,14 +180,28 @@ type contextReportResponse struct {
 	AgentReadFiles  json.RawMessage `json:"agent_read_files,omitempty"`
 
 	// Scalars.
-	BudgetTotal    *int64   `json:"budget_total,omitempty"`
-	BudgetUsed     *int64   `json:"budget_used,omitempty"`
-	IncludedCount  *int64   `json:"included_count,omitempty"`
-	ExcludedCount  *int64   `json:"excluded_count,omitempty"`
-	AgentUsedSearch *int64  `json:"agent_used_search_tool,omitempty"`
-	ContextHitRate *float64 `json:"context_hit_rate,omitempty"`
+	BudgetTotal     *int64   `json:"budget_total,omitempty"`
+	BudgetUsed      *int64   `json:"budget_used,omitempty"`
+	IncludedCount   *int64   `json:"included_count,omitempty"`
+	ExcludedCount   *int64   `json:"excluded_count,omitempty"`
+	AgentUsedSearch *int64   `json:"agent_used_search_tool,omitempty"`
+	ContextHitRate  *float64 `json:"context_hit_rate,omitempty"`
 
 	CreatedAt string `json:"created_at"`
+}
+
+type contextSignalStreamResponse struct {
+	ConversationID string                     `json:"conversation_id"`
+	TurnNumber     int64                      `json:"turn_number"`
+	Stream         []contextSignalStreamEntry `json:"stream"`
+}
+
+type contextSignalStreamEntry struct {
+	Index  int    `json:"index"`
+	Kind   string `json:"kind"`
+	Type   string `json:"type,omitempty"`
+	Source string `json:"source,omitempty"`
+	Value  string `json:"value,omitempty"`
 }
 
 func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Request) {
@@ -239,6 +256,106 @@ func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Requ
 	resp.AgentReadFiles = nullStringToJSON(report.AgentReadFilesJson)
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *MetricsHandler) handleContextSignalStream(w http.ResponseWriter, r *http.Request) {
+	convID := r.PathValue("id")
+	turnStr := r.PathValue("turn")
+
+	turn, err := strconv.ParseInt(turnStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "turn must be a number")
+		return
+	}
+
+	row, err := h.queries.GetContextReportByTurn(r.Context(), appdb.GetContextReportByTurnParams{
+		ConversationID: convID,
+		TurnNumber:     turn,
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "context report not found")
+			return
+		}
+		h.logger.Error("get context signal stream", "error", err, "id", convID, "turn", turn)
+		writeError(w, http.StatusInternalServerError, "failed to get context signal stream")
+		return
+	}
+
+	needs, err := decodeContextNeeds(row.NeedsJson, row.SignalsJson)
+	if err != nil {
+		h.logger.Error("decode context signal stream", "error", err, "id", convID, "turn", turn)
+		writeError(w, http.StatusInternalServerError, "failed to decode context signal stream")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, contextSignalStreamResponse{
+		ConversationID: row.ConversationID,
+		TurnNumber:     row.TurnNumber,
+		Stream:         buildContextSignalStream(needs),
+	})
+}
+
+func decodeContextNeeds(needsJSON sql.NullString, signalsJSON sql.NullString) (contextpkg.ContextNeeds, error) {
+	var needs contextpkg.ContextNeeds
+	if needsJSON.Valid && strings.TrimSpace(needsJSON.String) != "" {
+		if err := json.Unmarshal([]byte(needsJSON.String), &needs); err != nil {
+			return contextpkg.ContextNeeds{}, err
+		}
+	}
+	if signalsJSON.Valid && strings.TrimSpace(signalsJSON.String) != "" {
+		var signals []contextpkg.Signal
+		if err := json.Unmarshal([]byte(signalsJSON.String), &signals); err != nil {
+			return contextpkg.ContextNeeds{}, err
+		}
+		needs.Signals = append([]contextpkg.Signal(nil), signals...)
+	}
+	return needs, nil
+}
+
+func buildContextSignalStream(needs contextpkg.ContextNeeds) []contextSignalStreamEntry {
+	stream := make([]contextSignalStreamEntry, 0, len(needs.Signals)+len(needs.SemanticQueries)+len(needs.ExplicitFiles)+len(needs.ExplicitSymbols)+len(needs.MomentumFiles)+4)
+	appendEntry := func(kind string, typ string, source string, value string) {
+		stream = append(stream, contextSignalStreamEntry{
+			Index:  len(stream),
+			Kind:   kind,
+			Type:   typ,
+			Source: source,
+			Value:  value,
+		})
+	}
+	for _, signal := range needs.Signals {
+		appendEntry("signal", signal.Type, signal.Source, signal.Value)
+	}
+	for _, query := range needs.SemanticQueries {
+		appendEntry("semantic_query", "", "", query)
+	}
+	for _, path := range needs.ExplicitFiles {
+		appendEntry("explicit_file", "", "", path)
+	}
+	for _, symbol := range needs.ExplicitSymbols {
+		appendEntry("explicit_symbol", "", "", symbol)
+	}
+	for _, path := range needs.MomentumFiles {
+		appendEntry("momentum_file", "", "", path)
+	}
+	if needs.MomentumModule != "" {
+		appendEntry("momentum_module", "", "", needs.MomentumModule)
+	}
+	if needs.PreferBrainContext {
+		appendEntry("flag", "prefer_brain_context", "", "true")
+	}
+	if needs.IncludeConventions {
+		appendEntry("flag", "include_conventions", "", "true")
+	}
+	if needs.IncludeGitContext {
+		value := "true"
+		if needs.GitContextDepth > 0 {
+			value = "depth=" + strconv.Itoa(needs.GitContextDepth)
+		}
+		appendEntry("flag", "include_git_context", "", value)
+	}
+	return stream
 }
 
 // ── Null helpers ─────────────────────────────────────────────────────

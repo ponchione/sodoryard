@@ -72,8 +72,23 @@ export interface ContextReport {
   excluded_count?: number;
   agent_used_search_tool?: number;
   context_hit_rate?: number;
+  signal_stream?: ContextSignalStreamEntry[];
 
   created_at: string;
+}
+
+export interface ContextSignalStreamResponse {
+  conversation_id: string;
+  turn_number: number;
+  stream: ContextSignalStreamEntry[];
+}
+
+export interface ContextSignalStreamEntry {
+  index: number;
+  kind: string;
+  type?: string;
+  source?: string;
+  value?: string;
 }
 
 export interface ContextNeeds {
@@ -81,6 +96,7 @@ export interface ContextNeeds {
   semantic_queries?: string[];
   explicit_files?: string[];
   explicit_symbols?: string[];
+  prefer_brain_context?: boolean;
   include_conventions?: boolean;
   include_git_context?: boolean;
   git_context_depth?: number;

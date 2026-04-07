@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { ContextReport } from "@/types/metrics";
+import type { ContextReport, ContextSignalStreamResponse } from "@/types/metrics";
 
 export interface UseContextReportReturn {
   report: ContextReport | null;
@@ -41,10 +41,24 @@ export function useContextReport(conversationId?: string): UseContextReportRetur
       try {
         setLoading(true);
         setError(null);
-        const data = await api.get<ContextReport>(
-          `/api/metrics/conversation/${conversationId}/context/${turn}`,
-        );
-        setReport(data);
+        const [report, signalStream] = await Promise.all([
+          api.get<ContextReport>(`/api/metrics/conversation/${conversationId}/context/${turn}`),
+          api
+            .get<ContextSignalStreamResponse>(
+              `/api/metrics/conversation/${conversationId}/context/${turn}/signals`,
+            )
+            .catch((signalErr) => {
+              if (signalErr instanceof ApiError && signalErr.status === 404) {
+                return null;
+              }
+              throw signalErr;
+            }),
+        ]);
+
+        setReport({
+          ...report,
+          signal_stream: signalStream?.stream ?? report.signal_stream,
+        });
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
           setReport(null);

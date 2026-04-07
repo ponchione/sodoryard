@@ -168,6 +168,7 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	defer closeBrainBackend()
 
 	retrievalOrchestrator := contextpkg.NewRetrievalOrchestrator(semanticSearcher, nil, nil, brainBackend, cfg.ProjectRoot)
+	retrievalOrchestrator.SetLogBrainQueries(cfg.Brain.LogBrainQueries)
 
 	// ── 6. Build tool registry + executor ──────────────────────────────
 	registry := tool.NewRegistry()

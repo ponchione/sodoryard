@@ -110,6 +110,8 @@ type RetrievalOrchestrator struct {
 	gitRunner            gitRunnerFunc
 	timeout              time.Duration
 	maxExplicitFileBytes int
+	logBrainQueries      bool
+	brainQueryTrace      func(msg string, args ...any)
 }
 
 // NewRetrievalOrchestrator constructs the concrete retriever used by context assembly.
@@ -127,7 +129,15 @@ func NewRetrievalOrchestrator(searcher codeintel.Searcher, graph codeintel.Graph
 		gitRunner:            defaultGitRunner,
 		timeout:              defaultRetrievalTimeout,
 		maxExplicitFileBytes: defaultMaxExplicitFileBytes,
+		brainQueryTrace:      slog.Debug,
 	}
+}
+
+func (o *RetrievalOrchestrator) SetLogBrainQueries(enabled bool) {
+	if o == nil {
+		return
+	}
+	o.logBrainQueries = enabled
 }
 
 // Retrieve runs all eligible v0.1 retrieval paths concurrently and returns the
@@ -322,13 +332,13 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 	seen := make(map[string]BrainHit)
 	for _, query := range queries {
 		candidates := brainKeywordCandidates(query)
-		slog.Debug("proactive brain search", "raw_query", query, "candidates", candidates)
+		o.traceBrainQuery("proactive brain search", "raw_query", query, "candidates", candidates)
 		if len(candidates) == 0 {
 			continue
 		}
 		for _, candidateQuery := range candidates {
 			hits, err := o.brain.SearchKeyword(ctx, candidateQuery)
-			slog.Debug("proactive brain search result", "candidate", candidateQuery, "hit_count", len(hits), "err", err)
+			o.traceBrainQuery("proactive brain search result", "candidate", candidateQuery, "hit_count", len(hits), "err", err)
 			if err != nil {
 				return nil, err
 			}
@@ -383,6 +393,13 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 //     phrase built from the top-N longest content words. This handles cases
 //     where the full stopword-stripped query cannot substring-match a note
 //     because of punctuation, hyphens, or list formatting in the note body.
+func (o *RetrievalOrchestrator) traceBrainQuery(msg string, args ...any) {
+	if o == nil || !o.logBrainQueries || o.brainQueryTrace == nil {
+		return
+	}
+	o.brainQueryTrace(msg, args...)
+}
+
 func brainKeywordCandidates(query string) []string {
 	query = collapseWhitespace(strings.TrimSpace(strings.ToLower(query)))
 	if query == "" {

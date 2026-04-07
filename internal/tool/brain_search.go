@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ponchione/sirtopham/internal/brain"
 	"github.com/ponchione/sirtopham/internal/config"
@@ -91,15 +93,15 @@ func (b *BrainSearch) Execute(ctx context.Context, projectRoot string, input jso
 		}, nil
 	}
 
-	normalizedQuery := strings.Join(strings.Fields(params.Query), " ")
-	if normalizedQuery == "" {
+	params.Query = strings.Join(strings.Fields(params.Query), " ")
+	normalizedTags := normalizeBrainSearchTags(params.Tags)
+	if params.Query == "" && len(normalizedTags) == 0 {
 		return &ToolResult{
 			Success: false,
 			Content: "query is required",
 			Error:   "empty query",
 		}, nil
 	}
-	params.Query = normalizedQuery
 
 	// Semantic/auto mode falls through to keyword search with a notice.
 	semanticNotice := ""
@@ -108,24 +110,33 @@ func (b *BrainSearch) Execute(ctx context.Context, projectRoot string, input jso
 		semanticNotice = "Semantic search is not yet available (coming in v0.2). Using keyword search instead.\n\n"
 	}
 
-	// Append tags to query if provided.
-	query := params.Query
-	if len(params.Tags) > 0 {
-		for _, tag := range params.Tags {
-			if !strings.HasPrefix(tag, "#") {
-				tag = "#" + tag
-			}
-			query += " " + tag
-		}
-	}
-
-	hits, err := b.client.SearchKeyword(ctx, query)
+	hits, err := b.searchHits(ctx, params.Query)
 	if err != nil {
 		return &ToolResult{
 			Success: false,
 			Content: fmt.Sprintf("Brain search failed: %v", err),
 			Error:   err.Error(),
 		}, nil
+	}
+	if len(normalizedTags) > 0 {
+		hits, err = b.filterHitsByTags(ctx, hits, normalizedTags)
+		if err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: fmt.Sprintf("Brain search failed while filtering tags: %v", err),
+				Error:   err.Error(),
+			}, nil
+		}
+		if len(hits) == 0 && params.Query != "" {
+			hits, err = b.searchTaggedDocsByLooseQuery(ctx, params.Query, normalizedTags)
+			if err != nil {
+				return &ToolResult{
+					Success: false,
+					Content: fmt.Sprintf("Brain search failed while retrying tagged fallback: %v", err),
+					Error:   err.Error(),
+				}, nil
+			}
+		}
 	}
 
 	maxResults := 10
@@ -136,9 +147,10 @@ func (b *BrainSearch) Execute(ctx context.Context, projectRoot string, input jso
 		hits = hits[:maxResults]
 	}
 
+	queryLabel := describeBrainSearchQuery(params.Query, normalizedTags)
 	if len(hits) == 0 {
-		content := semanticNotice + fmt.Sprintf("No brain documents found for query: '%s'", params.Query)
-		if err := b.appendQueryLog(ctx, query, 0); err != nil {
+		content := semanticNotice + fmt.Sprintf("No brain documents found for query: '%s'", queryLabel)
+		if err := b.appendQueryLog(ctx, queryLabel, 0); err != nil {
 			return &ToolResult{Success: false, Content: fmt.Sprintf("Brain search completed but failed to append query log: %v", err), Error: err.Error()}, nil
 		}
 		return &ToolResult{
@@ -156,11 +168,11 @@ func (b *BrainSearch) Execute(ctx context.Context, projectRoot string, input jso
 		})
 	}
 
-	content := formatBrainSearchResult(params.Query, formatted)
+	content := formatBrainSearchResult(queryLabel, formatted)
 	if semanticNotice != "" {
 		content = semanticNotice + content
 	}
-	if err := b.appendQueryLog(ctx, query, len(formatted)); err != nil {
+	if err := b.appendQueryLog(ctx, queryLabel, len(formatted)); err != nil {
 		return &ToolResult{Success: false, Content: fmt.Sprintf("Brain search completed but failed to append query log: %v", err), Error: err.Error()}, nil
 	}
 
@@ -168,6 +180,277 @@ func (b *BrainSearch) Execute(ctx context.Context, projectRoot string, input jso
 		Success: true,
 		Content: content,
 	}, nil
+}
+
+func (b *BrainSearch) searchHits(ctx context.Context, query string) ([]brain.SearchHit, error) {
+	if query != "" {
+		hits, err := b.client.SearchKeyword(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		return filterOperationalBrainSearchHits(hits), nil
+	}
+
+	paths, err := b.client.ListDocuments(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	results := make([]brain.SearchHit, 0, len(paths))
+	for _, path := range paths {
+		if isOperationalBrainDocumentPath(path) {
+			continue
+		}
+		content, err := b.client.ReadDocument(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, brain.SearchHit{
+			Path:    path,
+			Snippet: content[:min(100, len(content))],
+			Score:   0,
+		})
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].Path < results[j].Path
+	})
+	return results, nil
+}
+
+func (b *BrainSearch) filterHitsByTags(ctx context.Context, hits []brain.SearchHit, tags []string) ([]brain.SearchHit, error) {
+	filtered := make([]brain.SearchHit, 0, len(hits))
+	for _, hit := range hits {
+		if isOperationalBrainDocumentPath(hit.Path) {
+			continue
+		}
+		content, err := b.client.ReadDocument(ctx, hit.Path)
+		if err != nil {
+			return nil, err
+		}
+		if brainDocumentHasAllTags(content, tags) {
+			filtered = append(filtered, hit)
+		}
+	}
+	return filtered, nil
+}
+
+func (b *BrainSearch) searchTaggedDocsByLooseQuery(ctx context.Context, query string, tags []string) ([]brain.SearchHit, error) {
+	paths, err := b.client.ListDocuments(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	queryTokens := strings.Fields(normalizeBrainSearchText(query))
+	results := make([]brain.SearchHit, 0, len(paths))
+	for _, path := range paths {
+		if isOperationalBrainDocumentPath(path) {
+			continue
+		}
+		content, err := b.client.ReadDocument(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		if !brainDocumentHasAllTags(content, tags) {
+			continue
+		}
+		normalizedHaystack := normalizeBrainSearchText(path + "\n" + content)
+		matched := 0
+		for _, token := range queryTokens {
+			if strings.Contains(normalizedHaystack, token) {
+				matched++
+			}
+		}
+		if matched != len(queryTokens) || matched == 0 {
+			continue
+		}
+		results = append(results, brain.SearchHit{
+			Path:    path,
+			Snippet: content[:min(100, len(content))],
+			Score:   float64(matched),
+		})
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Path < results[j].Path
+	})
+	return results, nil
+}
+
+func filterOperationalBrainSearchHits(hits []brain.SearchHit) []brain.SearchHit {
+	filtered := make([]brain.SearchHit, 0, len(hits))
+	for _, hit := range hits {
+		if isOperationalBrainDocumentPath(hit.Path) {
+			continue
+		}
+		filtered = append(filtered, hit)
+	}
+	return filtered
+}
+
+func isOperationalBrainDocumentPath(path string) bool {
+	return filepath.Base(strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")) == "_log.md"
+}
+
+func normalizeBrainSearchTags(tags []string) []string {
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		normalized := normalizeBrainTag(tag)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out
+}
+
+func normalizeBrainTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	tag = strings.TrimPrefix(tag, "#")
+	return normalizeBrainSearchText(tag)
+}
+
+func normalizeBrainSearchText(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	lastWasSep := true
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+			lastWasSep = false
+			continue
+		}
+		if !lastWasSep {
+			b.WriteByte(' ')
+			lastWasSep = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func brainDocumentHasAllTags(content string, tags []string) bool {
+	if len(tags) == 0 {
+		return true
+	}
+	frontmatterTags := parseBrainFrontmatterTags(content)
+	metadataTags := parseBrainMetadataTags(content)
+	inlineTags := extractBrainInlineTags(content)
+	for _, tag := range tags {
+		if _, ok := frontmatterTags[tag]; ok {
+			continue
+		}
+		if _, ok := metadataTags[tag]; ok {
+			continue
+		}
+		if _, ok := inlineTags[tag]; ok {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func parseBrainFrontmatterTags(content string) map[string]struct{} {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return nil
+	}
+
+	tags := map[string]struct{}{}
+	inTagsList := false
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "---" {
+			break
+		}
+		if inTagsList {
+			if strings.HasPrefix(line, "-") {
+				if tag := normalizeBrainTag(strings.TrimSpace(strings.TrimPrefix(line, "-"))); tag != "" {
+					tags[tag] = struct{}{}
+				}
+				continue
+			}
+			inTagsList = false
+		}
+		if !strings.HasPrefix(strings.ToLower(line), "tags:") {
+			continue
+		}
+		rest := strings.TrimSpace(line[len("tags:"):])
+		if rest == "" {
+			inTagsList = true
+			continue
+		}
+		for _, part := range strings.Split(strings.Trim(rest, "[]"), ",") {
+			if tag := normalizeBrainTag(part); tag != "" {
+				tags[tag] = struct{}{}
+			}
+		}
+	}
+	return tags
+}
+
+func parseBrainMetadataTags(content string) map[string]struct{} {
+	tags := map[string]struct{}{}
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		lower := strings.ToLower(line)
+		for _, prefix := range []string{"family:", "tag:", "tags:"} {
+			if !strings.HasPrefix(lower, prefix) {
+				continue
+			}
+			rest := strings.TrimSpace(line[len(prefix):])
+			for _, part := range strings.Split(strings.Trim(rest, "[]"), ",") {
+				if tag := normalizeBrainTag(part); tag != "" {
+					tags[tag] = struct{}{}
+				}
+			}
+		}
+	}
+	return tags
+}
+
+func extractBrainInlineTags(content string) map[string]struct{} {
+	tags := map[string]struct{}{}
+	var current strings.Builder
+	capturing := false
+	flush := func() {
+		if !capturing {
+			return
+		}
+		if tag := normalizeBrainTag(current.String()); tag != "" {
+			tags[tag] = struct{}{}
+		}
+		current.Reset()
+		capturing = false
+	}
+	for _, r := range content {
+		switch {
+		case r == '#':
+			flush()
+			capturing = true
+		case capturing && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_'):
+			current.WriteRune(r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return tags
+}
+
+func describeBrainSearchQuery(query string, tags []string) string {
+	if len(tags) == 0 {
+		return query
+	}
+	tagLabel := "tags: " + strings.Join(tags, ", ")
+	if query == "" {
+		return tagLabel
+	}
+	return query + " (" + tagLabel + ")"
 }
 
 func (b *BrainSearch) appendQueryLog(ctx context.Context, query string, resultCount int) error {

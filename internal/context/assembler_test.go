@@ -207,6 +207,9 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	if len(pkg.Report.GraphResults) != 1 || pkg.Report.GraphResults[0].ExclusionReason != "budget_exceeded" {
 		t.Fatalf("GraphResults = %+v, want budget_exceeded exclusion", pkg.Report.GraphResults)
 	}
+	if got := pkg.Report.Needs.SemanticQueries; len(got) != 1 || got[0] != "auth middleware" {
+		t.Fatalf("report semantic queries = %v, want [auth middleware]", got)
+	}
 
 	row, err := dbpkg.New(db).GetContextReportByTurn(stdctx.Background(), dbpkg.GetContextReportByTurnParams{ConversationID: conversationID, TurnNumber: 2})
 	if err != nil {
@@ -217,6 +220,13 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	}
 	if !row.AgentReadFilesJson.Valid || row.AgentReadFilesJson.String != "[]" {
 		t.Fatalf("AgentReadFilesJson = %+v, want []", row.AgentReadFilesJson)
+	}
+	var persistedNeeds ContextNeeds
+	if err := json.Unmarshal([]byte(row.NeedsJson.String), &persistedNeeds); err != nil {
+		t.Fatalf("unmarshal needs_json: %v", err)
+	}
+	if got := persistedNeeds.SemanticQueries; len(got) != 1 || got[0] != "auth middleware" {
+		t.Fatalf("persisted semantic queries = %v, want [auth middleware]", got)
 	}
 	var ragResults []RAGHit
 	if err := json.Unmarshal([]byte(row.RagResultsJson.String), &ragResults); err != nil {
