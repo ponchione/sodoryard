@@ -27,6 +27,71 @@ const (
 	defaultGitContextDepth      = 5
 )
 
+// brainKeywordStopwords filters function words out of proactive brain
+// keyword-search queries so the stopword-stripped candidate falls closer to
+// content tokens that are likely to appear verbatim in brain notes.
+//
+// Keep this list conservative: only very common English function words plus a
+// small set of question/filler verbs. Every entry here also costs one
+// candidate form, so low-signal words deserve the stopword treatment but
+// domain nouns (e.g. "brain", "layout", "auth") must NOT be added.
+var brainKeywordStopwords = map[string]struct{}{
+	// articles / determiners
+	"a": {}, "an": {}, "the": {},
+	"this": {}, "that": {}, "these": {}, "those": {},
+	"there": {}, "here": {},
+	// common pronouns
+	"i": {}, "me": {}, "my": {}, "mine": {},
+	"we": {}, "us": {}, "our": {}, "ours": {},
+	"you": {}, "your": {}, "yours": {},
+	"they": {}, "them": {}, "their": {}, "theirs": {},
+	"it": {}, "its": {},
+	// auxiliaries / copula
+	"is": {}, "am": {}, "are": {}, "was": {}, "were": {},
+	"be": {}, "been": {}, "being": {},
+	"have": {}, "has": {}, "had": {}, "having": {},
+	"do": {}, "does": {}, "did": {}, "doing": {},
+	"will": {}, "would": {}, "shall": {}, "should": {},
+	"can": {}, "could": {}, "may": {}, "might": {}, "must": {},
+	// prepositions
+	"to": {}, "of": {}, "in": {}, "on": {}, "at": {}, "by": {},
+	"for": {}, "from": {}, "with": {}, "into": {}, "onto": {},
+	"about": {}, "through": {}, "between": {}, "among": {},
+	"as": {}, "over": {}, "under": {},
+	// coordinators / common adverbs
+	"and": {}, "or": {}, "but": {}, "if": {}, "so": {},
+	"not": {}, "no": {}, "yes": {},
+	// question words
+	"what": {}, "when": {}, "where": {}, "why": {}, "how": {},
+	"which": {}, "who": {}, "whom": {}, "whose": {},
+	// common request filler verbs
+	"explain": {}, "walk": {}, "show": {}, "tell": {}, "describe": {},
+	"summarize": {}, "summarise": {}, "cite": {},
+	// legacy/historical entries kept for continuity
+	"answer": {}, "any": {}, "help": {}, "only": {}, "phrase": {},
+	"please": {}, "reply": {},
+}
+
+// brainKeywordMinFallbackWords gates the single-keyword fallback candidate:
+// if the stopword-stripped query still contains at least this many content
+// tokens, brainKeywordCandidates also emits a last-resort candidate that is
+// just the longest (= most distinctive) content word. That keyword almost
+// always still appears in any brain note that was written about the topic,
+// even when prose punctuation or list formatting prevents a multi-word
+// substring match against the underlying vault keyword backend.
+//
+// The threshold is intentionally high so the fallback only fires for long,
+// prose-shaped turns; short specific queries like "auth middleware" keep
+// using the existing two-candidate form without gaining a noisy single-word
+// fallback that could pull in unrelated notes.
+const brainKeywordMinFallbackWords = 4
+
+// brainKeywordMinFallbackWordLen is the minimum length a single-token
+// fallback candidate must reach before it is emitted. It keeps the fallback
+// from collapsing onto short tokens like "api" or "dev" which would match
+// too many unrelated notes.
+const brainKeywordMinFallbackWordLen = 5
+
 type fileReaderFunc func(path string) ([]byte, error)
 type gitRunnerFunc func(ctx stdctx.Context, workdir string, depth int) (string, error)
 
@@ -86,7 +151,7 @@ func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds
 
 	var wg sync.WaitGroup
 
-	if len(queries) > 0 && o.searcher != nil {
+	if shouldRunSemanticSearch(needs, queries) && o.searcher != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -198,6 +263,22 @@ func (o *RetrievalOrchestrator) pathContext(parent stdctx.Context) (stdctx.Conte
 	return stdctx.WithTimeout(parent, timeout)
 }
 
+func shouldRunSemanticSearch(needs *ContextNeeds, queries []string) bool {
+	if len(queries) == 0 {
+		return false
+	}
+	if needs == nil {
+		return true
+	}
+	if !needs.PreferBrainContext {
+		return true
+	}
+	if len(needs.ExplicitFiles) > 0 || len(needs.ExplicitSymbols) > 0 {
+		return true
+	}
+	return false
+}
+
 func (o *RetrievalOrchestrator) retrieveSemanticSearch(ctx stdctx.Context, queries []string, cfg config.ContextConfig) ([]RAGHit, error) {
 	results, err := o.searcher.Search(ctx, queries, codeintel.SearchOptions{
 		TopK:               10,
@@ -240,29 +321,36 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 
 	seen := make(map[string]BrainHit)
 	for _, query := range queries {
-		query = strings.TrimSpace(query)
-		if query == "" {
+		candidates := brainKeywordCandidates(query)
+		slog.Debug("proactive brain search", "raw_query", query, "candidates", candidates)
+		if len(candidates) == 0 {
 			continue
 		}
-		hits, err := o.brain.SearchKeyword(ctx, query)
-		if err != nil {
-			return nil, err
-		}
-		for _, hit := range hits {
-			path := strings.TrimSpace(hit.Path)
-			if path == "" {
-				continue
+		for _, candidateQuery := range candidates {
+			hits, err := o.brain.SearchKeyword(ctx, candidateQuery)
+			slog.Debug("proactive brain search result", "candidate", candidateQuery, "hit_count", len(hits), "err", err)
+			if err != nil {
+				return nil, err
 			}
-			candidate := BrainHit{
-				DocumentPath: path,
-				Title:        filepath.Base(path),
-				Snippet:      strings.TrimSpace(hit.Snippet),
-				MatchScore:   hit.Score,
-				MatchMode:    "keyword",
+			for _, hit := range hits {
+				path := strings.TrimSpace(hit.Path)
+				if path == "" || isOperationalBrainDocument(path) {
+					continue
+				}
+				candidate := BrainHit{
+					DocumentPath: path,
+					Title:        filepath.Base(path),
+					Snippet:      strings.TrimSpace(hit.Snippet),
+					MatchScore:   hit.Score,
+					MatchMode:    "keyword",
+				}
+				existing, ok := seen[path]
+				if !ok || candidate.MatchScore > existing.MatchScore {
+					seen[path] = candidate
+				}
 			}
-			existing, ok := seen[path]
-			if !ok || candidate.MatchScore > existing.MatchScore {
-				seen[path] = candidate
+			if len(hits) > 0 {
+				break
 			}
 		}
 	}
@@ -278,6 +366,80 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 		return results[i].DocumentPath < results[j].DocumentPath
 	})
 	return results, nil
+}
+
+// brainKeywordCandidates converts a raw semantic query into an ordered list
+// of keyword-search candidates that are tried against the brain backend in
+// sequence. The orchestrator stops at the first candidate with at least one
+// hit, so earlier candidates should be more specific than later ones.
+//
+// Order:
+//  1. raw query — highest specificity; catches cases where a note body
+//     contains the question verbatim (e.g. canary notes).
+//  2. stopword-stripped join — drops common function words so prose-shaped
+//     queries collapse to their content skeleton.
+//  3. distinctive-content-word fallback — when the stopword-stripped form is
+//     still long enough (>= brainKeywordMinFallbackWords), also emit a short
+//     phrase built from the top-N longest content words. This handles cases
+//     where the full stopword-stripped query cannot substring-match a note
+//     because of punctuation, hyphens, or list formatting in the note body.
+func brainKeywordCandidates(query string) []string {
+	query = collapseWhitespace(strings.TrimSpace(strings.ToLower(query)))
+	if query == "" {
+		return nil
+	}
+	candidates := []string{query}
+	words := strings.Fields(query)
+	filtered := make([]string, 0, len(words))
+	for _, word := range words {
+		if _, stop := brainKeywordStopwords[word]; stop {
+			continue
+		}
+		filtered = append(filtered, word)
+	}
+	if len(filtered) == 0 {
+		return candidates
+	}
+	normalized := strings.Join(filtered, " ")
+	if normalized != query {
+		candidates = append(candidates, normalized)
+	}
+	if len(filtered) >= brainKeywordMinFallbackWords {
+		if fallback := brainKeywordDistinctiveFallback(filtered); fallback != "" && fallback != normalized {
+			candidates = append(candidates, fallback)
+		}
+	}
+	return candidates
+}
+
+// brainKeywordDistinctiveFallback returns the longest content word in the
+// filtered token list as a last-resort single-keyword candidate, or the empty
+// string when no token is long enough to meet brainKeywordMinFallbackWordLen.
+//
+// Ties on length are broken by original order so the fallback stays
+// deterministic. The fallback is intentionally a single word: a longest-word
+// substring is almost certain to appear in any note that discusses the same
+// topic, whereas multi-word fallbacks still lose to prose punctuation in the
+// underlying vault keyword backend.
+func brainKeywordDistinctiveFallback(filtered []string) string {
+	best := ""
+	for _, word := range filtered {
+		if len(word) < brainKeywordMinFallbackWordLen {
+			continue
+		}
+		if len(word) > len(best) {
+			best = word
+		}
+	}
+	return best
+}
+
+func isOperationalBrainDocument(path string) bool {
+	cleaned := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
+	if cleaned == "" {
+		return false
+	}
+	return filepath.Base(cleaned) == "_log.md"
 }
 
 func (o *RetrievalOrchestrator) retrieveExplicitFiles(ctx stdctx.Context, explicitFiles []string, cfg config.ContextConfig) ([]FileResult, error) {

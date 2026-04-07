@@ -380,6 +380,7 @@ func cloneContextNeeds(needs ContextNeeds) ContextNeeds {
 		GitContextDepth:    needs.GitContextDepth,
 		MomentumFiles:      append([]string(nil), needs.MomentumFiles...),
 		MomentumModule:     needs.MomentumModule,
+		PreferBrainContext: needs.PreferBrainContext,
 		Signals:            append([]Signal(nil), needs.Signals...),
 	}
 }

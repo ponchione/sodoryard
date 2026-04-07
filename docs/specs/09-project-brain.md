@@ -1,8 +1,13 @@
 # 09 — Project Brain
 
-**Status:** Draft v0.1 **Last Updated:** 2026-03-28 **Author:** Mitchell
+**Status:** Draft, carried into v0.2 scoping **Last Updated:** 2026-04-07 **Author:** Mitchell
 
 Note: portions of this draft still describe the pre-MCP Obsidian Local REST design. The implemented runtime has since moved to an MCP-backed vault backend; treat REST-specific details here as historical planning context, not the current supported path.
+
+Current phase note: v0.1 shipped the brain as reactive tools only. The first v0.2 slice is now landed: context assembly performs proactive keyword-backed brain retrieval against the MCP/vault backend, budget fitting has a real brain tier, and serialization/reporting expose those hits. The remaining v0.2 work is:
+- richer analyzer/query shaping for brain-oriented retrieval
+- deciding whether semantic/index-backed brain retrieval is part of the real operator story or remains future work
+- validation packaging for live proactive brain retrieval behavior
 
 ---
 
@@ -42,7 +47,7 @@ The brain is not a feature bolted onto sirtopham. It's a first-class component w
 
 ### Integration Model
 
-Obsidian runs alongside sirtopham. The developer already has it open. sirtopham communicates with Obsidian via the **Obsidian Local REST API** community plugin, which exposes read/write/search operations on `localhost:27124`.
+Obsidian runs alongside sirtopham as the human-facing vault UI, but the implemented runtime path is now the in-process MCP-backed vault backend. sirtopham talks to the vault through `internal/brain/mcpclient` and MCP `vault_*` tools rather than the older Obsidian Local REST API design.
 
 ```
 ┌─────────────────────────────────┐     ┌──────────────────────────┐
@@ -76,11 +81,11 @@ Obsidian runs alongside sirtopham. The developer already has it open. sirtopham 
 
 **In Obsidian (source of truth):** All brain documents. Markdown files with frontmatter, wikilinks, tags. The developer reads, edits, organizes, and browses here. Obsidian's graph view visualizes the knowledge structure.
 
-**In sirtopham v0.1 (tools):** The agent-facing interface. Read/write operations go through the Obsidian REST API. Search is keyword-only via Obsidian's API.
+**In sirtopham today (tools + proactive retrieval):** The agent-facing interface and the current proactive retrieval source of truth. Read/write/search operations go through the MCP/vault backend. Proactive context assembly currently uses keyword search from that same backend.
 
-**In sirtopham v0.2+ (derived indexes):** Vector embeddings of brain documents in a separate LanceDB collection. A parsed wikilink graph stored in SQLite. Extracted frontmatter metadata and tags for structured queries. These indexes are rebuilt from vault content on startup and kept in sync via the REST API.
+**In future brain-index work (not yet the active runtime path):** Vector embeddings of brain documents in a separate LanceDB collection. A parsed wikilink graph stored in SQLite. Extracted frontmatter metadata and tags for structured queries. If this becomes real operator-facing behavior, it should be described as a derived layer under the MCP/vault source of truth rather than implied as already-landed runtime.
 
-**In sirtopham v0.2+ (context assembly):** Brain retrieval runs in parallel with code RAG during context assembly. Results compete for budget alongside code chunks.
+**In sirtopham current v0.2 runtime (context assembly):** Brain keyword retrieval runs in parallel with code RAG during context assembly. Results compete for budget alongside code chunks, are serialized into a distinct Project Brain section, and appear in context reports/inspector payloads.
 
 ---
 
@@ -340,21 +345,29 @@ Append to or edit a section of an existing document. More surgical than full ove
 
 ## v0.2 Integration with Context Assembly
 
-This section describes the planned v0.2 design. In v0.1, the brain is reactive-only and accessed through Layer 4 brain tools; it is not a proactive retrieval source in the context assembly pipeline.
+This section is no longer just distant future direction; the first runtime slice is already live. In v0.1, the brain was reactive-only and accessed through Layer 4 brain tools. In current v0.2 runtime, context assembly already performs proactive keyword retrieval from the MCP/vault backend and reports those results through the inspector/context-report path.
+
+The current runtime answer is: proactive brain retrieval is sourced directly from the MCP/vault backend, keyword-only. Operational brain log notes like `_log.md` are now excluded from proactive context so they do not compete with real knowledge notes. The still-open product/runtime contract question is whether semantic/index-backed retrieval should join that path in v0.2 or stay future work. The code/docs should keep telling the current operator truth until a broader path is actually landed.
 
 ### How Brain Queries Are Derived
 
-When this lands in v0.2, the turn analyzer's existing signals can drive brain retrieval naturally. The same signals that produce code RAG queries can also produce brain search queries:
+Current implementation reuses the deterministic query-extraction path and then applies a small amount of brain-specific routing during retrieval. That is enough to support the first live proof, but it is not yet a fully brain-aware analyzer/query pipeline.
 
-- User says "fix the auth middleware" → signals "auth" + "middleware" → brain keyword search for "auth middleware", brain semantic search with the cleaned message
-- User says "why did we design it this way" → no strong code signals, but the momentum module (e.g., "internal/auth") narrows the brain search → finds "auth-architecture.md"
-- User says "what's the convention for error handling" → creation/convention intent signal → brain tag search for `#convention`, keyword search for "error handling"
+Today the flow is roughly:
 
-No special brain-specific signal extraction is needed. The existing signal set covers the query space.
+- User says "fix the auth middleware" → existing cleaned/technical queries can also drive brain keyword search for "auth middleware"
+- User says "what is the runtime brain proof canary phrase" → analyzer emits a `brain_intent` signal, retrieval can prefer brain context over generic code RAG for that turn, and literal keyword search falls back to a stopword-stripped candidate such as "runtime brain proof canary"
+- User says "walk me through the rationale behind our minimal content-first layout decision" → analyzer emits a `brain_seeking_intent` signal (`value: "rationale"`) on a narrow rationale/decision phrase set (`rationale behind`, `rationale for`, `design decision`, `design choice`, `design rationale`, `why did we`, `why are we`). Retrieval prefers brain context the same way as explicit brain prompts, and brain keyword candidates now include a longest-content-word fallback ("rationale") so long prose queries still reach the matching note when the full stopword-stripped phrase cannot substring-match the note body.
+- User says "what's our convention for naming new pattern lists?" → analyzer emits a `brain_seeking_intent` signal (`value: "convention"`) on a narrow convention/policy phrase set (`how do we usually`, `how do we normally`, `what do we prefer`, `what's our convention`, `what is our convention`, `our convention for`, `our convention is`, `our policy for`, `our policy is`, `what's our policy`, `what is our policy`). Bare `how do we` is deliberately excluded because it collides with generic code-explanation noise.
+- User says "have we seen a vite rebuild loop before? what was the fix?" → analyzer emits a `brain_seeking_intent` signal (`value: "history"`) on a narrow prior-debugging/history phrase set (`have we seen`, `have we hit`, `have we debugged`, `have we fixed`, `what was the fix`, `what was the workaround`, `what was the root cause`, `did we ever fix`, `did we already fix`, `prior debugging`, `past debugging`, `previously debugged`). Bare `did we` and bare `what was` are deliberately excluded because they collide with the rationale family, arbitrary past-tense questions, and debug prompts like `what was null here`. Only the first brain-seeking family to match a turn emits a signal, so a prompt that combines rationale + convention + history phrases still emits exactly one `brain_seeking_intent` — the precedence order is: explicit `brain_intent` → `rationale` → `convention` → `history`.
+
+So the current operator truth is:
+- the existing signal/query path is good enough to make proactive keyword-backed brain retrieval work for explicit brain prompts and all three non-explicit families (rationale/decision, convention/policy, prior-debugging/history)
+- tag/semantic/wikilink-aware brain query expansion remains future work unless explicitly landed later
 
 ### Budget Fitting Priority
 
-When this lands in v0.2, brain results will compete with code chunks for budget. Brain documents can slot into the priority order between explicit files and top RAG code hits:
+This is now the implemented runtime direction: brain results compete with code chunks for budget, and brain documents sit between explicit files and top RAG code hits:
 
 1. **Explicit files** (user mentioned them directly)
 2. **Brain documents** (project knowledge — architecture, debugging, conventions)
@@ -382,7 +395,7 @@ The brain budget is a soft cap within the overall budget — if brain results ar
 
 ### Serialization Format
 
-In v0.2, brain results in the assembled context are serialized separately from code chunks:
+In the current v0.2 runtime, brain results in the assembled context are serialized separately from code chunks:
 
 ```markdown
 ## Project Knowledge

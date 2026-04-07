@@ -1,12 +1,12 @@
 # 06 — Context Assembly
 
-**Status:** Draft v0.1 **Last Updated:** 2026-03-29 **Author:** Mitchell
+**Status:** Draft, v0.1 implemented and first v0.2 brain retrieval slice landed **Last Updated:** 2026-04-07 **Author:** Mitchell
 
 ---
 
 ## Overview
 
-Context assembly is the implementation of sirtopham's core thesis: programmatic, task-specific, minimal context beats static context files. Every turn, before the first LLM call, the system examines the user's message and recent conversation history, retrieves relevant code and project knowledge via code RAG, explicit file reads, structural analysis, conventions, and git context, and packages it within the available token budget. The project brain remains reactive-only in v0.1 and becomes a proactive retrieval source in v0.2.
+Context assembly is the implementation of sirtopham's core thesis: programmatic, task-specific, minimal context beats static context files. Every turn, before the first LLM call, the system examines the user's message and recent conversation history, retrieves relevant code and project knowledge via code RAG, explicit file reads, structural analysis, project-brain retrieval, conventions, and git context, and packages it within the available token budget. The project brain was intentionally reactive-only in v0.1; the first v0.2 slice now wires proactive keyword-backed brain retrieval into this layer, with broader semantic/graph brain work still deferred.
 
 This is what makes sirtopham "understand" the codebase. Get this right and the agent feels like a senior engineer who's read every file. Get it wrong and it's just another chatbot.
 
@@ -231,8 +231,8 @@ ContextNeeds
 │  └─────────────────────────────────────────────────┘    │
 │                                                         │
 │  ┌─ Project brain (v0.2) ──────────────────────────┐    │
-│  │  Deferred in v0.1 — reactive-only via tools     │    │
-│  │  Future: keyword/semantic/wikilink retrieval    │    │
+│  │  Keyword retrieval via MCP/vault backend        │    │
+│  │  Semantic/wikilink expansion remains future     │    │
 │  └─────────────────────────────────────────────────┘    │
 │                                                         │
 │  ┌─ Convention cache ──────────────────────────────┐    │
@@ -301,13 +301,16 @@ This is a design parameter, not a hard truth. Too small and the agent constantly
 When the budget is tight, allocate in priority order:
 
 1. **Explicit files** (user mentioned them directly — highest signal)
-2. **Top RAG code hits** (above threshold, de-duped, re-ranked by hit count)
-3. **Structural graph results** (callers/callees of identified symbols)
-4. **Conventions** (derived from code analysis — when writing new code)
-5. **Git context** (recent commits — minimal, just one-line summaries)
-6. **Lower-ranked RAG code hits** (fill remaining budget)
+2. **Proactive brain hits** (project knowledge from the MCP/vault backend)
+3. **Top RAG code hits** (above threshold, de-duped, re-ranked by hit count)
+4. **Structural graph results** (callers/callees of identified symbols)
+5. **Conventions** (derived from code analysis — when writing new code)
+6. **Git context** (recent commits — minimal, just one-line summaries)
+7. **Lower-ranked RAG code hits** (fill remaining budget)
 
-If the budget runs out mid-priority-2, that's fine — the agent has `search_semantic` as a tool to fetch anything else it needs. The budget manager's job is to front-load the highest-signal context, not to be comprehensive.
+Current implementation note: proactive brain hits now serialize as a first-class Project Brain section, contribute to `budget_breakdown.brain`, and operational brain log notes like `_log.md` are filtered so they do not outrank real knowledge notes. For turns with an explicit brain intent signal (for example prompts that directly ask about the project brain), context assembly can now prefer brain retrieval and skip generic code semantic search when there are no explicit code references to chase.
+
+If the budget runs out mid-priority-3, that's fine — the agent has `search_semantic` as a tool to fetch anything else it needs. The budget manager's job is to front-load the highest-signal context, not to be comprehensive.
 
 ### History Compression Trigger
 

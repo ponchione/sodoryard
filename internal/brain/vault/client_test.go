@@ -83,6 +83,129 @@ func TestClientSearchKeywordFindsContentAndPath(t *testing.T) {
 	}
 }
 
+func TestNormalizeForKeyword(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: ""},
+		{name: "only punctuation", in: "---, \t\n", want: ""},
+		{name: "ascii lowercase", in: "Hello", want: "hello"},
+		{name: "hyphenated phrase", in: "content-first layout", want: "content first layout"},
+		{name: "comma phrase", in: "minimal, content-first layout", want: "minimal content first layout"},
+		{name: "multiline", in: "vite,\nrebuild loop", want: "vite rebuild loop"},
+		{name: "hash tag", in: "#rationale", want: "rationale"},
+		{name: "path-like", in: "notes/past-debugging-vite.md", want: "notes past debugging vite md"},
+		{name: "trailing punct", in: "hello, world!!!", want: "hello world"},
+		{name: "numbers preserved", in: "abc 123 def", want: "abc 123 def"},
+		{name: "unicode letter lowercased", in: "Café-Bar", want: "café bar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeForKeyword(tc.in)
+			if got != tc.want {
+				t.Fatalf("normalizeForKeyword(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClientSearchKeywordHandlesPathologicalPunctuation(t *testing.T) {
+	// Each note is crafted to contain a phrase separated by the kind of
+	// punctuation (commas, hyphens, line breaks) that defeated the old
+	// strict-substring keyword search. With normalizeForKeyword on both
+	// sides of the match, the multi-word query should now hit.
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "notes", "rationale.md"),
+		"---\ntags: [rationale]\n---\n# Layout\n\nWe picked a minimal, content-first layout on purpose.\n")
+	mustWriteFile(t, filepath.Join(root, "notes", "past-debugging-vite-rebuild-loop.md"),
+		"# Past debugging\n\nFamily: debug-history\nSymptom: vite,\nrebuild loop during hot reload.\n")
+	mustWriteFile(t, filepath.Join(root, "notes", "naming.md"),
+		"# Analyzer pattern list naming convention\n\nUse the `brainSeekingXPatterns` shape.\n")
+	mustWriteFile(t, filepath.Join(root, "notes", "irrelevant.md"),
+		"# Something else\n\nNo pathological content here.\n")
+
+	client, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	cases := []struct {
+		name     string
+		query    string
+		wantPath string
+	}{
+		{
+			name:     "comma and hyphen between phrase words",
+			query:    "minimal content first layout",
+			wantPath: "notes/rationale.md",
+		},
+		{
+			name:     "comma and newline between phrase words",
+			query:    "vite rebuild loop",
+			wantPath: "notes/past-debugging-vite-rebuild-loop.md",
+		},
+		{
+			name:     "hyphens inside path",
+			query:    "past debugging vite rebuild loop",
+			wantPath: "notes/past-debugging-vite-rebuild-loop.md",
+		},
+		{
+			name:     "hash tag strips and matches",
+			query:    "#rationale",
+			wantPath: "notes/rationale.md",
+		},
+		{
+			name:     "phrase spanning heading words",
+			query:    "analyzer pattern list naming convention",
+			wantPath: "notes/naming.md",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hits, err := client.SearchKeyword(context.Background(), tc.query, 10)
+			if err != nil {
+				t.Fatalf("SearchKeyword: %v", err)
+			}
+			if len(hits) == 0 {
+				t.Fatalf("SearchKeyword(%q) returned no hits, want at least one containing %s", tc.query, tc.wantPath)
+			}
+			found := false
+			for _, h := range hits {
+				if h.Path == tc.wantPath {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("SearchKeyword(%q) hits = %#v, want a hit for %s", tc.query, hits, tc.wantPath)
+			}
+		})
+	}
+}
+
+func TestClientSearchKeywordDoesNotOverMatchAcrossUnrelatedWords(t *testing.T) {
+	// Normalization should NOT make unrelated noise match. The note below
+	// contains the phrase "foo baz bar" — a query of "foo bar" must not
+	// hit because normalization does not reorder tokens.
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "notes", "noise.md"), "# Noise\n\nfoo baz bar\n")
+
+	client, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	hits, err := client.SearchKeyword(context.Background(), "foo bar", 10)
+	if err != nil {
+		t.Fatalf("SearchKeyword: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("SearchKeyword(\"foo bar\") = %#v, want no hits", hits)
+	}
+}
+
 func TestClientListDocumentsSkipsObsidianDir(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, ".obsidian", "workspace.md"), "ignore")

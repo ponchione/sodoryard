@@ -92,11 +92,12 @@ func (s *retrievalConventionSourceStub) Load(ctx stdctx.Context) (string, error)
 }
 
 type retrievalBrainSearcherStub struct {
-	hits       []brain.SearchHit
-	err        error
-	delay      time.Duration
-	calls      int
-	gotQueries []string
+	hits        []brain.SearchHit
+	hitsByQuery map[string][]brain.SearchHit
+	err         error
+	delay       time.Duration
+	calls       int
+	gotQueries  []string
 }
 
 func (s *retrievalBrainSearcherStub) SearchKeyword(ctx stdctx.Context, query string) ([]brain.SearchHit, error) {
@@ -112,7 +113,130 @@ func (s *retrievalBrainSearcherStub) SearchKeyword(ctx stdctx.Context, query str
 	if s.err != nil {
 		return nil, s.err
 	}
+	if s.hitsByQuery != nil {
+		return append([]brain.SearchHit(nil), s.hitsByQuery[query]...), nil
+	}
 	return append([]brain.SearchHit(nil), s.hits...), nil
+}
+
+func TestRetrievalOrchestratorNormalizesBrainKeywordQueries(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"runtime brain proof canary": {{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "canary phrase", Score: 0.9}},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{}, []string{"what is the runtime brain proof canary"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if !slices.Equal(brainSearcher.gotQueries, []string{"what is the runtime brain proof canary", "runtime brain proof canary"}) {
+		t.Fatalf("brain queries = %v, want normalized fallback", brainSearcher.gotQueries)
+	}
+	if len(results.BrainHits) != 1 || results.BrainHits[0].DocumentPath != "notes/runtime-brain-proof-apr-07.md" {
+		t.Fatalf("BrainHits = %v, want normalized query hit", results.BrainHits)
+	}
+}
+
+func TestBrainKeywordCandidatesEmitsLongestWordFallbackForProseQueries(t *testing.T) {
+	query := "walk me through the rationale behind our minimal content first layout decision"
+	got := brainKeywordCandidates(query)
+
+	want := []string{
+		"walk me through the rationale behind our minimal content first layout decision",
+		"rationale behind minimal content first layout decision",
+		"rationale",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("brainKeywordCandidates:\n got  = %#v\n want = %#v", got, want)
+	}
+}
+
+func TestBrainKeywordCandidatesDoesNotEmitFallbackForShortSpecificQueries(t *testing.T) {
+	query := "auth middleware"
+	got := brainKeywordCandidates(query)
+
+	want := []string{"auth middleware"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("brainKeywordCandidates:\n got  = %#v\n want = %#v", got, want)
+	}
+}
+
+func TestRetrievalOrchestratorLongestWordFallbackHitsBrainNote(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		// The first two candidates return nothing so the fallback must fire.
+		"rationale": {{Path: "notes/minimal-content-first-layout-rationale.md", Snippet: "Rationale: ...", Score: 0.75}},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+
+	results, err := orchestrator.Retrieve(
+		stdctx.Background(),
+		&ContextNeeds{PreferBrainContext: true},
+		[]string{"walk me through the rationale behind our minimal content first layout decision"},
+		config.ContextConfig{},
+	)
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	wantCandidates := []string{
+		"walk me through the rationale behind our minimal content first layout decision",
+		"rationale behind minimal content first layout decision",
+		"rationale",
+	}
+	if !slices.Equal(brainSearcher.gotQueries, wantCandidates) {
+		t.Fatalf("brain queries = %v, want fallback cascade %v", brainSearcher.gotQueries, wantCandidates)
+	}
+	if len(results.BrainHits) != 1 || results.BrainHits[0].DocumentPath != "notes/minimal-content-first-layout-rationale.md" {
+		t.Fatalf("BrainHits = %v, want rationale note", results.BrainHits)
+	}
+}
+
+func TestRetrievalOrchestratorExcludesOperationalBrainLogHits(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"runtime brain proof canary": {
+			{Path: ".brain/_log.md", Snippet: "recent session log", Score: 0.99},
+			{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "ORBIT LANTERN 642", Score: 0.91},
+		},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{}, []string{"runtime brain proof canary"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if !slices.Equal(brainSearcher.gotQueries, []string{"runtime brain proof canary"}) {
+		t.Fatalf("brain queries = %v, want exact query only", brainSearcher.gotQueries)
+	}
+	if len(results.BrainHits) != 1 {
+		t.Fatalf("len(BrainHits) = %d, want 1 after excluding operational log", len(results.BrainHits))
+	}
+	if results.BrainHits[0].DocumentPath != "notes/runtime-brain-proof-apr-07.md" {
+		t.Fatalf("DocumentPath = %q, want notes/runtime-brain-proof-apr-07.md", results.BrainHits[0].DocumentPath)
+	}
+}
+
+func TestRetrievalOrchestratorSkipsSemanticSearchForBrainPreferredTurns(t *testing.T) {
+	searcher := &retrievalSearcherStub{results: []codeintel.SearchResult{{
+		Chunk: codeintel.Chunk{ID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken"},
+		Score: 0.91,
+	}}}
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"runtime brain proof canary": {{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "ORBIT LANTERN 642", Score: 0.91}},
+	}}
+	orchestrator := NewRetrievalOrchestrator(searcher, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{PreferBrainContext: true}, []string{"runtime brain proof canary"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if searcher.calls != 0 {
+		t.Fatalf("searcher calls = %d, want 0 when brain context is preferred", searcher.calls)
+	}
+	if len(results.RAGHits) != 0 {
+		t.Fatalf("RAGHits = %v, want no semantic search results", results.RAGHits)
+	}
+	if len(results.BrainHits) != 1 || results.BrainHits[0].DocumentPath != "notes/runtime-brain-proof-apr-07.md" {
+		t.Fatalf("BrainHits = %v, want retained brain hit", results.BrainHits)
+	}
 }
 
 func TestNoopConventionSourceReturnsEmptyString(t *testing.T) {

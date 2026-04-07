@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/ponchione/sirtopham/internal/brain"
 )
@@ -106,7 +107,7 @@ func (c *Client) SearchKeyword(ctx context.Context, query string, maxResults int
 	if maxResults <= 0 {
 		maxResults = 10
 	}
-	query = strings.ToLower(strings.TrimSpace(query))
+	query = normalizeForKeyword(query)
 	if query == "" {
 		return nil, nil
 	}
@@ -133,13 +134,13 @@ func (c *Client) SearchKeyword(ctx context.Context, query string, maxResults int
 			return err
 		}
 		text := string(data)
-		lowerPath := strings.ToLower(filepath.ToSlash(rel))
-		lowerText := strings.ToLower(text)
+		normPath := normalizeForKeyword(filepath.ToSlash(rel))
+		normText := normalizeForKeyword(text)
 		score := 0.0
-		if strings.Contains(lowerPath, query) {
+		if strings.Contains(normPath, query) {
 			score += 2
 		}
-		count := strings.Count(lowerText, query)
+		count := strings.Count(normText, query)
 		if count > 0 {
 			score += float64(count)
 		}
@@ -328,9 +329,48 @@ func snippetAround(content string, query string) string {
 	lower := strings.ToLower(content)
 	idx := strings.Index(lower, query)
 	if idx < 0 {
+		// query may be a normalized multi-word phrase that does not appear
+		// literally in the raw note body (because of punctuation or
+		// hyphens between the words). Fall back to the first word of the
+		// query to at least anchor the snippet near a relevant region.
+		firstWord := query
+		if sp := strings.IndexByte(query, ' '); sp > 0 {
+			firstWord = query[:sp]
+		}
+		if firstWord != "" {
+			idx = strings.Index(lower, firstWord)
+		}
+	}
+	if idx < 0 {
 		return content[:120]
 	}
 	start := max(idx-40, 0)
 	end := min(idx+80, len(content))
 	return content[start:end]
+}
+
+// normalizeForKeyword lowercases s and collapses runs of non-alphanumeric
+// characters (whitespace, line breaks, punctuation, hyphens, etc.) into a
+// single ASCII space. Leading and trailing separators are stripped. The
+// result is suitable for substring matching so that multi-word keyword
+// queries can still hit note bodies that contain commas, hyphens, or line
+// breaks between the words — e.g. the query "minimal content first layout"
+// will now hit a body that says "minimal, content-first layout".
+func normalizeForKeyword(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	prevSpace := true
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+			prevSpace = false
+			continue
+		}
+		if !prevSpace {
+			b.WriteByte(' ')
+			prevSpace = true
+		}
+	}
+	out := b.String()
+	return strings.TrimRight(out, " ")
 }

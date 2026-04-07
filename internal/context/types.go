@@ -16,15 +16,16 @@ type Signal struct {
 // ContextNeeds describes the codebase context that should be retrieved for a
 // single turn.
 type ContextNeeds struct {
-	SemanticQueries    []string `json:"semantic_queries,omitempty"`
-	ExplicitFiles      []string `json:"explicit_files,omitempty"`
-	ExplicitSymbols    []string `json:"explicit_symbols,omitempty"`
-	IncludeConventions bool     `json:"include_conventions,omitempty"`
-	IncludeGitContext  bool     `json:"include_git_context,omitempty"`
-	GitContextDepth    int      `json:"git_context_depth,omitempty"`
-	MomentumFiles      []string `json:"momentum_files,omitempty"`
-	MomentumModule     string   `json:"momentum_module,omitempty"`
-	Signals            []Signal `json:"signals,omitempty"`
+	SemanticQueries     []string `json:"semantic_queries,omitempty"`
+	ExplicitFiles       []string `json:"explicit_files,omitempty"`
+	ExplicitSymbols     []string `json:"explicit_symbols,omitempty"`
+	IncludeConventions  bool     `json:"include_conventions,omitempty"`
+	IncludeGitContext   bool     `json:"include_git_context,omitempty"`
+	GitContextDepth     int      `json:"git_context_depth,omitempty"`
+	MomentumFiles       []string `json:"momentum_files,omitempty"`
+	MomentumModule      string   `json:"momentum_module,omitempty"`
+	PreferBrainContext  bool     `json:"prefer_brain_context,omitempty"`
+	Signals             []Signal `json:"signals,omitempty"`
 }
 
 // RAGHit represents one semantic-search code result adapted into Layer 3's
