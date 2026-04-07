@@ -10,7 +10,7 @@ Note: this task is now historical. The supported runtime path is MCP-backed and 
 
 ## Description
 
-Implement the `ObsidianClient` in `internal/brain/` as an HTTP client for the Obsidian Local REST API plugin (localhost:27124). This client wraps the REST endpoints for reading, writing, searching, and listing vault documents. It handles API key authentication, HTTP error responses, connection failures, and request timeouts. The client is used by all four brain tools and will later be used by the brain indexer in v0.2.
+Historical plan: implement `ObsidianClient` in `internal/brain/` as an HTTP client for the Obsidian Local REST API plugin. This page is retained only as legacy design context; the supported runtime path now uses the MCP/vault backend for brain tools and proactive retrieval.
 
 ## Acceptance Criteria
 

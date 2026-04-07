@@ -8,7 +8,7 @@
 
 ## Description
 
-Implement the `GET /api/metrics/conversation/:id/context/:turn` endpoint that returns the full `ContextAssemblyReport` for a specific turn within a conversation. This endpoint returns the JSON columns from the `context_reports` table (needs, signals, RAG results, brain results, graph results, budget breakdown) along with scalar quality metrics. This is the primary data source for the context inspector debug panel when browsing historical turns.
+Implement the `GET /api/metrics/conversation/:id/context/:turn` endpoint that returns the full `ContextAssemblyReport` for a specific turn within a conversation. This endpoint returns the JSON columns from the `context_reports` table (needs, signals, RAG results, brain results, graph results, budget breakdown) along with scalar quality metrics. Historical inspector views also use the narrower companion endpoint `GET /api/metrics/conversation/:id/context/:turn/signals` for ordered signal/query flow.
 
 ## Acceptance Criteria
 
@@ -21,4 +21,5 @@ Implement the `GET /api/metrics/conversation/:id/context/:turn` endpoint that re
 - [ ] Returns HTTP 404 with `{"error": "context report not found"}` if the conversation or turn does not exist
 - [ ] Turn number is validated as a positive integer — non-numeric values return HTTP 400
 - [ ] Endpoint is registered at `/api/metrics/conversation/:id/context/:turn` on the server's router
+- [ ] Narrow companion endpoint `GET /api/metrics/conversation/:id/context/:turn/signals` returns the ordered signal/query stream used for operator debugging
 - [ ] Response is served with `Content-Type: application/json`

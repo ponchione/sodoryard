@@ -1,5 +1,7 @@
 # Task 06: Unit Tests and Integration Test
 
+Note: this task doc is historical. It describes the older REST-client test plan, not the current MCP/vault-backed runtime contract.
+
 **Epic:** 06 — Obsidian Client & Brain Tools
 **Status:** ⬚ Not started
 **Dependencies:** Task 01, Task 02, Task 03, Task 04, Task 05
@@ -8,7 +10,7 @@
 
 ## Description
 
-Write the remaining unit tests for the ObsidianClient and an end-to-end integration test that exercises the full brain tool lifecycle: write a document, read it back, search for it, update a section, and read again to verify the update. The integration test uses `net/http/httptest` to simulate the Obsidian REST API, so no running Obsidian instance is required.
+Historical plan: write the remaining unit tests for the ObsidianClient and a REST-era end-to-end integration test. Current runtime validation should prefer the maintained live package in `docs/v2-b4-brain-retrieval-validation.md` plus `scripts/validate_brain_retrieval.py`.
 
 ## Acceptance Criteria
 
@@ -24,7 +26,7 @@ Write the remaining unit tests for the ObsidianClient and an end-to-end integrat
 - [ ] **ObsidianClient — request timeout:** Mock server sleeps longer than the client timeout, verify timeout error
 - [ ] **Registration:** All four brain tools register in the registry without panics and appear in `registry.All()`
 - [ ] **Integration test — full lifecycle:**
-  1. Set up `httptest` server simulating the Obsidian REST API (responding to write, read, search, and update requests)
+  1. Historical plan: set up `httptest` server simulating the Obsidian REST API (responding to write, read, search, and update requests)
   2. Register all four brain tools with the mock server's ObsidianClient
   3. Dispatch `brain_write` via executor to create a document with frontmatter and wikilinks
   4. Dispatch `brain_read` via executor to read the document back, verify content, frontmatter, and wikilinks are present

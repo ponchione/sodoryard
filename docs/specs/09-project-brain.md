@@ -203,45 +203,28 @@ There is no size limit on the vault. No document count limit. No enforced struct
 
 ---
 
-## Retrieval: Three Modes
+## Retrieval
 
-Brain retrieval uses three complementary search mechanisms. All three run during context assembly and can be invoked independently via the `brain_search` tool.
+Current runtime truth is intentionally narrower than earlier drafts implied.
 
-### Mode 1: Keyword Search (FTS5 via Obsidian REST API)
+### What is live today
 
-Fast, exact, good for known concepts. Uses Obsidian's built-in search, which understands its own primitives — wikilinks, tags, frontmatter fields, headings.
+Brain retrieval currently has one real operator-facing path:
+- MCP/vault-backed keyword search for both `brain_search` and proactive context assembly retrieval
+- post-hoc tag filtering in `brain_search`
+- `_log.md` operational notes excluded from proactive context and tool search results
+- analyzer/query shaping that can emit brain-oriented signals such as `brain_intent` / `brain_seeking_intent`, plus stopword-stripped fallback keyword queries for weak long-form prompts
 
-Queries like:
-- "file locking" → finds "token-refresh-file-locking.md"
-- "tag:#debugging" → finds all documents tagged `#debugging`
-- "CGo segfault" → finds the LanceDB debugging journal
+This is the primary retrieval mode for structured knowledge with clear textual anchors.
 
-This is the primary retrieval mode for structured knowledge with clear keywords.
+### What is not live yet
 
-### Mode 2: Semantic Search (Vector via LanceDB)
+The following ideas still belong to future-facing design, not current operator expectations:
+- semantic/vector-backed brain retrieval via a separate LanceDB collection
+- wikilink/backlink graph traversal as a live retrieval source
+- automatic brain indexing pipelines beyond the current MCP/vault-backed keyword path
 
-Embed brain documents with nomic-embed-code (same model as code embeddings), store in a **separate LanceDB collection** from code chunks. Query with the same embedding pipeline as code search.
-
-Handles fuzzy queries:
-- "how do we handle external API calls" → matches the payment flow relationship document
-- "why is the code parsing architecture the way it is" → matches the tech stack decisions document
-
-### Why a Separate LanceDB Collection
-
-Brain documents differ from code chunks in ways that justify separation:
-
-- **Different embedding input.** Code chunks embed `signature + description`. Brain documents embed full text or heading-delimited sections.
-- **Different metadata schema.** Code chunks carry language, chunk_type, calls, called_by. Brain documents carry tags, wikilinks, frontmatter fields, author.
-- **Different scale.** A project might have 5,000-50,000 code chunks but 50-500 brain documents. Query behavior, topK values, and relevance thresholds differ.
-- **Independent lifecycle.** Dropping and rebuilding the brain index doesn't touch the code index. Reindexing code doesn't reindex brain documents.
-
-### Mode 3: Graph Traversal (Wikilinks)
-
-Given a brain document, find all documents it links to (outgoing wikilinks) and all documents that link back to it (backlinks). Optionally follow second-degree connections.
-
-This is unique to Obsidian-backed storage. When context assembly finds one relevant brain document, graph traversal can pull in related documents that keyword or semantic search might miss. If "auth-architecture.md" is relevant and it links to `[[error-handling]]` and `[[provider-design]]`, those linked documents get a relevance boost.
-
-The wikilink graph is stored in SQLite and rebuilt from vault content during indexing.
+Those may still be worthwhile v0.2+ work, but the docs should not imply they are already part of the runtime contract.
 
 ---
 
@@ -281,17 +264,17 @@ These tables live in the main sirtopham SQLite database alongside conversation a
 
 ## Tools
 
-Four tools for the agent. All project-scoped — they operate on the current project's brain vault via the Obsidian REST API.
+Four tools for the agent. All project-scoped — they operate on the current project's brain vault via the MCP/vault backend.
 
 ### brain_search
 
-Search the brain by keyword or semantic query. Returns document titles, paths, and relevant snippets.
+Search the brain by keyword query. Returns document titles, paths, and relevant snippets. Semantic/index-backed search is still future work unless the runtime explicitly grows that path.
 
 **Purity:** Pure (read-only)
 
 **Parameters:**
 - `query` (string, required): The search query
-- `mode` (string, optional): "keyword", "semantic", or "auto" (default). Auto runs both and merges results.
+- `mode` (string, optional): currently `keyword` is the only implemented runtime behavior; older `semantic` / `auto` wording in this draft should be treated as future-facing design, not a guaranteed live contract
 - `tags` ([]string, optional): Filter by tags
 - `max_results` (int, optional): Maximum results to return (default 10)
 
@@ -320,8 +303,8 @@ Create a new document or overwrite an existing one. The agent writes Obsidian-na
 - `content` (string, required): Full markdown content including frontmatter
 
 **Behavior:**
-- Creates or overwrites the file via the Obsidian REST API
-- Immediately updates vector embeddings and link graph for the new/changed document
+- Creates or overwrites the file through the MCP/vault backend
+- Any future index/graph refresh behavior should be documented separately when it actually exists
 - Returns confirmation with the document path
 
 ### brain_update
@@ -465,39 +448,22 @@ The brain has no artificial constraints on size, structure, or organization. It 
 
 ---
 
-## Obsidian Configuration
+## Brain Configuration
 
-### Required Plugin
-
-The **Obsidian Local REST API** plugin must be installed and enabled in the brain vault. Configuration:
-
-- **Port:** 27124 (default)
-- **API key:** Generated by the plugin, stored in sirtopham's config
-- **HTTPS:** Not required for localhost
-
-### sirtopham Configuration
+Current runtime uses the project brain vault plus the MCP/vault backend. The minimal operator-facing setup is:
 
 ```yaml
 brain:
   enabled: true
-  vault_path: ~/obsidian-vaults/sirtopham-brain  # path to the Obsidian vault
-  obsidian_api_url: http://localhost:27124        # REST API endpoint
-  obsidian_api_key: "your-api-key-here"           # from Obsidian REST API plugin
-
-  # Indexing
-  embedding_model: "nomic-embed-code"             # same as code embeddings
-  chunk_at_headings: true                         # split at ## boundaries
-  reindex_on_startup: true                        # sync index on launch
-
-  # v0.2 context assembly integration
-  max_brain_tokens: 8000                          # budget for brain content
-  brain_relevance_threshold: 0.30                 # semantic search threshold
-  include_graph_hops: true                        # follow wikilinks from matched docs
-  graph_hop_depth: 1                              # how many link hops to follow
-
-  # Debug
-  log_brain_queries: true                         # log all brain search queries and results
+  vault_path: ~/obsidian-vaults/sirtopham-brain
+  log_brain_queries: true
 ```
+
+Notes:
+- `vault_path` is the source of truth for the brain content the tools and proactive retrieval operate on
+- `log_brain_queries` gates both reactive `brain_search` trace logging and proactive brain-query debug logging
+- older REST-specific fields in historical drafts (`obsidian_api_url`, `obsidian_api_key`) should be treated as pre-MCP design baggage unless/until they are reintroduced intentionally
+- future semantic/index-backed brain settings should stay documented as reserved or experimental until the runtime actually uses them
 
 ---
 
@@ -559,7 +525,7 @@ Separate collection `brain_chunks` in the same LanceDB instance as code:
 
 ## Differences from Existing Components
 
-**Brain vs. Code RAG ([[04-code-intelligence-and-rag]]):** Code RAG indexes source code — function bodies, type definitions, file structures. The brain indexes knowledge *about* code — why things are the way they are, how systems relate, what to watch out for. Different content, different retrieval characteristics, different update cycles. Code changes with every commit. Brain documents change when understanding changes.
+**Brain vs. Code RAG ([[04-code-intelligence-and-rag]]):** Code RAG indexes source code — function bodies, type definitions, file structures. The brain stores knowledge *about* code — why things are the way they are, how systems relate, what to watch out for. Today the code path is semantic/vector-backed while the brain path is keyword-backed through the MCP/vault backend; that asymmetry is intentional until a broader brain retrieval path is actually implemented.
 
 **Brain vs. Convention Extractor:** The convention extractor derives patterns mechanically from code analysis — "tests use `_test.go` suffix." The brain stores conventions that require judgment — "we don't use go-git because of index desync issues." They're complementary. The extractor tells you *what patterns exist*. The brain tells you *why certain patterns are followed* and *what patterns to avoid*.
 
@@ -576,13 +542,13 @@ Separate collection `brain_chunks` in the same LanceDB instance as code:
 - [[04-code-intelligence-and-rag]] — Shared LanceDB instance (separate collection), shared embedding model (nomic-embed-code), shared embedding container
 - [[08-data-model]] — `brain_documents` and `brain_links` tables in SQLite
 - [[07-web-interface-and-streaming]] — "Open in Obsidian" links, brain results in context inspector
-- Obsidian Local REST API plugin — required external dependency
+- MCP/vault brain backend — current runtime dependency for brain tools and proactive brain retrieval
 
 ---
 
 ## Future Directions
 
-**MCP migration (v0.5+):** When sirtopham builds MCP client infrastructure for other integrations, evaluate migrating brain access from the REST API to an Obsidian MCP server. The brain tools interface stays the same — only the backend changes.
+**Additional MCP productization (v0.5+):** The runtime already uses an MCP/vault backend internally. Future work here is about exposing that capability more broadly — for example surfacing brain tools as an MCP server for external tools, or standardizing richer backend contracts — rather than doing the original REST→MCP migration described in older drafts.
 
 **MCP server exposure (v0.5+):** Expose sirtopham's brain tools as an MCP server, letting other tools (Claude Code, Codex) query the project brain. The brain becomes a shared knowledge layer across your entire tool chain.
 
@@ -598,23 +564,23 @@ Separate collection `brain_chunks` in the same LanceDB instance as code:
 
 ## Build Phases
 
-**v0.1 (foundation):** Obsidian vault designated in config. Obsidian Local REST API plugin required. `brain_read`, `brain_write`, `brain_update`, `brain_search` (keyword via Obsidian API) tools work. Agent writes Obsidian-native markdown with frontmatter, wikilinks, tags. Basic system prompt guidance on when to create brain documents. No vector search, no context assembly integration — agent uses brain tools reactively.
+**v0.1 (foundation):** Brain tools were reactive-only. The agent could `brain_read`, `brain_write`, `brain_update`, and `brain_search`, but context assembly did not proactively include brain content.
 
-**v0.2 (smart retrieval):** Brain vector embeddings in separate LanceDB collection. Wikilink graph parsing and storage in SQLite. Brain results surface in context assembly as a sixth retrieval source. Budget fitting with brain tier. Context inspector shows brain results. Graph traversal for related documents via wikilinks.
+**Current v0.2 state:** MCP/vault-backed proactive keyword retrieval is live in context assembly. Brain hits have an explicit budget tier, serialize into a Project Brain section, persist in context reports, and now have a dedicated ordered signal-flow endpoint at `/api/metrics/conversation/:id/context/:turn/signals`.
 
-**v0.3 (deep integration):** Obsidian URI links from the web UI. Session summary proposals at session end. Brain-aware quality metrics in the ContextAssemblyReport. Brain document viewer linked from conversation context inspector.
+**Remaining v0.2 work:** Decide whether semantic/index-backed brain retrieval becomes real runtime behavior, package a repeatable live validation recipe, and keep query shaping/observability aligned with what the runtime actually does.
 
-**v0.5 (ecosystem):** MCP client migration evaluation. MCP server exposure for external tools. Cross-project queries. Obsidian Templater integration.
+**v0.3+ ideas:** Obsidian URI links from the web UI, session summary proposals, richer brain-aware quality metrics, cross-project queries, and templated brain documents remain future-facing design rather than committed runtime behavior.
 
 ---
 
 ## Open Questions
 
-- **Obsidian REST API plugin stability:** How stable is the plugin across Obsidian updates? Is there a risk of API breakage? The tool interface abstraction (brain tools → backend) insulates us from this, but it's worth monitoring.
-- **Embedding model for prose vs code:** nomic-embed-code is optimized for code. Brain documents are prose with code snippets. Would a general-purpose embedding model (nomic-embed-text) produce better brain retrieval? Worth A/B testing.
-- **Brain document size limits for embedding:** Very long brain documents (5000+ words) need chunking for effective embedding. The heading-based chunking strategy should handle this, but edge cases (documents with no headings, single-heading documents) need fallback logic.
-- **Conflict resolution:** If the agent writes a brain document via the REST API while the developer has the same file open in Obsidian, what happens? Obsidian detects external file changes and prompts to reload. This should be fine for a single-developer tool, but worth verifying the behavior.
-- **Brain search latency in context assembly:** Adding brain retrieval to the parallel retrieval phase adds latency. The Obsidian REST API keyword search adds a localhost HTTP call (~5-10ms). Vector search against the brain LanceDB collection adds ~10ms. Total impact on assembly latency should be under 20ms. Verify empirically.
+- **Semantic/index-backed brain retrieval:** Should v0.2 stop at MCP/vault keyword search, or should a separate semantic/index-backed brain path become part of the real runtime contract?
+- **Embedding model for prose vs code:** If semantic brain retrieval is added later, would a general-purpose embedding model outperform the current code-oriented defaults for prose-heavy notes?
+- **Brain document size limits for future indexing:** Very long brain documents (5000+ words) would need chunking for effective embedding if index-backed retrieval becomes real.
+- **Conflict resolution:** If the agent writes a brain document while the developer has the same file open in Obsidian, what exact UX does the current vault workflow produce? Worth verifying directly.
+- **Brain search latency in context assembly:** Current keyword-backed proactive brain retrieval is cheap, but any future semantic/index path should still be validated against the context-assembly latency budget.
 
 ---
 

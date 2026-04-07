@@ -939,11 +939,11 @@ When `include_backlinks` is false, the "Backlinks" line is omitted.
 **Error cases:**
 
 - Document not found → "Error: brain document not found: {path}\nAvailable documents in {parent_dir}/: {listing}"
-- Obsidian API unreachable → "Error: Obsidian REST API not reachable at {api_url}. Ensure Obsidian is running with the Local REST API plugin enabled."
+- Historical REST-path error case → "Error: Obsidian REST API not reachable at {api_url}...". Current runtime brain tooling uses the MCP/vault backend instead.
 
 **Implementation notes:**
 
-- Delegates to the `ObsidianClient` HTTP wrapper, which calls the Obsidian Local REST API on `localhost:27124`.
+- Historical note: the original plan delegated to `ObsidianClient` over the Local REST API. Current runtime brain reads use the MCP/vault backend.
 - Backlinks are retrieved via a second API call or from the SQLite `brain_links` table (target path lookup).
 - Outgoing wikilinks are parsed from the document content (regex for `[[...]]`).
 
@@ -971,7 +971,7 @@ For overwrites: "Updated: {path} ({N} lines, was {M} lines)"
 **Implementation notes:**
 
 - Delegates to `ObsidianClient` PUT request.
-- In v0.1, no internal brain index is updated here. The write goes through the Obsidian REST API only. Re-embedding and internal graph updates are v0.2 concerns.
+- Historical note: the original v0.1 plan wrote through the Obsidian REST API only. Current runtime note mutation is MCP/vault-backed; semantic/index-backed brain updates remain future work.
 - Parses the written content to extract tags, wikilinks, and frontmatter for the confirmation output.
 - Creates parent directories in the vault if needed.
 
@@ -1007,11 +1007,11 @@ Section: 8 lines replaced with 12 lines
 
 - Read the document via `ObsidianClient`, apply the operation in Go, write back.
 - For `replace_section`: parse the document into heading-delimited sections. Find the target heading (exact match on heading text). Replace everything from that heading to the next heading of equal or higher level (or end of file).
-- In v0.1, no internal brain index is updated here; this remains an Obsidian REST API read-modify-write flow. Re-embedding and graph updates are v0.2 concerns.
+- Historical note: the original v0.1 plan used an Obsidian REST read-modify-write flow. Current runtime note mutation is MCP/vault-backed; re-embedding and graph updates remain future work.
 
 ### brain_search
 
-**Purpose:** Search the project brain for relevant documents. In v0.1 this is keyword search via Obsidian. `semantic` and `auto` modes return guidance that semantic search is a v0.2 feature, then fall back to keyword search.
+**Purpose:** Search the project brain for relevant documents. Historical v0.1 planning text below describes keyword search via Obsidian REST; current runtime uses MCP/vault-backed keyword search, while semantic/index-backed brain retrieval is still future work.
 
 **Purity:** Pure
 
@@ -1037,12 +1037,12 @@ Found 3 results for "authentication" (mode: keyword):
 **Error cases:**
 
 - No results → "No brain documents found for '{query}'. The brain may not contain relevant knowledge yet."
-- Obsidian API unreachable → "Error: brain search unavailable. Ensure Obsidian is running with the Local REST API plugin enabled."
+- Historical REST-path error case → "Error: brain search unavailable...". Current runtime availability depends on the MCP/vault backend instead.
 - `mode=semantic` or `mode=auto` → return a note that semantic search is not yet available in v0.1, then continue with keyword search
 
 **Implementation notes:**
 
-- **Keyword mode** (default): Delegate entirely to Obsidian's search endpoint. Passes the `tags` filter as Obsidian search syntax (`tag:#debugging`).
+- Historical plan: delegate keyword mode to Obsidian's search endpoint. Current runtime performs keyword-backed search through the MCP/vault backend.
 - **Semantic / auto modes in v0.1:** Return guidance that semantic search is planned for v0.2, then fall back to the keyword-search path.
 - No internal brain vector index or wikilink-graph traversal is used in v0.1.
 
@@ -1078,7 +1078,7 @@ The developer can extend the denylist in config. No patterns are hardcoded beyon
 
 ### Brain Vault Enforcement
 
-Brain tools operate within the configured vault path only. The `ObsidianClient` rejects paths that resolve outside the vault root, matching the same `filepath.Join` + prefix check pattern as file tools.
+Brain tools operate within the configured vault path only. The historical `ObsidianClient` path also enforced vault-root bounds. Current runtime should preserve the same vault-root safety invariant through the MCP/vault backend.
 
 ### No Network Sandboxing
 
@@ -1164,9 +1164,9 @@ The tool system decomposes into 6 implementation epics. Each epic can be impleme
 |03: Search Tools|`search_text` (ripgrep wrapper), `search_semantic` (RAG searcher bridge)|Epic 01, [[04-code-intelligence-and-rag]] searcher|
 |04: Git Tools|`git_status`, `git_diff`. Shell out to git binary, structured output parsing|Epic 01|
 |05: Shell Tool|`shell`. Process group management, timeout, SIGTERM/SIGKILL escalation, denylist, stdout/stderr capture|Epic 01|
-|06: Brain Tools & Obsidian Client|`ObsidianClient` HTTP wrapper, `brain_read`, `brain_write`, `brain_update`, `brain_search` (keyword via Obsidian REST API). Semantic search integration deferred to context assembly work|Epic 01, [[09-project-brain]] Obsidian REST API plugin|
+|06: Brain Tools & Legacy REST Plan|Historical `ObsidianClient` HTTP wrapper plus brain tools. Current runtime uses MCP/vault-backed keyword brain tooling; semantic/index-backed expansion remains deferred.|Epic 01, [[09-project-brain]] current brain contract|
 
-Epic 01 ships first. Epics 02-06 can proceed in parallel once 01 is complete. Epic 03 (`search_semantic`) has an external dependency on the RAG searcher from [[04-code-intelligence-and-rag]]. Epic 06 has an external dependency on the Obsidian REST API plugin.
+Epic 01 ships first. Epics 02-06 can proceed in parallel once 01 is complete. Epic 03 (`search_semantic`) has an external dependency on the RAG searcher from [[04-code-intelligence-and-rag]]. Epic 06's Obsidian REST dependency is historical planning context, not the current runtime requirement.
 
 ---
 
@@ -1174,7 +1174,7 @@ Epic 01 ships first. Epics 02-06 can proceed in parallel once 01 is complete. Ep
 
 - [[05-agent-loop]] — Primary consumer. Dispatches tool calls using purity classification. Manages iteration, error recovery (three-tier), output truncation policy, and cancellation propagation. The agent loop owns the dispatch loop; the tool system owns the implementations.
 - [[04-code-intelligence-and-rag]] — `search_semantic` delegates to the RAG searcher. Multi-query expansion, hit-count re-ranking, and one-hop call graph expansion are searcher capabilities, not tool capabilities.
-- [[09-project-brain]] — Brain tools delegate to the Obsidian REST API via `ObsidianClient`. Brain tool specifications originate here. Brain indexer integration (re-embed on write) is a brain layer responsibility triggered by the tool.
+- [[09-project-brain]] — Brain tool specifications originate there. Current runtime brain tooling and proactive retrieval are MCP/vault-backed; older ObsidianClient references in this spec are historical.
 - [[08-data-model]] — `tool_executions` table records every tool dispatch (tool_name, input JSON, output_size, duration_ms, success/failure). `role=tool` messages store the full tool result content with `tool_use_id` linkage.
 - [[03-provider-architecture]] — Tool definitions from `Registry.ToolDefinitions()` are serialized into the provider request's `tools` field. Provider-specific format translation (Anthropic `input_schema` vs OpenAI `parameters`) happens in the provider layer, not here.
 - [[06-context-assembly]] — `search_semantic` is the reactive fallback when proactive context assembly is insufficient. The context assembly report tracks `AgentUsedSearchTool` as a quality signal.

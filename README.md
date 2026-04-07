@@ -6,10 +6,12 @@ Local Go implementation of the sirtopham coding-agent harness.
 
 v0.1 harness closeout is effectively complete.
 
-The project is now moving into v0.2 work. The main new scope is brain-related:
-- proactive brain retrieval during context assembly
+The project is now in incremental v0.2 brain work. The first proactive slice is already live:
+- proactive MCP/vault-backed keyword brain retrieval during context assembly
 - brain-aware budget fitting / serialization / inspector reporting
-- cleanup of the runtime/docs contract for what the brain backend actually is
+- dedicated ordered signal-flow observability at `/api/metrics/conversation/:id/context/:turn/signals`
+- a repeatable live validation package at `docs/v2-b4-brain-retrieval-validation.md` plus `scripts/validate_brain_retrieval.py`
+- ongoing cleanup of the runtime/docs contract for what the brain backend actually is
 
 If you are resuming implementation work, read these first:
 - `TECH-DEBT.md`
@@ -64,4 +66,4 @@ If you are resuming implementation work, read these first:
 - `sirtopham init` creates `.<project>/` for SQLite and LanceDB state plus a repo-local `.brain/` vault.
 - `sirtopham config` is the fastest way to confirm effective paths, providers, and embedding endpoint.
 - If you skip `sirtopham index`, the app can start, but semantic retrieval and context inspection will not reflect a real indexed project.
-- The older architecture docs under `docs/` are useful background, but this README and the CLI outputs are the practical source of truth for bring-up.
+- The older architecture docs under `docs/` are useful background, but this README, `TECH-DEBT.md`, `NEXT_SESSION_HANDOFF.md`, and the live runtime/metrics surfaces are the practical source of truth for bring-up.

@@ -1,5 +1,7 @@
 # Task 02: brain_search Tool Implementation
 
+Note: this task doc is historical. Current runtime uses the MCP/vault backend for `brain_search`; use this page only to understand the older REST-era plan.
+
 **Epic:** 06 — Obsidian Client & Brain Tools
 **Status:** ⬚ Not started
 **Dependencies:** Task 01, Layer 4 Epic 01
@@ -8,7 +10,7 @@
 
 ## Description
 
-Implement the `brain_search` tool as a `Pure` tool in `internal/tool/`. This tool provides keyword search against the project brain via the Obsidian REST API. In v0.1, only keyword mode is supported — the `mode` parameter accepts "keyword" (default), while "semantic" and "auto" return a guidance message that semantic search is coming in v0.2. Results are formatted with document paths, titles, and relevant snippets.
+Historical plan: implement `brain_search` as a `Pure` tool backed by the Obsidian REST API. Current runtime truth is MCP/vault-backed keyword search, and proactive context assembly already consumes brain hits separately.
 
 ## Acceptance Criteria
 

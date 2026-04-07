@@ -26,6 +26,7 @@ Implement the REST API endpoints for project information, configuration manageme
   - Tool usage breakdown: per-tool call count, avg duration, failure count (from `tool_executions`)
   - Context assembly quality: total turns, reactive search count, avg hit rate, avg budget used (from `context_reports`)
 - [ ] `GET /api/metrics/conversation/:id/context/:turn` — Returns the full `ContextAssemblyReport` for a specific turn. Returns the JSON columns from `context_reports`: needs_json, signals_json, rag_results_json, brain_results_json, graph_results_json, budget_breakdown_json, plus scalar quality metrics. Consumed by the context inspector debug panel
+- [ ] `GET /api/metrics/conversation/:id/context/:turn/signals` — Returns the narrow ordered signal/query stream for operator observability without requiring the consumer to reconstruct sequencing from the full report
 - [ ] All endpoints return proper HTTP status codes and consistent JSON error format
 - [ ] Endpoints registered on the server's router
 
@@ -46,6 +47,6 @@ The file tree endpoint should walk the project directory using the same include/
 
 The metrics queries are defined in [[08-data-model]] §Key Query Patterns. They're straightforward aggregations. The sqlc-generated code from Layer 0 Epic 06 should already have these queries available (or the implementing agent adds new queries to `queries.sql` and reruns sqlc).
 
-The context report endpoint (`/api/metrics/conversation/:id/context/:turn`) is critical — it feeds the context inspector debug panel ([[layer-6-epic-09-context-inspector]]). Return the JSON columns as-is (they're already structured data); the frontend parses them.
+The context report endpoint (`/api/metrics/conversation/:id/context/:turn`) is critical — it feeds the context inspector debug panel ([[layer-6-epic-09-context-inspector]]). Return the JSON columns as-is (they're already structured data); the frontend parses them. The companion `/signals` endpoint is intentionally narrower and should expose the ordered signal/query flow operators actually need for debugging retrieval decisions.
 
 The providers endpoint is distinct from the config endpoint — it returns the live state of provider availability (which providers are configured, which models they offer, connection status), while config returns the user's preferences.

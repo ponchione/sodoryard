@@ -382,7 +382,7 @@ func (s *AuthService) GenerateToken(user *User) (string, error) {
 
 ### Format Principles
 
-**v0.1 excludes proactive brain content.** Project-brain documents are not serialized into assembled context in v0.1. The agent reaches them reactively through Layer 4 brain tools when needed. If proactive brain retrieval is added in v0.2, the serialization order can be revisited then.
+**Current runtime includes proactive brain content.** Project-brain documents can now be serialized into assembled context through the MCP/vault-backed proactive keyword retrieval path. The current operator truth is intentionally narrow: brain hits are keyword-backed, `_log.md` operational notes are filtered, and broader semantic/index-backed brain retrieval is still future work unless it is explicitly landed.
 
 **File path + line range as headers.** The LLM needs exact paths to make correct tool calls later (`file_read`, `file_edit` require paths and line ranges).
 
@@ -522,7 +522,7 @@ Three metrics measure whether context assembly is doing its job:
 
 ### Storage
 
-Reports are stored per-turn in SQLite — either as a JSON blob on the messages/turn record, or in a dedicated `context_reports` table. The web UI's context inspector debug panel reads from this store.
+Reports are stored per-turn in SQLite in `context_reports`. The web UI's context inspector reads the full report from `GET /api/metrics/conversation/:id/context/:turn`, and a narrower ordered signal-flow view is available at `GET /api/metrics/conversation/:id/context/:turn/signals`.
 
 ### Context Inspector Debug Panel
 
@@ -664,7 +664,7 @@ Parameters most likely to need adjustment, in order of impact:
 
 **2. max_assembled_tokens (30000).** If `AgentUsedSearchTool` is frequently true and `ExcludedChunks` contains files the agent later read, increase the budget. If the LLM seems to ignore assembled context or gives unfocused responses, decrease it.
 
-**3. Query extraction rules.** If the context inspector shows the right code exists in the index but wasn't retrieved, the queries are wrong. Review the Signal trace to see what the analyzer detected. Add new regex patterns or keyword rules as needed.
+**3. Query extraction rules.** If the context inspector shows the right code exists in the index but wasn't retrieved, the queries are wrong. Review both the raw Signals section and the ordered Signal Flow view to see what the analyzer detected and what semantic queries actually drove retrieval. Add new regex patterns or keyword rules as needed.
 
 **4. momentum_lookback_turns (2).** If context amnesia is a problem (the agent loses track of what it was working on), increase to 3. If momentum is injecting stale context from old turns, decrease to 1.
 
@@ -677,7 +677,7 @@ Parameters most likely to need adjustment, in order of impact:
 - **Anthropic cache_control with OAuth:** Need to verify that 3 cache breakpoints work identically with OAuth tokens as with API keys. The API docs describe cache_control for API-key users — confirm for subscription OAuth access.
 - **Cross-language retrieval quality:** How well does the semantic search work when the query is in English but code is in Go/Python/TS? The description layer should bridge this, but worth testing against real queries.
 - **Conventions staleness:** Conventions are cached and refreshed on reindex. If a convention changes mid-session (rare), the cached version is stale. Worth detecting? Probably not for v0.1.
-- **Budget allocation ratios:** The priority order (explicit files → RAG → structural → conventions → git) is a design guess. The context inspector will reveal whether a different ordering produces better hit rates. If proactive brain retrieval lands in v0.2, its placement in this order will need a fresh validation pass.
+- **Budget allocation ratios:** The current priority order (explicit files → proactive brain hits → top RAG → structural → conventions → git → lower-priority RAG overflow) is still a design guess. The context inspector should continue to validate whether that ordering produces better hit rates or needs adjustment.
 
 ---
 

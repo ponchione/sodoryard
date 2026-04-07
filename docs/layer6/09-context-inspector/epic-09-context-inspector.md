@@ -10,7 +10,7 @@
 
 Build the context inspector debug panel — the primary mechanism for tuning sirtopham's context assembly system. Per [[06-context-assembly]]: "This panel is not a nice-to-have. It is the primary mechanism for tuning the relevance threshold, budget cap, and query extraction rules. For a system with no prior art to benchmark against, the debug panel IS the benchmark."
 
-The panel displays the `ContextAssemblyReport` for each turn, showing what the turn analyzer detected, what RAG/brain/structural queries retrieved, what made it into the assembled context and what was excluded (with reasons), budget allocation breakdown, and quality metrics. It receives data from two sources: the `context_debug` WebSocket event (real-time, for the current turn) and the REST context report endpoint (historical, for past turns).
+The panel displays the `ContextAssemblyReport` for each turn, showing what the turn analyzer detected, what RAG/brain/structural queries retrieved, what made it into the assembled context and what was excluded (with reasons), budget allocation breakdown, and quality metrics. It receives data from three practical surfaces: the `context_debug` WebSocket event (real-time, for the current turn), the REST context report endpoint (historical, for past turns), and the narrower `/api/metrics/conversation/:id/context/:turn/signals` endpoint for ordered signal/query flow.
 
 ---
 
@@ -19,7 +19,8 @@ The panel displays the `ContextAssemblyReport` for each turn, showing what the t
 - [ ] **Panel toggle:** A button or tab in the conversation view toggles the context inspector panel. When open, it appears as a side panel or bottom panel alongside the message thread. When closed, it's fully hidden (no wasted space). Default: closed
 - [ ] **Per-turn navigation:** The panel shows data for one turn at a time. Navigation (previous/next turn, or a turn selector) lets the user browse context reports across the conversation's turns
 - [ ] **Turn analyzer signals:** Displays the `signals_json` array from the context report. Each signal shows: type (file_ref, symbol_ref, intent_verb, momentum), source text (what triggered it), and extracted value. This tells the developer "what did the analyzer detect in my message?"
-- [ ] **Semantic queries:** Shows the queries derived from the user's message that were sent to the RAG pipeline. From the `needs_json` field
+- [ ] **Ordered signal flow:** Displays the narrow ordered stream from `/api/metrics/conversation/:id/context/:turn/signals`, combining analyzer signals, semantic queries, explicit files/symbols, momentum entries, and key flags such as `prefer_brain_context` / `include_conventions` / `include_git_context`
+- [ ] **Semantic queries:** Shows the queries derived from the user's message that were actually sent to retrieval. Prefer the stored `needs.semantic_queries`, and use the ordered signal-flow endpoint when the operator needs exact sequencing
 - [ ] **RAG results:** Displays `rag_results_json` — the code chunks retrieved by semantic search, pre-filtering. Each result shows: file path, chunk name, similarity score, and whether it was included or excluded in the final context. Color-code or badge included vs excluded. Excluded chunks show the reason (below_threshold, budget_exceeded)
 - [ ] **Brain results:** Displays `brain_results_json` — brain documents retrieved. Each shows: document path, title, match score, match mode (keyword/semantic/graph). Included/excluded status
 - [ ] **Structural graph results:** If present in `graph_results_json`, displays symbols found via blast radius analysis with relationship type (caller, callee, implements) and depth
@@ -30,7 +31,7 @@ The panel displays the `ContextAssemblyReport` for each turn, showing what the t
   - `context_hit_rate` — percentage, with color coding (green >70%, yellow 40-70%, red <40%)
   - Files the agent read via tool calls (`agent_read_files_json`) cross-referenced against assembled context
 - [ ] **Latency:** Display `analysis_latency_ms`, `retrieval_latency_ms`, `total_latency_ms` — how long context assembly took
-- [ ] **Real-time for current turn:** The `context_debug` WebSocket event populates the panel for the turn in progress, without waiting for the turn to complete. Past turns load from the REST endpoint `GET /api/metrics/conversation/:id/context/:turn`
+- [ ] **Real-time for current turn:** The `context_debug` WebSocket event populates the panel for the turn in progress, without waiting for the turn to complete. Past turns load from `GET /api/metrics/conversation/:id/context/:turn`, and the ordered historical signal flow comes from `GET /api/metrics/conversation/:id/context/:turn/signals`
 - [ ] **Brain document links:** Brain results display their vault paths. v0.1: display path as text. (v0.3 will add `obsidian://` URI links to open in Obsidian, per [[09-project-brain]])
 
 ---

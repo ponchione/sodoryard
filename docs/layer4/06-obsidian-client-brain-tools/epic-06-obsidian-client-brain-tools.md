@@ -1,6 +1,6 @@
-# Layer 4 — Epic 06: Obsidian Client & Brain Tools
+# Layer 4 — Epic 06: Brain Tools and Legacy Obsidian REST Plan
 
-Note: this epic doc describes the superseded REST-era brain plan. The implemented runtime has moved to an MCP-backed vault backend; use it only as historical context.
+Note: this epic doc is historical. The implemented runtime uses an MCP-backed vault backend for brain tools and already supports proactive keyword-backed brain retrieval in context assembly. Keep this page only as a record of the older REST-era plan.
 
 **Layer:** 4 (Tool System)
 **Package:** `internal/tool/`, `internal/brain/`
@@ -12,8 +12,8 @@ Note: this epic doc describes the superseded REST-era brain plan. The implemente
 
 **Architecture Refs:**
 - [[09-project-brain]] §Tools — brain_read, brain_write, brain_update, brain_search parameter specs and behavior
-- [[09-project-brain]] §Build Phases — v0.1 scope: keyword search via Obsidian API only, no vector search, no context assembly integration
-- [[09-project-brain]] §Architecture — Obsidian Local REST API integration model
+- [[09-project-brain]] §Build Phases — historical v0.1 REST-era plan versus current runtime truth
+- [[09-project-brain]] §Architecture — current MCP/vault runtime contract
 - [[09-project-brain]] §Vault Structure — document format, frontmatter, wikilinks, tags
 
 ---
@@ -22,16 +22,16 @@ Note: this epic doc describes the superseded REST-era brain plan. The implemente
 
 Two parts:
 
-**Part 1: Obsidian REST API Client (`internal/brain/`).** An HTTP client for the Obsidian Local REST API plugin (localhost:27124). Wraps the REST endpoints for reading, writing, searching, and listing vault documents. Handles API key authentication, error responses, and connection failures. This client is used by the brain tools and will later be used by the brain indexer (Layer 3/context assembly).
+**Part 1: historical Obsidian REST API client plan (`internal/brain/`).** This section describes the older Local REST API plugin plan. It is no longer the supported runtime path for brain tools or proactive retrieval.
 
 **Part 2: Four brain tools** that implement the `Tool` interface:
 
-- **`brain_search` (Pure):** Keyword search via the Obsidian REST API. v0.1 uses keyword mode only — the `mode` parameter accepts "keyword" (default) only; "semantic" and "auto" return a message that semantic search is not yet available. Returns document paths, titles, and relevant snippets.
+- **`brain_search` (Pure):** Historical plan: keyword search via the Obsidian REST API. Current runtime uses the MCP/vault backend for keyword-backed note search.
 - **`brain_read` (Pure):** Read a specific brain document by path. Returns full markdown content, extracted frontmatter metadata, and outgoing wikilinks parsed from the content.
-- **`brain_write` (Mutating):** Create a new document or overwrite an existing one via the Obsidian REST API. The agent writes Obsidian-native markdown with YAML frontmatter, `[[wikilinks]]`, and `#tags`.
+- **`brain_write` (Mutating):** Historical plan: create or overwrite a note via the Obsidian REST API. Current runtime note mutation flows through the MCP/vault backend.
 - **`brain_update` (Mutating):** Append to, prepend to, or replace a section of an existing document. Reads current content, applies the operation, writes back. For `replace_section`, locates the target heading and replaces content up to the next heading of equal or higher level.
 
-Per [[09-project-brain]] §Build Phases v0.1: no vector search, no context assembly integration, no wikilink graph traversal. The brain tools are reactive only — the agent uses them explicitly when it decides to read or write project knowledge. Context assembly integration (brain as a proactive retrieval source) is v0.2.
+Historical note: this page still documents the old v0.1 boundary where brain tools were reactive-only. Current runtime truth is different: proactive MCP/vault-backed keyword retrieval is already live in context assembly, and this epic should not be read as the active backend contract.
 
 ---
 
@@ -99,9 +99,9 @@ Per [[09-project-brain]] §Build Phases v0.1: no vector search, no context assem
 
 ## Key Design Notes
 
-**Graceful degradation when Obsidian is not running.** The brain tools depend on the Obsidian REST API being available. If Obsidian isn't running or the plugin isn't enabled, every brain tool call will fail with the connection error message. This is expected — the agent sees the error and stops trying. The tools should NOT crash sirtopham or prevent other tools from working.
+**Graceful degradation note (historical plan).** This section describes the old REST-plugin failure mode. In current runtime, equivalent brain-tool availability depends on the MCP/vault backend rather than the Local REST plugin.
 
-**No brain indexing in this epic.** The `brain_documents` and `brain_links` SQLite tables exist (created by Layer 0 Epic 06) but are NOT populated by this epic. Populating them (content hashing, wikilink parsing, vector embedding) is a v0.2 concern for the brain indexer. The brain tools in v0.1 operate entirely through the Obsidian REST API — reads and writes go through Obsidian, not through sirtopham's own index.
+**No brain indexing in this epic.** The indexing caveat remains historical context, but the old sentence about the runtime operating entirely through the Obsidian REST API is no longer current. Today the operator-facing brain path is MCP/vault-backed keyword retrieval and tool access; semantic/index-backed brain retrieval remains future work unless separately landed.
 
 **Wikilink extraction is lightweight.** `brain_read` extracts outgoing wikilinks via regex (`\[\[([^\]]+)\]\]`) from the markdown content. This is for display purposes, not for graph traversal. Full graph traversal with the `brain_links` SQLite table is v0.2.
 
@@ -115,4 +115,4 @@ Per [[09-project-brain]] §Build Phases v0.1: no vector search, no context assem
 
 - [[layer4-epic01-tool-interface]] — registered in the tool registry
 - Layer 5 (Agent Loop) — dispatched via the executor
-- v0.2: Layer 3 (Context Assembly) — brain search will become a proactive retrieval source
+- Layer 3 (Context Assembly) — already a proactive brain-retrieval source in current runtime; this epic's REST design no longer defines that integration

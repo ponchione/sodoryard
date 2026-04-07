@@ -1,142 +1,189 @@
 # Next session handoff
 
-Date: 2026-04-07
+Date: 2026-04-07 (session 6)
 Repo: /home/gernsback/source/sirtopham
 Branch: main
-Focus: local LLM stack ownership/bring-up is now in place and validated; the next session should return to the original harness-readiness/runtime-validation thread rather than continue stack plumbing.
+Focus: V2-B4 is now landed — the repo has a maintained live validation package for proactive brain retrieval, and it was re-run successfully against the existing `:8092` my-website runtime.
 
-## What landed in this session
+## What is already done
 
-### Repo-owned local LLM stack is now real
-- Added repo-owned stack artifacts under `ops/llm/`:
-  - `ops/llm/docker-compose.yml`
-  - `ops/llm/README.md`
-  - `ops/llm/models/.gitignore`
-  - `ops/llm/logs/.gitkeep`
-- Copied real GGUF model files into `ops/llm/models/` (not symlinks):
-  - `Qwen2.5-Coder-7B-Instruct-Q6_K_L.gguf`
-  - `nomic-embed-code.Q8_0.gguf`
-- Moved the local stack off common dev ports:
-  - qwen-coder -> `http://localhost:12434`
-  - nomic-embed -> `http://localhost:12435`
+### Follow-up D — docs/spec reconciliation (this session)
 
-### Config / CLI / indexing integration landed
-- Added `local_services` config support in `internal/config/config.go`
-- `sirtopham init` now emits the block
-- `sirtopham config` now prints the effective block
-- Added `sirtopham llm status/up/down/logs`
-- `internal/index/service.go` now uses an injectable `ensureIndexServices` seam
-- `internal/index/precheck.go` now delegates to `internal/localservices`
-- Unit tests no longer depend on real localhost qwen/nomic services
-- Updated `sirtopham.yaml` to include the real local_services block and embedding endpoint for `12435`
+Landed and validated.
 
-### Live stack validation was completed
-Used a temporary auto-mode config to validate live operator flow without mutating the real config mode.
-
-Validated:
-- `make test` passes
-- `make build` passes
-- `docker compose -f ops/llm/docker-compose.yml config` passes
-- `./bin/sirtopham --config /tmp/sirtopham-llm-auto.yaml llm up` succeeded after clearing stale old exited containers with conflicting names
-- `./bin/sirtopham --config /tmp/sirtopham-llm-auto.yaml llm status` reported both services healthy/reachable/models_ready
-- direct health probes passed:
-  - `curl http://localhost:12434/health`
-  - `curl http://localhost:12435/health`
-- `./bin/sirtopham --config /tmp/sirtopham-llm-auto.yaml llm down` succeeded
-- post-down `llm status` correctly showed both services offline again
-
-### One bug found and fixed during validation
-- `internal/localservices.NewManager(nil)` previously left the runner nil, so live `llm up` crashed with a nil-pointer when it tried to call Docker.
-- Fixed by defaulting nil runners to the real shell runner in `NewManager(...)` and `NewManagerWithDeps(...)`.
-- Re-ran `make test` after the fix; clean.
-
-## Current state you should assume at the start of next session
-
-### Real config state
-`./sirtopham.yaml` now includes:
-- `local_services.enabled: true`
-- `local_services.mode: manual`
-- compose path `./ops/llm/docker-compose.yml`
-- project dir `./ops/llm`
-- qwen-coder at `12434`
-- nomic-embed at `12435`
-- `embedding.base_url: http://localhost:12435`
-
-Manual mode is intentional in the real config. The stack is not expected to auto-start during ordinary commands unless you temporarily switch mode or use a separate auto-mode config.
-
-### Stack ownership reality
-The old workstation-local `~/LLM/stacks/docker-compose.yml` dependency is no longer the source of truth for this repo. For sirtopham, the repo-owned stack under `ops/llm/` is now the canonical path.
-
-### Test/build state
-Last verified in this session:
-- `make test` -> pass
-- `make build` -> pass
-
-## What is still open from the original harness-validation thread
-Do NOT spend the next session extending local-stack plumbing unless new evidence demands it. Return to the runtime/harness work that was already in flight.
-
-Primary open items:
-- Live browser re-validation of B1, B2, B3 against the real harness flow
-- Decide whether to fix B4 now or defer again
-- Continue the original harness-readiness/runtime-validation path using the now-stable local stack when indexing is needed
-
-### The most useful next action
-Start by re-running the browser/runtime validation pass that the previous handoff called for.
-
-Recommended flow:
-1. Start the stack if needed for indexing/runtime checks.
-   - Since the real config is `manual`, either:
-     - run `docker compose -f /home/gernsback/source/sirtopham/ops/llm/docker-compose.yml up -d` manually, or
-     - use a temporary auto-mode config as in this session
-2. Start the target validation app/project exactly as the earlier handoff specified.
-3. Re-check the previously fixed harness bugs live:
-   - B2: new conversation appears in sidebar immediately without reload
-   - B1: inspector updates live to `Turn 2 of 2` without reload
-   - B3: reload existing conversation and confirm last-turn usage chip still renders
-4. If those pass, then decide whether to take B4 or move on to the next substantive runtime slice.
-
-## Short list of remaining debt that matters here
-See `TECH-DEBT.md` for the full list, but the practical items are:
-- H1/H2 follow-through via real browser/runtime validation evidence
-- B4 `avg_budget_used_pct` backend/frontend mismatch
-- lower-priority local-stack polish only if it becomes annoying in real use:
-  - container-name conflicts if multiple repos try to own separate stacks
-  - friendlier stale-container conflict handling in `llm up`
-  - less noisy remediation output in `llm status`
-
-## Files touched in this session
-Core stack/config/CLI work:
-- `.gitignore`
+Files changed:
 - `README.md`
-- `sirtopham.yaml`
-- `sirtopham.yaml.example`
-- `ops/llm/docker-compose.yml`
-- `ops/llm/README.md`
-- `ops/llm/models/.gitignore`
-- `ops/llm/logs/.gitkeep`
-- `internal/localservices/types.go`
-- `internal/localservices/health.go`
-- `internal/localservices/docker.go`
-- `internal/localservices/manager.go`
-- `internal/localservices/manager_test.go`
-- `internal/config/config.go`
-- `internal/config/config_test.go`
-- `internal/index/precheck.go`
-- `internal/index/precheck_test.go`
-- `internal/index/service.go`
-- `internal/index/service_test.go`
-- `cmd/sirtopham/llm.go`
-- `cmd/sirtopham/llm_test.go`
-- `cmd/sirtopham/config.go`
-- `cmd/sirtopham/config_test.go`
-- `cmd/sirtopham/init.go`
-- `cmd/sirtopham/init_test.go`
-- `cmd/sirtopham/auth.go`
-- `cmd/sirtopham/main.go`
+- `TECH-DEBT.md`
+- `NEXT_SESSION_HANDOFF.md`
+- `docs/specs/06-context-assembly.md`
+- `docs/specs/09-project-brain.md`
+- `docs/layer3/04-retrieval-orchestrator/epic-04-retrieval-orchestrator.md`
+- `docs/layer6/03-rest-api-project-config-metrics/epic-03-rest-api-project-config-metrics.md`
+- `docs/layer6/03-rest-api-project-config-metrics/task-04-context-report-endpoint.md`
+- `docs/layer6/09-context-inspector/epic-09-context-inspector.md`
+- `docs/layer6/09-context-inspector/task-02-signals-and-semantic-queries-display.md`
+
+Behavior/documentation changes:
+- README now states that the first v0.2 proactive brain slice is already live.
+- The practical operator story is now explicit across specs/docs:
+  - proactive brain retrieval is live
+  - it is MCP/vault-backed and keyword-based today
+  - context reports retain actual semantic queries
+  - `GET /api/metrics/conversation/{id}/context/{turn}/signals` is the narrow ordered signal-flow endpoint
+- Context-assembly and brain specs no longer describe v0.1 reactive-only behavior as if it were still current runtime truth.
+- TECH-DEBT D1 is now downgraded to mostly-done cleanup rather than primary active debt.
+
+### Follow-up D-alt — inspector consumption of signal stream (this session)
+
+Landed and validated.
+
+Files changed:
+- `web/src/hooks/use-context-report.ts`
+- `web/src/types/metrics.ts`
+- `web/src/components/inspector/context-inspector.tsx`
+
+Behavior changes:
+- Historical inspector loads now fetch both:
+  - `GET /api/metrics/conversation/{id}/context/{turn}`
+  - `GET /api/metrics/conversation/{id}/context/{turn}/signals`
+- Inspector now shows a dedicated `Signal Flow` section sourced from the ordered stream endpoint.
+- The UI still falls back to reconstructing a stream from stored report data when necessary, so live/current-turn behavior remains tolerant.
+
+### V2-B4 — proactive brain retrieval validation package (this session)
+
+Landed and validated.
+
+Files changed:
+- `docs/v2-b4-brain-retrieval-validation.md`
+- `scripts/validate_brain_retrieval.py`
+- `README.md`
 - `TECH-DEBT.md`
 - `NEXT_SESSION_HANDOFF.md`
 
-## Commit state at handoff
-Working tree is still dirty and includes pre-existing unrelated changes from earlier work. Nothing was pushed.
+Behavior/package changes:
+- there is now one maintained command for the live canary proof:
+  - `python3 scripts/validate_brain_retrieval.py --base-url http://localhost:8092 --expected-note notes/runtime-brain-proof-apr-07.md`
+- the default prompt is the narrow no-detour canary:
+  - `What is the runtime brain proof canary phrase?`
+- the script opens a fresh websocket conversation, waits for completion, fetches:
+  - `/api/conversations/{id}/messages`
+  - `/api/metrics/conversation/{id}/context/{turn}`
+  - `/api/metrics/conversation/{id}/context/{turn}/signals`
+- the script fails closed unless all of the following are true:
+  - answer contains `ORBIT LANTERN 642`
+  - tool call list is empty by default
+  - `needs.semantic_queries` is non-empty
+  - `brain_results` includes `notes/runtime-brain-proof-apr-07.md`
+  - `budget_breakdown.brain > 0`
+  - the ordered signal stream contains both a semantic query and the `prefer_brain_context` flag
+- the package is explicit that this proves the current MCP/vault keyword path, not hypothetical semantic/index-backed brain retrieval
 
-Next session should treat the local LLM stack work as done enough and resume the original validation/workflow thread.
+Latest live run evidence:
+- conversation id: `019d69ab-046e-7056-8175-c1f9bac43000`
+- assistant answer included `ORBIT LANTERN 642`
+- tool calls: none
+- semantic queries: `what is the runtime brain proof canary phrase`
+- brain hit: `notes/runtime-brain-proof-apr-07.md`
+- budget: `brain=47`, `rag=0`
+
+### Root-doc cleanup (this session)
+
+Removed stale root docs that no longer match the current phase:
+- `HARNESS_COMPLETION_PUNCHLIST.md`
+- `UI_VALIDATION_PACKAGE.md`
+
+Reason:
+- both were leftover v0.1/harness-closeout execution artifacts
+- neither was referenced anymore
+- they were becoming misleading relative to the current v0.2 brain/observability phase
+
+### Previously landed work still relevant
+
+Still landed and still valid:
+- proactive brain retrieval trace logging is gated by `brain.log_brain_queries`
+- proactive brain retrieval excludes `_log.md`
+- `brain_search` tag handling remains post-hoc and recognizes frontmatter, inline hashtags, and metadata lines
+- persisted context reports retain real semantic queries
+- `/api/metrics/conversation/{id}/context/{turn}/signals` returns the ordered signal stream
+
+## Validation that matters now
+
+Focused validation:
+- `go test -tags sqlite_fts5 ./internal/server` -> pass
+- `cd web && npm run build` -> pass
+- `python3 -m py_compile scripts/validate_brain_retrieval.py` -> pass
+- `python3 scripts/validate_brain_retrieval.py --base-url http://localhost:8092 --expected-note notes/runtime-brain-proof-apr-07.md` -> pass
+
+Broader validation:
+- `make test` -> pass
+- `make build` -> pass
+
+Notes:
+- frontend build still emits the existing Vite chunk-size warning for the large main JS bundle; no build failure
+
+## Current runtime state
+- active primary validation config:
+  - `/tmp/my-website-runtime-8092.yaml`
+- currently running app/server:
+  - `./bin/sirtopham --config /tmp/my-website-runtime-8092.yaml serve`
+  - listening at `http://localhost:8092`
+  - verified intended process at handoff: pid `1142984`
+- temporary debug/no-trace validation config retained for reference:
+  - `/tmp/my-website-runtime-8093-no-brain-query-log.yaml`
+  - no server currently running on `:8093`
+- seeded brain notes in `~/source/my-website/.brain/` still include:
+  - `notes/runtime-brain-proof-apr-07.md`
+  - `notes/minimal-content-first-layout-rationale.md`
+  - `notes/analyzer-pattern-list-naming-convention.md`
+  - `notes/past-debugging-vite-rebuild-loop.md`
+- currently running repo-owned local LLM stack:
+  - qwen-coder: `http://localhost:12434`
+  - nomic-embed: `http://localhost:12435`
+
+## What the next session should do
+Pick exactly one follow-up. Stay incremental.
+
+### Recommended next — broader stale-doc sweep under docs/layer4 and tool specs
+Reason: the current runtime/operator truth is now packaged and revalidated. The next low-risk value is removing or correcting older docs that still talk like the brain is Obsidian-REST-only or reactive-only.
+
+Concrete plan:
+1. Start from the current runtime truth sources:
+   - `README.md`
+   - `TECH-DEBT.md`
+   - `docs/specs/06-context-assembly.md`
+   - `docs/specs/09-project-brain.md`
+   - `docs/v2-b4-brain-retrieval-validation.md`
+2. Sweep `docs/layer4/*` plus any remaining brain-tool/task specs for wording that still implies:
+   - reactive-only brain behavior
+   - Obsidian Local REST as the operator-facing backend contract
+   - hypothetical semantic/index-backed brain retrieval as if it were already landed
+3. Keep edits truthful and narrow:
+   - current runtime is MCP/vault-backed keyword retrieval
+   - the validation package is now the durable live proof
+   - semantic/index-backed brain retrieval remains future work unless code actually lands
+4. Re-run only the validation that matches the slice.
+
+### Alternative next — another live canary family for proactive brain retrieval
+Only if you want another runtime-proof slice instead of docs cleanup:
+- add one second maintained canary prompt against an existing my-website note family such as rationale or prior-debugging history
+- keep using `scripts/validate_brain_retrieval.py` as the base proof path rather than inventing a second ad hoc harness
+
+## Exact start point
+If you pick the docs sweep:
+- read `docs/v2-b4-brain-retrieval-validation.md` first so the package truth stays fixed while you edit older docs
+- search `docs/layer4` and related brain-tool specs for `Obsidian`, `reactive-only`, and stale retrieval wording
+- update only the docs that are still materially misleading
+
+## Commands that remain useful
+- `make test`
+- `make build`
+- `./bin/sirtopham doctor --config /tmp/my-website-runtime-8092.yaml`
+- `curl -s http://localhost:8092/api/config`
+- `curl -s http://localhost:8092/api/providers`
+- `curl -s http://localhost:8092/api/auth/providers`
+- `curl -s "http://localhost:8092/api/metrics/conversation/<id>/context/1"`
+- `curl -s "http://localhost:8092/api/metrics/conversation/<id>/context/1/signals"`
+- `python3 scripts/validate_brain_retrieval.py --base-url http://localhost:8092 --expected-note notes/runtime-brain-proof-apr-07.md`
+
+## Commit state at handoff
+Working tree is still dirty and includes pre-existing unrelated local-state/backend WIP plus the docs/UI reconciliation from this session. Nothing was pushed.

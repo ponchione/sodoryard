@@ -1,5 +1,7 @@
 # Task 04: brain_write Tool Implementation
 
+Note: this task doc is historical. Current runtime uses the MCP/vault backend for note mutation rather than the older REST-plugin plan described here.
+
 **Epic:** 06 — Obsidian Client & Brain Tools
 **Status:** ⬚ Not started
 **Dependencies:** Task 01, Layer 4 Epic 01
@@ -8,7 +10,7 @@
 
 ## Description
 
-Implement the `brain_write` tool as a `Mutating` tool in `internal/tool/`. This tool creates a new document or overwrites an existing one in the project brain vault via the Obsidian REST API. The agent writes full Obsidian-native markdown including YAML frontmatter, `[[wikilinks]]`, and `#tags`. A warning is logged if the content doesn't include YAML frontmatter, but the write proceeds regardless.
+Historical plan: implement `brain_write` as a `Mutating` tool via the Obsidian REST API. Current runtime note mutation is MCP/vault-backed; this page is retained only as legacy implementation context.
 
 ## Acceptance Criteria
 

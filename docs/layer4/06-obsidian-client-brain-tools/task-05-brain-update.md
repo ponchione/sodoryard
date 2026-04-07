@@ -1,5 +1,7 @@
 # Task 05: brain_update Tool Implementation
 
+Note: this task doc is historical. Current runtime uses the MCP/vault backend for note mutation rather than the older REST-plugin plan described here.
+
 **Epic:** 06 — Obsidian Client & Brain Tools
 **Status:** ⬚ Not started
 **Dependencies:** Task 01, Layer 4 Epic 01
@@ -8,7 +10,7 @@
 
 ## Description
 
-Implement the `brain_update` tool as a `Mutating` tool in `internal/tool/`. This tool modifies an existing brain document by appending, prepending, or replacing a specific section. It reads the current document content, applies the requested operation, and writes the updated content back via the Obsidian REST API. The `replace_section` operation uses markdown heading semantics to locate and replace content within a specific section.
+Historical plan: implement `brain_update` as a `Mutating` tool via the Obsidian REST API. Current runtime note mutation is MCP/vault-backed; this page is retained only as legacy implementation context.
 
 ## Acceptance Criteria
 

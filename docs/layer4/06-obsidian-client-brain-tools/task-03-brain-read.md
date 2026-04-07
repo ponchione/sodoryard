@@ -1,5 +1,7 @@
 # Task 03: brain_read Tool Implementation
 
+Note: this task doc is historical. Current runtime uses the MCP/vault backend for `brain_read`; use this page only for the older REST-era design.
+
 **Epic:** 06 — Obsidian Client & Brain Tools
 **Status:** ⬚ Not started
 **Dependencies:** Task 01, Layer 4 Epic 01
@@ -8,7 +10,7 @@
 
 ## Description
 
-Implement the `brain_read` tool as a `Pure` tool in `internal/tool/`. This tool reads a specific brain document by its vault-relative path, returning the full markdown content along with extracted YAML frontmatter metadata and outgoing wikilinks. An optional `include_backlinks` parameter uses a heuristic keyword search to find documents that reference the requested document.
+Historical plan: implement `brain_read` as a `Pure` tool around the Obsidian REST API. Current runtime keeps the same high-level tool role but serves it through the MCP/vault backend.
 
 ## Acceptance Criteria
 

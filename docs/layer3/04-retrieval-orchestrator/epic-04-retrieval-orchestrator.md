@@ -11,7 +11,7 @@
 
 Implement the parallel retrieval orchestrator that executes up to five retrieval paths concurrently, collects their results, and applies relevance filtering. This is the I/O-heavy stage of context assembly — it calls into the Layer 1 searcher (semantic search), reads files from disk (explicit files), queries the structural graph (blast radius), loads cached conventions, and runs `git log`.
 
-All five paths run in parallel via goroutines. The orchestrator waits for all to complete (or timeout), then merges and deduplicates results across sources. Relevance filtering applies cosine similarity thresholds to discard low-quality RAG hits before passing results to the budget manager (Epic 05). The project brain remains reactive-only in v0.1; proactive brain retrieval joins this epic in v0.2.
+The orchestrator runs the currently active retrieval paths in parallel via goroutines, waits for all to complete (or timeout), then merges and deduplicates results across sources. Relevance filtering applies cosine similarity thresholds to discard low-quality RAG hits before passing results to the budget manager (Epic 05). Current runtime already includes proactive keyword-backed brain retrieval from the MCP/vault backend; broader semantic/index-backed brain retrieval remains future work.
 
 ---
 
@@ -27,7 +27,7 @@ All five paths run in parallel via goroutines. The orchestrator waits for all to
   4. **Convention cache:** If `ContextNeeds.IncludeConventions` is true, load cached conventions from the Layer 1 convention extractor. Returns convention text string.
   5. **Git context:** If `ContextNeeds.IncludeGitContext` is true, execute `git log --oneline -N` where N is `GitContextDepth`. Returns git log string.
 - [ ] **Timeout:** Each retrieval path has a configurable timeout (default 5 seconds). If a path times out, its results are empty — the orchestrator does not fail the entire assembly.
-- [ ] **v0.2 handoff note:** Proactive project-brain retrieval is explicitly out of v0.1 scope here. Brain documents remain available reactively through Layer 4 brain tools and may join this epic in v0.2.
+- [ ] **Current v0.2 note:** Proactive project-brain retrieval is already in scope here via the MCP/vault keyword-backed path. Remaining open work is about query shaping, validation packaging, and any future semantic/index-backed expansion — not about proving the brain is still reactive-only.
 
 ### Relevance Filtering
 
@@ -50,14 +50,14 @@ All five paths run in parallel via goroutines. The orchestrator waits for all to
 
 - [[06-context-assembly]] — "Component: Retrieval Execution" section (Parallel Retrieval Paths, Semantic Search Details, Relevance Filtering)
 - [[04-code-intelligence-and-rag]] — Searcher interface, multi-query expansion, dependency hop patterns
-- [[09-project-brain]] — Build phases and v0.2 handoff for future proactive brain retrieval
+- [[09-project-brain]] — Current MCP/vault-backed proactive brain retrieval contract plus future expansion questions
 
 ---
 
 ## Implementation Notes
 
 - The Layer 1 searcher (from `internal/rag/searcher.go`) is the primary dependency. This epic calls into it, not reimplements it. The searcher already handles multi-query expansion, dedup, re-ranking, and dependency hops.
-- Proactive project-brain retrieval is intentionally deferred. In v0.1, the agent accesses project-brain content reactively through Layer 4 brain tools; this epic does not call the Obsidian REST API or a brain vector index.
+- Proactive project-brain retrieval is no longer deferred: current runtime calls the MCP/vault brain backend for keyword-backed brain hits during context assembly. Older references to an Obsidian REST-only runtime in this epic are historical planning context, not the current operator truth.
 - `git log` execution should use the same shell execution pattern as the rest of the codebase — `exec.CommandContext` with the project root as working directory.
 - The `errgroup.Group` pattern is ideal for parallel retrieval: each goroutine runs independently, errors are collected, and a context cancellation propagates timeouts.
 - File reads for `ExplicitFiles` should verify paths are within the project root (path traversal prevention). Files outside the project root are skipped with a warning.

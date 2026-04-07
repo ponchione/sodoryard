@@ -3,7 +3,7 @@
 **Layer:** 4 (Shell, file, search, git tools)
 **Primary Source:** [[05-agent-loop]] §Tool Set, §Tool Dispatch
 **Supporting Docs:** [[04-code-intelligence-and-rag]], [[08-data-model]], [[09-project-brain]]
-**Last Updated:** 2026-03-28
+**Last Updated:** 2026-04-07
 
 ---
 
@@ -13,7 +13,7 @@ Layer 4 implements the tool system that the agent loop (Layer 5) dispatches into
 
 - The generic `Tool` interface, purity classification, tool registry, and the executor that handles purity-based parallel/sequential dispatch
 - Eight core tools: `file_read`, `file_write`, `file_edit`, `search_text`, `search_semantic`, `git_status`, `git_diff`, `shell`
-- Four brain tools: `brain_read`, `brain_write`, `brain_update`, `brain_search` (v0.1 keyword-only via Obsidian REST API)
+- Four brain tools: `brain_read`, `brain_write`, `brain_update`, `brain_search` (current runtime uses the MCP/vault backend; older Obsidian REST wording in this layer is historical planning context only)
 - Tool result formatting, output truncation, and `tool_executions` persistence
 
 Layer 4 depends on Layer 1 (for `search_semantic`'s RAG backend) but NOT on Layer 2 (tools don't make LLM calls). Layer 4's sole consumer is Layer 5 (Agent Loop), which dispatches tool calls and collects results.
@@ -56,9 +56,9 @@ Layer 1 (Code Intelligence)
           │          │       │       │          │
           ▼          ▼       ▼       ▼          ▼
       Epic 02    Epic 03  Epic 04  Epic 05   Epic 06
-      File       Search   Git      Shell     Obsidian
-      Tools      Tools    Tools    Tool      Client &
-                                             Brain Tools
+      File       Search   Git      Shell     Brain
+      Tools      Tools    Tools    Tool      Tools &
+                                             Legacy REST Plan
 ```
 
 Epics 02–06 are independent of each other and can be built in parallel once Epic 01 is complete.
@@ -86,7 +86,7 @@ Epics 02–06 are independent of each other and can be built in parallel once Ep
 
 **Tool results become `role=tool` messages.** The executor returns structured `ToolResult` values. The agent loop (Layer 5) converts these to API messages with `tool_use_id` linkage. Layer 4 does not know about the message format — it returns data, Layer 5 formats it.
 
-**Brain tools are v0.1 scope but keyword-only.** Per [[09-project-brain]] build phases, v0.1 includes the four brain tools with keyword search via the Obsidian REST API. No vector search, no context assembly integration, no wikilink graph traversal. Those are v0.2. The Obsidian REST API client is the only external HTTP dependency in this layer.
+**Brain-tool runtime truth is narrower than the old Layer 4 plan.** The current operator-facing runtime uses MCP/vault-backed keyword brain tooling and proactive context assembly already consumes brain hits. Treat the Obsidian REST phrasing in older Layer 4 docs as superseded implementation history, not as the current backend contract.
 
 **JSON Schema generation per tool.** Each tool produces a JSON Schema definition of its parameters. The registry collects these for injection into LLM requests. This is how the LLM knows what tools are available and what arguments they accept.
 
