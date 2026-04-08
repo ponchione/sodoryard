@@ -4,10 +4,7 @@
 
 Note: portions of this draft still describe the pre-MCP Obsidian Local REST design. The implemented runtime has since moved to an MCP-backed vault backend; treat REST-specific details here as historical planning context, not the current supported path.
 
-Current phase note: v0.1 shipped the brain as reactive tools only. The first v0.2 slice is now landed: context assembly performs proactive keyword-backed brain retrieval against the MCP/vault backend, budget fitting has a real brain tier, and serialization/reporting expose those hits. The remaining v0.2 work is:
-- richer analyzer/query shaping for brain-oriented retrieval
-- deciding whether semantic/index-backed brain retrieval is part of the real operator story or remains future work
-- validation packaging for live proactive brain retrieval behavior
+Current phase note: v0.1 shipped the brain as reactive tools only. The first v0.2 slice is now landed: context assembly performs proactive keyword-backed brain retrieval against the MCP/vault backend, budget fitting has a real brain tier, serialization/reporting expose those hits, reserve/estimate/reconcile token-budget reporting is visible on the context report surface, and a maintained live validation package now exists. The current product/runtime decision is explicit: keyword-backed MCP/vault retrieval is the supported operator-facing path for now, while semantic/index-backed brain retrieval remains future work unless code and validation land for it. The maintained live proofs now cover three prompt families: fact canary, rationale/decision notes, and prior-debugging/history notes.
 
 ---
 
@@ -46,6 +43,8 @@ Obsidian is not just a markdown renderer. It's a structured knowledge tool with 
 The brain is not a feature bolted onto sirtopham. It's a first-class component with its own storage, retrieval logic, tools, and lifecycle.
 
 ### Integration Model
+
+Historical-design note: the diagram below still contains older REST/indexer boxes to preserve planning context, but the live runtime path today is narrower: MCP/vault-backed keyword retrieval and tool access are real; the semantic/indexer pieces shown here are future-facing unless separately landed.
 
 Obsidian runs alongside sirtopham as the human-facing vault UI, but the implemented runtime path is now the in-process MCP-backed vault backend. sirtopham talks to the vault through `internal/brain/mcpclient` and MCP `vault_*` tools rather than the older Obsidian Local REST API design.
 
@@ -230,7 +229,7 @@ Those may still be worthwhile v0.2+ work, but the docs should not imply they are
 
 ## Indexing
 
-Brain documents are indexed for both FTS5 (via Obsidian) and vector search (via sirtopham's indexer).
+Historical/future-design note: this section describes the older planned indexing model, not the current operator-facing runtime contract. Today the live brain path is MCP/vault-backed keyword retrieval; the vector/graph indexing story below remains reserved future work unless code and validation land for it.
 
 ### Obsidian Handles Keyword Search
 

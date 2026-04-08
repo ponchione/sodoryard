@@ -6,12 +6,14 @@ Local Go implementation of the sirtopham coding-agent harness.
 
 v0.1 harness closeout is effectively complete.
 
-The project is now in incremental v0.2 brain work. The first proactive slice is already live:
+The project is now in incremental v0.2 brain work. The first proactive slice is already live and the current operator-facing contract is intentionally explicit:
 - proactive MCP/vault-backed keyword brain retrieval during context assembly
 - brain-aware budget fitting / serialization / inspector reporting
 - dedicated ordered signal-flow observability at `/api/metrics/conversation/:id/context/:turn/signals`
+- reserve/estimate/reconcile token-budget reporting on the context report surface
 - a repeatable live validation package at `docs/v2-b4-brain-retrieval-validation.md` plus `scripts/validate_brain_retrieval.py`
-- ongoing cleanup of the runtime/docs contract for what the brain backend actually is
+- maintained live validation scenarios for a fact canary, a rationale note family, and a prior-debugging/history note family
+- keyword-backed brain retrieval remains the real runtime path today; semantic/index-backed brain retrieval is reserved future work unless code and validation land for it
 
 If you are resuming implementation work, read these first:
 - `TECH-DEBT.md`
@@ -24,7 +26,7 @@ If you are resuming implementation work, read these first:
 - The backend binary is built from `./cmd/sirtopham`.
 - The production build embeds the frontend from `web/dist/`.
 - Real retrieval depends on running `sirtopham index` before `sirtopham serve`.
-- Indexing expects local model services for description generation and embeddings.
+- Indexing requires the local embedding service; qwen-coder is optional today because the current indexing path uses a no-op describer.
 
 ## Requirements
 
@@ -32,9 +34,10 @@ If you are resuming implementation work, read these first:
 - Node.js and npm
 - The bundled LanceDB shared library in `lib/linux_amd64`
 - At least one working provider configuration for runtime turns
-- Local indexing services:
-  - describer / qwen-coder at `http://localhost:12434`
+- Local indexing service:
   - embeddings / nomic-embed-code at `http://localhost:12435`
+- Optional local describer service if/when description generation is re-enabled:
+  - qwen-coder at `http://localhost:12434`
 
 ## Quick Start
 
@@ -64,6 +67,6 @@ If you are resuming implementation work, read these first:
 ## Notes
 
 - `sirtopham init` creates `.<project>/` for SQLite and LanceDB state plus a repo-local `.brain/` vault.
-- `sirtopham config` is the fastest way to confirm effective paths, providers, and embedding endpoint.
+- `sirtopham config` is the fastest way to confirm effective paths, default/fallback routing, and the embedding endpoint; it is not a full dump of every configured provider surface.
 - If you skip `sirtopham index`, the app can start, but semantic retrieval and context inspection will not reflect a real indexed project.
 - The older architecture docs under `docs/` are useful background, but this README, `TECH-DEBT.md`, `NEXT_SESSION_HANDOFF.md`, and the live runtime/metrics surfaces are the practical source of truth for bring-up.

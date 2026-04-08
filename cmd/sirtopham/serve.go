@@ -104,6 +104,9 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	if err := appdb.EnsureMessageSearchIndexesIncludeTools(cmd.Context(), database); err != nil {
 		return fmt.Errorf("upgrade message search indexes: %w", err)
 	}
+	if err := appdb.EnsureContextReportsIncludeTokenBudget(cmd.Context(), database); err != nil {
+		return fmt.Errorf("upgrade context report token budget storage: %w", err)
+	}
 	queries := appdb.New(database)
 
 	// Project ID is the project root path.
@@ -315,7 +318,7 @@ func buildProvider(name string, cfg appconfig.ProviderConfig) (provider.Provider
 		if err != nil {
 			return nil, fmt.Errorf("anthropic credentials: %w", err)
 		}
-		return anthropic.NewAnthropicProvider(creds), nil
+		return withProviderAlias(name, anthropic.NewAnthropicProvider(creds)), nil
 
 	case "openai-compatible":
 		return openai.NewOpenAIProvider(openai.OpenAIConfig{
@@ -331,11 +334,65 @@ func buildProvider(name string, cfg appconfig.ProviderConfig) (provider.Provider
 		if cfg.BaseURL != "" {
 			opts = append(opts, codex.WithBaseURL(cfg.BaseURL))
 		}
-		return codex.NewCodexProvider(opts...)
+		p, err := codex.NewCodexProvider(opts...)
+		if err != nil {
+			return nil, err
+		}
+		return withProviderAlias(name, p), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %q", cfg.Type)
 	}
+}
+
+func withProviderAlias(name string, inner provider.Provider) provider.Provider {
+	if inner == nil || name == "" || inner.Name() == name {
+		return inner
+	}
+	return aliasedProvider{name: name, inner: inner}
+}
+
+type aliasedProvider struct {
+	name  string
+	inner provider.Provider
+}
+
+func (p aliasedProvider) Name() string {
+	return p.name
+}
+
+func (p aliasedProvider) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
+	return p.inner.Complete(ctx, req)
+}
+
+func (p aliasedProvider) Stream(ctx context.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	return p.inner.Stream(ctx, req)
+}
+
+func (p aliasedProvider) Models(ctx context.Context) ([]provider.Model, error) {
+	return p.inner.Models(ctx)
+}
+
+func (p aliasedProvider) Ping(ctx context.Context) error {
+	pinger, ok := p.inner.(provider.Pinger)
+	if !ok {
+		return nil
+	}
+	return pinger.Ping(ctx)
+}
+
+func (p aliasedProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, error) {
+	reporter, ok := p.inner.(provider.AuthStatusReporter)
+	if !ok {
+		return nil, nil
+	}
+	status, err := reporter.AuthStatus(ctx)
+	if err != nil || status == nil {
+		return status, err
+	}
+	cloned := *status
+	cloned.Provider = p.name
+	return &cloned, nil
 }
 
 func ensureProjectRecord(ctx context.Context, database *sql.DB, cfg *appconfig.Config) error {

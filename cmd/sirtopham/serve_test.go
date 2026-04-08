@@ -135,3 +135,35 @@ func TestBuildProviderSupportsCodex(t *testing.T) {
 		t.Fatalf("provider.Name() = %q, want codex", got)
 	}
 }
+
+func TestBuildProviderPreservesConfiguredAliasForAnthropic(t *testing.T) {
+	provider, err := buildProvider("primary_claude", appconfig.ProviderConfig{Type: "anthropic", APIKey: "test-key"})
+	if err != nil {
+		t.Fatalf("buildProvider(primary_claude) error = %v, want nil", err)
+	}
+	if got := provider.Name(); got != "primary_claude" {
+		t.Fatalf("provider.Name() = %q, want primary_claude", got)
+	}
+}
+
+func TestBuildProviderPreservesConfiguredAliasForCodex(t *testing.T) {
+	binDir := t.TempDir()
+	codexPath := filepath.Join(binDir, "codex")
+	script := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		codexPath += ".bat"
+		script = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(codex stub): %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	provider, err := buildProvider("corp_codex", appconfig.ProviderConfig{Type: "codex"})
+	if err != nil {
+		t.Fatalf("buildProvider(corp_codex) error = %v, want nil", err)
+	}
+	if got := provider.Name(); got != "corp_codex" {
+		t.Fatalf("provider.Name() = %q, want corp_codex", got)
+	}
+}
