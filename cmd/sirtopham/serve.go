@@ -195,6 +195,9 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	conventionSource := buildConventionSource(cfg)
 	retrievalOrchestrator := contextpkg.NewRetrievalOrchestrator(semanticSearcher, graphStore, conventionSource, brainBackend, cfg.ProjectRoot)
 	retrievalOrchestrator.SetLogBrainQueries(cfg.Brain.LogBrainQueries)
+	retrievalOrchestrator.SetBrainConfig(cfg.Brain)
+	budgetManager := contextpkg.PriorityBudgetManager{}
+	budgetManager.SetBrainConfig(cfg.Brain)
 
 	// ── 6. Build tool registry + executor ──────────────────────────────
 	registry := tool.NewRegistry()
@@ -226,7 +229,7 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 		contextpkg.HeuristicQueryExtractor{},
 		contextpkg.HistoryMomentumTracker{},
 		retrievalOrchestrator,
-		contextpkg.PriorityBudgetManager{},
+		budgetManager,
 		contextpkg.MarkdownSerializer{},
 		cfg.Context,
 		database,

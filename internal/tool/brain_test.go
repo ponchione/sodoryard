@@ -337,8 +337,8 @@ func TestBrainSearchSemanticFallback(t *testing.T) {
 
 func TestBrainSearchWithTagsFiltersHitsByTag(t *testing.T) {
 	docs := map[string]string{
-		"_log.md": "## [2026-04-07T16:41:44Z] query | vite rebuild loop fix (tags: debug history) Returned 0 results via keyword search.",
-		"notes/debug-loop.md": "---\ntags: [debug-history]\n---\n# Debug Loop\nThe vite rebuild loop fix moved generated code out of src.",
+		"_log.md":                "## [2026-04-07T16:41:44Z] query | vite rebuild loop fix (tags: debug history) Returned 0 results via keyword search.",
+		"notes/debug-loop.md":    "---\ntags: [debug-history]\n---\n# Debug Loop\nThe vite rebuild loop fix moved generated code out of src.",
 		"notes/untagged-loop.md": "# Untagged Loop\nThe vite rebuild loop fix moved generated code out of src.",
 	}
 	backend := newFakeBackend(docs)
@@ -401,7 +401,7 @@ func TestBrainSearchWithTagOnlyQueryReturnsTaggedNotes(t *testing.T) {
 	docs := map[string]string{
 		"notes/debug-loop.md": "---\ntags: [debug-history]\n---\n# Debug Loop\nGenerated barrel loop notes.",
 		"notes/debug-lint.md": "# Debug Lint\nKeep the #debug-history journal up to date.",
-		"notes/rationale.md": "---\ntags: [rationale]\n---\n# Layout\nMinimal content first rationale.",
+		"notes/rationale.md":  "---\ntags: [rationale]\n---\n# Layout\nMinimal content first rationale.",
 	}
 	backend := newFakeBackend(docs)
 	tool := NewBrainSearch(backend, brainConfig(true))
@@ -645,8 +645,14 @@ func TestBrainWriteSuccess(t *testing.T) {
 	if !result.Success {
 		t.Fatalf("Success = false, content = %q", result.Content)
 	}
-	if got, want := result.Content, "Wrote brain document: notes/new.md"; got != want {
-		t.Fatalf("content = %q, want %q", got, want)
+	if !strings.Contains(result.Content, "Wrote brain document: notes/new.md") {
+		t.Fatalf("content = %q, want write success message", result.Content)
+	}
+	if !strings.Contains(result.Content, "Derived brain index is now stale") {
+		t.Fatalf("content = %q, want explicit stale-index reminder", result.Content)
+	}
+	if !strings.Contains(result.Content, "sirtopham index brain") {
+		t.Fatalf("content = %q, want explicit reindex command", result.Content)
 	}
 	// Verify the doc was actually stored.
 	if docs["notes/new.md"] != content {
@@ -847,9 +853,17 @@ func TestBrainUpdateAppend(t *testing.T) {
 	if !result.Success {
 		t.Fatalf("Success = false, content = %q", result.Content)
 	}
-	want := "Updated brain document: notes/journal.md (append)\n\nContent preview:\n```md\n---\ntags: [debug]\n---\n# Journal\n\nFirst entry.\n\n## Second Entry\nMore notes here.\n```"
-	if got := result.Content; got != want {
-		t.Fatalf("content = %q\nwant    %q", got, want)
+	if !strings.Contains(result.Content, "Updated brain document: notes/journal.md (append)") {
+		t.Fatalf("content = %q, want update success message", result.Content)
+	}
+	if !strings.Contains(result.Content, "Derived brain index is now stale") {
+		t.Fatalf("content = %q, want explicit stale-index reminder", result.Content)
+	}
+	if !strings.Contains(result.Content, "sirtopham index brain") {
+		t.Fatalf("content = %q, want explicit reindex command", result.Content)
+	}
+	if !strings.Contains(result.Content, "Content preview:\n```md\n---\ntags: [debug]\n---\n# Journal\n\nFirst entry.\n\n## Second Entry\nMore notes here.\n```") {
+		t.Fatalf("content preview missing from result: %q", result.Content)
 	}
 	if !strings.Contains(docs["notes/journal.md"], "First entry.") {
 		t.Fatal("original content missing after append")

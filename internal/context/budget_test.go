@@ -122,6 +122,29 @@ func TestPriorityBudgetManagerMarksBelowThresholdAndCompressionNeeded(t *testing
 	}
 }
 
+func TestPriorityBudgetManagerHonorsMaxBrainTokens(t *testing.T) {
+	manager := PriorityBudgetManager{}
+	manager.SetBrainConfig(config.BrainConfig{MaxBrainTokens: 20})
+	first := BrainHit{DocumentPath: "notes/first.md", Title: "First", Snippet: strings.Repeat("a", 40), MatchScore: 0.95, MatchMode: "keyword"}
+	second := BrainHit{DocumentPath: "notes/second.md", Title: "Second", Snippet: strings.Repeat("b", 40), MatchScore: 0.90, MatchMode: "keyword"}
+
+	result, err := manager.Fit(&RetrievalResults{BrainHits: []BrainHit{first, second}}, 200000, 0, config.ContextConfig{
+		MaxAssembledTokens: 30000,
+	})
+	if err != nil {
+		t.Fatalf("Fit returned error: %v", err)
+	}
+	if len(result.SelectedBrainHits) != 1 || result.SelectedBrainHits[0].DocumentPath != "notes/first.md" {
+		t.Fatalf("SelectedBrainHits = %v, want only first hit within brain budget", result.SelectedBrainHits)
+	}
+	if result.ExclusionReasons["notes/second.md"] != "budget_exceeded" {
+		t.Fatalf("notes/second.md exclusion = %q, want budget_exceeded", result.ExclusionReasons["notes/second.md"])
+	}
+	if result.BudgetBreakdown["brain"] != estimateBrainHitTokens(first) {
+		t.Fatalf("brain breakdown = %d, want %d", result.BudgetBreakdown["brain"], estimateBrainHitTokens(first))
+	}
+}
+
 func estimateFileResultTokens(file FileResult) int {
 	return approxTokens(file.FilePath + "\n" + file.Content)
 }

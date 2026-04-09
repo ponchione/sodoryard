@@ -1,17 +1,26 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
+	brainindexer "github.com/ponchione/sirtopham/internal/brain/indexer"
+	"github.com/ponchione/sirtopham/internal/codeintel/embedder"
+	"github.com/ponchione/sirtopham/internal/codestore"
 	appconfig "github.com/ponchione/sirtopham/internal/config"
+	appdb "github.com/ponchione/sirtopham/internal/db"
 	appindex "github.com/ponchione/sirtopham/internal/index"
 	"github.com/spf13/cobra"
 )
 
 var runIndexService = appindex.Run
+var runBrainIndexCommand = runBrainIndex
+var openBrainVectorStore = codestore.Open
+var newBrainEmbedder = embedder.New
 
 func newIndexCmd(configPath *string) *cobra.Command {
 	var (
@@ -50,7 +59,93 @@ func newIndexCmd(configPath *string) *cobra.Command {
 
 	cmd.Flags().BoolVar(&full, "full", false, "Force a full rebuild of the semantic index")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON output")
+	cmd.AddCommand(newIndexBrainCmd(configPath))
 	return cmd
+}
+
+func newIndexBrainCmd(configPath *string) *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "brain",
+		Short: "Rebuild derived brain metadata from the vault",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := appconfig.Load(*configPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			result, err := runBrainIndexCommand(cmd.Context(), cfg)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+			printBrainIndexSummary(cmd.OutOrStdout(), result)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON output")
+	return cmd
+}
+
+func runBrainIndex(ctx context.Context, cfg *appconfig.Config) (brainindexer.Result, error) {
+	if cfg == nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: config is required")
+	}
+	if !cfg.Brain.Enabled {
+		return brainindexer.Result{}, fmt.Errorf("brain index: brain.enabled must be true")
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	backend, cleanup, err := buildBrainBackend(ctx, cfg.Brain, logger)
+	if err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: build brain backend: %w", err)
+	}
+	defer cleanup()
+	if backend == nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: brain backend unavailable")
+	}
+
+	database, err := appdb.OpenDB(ctx, cfg.DatabasePath())
+	if err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: open database: %w", err)
+	}
+	defer database.Close()
+	if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: init database schema: %w", err)
+	}
+	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: ensure project record: %w", err)
+	}
+
+	queries := appdb.New(database)
+	existingDocs, err := queries.ListBrainDocumentsByProject(ctx, cfg.ProjectRoot)
+	if err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: list existing brain documents: %w", err)
+	}
+	previousPaths := make([]string, 0, len(existingDocs))
+	for _, doc := range existingDocs {
+		previousPaths = append(previousPaths, doc.Path)
+	}
+
+	result, err := brainindexer.New(database, backend).RebuildProject(ctx, cfg.ProjectRoot)
+	if err != nil {
+		return brainindexer.Result{}, err
+	}
+
+	store, err := openBrainVectorStore(ctx, cfg.BrainLanceDBPath())
+	if err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: open brain vectorstore: %w", err)
+	}
+	defer store.Close()
+	semanticResult, err := brainindexer.NewSemantic(backend, store, newBrainEmbedder(cfg.Embedding)).RebuildProject(ctx, cfg.ProjectName(), previousPaths)
+	if err != nil {
+		return brainindexer.Result{}, fmt.Errorf("brain index: semantic rebuild: %w", err)
+	}
+	result.SemanticChunksIndexed = semanticResult.SemanticChunksIndexed
+	result.SemanticDocumentsDeleted = semanticResult.SemanticDocumentsDeleted
+	return result, nil
 }
 
 func printIndexSummary(out io.Writer, result *appindex.Result) {
@@ -70,6 +165,15 @@ func printIndexSummary(out io.Writer, result *appindex.Result) {
 	if len(result.IndexedFiles) > 0 {
 		fmt.Fprintf(out, "Indexed files: %s\n", strings.Join(result.IndexedFiles, ", "))
 	}
+}
+
+func printBrainIndexSummary(out io.Writer, result brainindexer.Result) {
+	fmt.Fprintln(out, "Brain reindex completed")
+	fmt.Fprintf(out, "Brain documents indexed: %d\n", result.DocumentsIndexed)
+	fmt.Fprintf(out, "Brain links indexed: %d\n", result.LinksIndexed)
+	fmt.Fprintf(out, "Brain documents deleted: %d\n", result.DocumentsDeleted)
+	fmt.Fprintf(out, "Brain semantic chunks indexed: %d\n", result.SemanticChunksIndexed)
+	fmt.Fprintf(out, "Brain semantic documents deleted: %d\n", result.SemanticDocumentsDeleted)
 }
 
 func displayValue(value string) string {

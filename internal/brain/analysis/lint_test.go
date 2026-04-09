@@ -76,6 +76,19 @@ Inline #implementation tag.`
 	}
 }
 
+func TestParseDocumentDedupesFlattenedWikilinksByTarget(t *testing.T) {
+	content := `# Brain Plan
+See [[notes/design]], [[notes/design|Design Alias]], and [[notes/design#section|Section Alias]].`
+
+	doc, err := ParseDocument("notes/plan.md", content)
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if got := doc.Wikilinks; len(got) != 1 || got[0] != "notes/design" {
+		t.Fatalf("Wikilinks = %v, want deduped [notes/design]", got)
+	}
+}
+
 func TestLoadDocumentsFullScope(t *testing.T) {
 	backend := newFakeBackend(map[string]string{
 		"notes/a.md":        "# A",

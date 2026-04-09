@@ -20,10 +20,19 @@ const (
 // It computes available assembled-context budget, selects content in priority
 // order, records exclusions, and signals when conversation history should be
 // compressed by the caller.
-type PriorityBudgetManager struct{}
+type PriorityBudgetManager struct {
+	brainCfg config.BrainConfig
+}
+
+func (m *PriorityBudgetManager) SetBrainConfig(cfg config.BrainConfig) {
+	if m == nil {
+		return
+	}
+	m.brainCfg = cfg
+}
 
 // Fit selects retrieval results that fit within the assembled-context budget.
-func (PriorityBudgetManager) Fit(results *RetrievalResults, modelContextLimit int, historyTokenCount int, cfg config.ContextConfig) (*BudgetResult, error) {
+func (m PriorityBudgetManager) Fit(results *RetrievalResults, modelContextLimit int, historyTokenCount int, cfg config.ContextConfig) (*BudgetResult, error) {
 	if results == nil {
 		results = &RetrievalResults{}
 	}
@@ -47,6 +56,7 @@ func (PriorityBudgetManager) Fit(results *RetrievalResults, modelContextLimit in
 		},
 	}
 	remaining := budgetTotal
+	brainBudgetRemaining := brainTokenBudget(m.brainCfg)
 
 	threshold := cfg.RelevanceThreshold
 	if threshold == 0 {
@@ -64,7 +74,7 @@ func (PriorityBudgetManager) Fit(results *RetrievalResults, modelContextLimit in
 		consumeFileResult(&remaining, budget, &results.FileResults[i])
 	}
 	for i := range results.BrainHits {
-		consumeBrainHit(&remaining, budget, &results.BrainHits[i])
+		consumeBrainHit(&remaining, &brainBudgetRemaining, budget, &results.BrainHits[i])
 	}
 	for i := range topRAG {
 		consumeRAGHit(&remaining, budget, &topRAG[i])
@@ -163,9 +173,13 @@ func consumeFileResult(remaining *int, budget *BudgetResult, file *FileResult) {
 	*remaining -= tokens
 }
 
-func consumeBrainHit(remaining *int, budget *BudgetResult, hit *BrainHit) {
+func consumeBrainHit(remaining *int, brainRemaining *int, budget *BudgetResult, hit *BrainHit) {
 	tokens := estimateBrainHitTokensForBudget(*hit)
 	key := hit.DocumentPath
+	if brainRemaining != nil && *brainRemaining >= 0 && !fits(*brainRemaining, tokens) {
+		markExcluded(budget, key, "budget_exceeded")
+		return
+	}
 	if !fits(*remaining, tokens) {
 		markExcluded(budget, key, "budget_exceeded")
 		return
@@ -176,6 +190,16 @@ func consumeBrainHit(remaining *int, budget *BudgetResult, hit *BrainHit) {
 	markIncluded(budget, key)
 	budget.BudgetBreakdown["brain"] += tokens
 	*remaining -= tokens
+	if brainRemaining != nil && *brainRemaining >= 0 {
+		*brainRemaining -= tokens
+	}
+}
+
+func brainTokenBudget(cfg config.BrainConfig) int {
+	if cfg.MaxBrainTokens <= 0 {
+		return -1
+	}
+	return cfg.MaxBrainTokens
 }
 
 func consumeRAGHit(remaining *int, budget *BudgetResult, hit *RAGHit) {

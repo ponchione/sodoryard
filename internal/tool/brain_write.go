@@ -119,6 +119,6 @@ func (b *BrainWrite) Execute(ctx context.Context, projectRoot string, input json
 
 	return &ToolResult{
 		Success: true,
-		Content: fmt.Sprintf("Wrote brain document: %s", params.Path),
+		Content: fmt.Sprintf("Wrote brain document: %s\n\n%s", params.Path, brainIndexStaleReminder()),
 	}, nil
 }

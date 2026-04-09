@@ -27,14 +27,14 @@ func (MarkdownSerializer) Serialize(result *BudgetResult, seenFiles SeenFileLook
 	}
 
 	var sections []string
+	if brain := serializeProjectBrain(result.SelectedBrainHits); brain != "" {
+		sections = append(sections, brain)
+	}
 	if code := serializeRelevantCode(result, seenFiles); code != "" {
 		sections = append(sections, code)
 	}
 	if structural := serializeStructuralContext(result.SelectedGraphHits); structural != "" {
 		sections = append(sections, structural)
-	}
-	if brain := serializeProjectBrain(result.SelectedBrainHits); brain != "" {
-		sections = append(sections, brain)
 	}
 	if conventions := serializeConventions(result.ConventionText); conventions != "" {
 		sections = append(sections, conventions)
@@ -175,21 +175,49 @@ func serializeProjectBrain(hits []BrainHit) string {
 		return sorted[i].DocumentPath < sorted[j].DocumentPath
 	})
 
-	var lines []string
+	var sections []string
 	for _, hit := range sorted {
-		line := fmt.Sprintf("- %s", hit.DocumentPath)
-		if title := strings.TrimSpace(hit.Title); title != "" {
-			line += fmt.Sprintf(": %s", title)
+		var b strings.Builder
+		heading := strings.TrimSpace(hit.Title)
+		if heading == "" {
+			heading = hit.DocumentPath
 		}
+		b.WriteString("### ")
+		b.WriteString(heading)
+		b.WriteString("\n")
+		b.WriteString("Path: `")
+		b.WriteString(hit.DocumentPath)
+		b.WriteString("`\n")
 		if mode := strings.TrimSpace(hit.MatchMode); mode != "" {
-			line += fmt.Sprintf(" [%s]", mode)
+			b.WriteString("Match: ")
+			b.WriteString(mode)
+			b.WriteString("\n")
+		}
+		if len(hit.Tags) > 0 {
+			tags := append([]string(nil), hit.Tags...)
+			sort.Strings(tags)
+			b.WriteString("Tags: ")
+			b.WriteString(strings.Join(tags, ", "))
+			b.WriteString("\n")
 		}
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
-			line += fmt.Sprintf(" — %s", snippet)
+			b.WriteString("\n")
+			b.WriteString(formatBrainExcerpt(snippet))
 		}
-		lines = append(lines, line)
+		sections = append(sections, strings.TrimSpace(b.String()))
 	}
-	return "## Project Brain\n\n" + strings.Join(lines, "\n")
+	return "## Project Brain\n\n" + strings.Join(sections, "\n\n")
+}
+
+func formatBrainExcerpt(text string) string {
+	lines := nonEmptyLines(text)
+	if len(lines) == 0 {
+		return ""
+	}
+	for i, line := range lines {
+		lines[i] = "> " + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 func serializeConventions(text string) string {

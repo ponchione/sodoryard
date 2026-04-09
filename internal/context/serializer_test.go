@@ -100,6 +100,78 @@ func TestMarkdownSerializerGroupsChunksAnnotatesSeenFilesAndIsDeterministic(t *t
 	}
 }
 
+func TestMarkdownSerializerBrainAppearsBeforeCode(t *testing.T) {
+	serializer := MarkdownSerializer{}
+	result := &BudgetResult{
+		SelectedBrainHits: []BrainHit{{
+			DocumentPath: "notes/runtime-brain.md",
+			Title:        "Runtime canary",
+			Snippet:      "Prefer the brain section before code context.",
+			MatchScore:   0.91,
+			MatchMode:    "keyword",
+		}},
+		SelectedRAGHits: []RAGHit{{
+			ChunkID:     "chunk-1",
+			FilePath:    "internal/runtime/canary.go",
+			Name:        "Canary",
+			Description: "Code chunk should appear after project brain.",
+			Body:        "func Canary() {}",
+			Language:    "go",
+			LineStart:   1,
+			LineEnd:     1,
+		}},
+	}
+
+	content, err := serializer.Serialize(result, nil)
+	if err != nil {
+		t.Fatalf("Serialize returned error: %v", err)
+	}
+
+	brainIndex := strings.Index(content, "## Project Brain")
+	codeIndex := strings.Index(content, "## Relevant Code")
+	if brainIndex == -1 || codeIndex == -1 {
+		t.Fatalf("expected both brain and code sections\n%s", content)
+	}
+	if brainIndex > codeIndex {
+		t.Fatalf("project brain appeared after relevant code\n%s", content)
+	}
+}
+
+func TestMarkdownSerializerBrainIncludesRichKnowledgeContent(t *testing.T) {
+	serializer := MarkdownSerializer{}
+	result := &BudgetResult{
+		SelectedBrainHits: []BrainHit{{
+			DocumentPath: "notes/auth-architecture.md",
+			Title:        "Auth architecture",
+			Snippet:      "JWT validation lives in middleware.\nToken refresh belongs in the auth service.\nThis separation keeps DB access out of middleware.",
+			MatchScore:   0.88,
+			MatchMode:    "semantic",
+			Tags:         []string{"auth", "architecture"},
+		}},
+	}
+
+	content, err := serializer.Serialize(result, nil)
+	if err != nil {
+		t.Fatalf("Serialize returned error: %v", err)
+	}
+
+	if !strings.Contains(content, "notes/auth-architecture.md") {
+		t.Fatalf("content missing note path\n%s", content)
+	}
+	if !strings.Contains(content, "Auth architecture") {
+		t.Fatalf("content missing title\n%s", content)
+	}
+	if !strings.Contains(content, "Match: semantic") {
+		t.Fatalf("content missing match reason/mode\n%s", content)
+	}
+	if !strings.Contains(content, "JWT validation lives in middleware.") || !strings.Contains(content, "Token refresh belongs in the auth service.") {
+		t.Fatalf("content missing multi-line knowledge excerpt\n%s", content)
+	}
+	if strings.Contains(content, "- notes/auth-architecture.md") {
+		t.Fatalf("brain serialization remained a one-line bullet\n%s", content)
+	}
+}
+
 func TestMarkdownSerializerHandlesEmptyBudgetResult(t *testing.T) {
 	serializer := MarkdownSerializer{}
 

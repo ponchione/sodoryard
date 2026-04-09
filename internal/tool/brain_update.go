@@ -181,7 +181,7 @@ func (b *BrainUpdate) Execute(ctx context.Context, projectRoot string, input jso
 
 	return &ToolResult{
 		Success: true,
-		Content: fmt.Sprintf("Updated brain document: %s (%s)\n\nContent preview:\n%s", params.Path, params.Operation, formatBrainDocumentPreview(updated, 100)),
+		Content: fmt.Sprintf("Updated brain document: %s (%s)\n\n%s\n\nContent preview:\n%s", params.Path, params.Operation, brainIndexStaleReminder(), formatBrainDocumentPreview(updated, 100)),
 	}, nil
 }
 

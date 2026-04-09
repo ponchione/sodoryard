@@ -214,6 +214,53 @@ func TestRetrievalOrchestratorExcludesOperationalBrainLogHits(t *testing.T) {
 	}
 }
 
+func TestRetrievalOrchestratorHonorsBrainRelevanceThreshold(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"auth middleware": {
+			{Path: "notes/high.md", Snippet: "high relevance", Score: 0.82},
+			{Path: "notes/low.md", Snippet: "low relevance", Score: 0.41},
+		},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+	orchestrator.SetBrainConfig(config.BrainConfig{BrainRelevanceThreshold: 0.5})
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{PreferBrainContext: true}, []string{"auth middleware"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if len(results.BrainHits) != 1 {
+		t.Fatalf("len(BrainHits) = %d, want 1 above threshold", len(results.BrainHits))
+	}
+	if results.BrainHits[0].DocumentPath != "notes/high.md" {
+		t.Fatalf("DocumentPath = %q, want notes/high.md", results.BrainHits[0].DocumentPath)
+	}
+}
+
+func TestRetrievalOrchestratorFallsBackWhenEarlyBrainHitsAreFilteredOut(t *testing.T) {
+	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
+		"what is the runtime brain proof canary": {
+			{Path: "notes/too-low.md", Snippet: "below threshold", Score: 0.41},
+		},
+		"runtime brain proof canary": {
+			{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "ORBIT LANTERN 642", Score: 0.91},
+		},
+	}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, t.TempDir())
+	orchestrator.SetBrainConfig(config.BrainConfig{BrainRelevanceThreshold: 0.5})
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{PreferBrainContext: true}, []string{"what is the runtime brain proof canary"}, config.ContextConfig{})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	wantQueries := []string{"what is the runtime brain proof canary", "runtime brain proof canary"}
+	if !slices.Equal(brainSearcher.gotQueries, wantQueries) {
+		t.Fatalf("brain queries = %v, want fallback after filtered-out early hits %v", brainSearcher.gotQueries, wantQueries)
+	}
+	if len(results.BrainHits) != 1 || results.BrainHits[0].DocumentPath != "notes/runtime-brain-proof-apr-07.md" {
+		t.Fatalf("BrainHits = %v, want fallback candidate hit", results.BrainHits)
+	}
+}
+
 func TestRetrievalOrchestratorSuppressesProactiveBrainTraceWhenDisabled(t *testing.T) {
 	brainSearcher := &retrievalBrainSearcherStub{hitsByQuery: map[string][]brain.SearchHit{
 		"runtime brain proof canary": {{Path: "notes/runtime-brain-proof-apr-07.md", Snippet: "ORBIT LANTERN 642", Score: 0.91}},

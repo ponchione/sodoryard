@@ -135,24 +135,43 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	}}
 
 	analyzer := &assemblerAnalyzerStub{result: &ContextNeeds{
-		ExplicitFiles:   []string{"internal/auth/middleware.go"},
-		ExplicitSymbols: []string{"ValidateToken"},
-		Signals:         []Signal{{Type: "file_ref", Source: "middleware.go", Value: "internal/auth/middleware.go"}},
+		ExplicitFiles:      []string{"internal/auth/middleware.go"},
+		ExplicitSymbols:    []string{"ValidateToken"},
+		PreferBrainContext: true,
+		Signals: []Signal{
+			{Type: "brain_intent", Source: "project brain", Value: "prefer_brain_context"},
+			{Type: "file_ref", Source: "middleware.go", Value: "internal/auth/middleware.go"},
+		},
 	}}
 	momentum := &assemblerMomentumStub{moduleToSet: "internal/auth", filesToSet: []string{"internal/auth/service.go"}}
 	extractor := &assemblerQueryExtractorStub{queries: []string{"auth middleware"}}
 	retriever := &assemblerRetrieverStub{result: &RetrievalResults{
-		RAGHits:     []RAGHit{{ChunkID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken", Description: "Validates tokens.", Body: "func ValidateToken() error { return nil }"}},
+		RAGHits: []RAGHit{{ChunkID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken", Description: "Validates tokens.", Body: "func ValidateToken() error { return nil }"}},
+		BrainHits: []BrainHit{{
+			DocumentPath: "notes/auth-decisions.md",
+			Title:        "Auth decisions",
+			Snippet:      "Auth rationale belongs in the project brain.",
+			MatchMode:    "keyword",
+			MatchScore:   0.92,
+		}},
 		GraphHits:   []GraphHit{{ChunkID: "graph-1", FilePath: "internal/auth/handler.go", SymbolName: "AuthHandler", RelationshipType: "upstream"}},
 		FileResults: []FileResult{{FilePath: "internal/auth/middleware.go", Content: "package auth"}},
 	}}
 	budgeter := &assemblerBudgetManagerStub{result: &BudgetResult{
-		SelectedRAGHits:     []RAGHit{{ChunkID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken", Description: "Validates tokens.", Body: "func ValidateToken() error { return nil }"}},
+		SelectedRAGHits: []RAGHit{{ChunkID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken", Description: "Validates tokens.", Body: "func ValidateToken() error { return nil }"}},
+		SelectedBrainHits: []BrainHit{{
+			DocumentPath: "notes/auth-decisions.md",
+			Title:        "Auth decisions",
+			Snippet:      "Auth rationale belongs in the project brain.",
+			MatchMode:    "keyword",
+			MatchScore:   0.92,
+			Included:     true,
+		}},
 		SelectedFileResults: []FileResult{{FilePath: "internal/auth/middleware.go", Content: "package auth"}},
 		BudgetTotal:         1200,
-		BudgetUsed:          280,
-		BudgetBreakdown:     map[string]int{"explicit_files": 80, "rag": 200},
-		IncludedChunks:      []string{"internal/auth/middleware.go", "chunk-1"},
+		BudgetUsed:          352,
+		BudgetBreakdown:     map[string]int{"explicit_files": 80, "brain": 72, "rag": 200},
+		IncludedChunks:      []string{"internal/auth/middleware.go", "notes/auth-decisions.md", "chunk-1"},
 		ExcludedChunks:      []string{"graph-1"},
 		ExclusionReasons:    map[string]string{"graph-1": "budget_exceeded"},
 		CompressionNeeded:   true,
@@ -204,8 +223,14 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	if len(pkg.Report.RAGResults) != 1 || !pkg.Report.RAGResults[0].Included {
 		t.Fatalf("RAGResults = %+v, want included chunk", pkg.Report.RAGResults)
 	}
+	if len(pkg.Report.BrainResults) != 1 || !pkg.Report.BrainResults[0].Included {
+		t.Fatalf("BrainResults = %+v, want included brain hit", pkg.Report.BrainResults)
+	}
 	if len(pkg.Report.GraphResults) != 1 || pkg.Report.GraphResults[0].ExclusionReason != "budget_exceeded" {
 		t.Fatalf("GraphResults = %+v, want budget_exceeded exclusion", pkg.Report.GraphResults)
+	}
+	if !pkg.Report.Needs.PreferBrainContext {
+		t.Fatalf("report PreferBrainContext = false, want true")
 	}
 	if got := pkg.Report.Needs.SemanticQueries; len(got) != 1 || got[0] != "auth middleware" {
 		t.Fatalf("report semantic queries = %v, want [auth middleware]", got)
@@ -225,6 +250,9 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	if err := json.Unmarshal([]byte(row.NeedsJson.String), &persistedNeeds); err != nil {
 		t.Fatalf("unmarshal needs_json: %v", err)
 	}
+	if !persistedNeeds.PreferBrainContext {
+		t.Fatalf("persisted PreferBrainContext = false, want true")
+	}
 	if got := persistedNeeds.SemanticQueries; len(got) != 1 || got[0] != "auth middleware" {
 		t.Fatalf("persisted semantic queries = %v, want [auth middleware]", got)
 	}
@@ -234,6 +262,13 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	}
 	if len(ragResults) != 1 || !ragResults[0].Included {
 		t.Fatalf("persisted rag results = %+v, want included chunk", ragResults)
+	}
+	var brainResults []BrainHit
+	if err := json.Unmarshal([]byte(row.BrainResultsJson.String), &brainResults); err != nil {
+		t.Fatalf("unmarshal brain_results_json: %v", err)
+	}
+	if len(brainResults) != 1 || !brainResults[0].Included || brainResults[0].DocumentPath != "notes/auth-decisions.md" {
+		t.Fatalf("persisted brain results = %+v, want included auth brain hit", brainResults)
 	}
 }
 

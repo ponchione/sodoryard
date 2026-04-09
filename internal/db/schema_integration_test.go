@@ -310,6 +310,156 @@ func TestEnsureContextReportsIncludeTokenBudgetUpgradesOlderSchema(t *testing.T)
 	}
 }
 
+func TestBrainDocumentQueriesUpsertListAndFetchByPath(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	queries := New(db)
+
+	projectID := sid.New()
+	otherProjectID := sid.New()
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+
+	mustExec(t, db, `INSERT INTO projects(id, name, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, projectID, "proj", "/tmp/proj", createdAt, createdAt)
+	mustExec(t, db, `INSERT INTO projects(id, name, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, otherProjectID, "other", "/tmp/other", createdAt, createdAt)
+
+	initial := UpsertBrainDocumentParams{
+		ProjectID:   projectID,
+		Path:        "notes/architecture.md",
+		Title:       sql.NullString{String: "Architecture", Valid: true},
+		ContentHash: "hash-1",
+		Tags:        sql.NullString{String: `["brain","arch"]`, Valid: true},
+		Frontmatter: sql.NullString{String: `{"status":"draft"}`, Valid: true},
+		TokenCount:  sql.NullInt64{Int64: 120, Valid: true},
+		CreatedBy:   sql.NullString{String: "agent", Valid: true},
+		CreatedAt:   createdAt,
+		UpdatedAt:   createdAt,
+	}
+	if err := queries.UpsertBrainDocument(ctx, initial); err != nil {
+		t.Fatalf("UpsertBrainDocument initial returned error: %v", err)
+	}
+
+	updated := UpsertBrainDocumentParams{
+		ProjectID:            projectID,
+		Path:                 "notes/architecture.md",
+		Title:                sql.NullString{String: "Architecture v2", Valid: true},
+		ContentHash:          "hash-2",
+		Tags:                 sql.NullString{String: `["brain","updated"]`, Valid: true},
+		Frontmatter:          sql.NullString{String: `{"status":"published"}`, Valid: true},
+		TokenCount:           sql.NullInt64{Int64: 180, Valid: true},
+		CreatedBy:            sql.NullString{String: "operator", Valid: true},
+		SourceConversationID: sql.NullString{String: "conv-123", Valid: true},
+		CreatedAt:            updatedAt,
+		UpdatedAt:            updatedAt,
+	}
+	if err := queries.UpsertBrainDocument(ctx, updated); err != nil {
+		t.Fatalf("UpsertBrainDocument update returned error: %v", err)
+	}
+
+	if err := queries.UpsertBrainDocument(ctx, UpsertBrainDocumentParams{
+		ProjectID:   otherProjectID,
+		Path:        "notes/other.md",
+		Title:       sql.NullString{String: "Other", Valid: true},
+		ContentHash: "hash-other",
+		CreatedAt:   createdAt,
+		UpdatedAt:   createdAt,
+	}); err != nil {
+		t.Fatalf("UpsertBrainDocument other project returned error: %v", err)
+	}
+
+	doc, err := queries.GetBrainDocumentByPath(ctx, GetBrainDocumentByPathParams{
+		ProjectID: projectID,
+		Path:      "notes/architecture.md",
+	})
+	if err != nil {
+		t.Fatalf("GetBrainDocumentByPath returned error: %v", err)
+	}
+	if doc.Title.String != "Architecture v2" || doc.ContentHash != "hash-2" {
+		t.Fatalf("unexpected fetched brain document: %+v", doc)
+	}
+	if !doc.SourceConversationID.Valid || doc.SourceConversationID.String != "conv-123" {
+		t.Fatalf("expected source conversation id to be updated, got %+v", doc.SourceConversationID)
+	}
+	if doc.CreatedAt != createdAt {
+		t.Fatalf("created_at changed on upsert: got %q want %q", doc.CreatedAt, createdAt)
+	}
+	if doc.UpdatedAt != updatedAt {
+		t.Fatalf("updated_at = %q, want %q", doc.UpdatedAt, updatedAt)
+	}
+
+	docs, err := queries.ListBrainDocumentsByProject(ctx, projectID)
+	if err != nil {
+		t.Fatalf("ListBrainDocumentsByProject returned error: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("brain document count = %d, want 1", len(docs))
+	}
+	if docs[0].Path != "notes/architecture.md" || docs[0].ContentHash != "hash-2" {
+		t.Fatalf("unexpected listed brain documents: %+v", docs)
+	}
+}
+
+func TestBrainLinkQueriesDeleteAndRewriteForSourceDocument(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	queries := New(db)
+
+	projectID := sid.New()
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+
+	mustExec(t, db, `INSERT INTO projects(id, name, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, projectID, "proj", "/tmp/proj", createdAt, createdAt)
+
+	if err := queries.InsertBrainLink(ctx, InsertBrainLinkParams{
+		ProjectID:  projectID,
+		SourcePath: "notes/source.md",
+		TargetPath: "notes/target-a.md",
+		LinkText:   sql.NullString{String: "A", Valid: true},
+	}); err != nil {
+		t.Fatalf("InsertBrainLink first returned error: %v", err)
+	}
+	if err := queries.InsertBrainLink(ctx, InsertBrainLinkParams{
+		ProjectID:  projectID,
+		SourcePath: "notes/source.md",
+		TargetPath: "notes/target-b.md",
+		LinkText:   sql.NullString{String: "B", Valid: true},
+	}); err != nil {
+		t.Fatalf("InsertBrainLink second returned error: %v", err)
+	}
+	if err := queries.InsertBrainLink(ctx, InsertBrainLinkParams{
+		ProjectID:  projectID,
+		SourcePath: "notes/other-source.md",
+		TargetPath: "notes/keep.md",
+		LinkText:   sql.NullString{String: "Keep", Valid: true},
+	}); err != nil {
+		t.Fatalf("InsertBrainLink third returned error: %v", err)
+	}
+
+	assertTableCountWhere(t, db, "brain_links", "project_id = ?", projectID, 3)
+
+	if err := queries.DeleteBrainLinksForSource(ctx, DeleteBrainLinksForSourceParams{
+		ProjectID:  projectID,
+		SourcePath: "notes/source.md",
+	}); err != nil {
+		t.Fatalf("DeleteBrainLinksForSource returned error: %v", err)
+	}
+
+	assertTableCountWhere(t, db, "brain_links", "project_id = ?", projectID, 1)
+	assertTableCountWhere(t, db, "brain_links", "project_id = ? AND source_path = ?", []any{projectID, "notes/source.md"}, 0)
+
+	if err := queries.InsertBrainLink(ctx, InsertBrainLinkParams{
+		ProjectID:  projectID,
+		SourcePath: "notes/source.md",
+		TargetPath: "notes/target-c.md",
+		LinkText:   sql.NullString{String: "C", Valid: true},
+	}); err != nil {
+		t.Fatalf("InsertBrainLink rewrite returned error: %v", err)
+	}
+
+	assertTableCountWhere(t, db, "brain_links", "project_id = ?", projectID, 2)
+	assertTableCountWhere(t, db, "brain_links", "project_id = ? AND source_path = ? AND target_path = ?", []any{projectID, "notes/source.md", "notes/target-c.md"}, 1)
+	assertTableCountWhere(t, db, "brain_links", "project_id = ? AND source_path = ? AND target_path = ?", []any{projectID, "notes/other-source.md", "notes/keep.md"}, 1)
+}
+
 func TestSequenceSortingAndUUIDv7ForeignKeys(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
@@ -378,9 +528,12 @@ func assertTableCountWhere(t *testing.T, db *sql.DB, table string, where string,
 	query := `SELECT COUNT(*) FROM ` + table + ` WHERE ` + where
 	var got int
 	var err error
-	if arg == nil {
+	switch v := arg.(type) {
+	case nil:
 		err = db.QueryRow(query).Scan(&got)
-	} else {
+	case []any:
+		err = db.QueryRow(query, v...).Scan(&got)
+	default:
 		err = db.QueryRow(query, arg).Scan(&got)
 	}
 	if err != nil {

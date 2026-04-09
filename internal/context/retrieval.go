@@ -105,6 +105,7 @@ type RetrievalOrchestrator struct {
 	graph                codeintel.GraphStore
 	conventions          ConventionSource
 	brain                BrainSearcher
+	brainCfg             config.BrainConfig
 	projectRoot          string
 	fileReader           fileReaderFunc
 	gitRunner            gitRunnerFunc
@@ -138,6 +139,13 @@ func (o *RetrievalOrchestrator) SetLogBrainQueries(enabled bool) {
 		return
 	}
 	o.logBrainQueries = enabled
+}
+
+func (o *RetrievalOrchestrator) SetBrainConfig(cfg config.BrainConfig) {
+	if o == nil {
+		return
+	}
+	o.brainCfg = cfg
 }
 
 // Retrieve runs all eligible v0.1 retrieval paths concurrently and returns the
@@ -342,9 +350,10 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 			if err != nil {
 				return nil, err
 			}
+			keptAny := false
 			for _, hit := range hits {
 				path := strings.TrimSpace(hit.Path)
-				if path == "" || isOperationalBrainDocument(path) {
+				if path == "" || isOperationalBrainDocument(path) || hit.Score < brainRelevanceThreshold(o.brainCfg) {
 					continue
 				}
 				candidate := BrainHit{
@@ -358,8 +367,9 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 				if !ok || candidate.MatchScore > existing.MatchScore {
 					seen[path] = candidate
 				}
+				keptAny = true
 			}
-			if len(hits) > 0 {
+			if keptAny {
 				break
 			}
 		}
@@ -380,8 +390,9 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 
 // brainKeywordCandidates converts a raw semantic query into an ordered list
 // of keyword-search candidates that are tried against the brain backend in
-// sequence. The orchestrator stops at the first candidate with at least one
-// hit, so earlier candidates should be more specific than later ones.
+// sequence. The orchestrator stops at the first candidate that yields at least
+// one retained brain hit after local filtering, so earlier candidates should
+// be more specific than later ones.
 //
 // Order:
 //  1. raw query — highest specificity; catches cases where a note body
@@ -393,6 +404,13 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 //     phrase built from the top-N longest content words. This handles cases
 //     where the full stopword-stripped query cannot substring-match a note
 //     because of punctuation, hyphens, or list formatting in the note body.
+func brainRelevanceThreshold(cfg config.BrainConfig) float64 {
+	if cfg.BrainRelevanceThreshold <= 0 {
+		return 0
+	}
+	return cfg.BrainRelevanceThreshold
+}
+
 func (o *RetrievalOrchestrator) traceBrainQuery(msg string, args ...any) {
 	if o == nil || !o.logBrainQueries || o.brainQueryTrace == nil {
 		return
