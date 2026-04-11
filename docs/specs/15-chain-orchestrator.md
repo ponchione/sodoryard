@@ -30,11 +30,11 @@ A step is one agent invocation within a chain. Each step records: which engine r
 
 ### The Orchestrator Agent
 
-The orchestrator itself runs as a headless engine session. It uses the engine harness with a restricted tool set: brain access plus two custom tools (`spawn_engine` and `chain_complete`). Its system prompt instructs it to read the brain, decide what to do, and dispatch engines.
+The orchestrator itself runs as a headless engine session. It uses the engine harness with a restricted tool set: brain access plus two custom tools (`spawn_agent` and `chain_complete`). Its system prompt instructs it to read the brain, decide what to do, and dispatch engines.
 
 This means the orchestrator binary does three things:
 1. Sets up chain state tracking (SQLite)
-2. Registers the custom tools (`spawn_engine`, `chain_complete`)
+2. Registers the custom tools (`spawn_agent`, `chain_complete`)
 3. Starts a headless engine session with the orchestrator role
 
 Everything else — the judgment, the sequencing, the decision-making — is the LLM agent inside that session.
@@ -92,7 +92,7 @@ sirtopham cancel [chain-id]          # Cancel a running chain
 
 ## Custom Tools
 
-### spawn_engine
+### spawn_agent
 
 The orchestrator agent's primary tool. Spawns a headless engine session and blocks until it completes.
 
@@ -100,7 +100,7 @@ The orchestrator agent's primary tool. Spawns a headless engine session and bloc
 
 ```json
 {
-  "name": "spawn_engine",
+  "name": "spawn_agent",
   "description": "Spawn a headless engine agent with the given role and task. Blocks until the engine completes. Returns the engine's receipt content.",
   "input_schema": {
     "type": "object",
@@ -187,7 +187,7 @@ Signals the orchestrator agent that the chain is finished.
 
 ## Chain State Schema
 
-SQLite database at `.yard/sirtopham.db` (or project-configured path).
+SQLite database at `.yard/yard.db`.
 
 ### chains table
 
@@ -293,7 +293,7 @@ sirtopham chain --specs specs/auth.md
     │
     ├─ Build orchestrator tool registry:
     │   ├─ RegisterBrainTools (with orchestrator's brain write paths)
-    │   ├─ Register spawn_engine (custom, backed by subprocess exec)
+    │   ├─ Register spawn_agent (custom, backed by subprocess exec)
     │   └─ Register chain_complete (custom, signals loop termination)
     │
     ├─ Construct orchestrator task message:
@@ -305,10 +305,10 @@ sirtopham chain --specs specs/auth.md
     ├─ Start headless engine session (orchestrator role)
     │   └─ Agent loop runs:
     │       ├─ Orchestrator reads brain docs (specs, existing epics/tasks)
-    │       ├─ Calls spawn_engine(role="edward", task="decompose specs/auth.md into epics")
-    │       │   └─ spawn_engine impl: execs tidmouth run, waits, returns receipt
+    │       ├─ Calls spawn_agent(role="edward", task="decompose specs/auth.md into epics")
+    │       │   └─ spawn_agent impl: execs tidmouth run, waits, returns receipt
     │       ├─ Reads receipt, decides next action
-    │       ├─ Calls spawn_engine(role="emily", task="decompose epics/auth/epic.md into tasks")
+    │       ├─ Calls spawn_agent(role="emily", task="decompose epics/auth/epic.md into tasks")
     │       ├─ ... continues dispatching engines based on brain state ...
     │       ├─ Calls chain_complete(summary="...", status="success")
     │       └─ Agent loop terminates
@@ -328,16 +328,16 @@ Safety limits are enforced at two levels:
 
 1. **Per-engine limits** — enforced by the headless engine command (Tidmouth). Max turns, max tokens, timeout per individual agent session. Defined in the role config.
 
-2. **Chain-level limits** — enforced by the orchestrator binary (SirTopham). Max total steps, max total tokens, max duration, resolver loop cap. Checked before every `spawn_engine` call.
+2. **Chain-level limits** — enforced by the orchestrator binary (SirTopham). Max total steps, max total tokens, max duration, resolver loop cap. Checked before every `spawn_agent` call.
 
-The orchestrator agent does NOT enforce limits — it doesn't even know about them. The `spawn_engine` tool implementation checks limits before spawning and returns an error if a limit would be exceeded. This prevents a confused or runaway orchestrator agent from burning through resources.
+The orchestrator agent does NOT enforce limits — it doesn't even know about them. The `spawn_agent` tool implementation checks limits before spawning and returns an error if a limit would be exceeded. This prevents a confused or runaway orchestrator agent from burning through resources.
 
 ### Limit Check Flow
 
 ```
-Orchestrator agent calls spawn_engine(role="thomas", task="...")
+Orchestrator agent calls spawn_agent(role="thomas", task="...")
     │
-    spawn_engine implementation:
+    spawn_agent implementation:
     ├─ Check chain.total_steps < chain.max_steps
     ├─ Check chain.total_tokens < chain.token_budget
     ├─ Check elapsed time < chain.max_duration_secs
@@ -353,9 +353,9 @@ Orchestrator agent calls spawn_engine(role="thomas", task="...")
 
 ### Resolver Loop Tracking
 
-The orchestrator binary tracks resolver loops per task (not per chain). When `spawn_engine` is called with a resolver role, the implementation checks how many resolver invocations have already run for the current task context. This requires the orchestrator agent to include task context in the spawn call, or the implementation to infer it from recent step history.
+The orchestrator binary tracks resolver loops per task (not per chain). When `spawn_agent` is called with a resolver role, the implementation checks how many resolver invocations have already run for the current task context. This requires the orchestrator agent to include task context in the spawn call, or the implementation to infer it from recent step history.
 
-Practical approach: the `spawn_engine` tool accepts an optional `task_context` field that the orchestrator agent sets (e.g., "auth/01-jwt-middleware"). The implementation counts resolver steps with matching task_context in the current chain.
+Practical approach: the `spawn_agent` tool accepts an optional `task_context` field that the orchestrator agent sets (e.g., "auth/01-jwt-middleware"). The implementation counts resolver steps with matching task_context in the current chain.
 
 ---
 
@@ -363,11 +363,11 @@ Practical approach: the `spawn_engine` tool accepts an optional `task_context` f
 
 ### Pause
 
-The CLI writes a `pause_requested` flag to the chain record. The `spawn_engine` implementation checks this flag before spawning. If set:
+The CLI writes a `pause_requested` flag to the chain record. The `spawn_agent` implementation checks this flag before spawning. If set:
 - If an engine is currently running: let it finish, then pause.
 - If no engine is running: pause immediately.
 - Log `chain_paused` event.
-- The orchestrator agent's current turn continues but `spawn_engine` returns a special "chain paused" result.
+- The orchestrator agent's current turn continues but `spawn_agent` returns a special "chain paused" result.
 
 ### Resume
 
@@ -447,7 +447,7 @@ orchestrator:
   token_budget: 5000000
 
   # Database location
-  database: .yard/sirtopham.db
+  database: .yard/yard.db
 
   # Engine binary path (default: tidmouth in PATH)
   engine_binary: tidmouth
@@ -473,7 +473,7 @@ From the current sirtopham (becoming Tidmouth):
 
 2. **`internal/chain/`** — Chain state management. SQLite schema, step tracking, event logging, limit enforcement.
 
-3. **`internal/spawn/`** — `spawn_engine` tool implementation. Subprocess execution, receipt reading, metric aggregation.
+3. **`internal/spawn/`** — `spawn_agent` tool implementation. Subprocess execution, receipt reading, metric aggregation.
 
 4. **`internal/receipt/`** — Receipt frontmatter parser. Extracts verdict, metrics, and structured data from brain receipts.
 
