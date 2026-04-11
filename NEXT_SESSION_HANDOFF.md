@@ -243,33 +243,41 @@ changing any functionality. Every step must compile and tests must pass.
 - Tag `v0.2-monorepo-structure` on the final Phase 1 commit
 - Do not push
 
-### Additional rename debt to clean up inside Phase 1 (attach to the right step)
+### Rename debt deferred out of Phase 1
 
-- `internal/config/config.go:485` — `DatabasePath()` returns
-  `filepath.Join(c.StateDir(), "sirtopham.db")`. Derive the filename from
-  `ProjectName()` instead so `.sodoryard/sodoryard.db`. Update every test that
-  literal-strings `"sirtopham.db"`. (Good candidate for Step 1.1 or a dedicated
-  cleanup commit between 1.1 and 1.2.)
-- Config filename `sirtopham.yaml` → `sodoryard.yaml` (`git mv`).
-  `DefaultConfigFilename()` already computes `sodoryard.yaml` from the project
-  dir name, so this reconciles the default with reality. Every test file that
-  literal-strings `"sirtopham.yaml"` must update — there are ~15 in
-  `internal/config/config_test.go` alone, plus `cmd/sirtopham/*_test.go`.
-- Review whether `project_root:` in the config should stay absolute or move to
-  relative / derived. Non-blocking decision; defer if uncertain.
+The user decision on 2026-04-11 to use `yard` as the operator-facing CLI
+prefix (rather than `sodor` or `sodoryard`) reshapes these items — they
+move from "derive filename from project dir name" to "hardcoded `yard`
+constant", which lands them closer to Phase 5 (`yard init`) scaffolding
+than to Phase 1 mechanical restructuring. Phase 1 now stays minimal.
+
+- `internal/config/config.go:484` — `DatabasePath()` currently returns
+  `filepath.Join(c.StateDir(), "sirtopham.db")`, and `StateDir()` returns
+  `.<ProjectName()>/` which resolves to `.sodoryard/` in practice. Eventually
+  this becomes `.yard/yard.db` (hardcoded). Deferred to Phase 5.
+- Config filename `sirtopham.yaml` → `yard.yaml` (hardcoded, not derived
+  from project dir name). `DefaultConfigFilename()` currently derives the
+  default; that derivation gets replaced rather than reconciled. Deferred
+  to Phase 5. Phase 1 leaves `sirtopham.yaml` in place.
+- Review whether `project_root:` in the config should stay absolute or move
+  to relative / derived. Non-blocking; defer.
 
 ### What NOT to rename in Phase 1
 
-Leave these as `sodor` — they are **not** the repo name, they are project
-concepts whose naming is a separate Phase 5+ decision:
+At this point there is zero `sodor` CLI prefix in Go code — the `yard`
+decision is currently a docs-only alignment. Proper nouns that stay
+unchanged in Phase 1 (and, per user, forever):
 
-- `sodor init` CLI command
-- `.sodor/` state directory name
-- `sodor.yaml` config filename referenced in templates
-- `SODOR_PROJECT` env var
-- `sodor` docker compose service name
-- The "Sodor" project concept (island of Sodor railway theming: Tidmouth,
-  Knapford, SirTopham, etc.)
+- Repo name: `sodoryard` / `ponchione/sodoryard`
+- Module path: `github.com/ponchione/sodoryard` (target of Step 1.1)
+- Binary names: `tidmouth`, `sirtopham`, `knapford`
+- Historical / projected tag names: `v0.1-pre-sodor`, `v1.0-sodor`
+- "Sodor" as project concept in prose (the island theming that gave us
+  Tidmouth, Knapford, SirTopham)
+
+The actual `yard` scaffolding (`yard init` CLI, `.yard/` state dir,
+`yard.yaml` config, `YARD_PROJECT` env var, `yard` compose service) lives
+in Phase 5, not Phase 1.
 
 ---
 

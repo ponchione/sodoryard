@@ -187,7 +187,7 @@ Signals the orchestrator agent that the chain is finished.
 
 ## Chain State Schema
 
-SQLite database at `.sodor/sirtopham.db` (or project-configured path).
+SQLite database at `.yard/sirtopham.db` (or project-configured path).
 
 ### chains table
 
@@ -286,7 +286,7 @@ CREATE INDEX IF NOT EXISTS idx_events_chain ON events(chain_id);
 ```
 sirtopham chain --specs specs/auth.md
     │
-    ├─ Load project config (sodor.yaml)
+    ├─ Load project config (yard.yaml)
     ├─ Validate orchestrator role exists in config
     ├─ Create chain record in SQLite
     ├─ Log chain_started event
@@ -436,7 +436,7 @@ The orchestrator's own receipt at `receipts/orchestrator/{chain-id}.md` contains
 
 ## Configuration
 
-### sodor.yaml additions
+### yard.yaml additions
 
 ```yaml
 orchestrator:
@@ -447,7 +447,7 @@ orchestrator:
   token_budget: 5000000
 
   # Database location
-  database: .sodor/sirtopham.db
+  database: .yard/sirtopham.db
 
   # Engine binary path (default: tidmouth in PATH)
   engine_binary: tidmouth
@@ -486,7 +486,7 @@ From the current sirtopham (becoming Tidmouth):
 The orchestrator binary depends on:
 - The engine binary (Tidmouth) being available in PATH or configured path
 - A brain vault existing at the configured path
-- Project config (sodor.yaml) with role definitions
+- Project config (yard.yaml) with role definitions
 
 It does NOT import engine internals for agent loop execution — it starts its own headless engine session via the same subprocess mechanism it uses for all other engines. The orchestrator is just another engine with special tools.
 

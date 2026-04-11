@@ -85,7 +85,7 @@ These can be stubs initially. Prompt engineering happens later.
 
 ```
 templates/init/
-  sodor.yaml.example
+  yard.yaml.example
   brain/            # default brain directory structure template
     specs/.gitkeep
     architecture/.gitkeep
@@ -242,23 +242,23 @@ Run a complete chain on a small real task. Iterate on prompts based on where age
 
 ---
 
-## Phase 5: Sodor Init
+## Phase 5: Yard Init
 
-**Goal:** Build the `sodor init` command that bootstraps a new project for railway use.
+**Goal:** Build the `yard init` command that bootstraps a new project for railway use.
 
 **Agent type:** Coder (Thomas).
 
 ### Step 5.1: Init command
 
-New top-level CLI (or subcommand of tidmouth): `sodor init` or `tidmouth init --sodor`. Creates:
+New top-level CLI (or subcommand of tidmouth): `yard init` or `tidmouth init --yard`. Creates:
 - `.brain/` with the full directory structure from the template
-- `.sodor/` with empty SQLite databases
-- `sodor.yaml` with default config (provider settings, role overrides)
-- `.gitignore` entries for `.sodor/` state files
+- `.yard/` with empty SQLite databases
+- `yard.yaml` with default config (provider settings, role overrides)
+- `.gitignore` entries for `.yard/` state files
 
 ### Step 5.2: Verify
 
-- `cd /tmp/test-project && sodor init` creates everything
+- `cd /tmp/test-project && yard init` creates everything
 - `tidmouth run --role thomas --task "read the brain and describe the project structure"` works against the fresh init
 - `sirtopham chain` can start against the initialized project
 
@@ -326,14 +326,14 @@ Multi-stage build:
 
 ```yaml
 services:
-  sodor:
+  yard:
     build: .
     volumes:
       - ${PROJECT_DIR:-.}:/project
     ports:
       - "8080:8080"    # Knapford
     environment:
-      - SODOR_PROJECT=/project
+      - YARD_PROJECT=/project
 ```
 
 ### Step 7.3: Verify
@@ -355,7 +355,7 @@ services:
 | 2 | Headless run command | Phase 1 | Medium — spec 13 is detailed, most plumbing exists |
 | 3 | SirTopham orchestrator | Phase 2 | Large — new binary, new schema, spawn_agent tool |
 | 4 | System prompts | Phase 2 | Medium — iterative prompt engineering |
-| 5 | Sodor init | Phase 1 | Small — template copy + config generation |
+| 5 | Yard init | Phase 1 | Small — template copy + config generation |
 | 6 | Knapford dashboard | Phases 2, 3 | Large — full web app, but migrates existing components |
 | 7 | Containerization | Phases 1-6 | Small — standard Docker multi-stage build |
 
