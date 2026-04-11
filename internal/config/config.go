@@ -103,7 +103,7 @@ type IndexConfig struct {
 	MaxTotalFileSizeBytes int      `yaml:"max_total_file_size_bytes"`
 }
 
-var requiredIndexExcludePatterns = []string{"**/.git/**", "**/.sirtopham/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**"}
+var requiredIndexExcludePatterns = []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**"}
 
 // Embedding configures the local embedding service used for semantic search.
 type Embedding struct {
@@ -547,6 +547,15 @@ func (c *Config) QwenCoderBaseURL() string {
 	return strings.TrimRight(c.LocalService("qwen-coder").BaseURL, "/")
 }
 
+func (c *Config) requiredIndexExcludePatterns() []string {
+	patterns := append([]string(nil), requiredIndexExcludePatterns...)
+	projectName := strings.TrimSpace(c.ProjectName())
+	if projectName != "" {
+		patterns = append(patterns, fmt.Sprintf("**/.%s/**", projectName))
+	}
+	return patterns
+}
+
 func (c *Config) normalize() {
 	if c.Providers == nil {
 		c.Providers = map[string]ProviderConfig{}
@@ -565,7 +574,7 @@ func (c *Config) normalize() {
 		c.Server.Port = defaultServerPort
 	}
 
-	c.Index.Exclude = appendMissingStrings(c.Index.Exclude, requiredIndexExcludePatterns...)
+	c.Index.Exclude = appendMissingStrings(c.Index.Exclude, c.requiredIndexExcludePatterns()...)
 	c.normalizeLocalServices()
 
 	c.ServerHost = c.Server.Host

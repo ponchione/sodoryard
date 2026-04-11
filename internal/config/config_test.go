@@ -212,7 +212,8 @@ func TestLoadAppendsRequiredIndexExcludesWhenCustomListOmitsThem(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	for _, pattern := range []string{"**/.git/**", "**/.sirtopham/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**"} {
+	wantPatterns := []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**", "**/." + cfg.ProjectName() + "/**"}
+	for _, pattern := range wantPatterns {
 		if !slices.Contains(cfg.Index.Exclude, pattern) {
 			t.Fatalf("Index.Exclude = %#v, want to contain %q", cfg.Index.Exclude, pattern)
 		}
@@ -424,6 +425,33 @@ func TestProjectSpecificPathsFollowProjectRootName(t *testing.T) {
 	}
 	if got := cfg.GraphDBPath(); got != filepath.Join(cfg.ProjectRoot, ".eyebox", "graph.db") {
 		t.Fatalf("GraphDBPath() = %q, want %q", got, filepath.Join(cfg.ProjectRoot, ".eyebox", "graph.db"))
+	}
+}
+
+func TestNormalizeAddsDerivedStateDirExcludePattern(t *testing.T) {
+	cfg := Default()
+	cfg.ProjectRoot = filepath.Join(string(filepath.Separator), "tmp", "sodoryard")
+	cfg.Index.Exclude = []string{"**/.git/**"}
+
+	cfg.normalize()
+
+	want := "**/.sodoryard/**"
+	if !slices.Contains(cfg.Index.Exclude, want) {
+		t.Fatalf("Index.Exclude = %#v, want %q", cfg.Index.Exclude, want)
+	}
+}
+
+func TestNormalizeKeepsUniversalRequiredExcludes(t *testing.T) {
+	cfg := Default()
+	cfg.ProjectRoot = filepath.Join(string(filepath.Separator), "tmp", "eyebox")
+	cfg.Index.Exclude = nil
+
+	cfg.normalize()
+
+	for _, want := range []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**", "**/.eyebox/**"} {
+		if !slices.Contains(cfg.Index.Exclude, want) {
+			t.Fatalf("Index.Exclude = %#v, want %q", cfg.Index.Exclude, want)
+		}
 	}
 }
 
