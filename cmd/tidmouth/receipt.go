@@ -6,24 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/receipt"
 	toolpkg "github.com/ponchione/sodoryard/internal/tool"
 )
 
-type receiptFrontmatter struct {
-	Agent           string    `yaml:"agent"`
-	ChainID         string    `yaml:"chain_id"`
-	Step            int       `yaml:"step"`
-	Verdict         string    `yaml:"verdict"`
-	Timestamp       time.Time `yaml:"timestamp"`
-	TurnsUsed       int       `yaml:"turns_used"`
-	TokensUsed      int       `yaml:"tokens_used"`
-	DurationSeconds int       `yaml:"duration_seconds"`
-}
+type receiptFrontmatter = receipt.Receipt
 
 type receiptMetrics struct {
 	TurnsUsed       int
@@ -39,39 +29,11 @@ func resolveReceiptPath(role string, chainID string, override string) string {
 }
 
 func validateReceiptContent(content string) (*receiptFrontmatter, error) {
-	frontmatterText, _, ok := splitFrontmatter(content)
-	if !ok {
-		return nil, fmt.Errorf("receipt missing YAML frontmatter")
+	parsed, err := receipt.Parse([]byte(content))
+	if err != nil {
+		return nil, err
 	}
-	var receipt receiptFrontmatter
-	if err := yaml.Unmarshal([]byte(frontmatterText), &receipt); err != nil {
-		return nil, fmt.Errorf("parse receipt frontmatter: %w", err)
-	}
-	if strings.TrimSpace(receipt.Agent) == "" {
-		return nil, fmt.Errorf("receipt missing agent")
-	}
-	if strings.TrimSpace(receipt.ChainID) == "" {
-		return nil, fmt.Errorf("receipt missing chain_id")
-	}
-	if receipt.Step <= 0 {
-		return nil, fmt.Errorf("receipt missing step")
-	}
-	if strings.TrimSpace(receipt.Verdict) == "" {
-		return nil, fmt.Errorf("receipt missing verdict")
-	}
-	if receipt.Timestamp.IsZero() {
-		return nil, fmt.Errorf("receipt missing timestamp")
-	}
-	if receipt.TurnsUsed < 0 {
-		return nil, fmt.Errorf("receipt missing turns_used")
-	}
-	if receipt.TokensUsed < 0 {
-		return nil, fmt.Errorf("receipt missing tokens_used")
-	}
-	if receipt.DurationSeconds < 0 {
-		return nil, fmt.Errorf("receipt missing duration_seconds")
-	}
-	return &receipt, nil
+	return &parsed, nil
 }
 
 func ensureReceipt(ctx context.Context, backend brain.Backend, brainCfg appconfig.BrainConfig, role string, chainID string, receiptPath string, verdict string, finalText string, turnResult *agent.TurnResult) (string, *receiptFrontmatter, error) {
@@ -112,7 +74,7 @@ func formatFallbackReceipt(role string, chainID string, verdict string, finalTex
 		Agent:           role,
 		ChainID:         chainID,
 		Step:            1,
-		Verdict:         verdict,
+		Verdict:         receipt.Verdict(verdict),
 		Timestamp:       now,
 		TurnsUsed:       metrics.TurnsUsed,
 		TokensUsed:      metrics.TokensUsed,
@@ -146,17 +108,4 @@ duration_seconds: %d
 - Inspect the task outcome and decide whether follow-up work is needed.
 `, role, chainID, verdict, now.Format(time.RFC3339), metrics.TurnsUsed, metrics.TokensUsed, metrics.DurationSeconds, body)
 	return content, receipt
-}
-
-func splitFrontmatter(content string) (frontmatter string, body string, ok bool) {
-	trimmed := strings.TrimLeft(content, "\n")
-	if !strings.HasPrefix(trimmed, "---\n") {
-		return "", content, false
-	}
-	rest := trimmed[len("---\n"):]
-	idx := strings.Index(rest, "\n---\n")
-	if idx < 0 {
-		return "", content, false
-	}
-	return rest[:idx], rest[idx+len("\n---\n"):], true
 }
