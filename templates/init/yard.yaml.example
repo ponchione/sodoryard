@@ -1,0 +1,110 @@
+# yard.yaml — example project config
+#
+# This is a minimal starting point. The `yard init` command will copy
+# this file into a new project's working directory and (eventually)
+# substitute project-specific values. Phase 5 will finalize the init
+# experience; for now, adapt this template by hand.
+#
+# See docs/specs/ for the full config schema documentation.
+
+# Absolute path to the project root that yard operates on.
+project_root: /path/to/your/project
+
+log_level: info
+log_format: text
+
+# Routing: which provider/model handles requests by default.
+routing:
+  default:
+    provider: codex
+    model: gpt-5.4-mini
+
+providers:
+  codex:
+    type: codex
+    model: gpt-5.4-mini
+
+# Code index include/exclude globs. Edit for your stack.
+index:
+  include:
+    - "**/*.go"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.js"
+    - "**/*.jsx"
+    - "**/*.py"
+    - "**/*.md"
+  exclude:
+    - "**/.git/**"
+    - "**/.yard/**"
+    - "**/.brain/**"
+    - "**/node_modules/**"
+    - "**/vendor/**"
+    - "**/dist/**"
+    - "**/build/**"
+
+# Brain vault (Obsidian-style markdown knowledge base).
+brain:
+  enabled: true
+  vault_path: .brain
+  log_brain_queries: true
+
+# Agent roles: start with a coder and a correctness auditor.
+# Add more roles (planner, resolver, test-writer, etc.) as needed.
+# See agents/ in the sodoryard repo for prompt stubs.
+agent_roles:
+  coder:
+    system_prompt: /path/to/sodoryard/agents/coder.md
+    tools:
+      - brain
+      - file
+      - git
+      - shell
+      - search
+    brain_write_paths:
+      - "plans/**"
+      - "receipts/coder/**"
+      - "logs/coder/**"
+    brain_deny_paths:
+      - "specs/**"
+      - "architecture/**"
+      - "conventions/**"
+      - "epics/**"
+      - "tasks/**"
+    max_turns: 100
+    max_tokens: 1000000
+
+  correctness-auditor:
+    system_prompt: /path/to/sodoryard/agents/correctness-auditor.md
+    tools:
+      - brain
+      - file:read
+      - git
+    brain_write_paths:
+      - "receipts/correctness-auditor/**"
+      - "logs/correctness-auditor/**"
+    brain_deny_paths:
+      - "specs/**"
+      - "architecture/**"
+      - "conventions/**"
+      - "epics/**"
+      - "tasks/**"
+      - "plans/**"
+    max_turns: 30
+    max_tokens: 300000
+
+# Local llama.cpp services (optional, for local inference).
+local_services:
+  enabled: false
+  mode: manual
+  provider: docker-compose
+  compose_file: ./ops/llm/docker-compose.yml
+  project_dir: ./ops/llm
+
+# Embedding model for semantic code search.
+embedding:
+  base_url: http://localhost:12435
+  model: nomic-embed-code
+  batch_size: 32
+  timeout_seconds: 30
+  query_prefix: "Represent this query for searching relevant code: "
