@@ -1,6 +1,4 @@
-BINARY              := tidmouth
 BIN_DIR             := bin
-CMD_PKG             := ./cmd/tidmouth
 WEB_DIR             := web
 WEBFS_DIST          := webfs/dist
 GO_TAGS             := sqlite_fts5
@@ -10,15 +8,31 @@ LANCEDB_CGO_LDFLAGS := -L$(LANCEDB_LIB_DIR) -llancedb_go -lm -ldl -lpthread
 CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIBRARY_PATH="$(LANCEDB_LIB_DIR)"
 CGO_BUILD_ENV       := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS) -Wl,-rpath,$(LANCEDB_LIB_DIR)"
 
-.PHONY: build test dev-backend dev-frontend dev frontend-deps frontend-build frontend-typecheck clean
+.PHONY: all build tidmouth sirtopham knapford test dev-backend dev-frontend dev frontend-deps frontend-build frontend-typecheck clean
 
-# ── Build ────────────────────────────────────────────────────────────
-# Compiles the React frontend, copies dist/ into webfs/ for go:embed,
-# then builds the Go binary with the frontend embedded.
-build: frontend-build
+# `make all` builds every monorepo binary. `make build` is an alias for
+# `make tidmouth` to preserve the single-binary workflow during Phase 1/2.
+all: tidmouth sirtopham knapford
+
+build: tidmouth
+
+# ── Binaries ─────────────────────────────────────────────────────────
+# tidmouth: the headless engine harness. Embeds the React frontend via
+# webfs/go:embed until Knapford absorbs the web UI (Phase 6).
+tidmouth: frontend-build
 	rm -rf $(WEBFS_DIST) && cp -r $(WEB_DIR)/dist $(WEBFS_DIST)
 	mkdir -p $(BIN_DIR)
-	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/$(BINARY) $(CMD_PKG)
+	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/tidmouth ./cmd/tidmouth
+
+# sirtopham: chain orchestrator (Phase 3 placeholder for now).
+sirtopham:
+	mkdir -p $(BIN_DIR)
+	go build -o $(BIN_DIR)/sirtopham ./cmd/sirtopham
+
+# knapford: web dashboard (Phase 6 placeholder for now).
+knapford:
+	mkdir -p $(BIN_DIR)
+	go build -o $(BIN_DIR)/knapford ./cmd/knapford
 
 test:
 	$(CGO_TEST_ENV) go test $(GOFLAGS_DB) ./...
@@ -30,7 +44,7 @@ test:
 # The Vite dev server proxies /api/* to the Go backend.
 
 dev-backend:
-	$(CGO_TEST_ENV) go run $(GOFLAGS_DB) $(CMD_PKG) serve --dev
+	$(CGO_TEST_ENV) go run $(GOFLAGS_DB) ./cmd/tidmouth serve --dev
 
 dev-frontend:
 	cd $(WEB_DIR) && npm run dev
