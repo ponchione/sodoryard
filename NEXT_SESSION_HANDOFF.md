@@ -1,4 +1,4 @@
-# Session handoff — sodoryard migration, start of Phase 1
+# Session handoff — sodoryard migration, start of Phase 3
 
 Date: 2026-04-11
 Branch: main
@@ -7,6 +7,10 @@ Cwd: /home/gernsback/source/sodoryard
 > Read this cold. Everything you need to orient yourself is in here. If anything
 > in this doc disagrees with current repo state, trust the repo and update this
 > doc before acting.
+
+> **Phase 5a (yard paths rename) landed this session.** See the "Phase 5a
+> complete" section below. The next task is Phase 3 — SirTopham orchestrator —
+> per `docs/specs/15-chain-orchestrator.md`.
 
 ---
 
@@ -37,7 +41,7 @@ Other required reading:
 
 ---
 
-## Milestones reached before this handoff
+## Milestones reached
 
 - **Phase 0 — complete.** Tag `v0.1-pre-sodor` at commit `1338611` marks the
   state before any sodoryard migration or brain-rebuild work.
@@ -45,38 +49,82 @@ Other required reading:
   heading-aware brain chunks, hybrid runtime brain searcher (keyword + semantic
   + graph/backlink), layout-intent routing, explicit `sirtopham index brain`
   path. Six maintained validation scenarios stay green live on the rebuilt
-  `:8092` runtime. Narrative is preserved in git at commit `4a63ad8` and its
-  predecessor `1338611`.
-- **Phase 2 spec-13 headless run command — functionally landed and smoke-tested
-  end to end.** See "Smoke test" section below.
-- **Phase 2 spec-14 agent roles and brain conventions — mostly landed.**
+  runtime. Narrative preserved in git at commits `4a63ad8` and `1338611`.
+- **Phase 2 spec-13 headless run command — landed and smoke-tested end to
+  end.** The "Phase 2 acceptance items verified live" section below lists
+  what the live smoke test proved. Test-only gaps (custom-tools rejection,
+  exit-code paths, `--task-file`) were later closed in commit `447bf5e` —
+  see "Bugs fixed / debt paid this session" below.
+- **Phase 2 spec-14 agent roles and brain conventions — landed.**
   `file:read` tool group split, `internal/role/builder.go`, brain write path
   enforcement, agent prompt stubs in `agents/`, role set wired into
-  `sirtopham.yaml`, boundary docs. Prompt stubs are operational but minimal —
-  production prompts are Phase 4, not this session.
-- **Phase 1 monorepo restructure — NOT STARTED.** This is where you pick up.
+  `yard.yaml` (formerly `sirtopham.yaml`), boundary docs. Prompt stubs are
+  operational but minimal — production prompts are Phase 4, not this session.
+- **Phase 1 monorepo restructure — complete.** Tag `v0.2-monorepo-structure`
+  marks the final Phase 1 commit. Module path is `github.com/ponchione/sodoryard`,
+  `cmd/tidmouth/` hosts the headless engine, `cmd/sirtopham/` and `cmd/knapford/`
+  are placeholder binaries awaiting Phase 3 and Phase 6, `templates/init/` has
+  the scaffold for `yard init`, and the Makefile builds all three binaries.
+- **Phase 5a yard paths rename — complete.** Tag `v0.2.1-yard-paths` at the
+  most recent Phase 5a commit. Every project now uses the canonical `.yard/`
+  state directory with `yard.yaml` config and `yard.db` SQLite file, regardless
+  of project basename. The codeintel chunk-label derivation (`ProjectName()`)
+  is intentionally kept basename-derived — that concern is split from the
+  state dir name. See `docs/plans/2026-04-11-yard-paths-rename-implementation-plan.md`
+  for the task-by-task plan that drove this work.
 
 ---
 
 ## Repo state at handoff
 
 ```
-HEAD  581412a fix(config): point sirtopham.yaml project_root at sodoryard
-      d20d08c fix(config): align role receipt/logs allow-lists with {role} convention
-      d852725 fix(mcpclient): surface tool-result IsError errors from vault methods
-      5b2871d fix(runtime): stop cleanup chain from self-recursing via shared prev var
-      4a63ad8 feat: finish brain-system rebuild and start sodoryard migration scaffolding
+HEAD  c080551 fix(runtime): bootstrap db schema before running upgrade helpers   ← tag v0.2.1-yard-paths
+      b5ed4d4 chore: update gitignore and comment references to yard paths
+      88e453e refactor: rename repo config files to yard.yaml
+      3cf5239 refactor(init): generate canonical .yard/yard.db and yard.yaml
+      d12b69c refactor(cli): default --config flag to yard.yaml
+      afdb951 refactor(indexstate): resolve state file under canonical .yard dir
+      23cb30e docs(config): document DefaultConfigFilename unused parameter
+      1d37c9c refactor(config): hardcode yard state dir and database name
+      b092dc0 docs: add phase 5a yard paths rename implementation plan
+      8f4b12d docs: refine rename debt notes and phase 1 smoke test phrasing
+      2ed9fe8 refactor(config): derive state-dir exclude pattern per project
+      447bf5e refactor(tidmouth): extract newRootCmd and cover run headless gaps
+      fedd1e1 build: rework Makefile for three-binary monorepo   ← tag v0.2-monorepo-structure
       1338611 docs: refresh brain validation handoff   ← tag v0.1-pre-sodor
 ```
 
 - Working tree: clean
 - `make test`: green
 - `make build`: green
-- Tag: `v0.1-pre-sodor` at `1338611`
+- Tags: `v0.1-pre-sodor`, `v0.2-monorepo-structure`, `v0.2.1-yard-paths`
+- **Not pushed.** User pushes manually.
 
 ---
 
-## Bugs fixed this session — read before touching Phase 1
+## Bugs fixed / debt paid across sessions — read before starting Phase 3
+
+### 0. Runtime DB schema bootstrap (phase 5a task 7)
+
+File: `cmd/tidmouth/runtime.go`, commit `c080551`.
+
+`buildAppRuntime` opened the database and immediately called
+`EnsureMessageSearchIndexesIncludeTools` + `EnsureContextReportsIncludeTokenBudget`,
+which assume the base schema already exists. Against a pre-initialized state
+dir this worked fine, but against a fresh `.yard/yard.db` — the common case
+after the phase 5a rename — it failed at the second helper with
+`no such table: context_reports`. `OpenDB` creates the file via `MkdirAll` but
+does not create any tables.
+
+Fix: call `appdb.InitIfNeeded` right after `OpenDB`. That helper is a no-op
+when the schema already exists, so this is safe for initialized projects and
+correct for uninitialized ones. **If you add new schema-upgrade helpers in
+`buildAppRuntime`, they must run AFTER `InitIfNeeded`.**
+
+Surfaced by the phase 5a task 7 regression smoke test against `my-website`.
+
+### Phase 2 era bugs (preserved from earlier handoff)
+
 
 ### 1. Closure capture-by-reference in cleanup chains
 
@@ -160,20 +208,61 @@ Not verified live (lower risk; should be covered by `cmd/sirtopham/run_test.go`)
 
 ---
 
-## Next task: Phase 1 monorepo restructure
+## Next task: Phase 3 — SirTopham orchestrator
 
-**Goal:** move the existing code into the sodoryard monorepo layout without
-changing any functionality. Every step must compile and tests must pass.
+**Goal:** Build `cmd/sirtopham/` into the real chain orchestrator binary per
+`docs/specs/15-chain-orchestrator.md`. Today it is a stub `main.go` that
+prints a placeholder.
+
+**Design is already written.** Read `docs/specs/15-chain-orchestrator.md`
+before touching code. Key pieces Phase 3 introduces:
+
+1. `internal/receipt/` — frontmatter parser. Pure, no upstream deps. Ship first.
+2. `internal/chain/` — SQLite schema (`chains`, `steps`, `events` tables),
+   migrations, state transitions, limit enforcement, event logging. Schema
+   patterns adapted from conductor v1 per `conductor-v1-extraction.md`.
+3. `internal/spawn/` — `spawn_engine` tool implementation. Execs `tidmouth run`
+   as a subprocess, waits, reads receipt from brain, updates chain state.
+4. `chain_complete` tool + headless driver termination signal — small, but has
+   to hook into the existing `AgentLoop` cleanly. Watch out for the closure
+   capture-by-reference bug pattern from the Phase 2 fix (use `chainCleanup`).
+5. `cmd/sirtopham/` CLI — `chain`, `status`, `logs`, `receipt`, `pause`,
+   `resume`, `cancel` subcommands. Boot the orchestrator as a headless Tidmouth
+   session with the custom tool registry.
+6. `agents/orchestrator.md` — enough to run a minimal chain end-to-end.
+   NOT the production prompt; that iteration is Phase 4.
+7. Reindex hooks (`reindex_before` boolean on `spawn_engine`) — last, because
+   you need the rest working before you can prove the hook is useful.
+
+**Database path:** `.yard/yard.db` is the Tidmouth database. Spec 15 also
+references `.yard/sirtopham.db` but the user locked the decision at
+`.yard/yard.db` (single shared DB for now — reevaluate only if concurrent
+writers become a problem). Update spec 15 on first Phase 3 touch.
 
 **User-chosen constraints (do not deviate without asking):**
 
 - Per-step commits as needed — not one big commit
-- Phase 1.7 (`templates/init/`) is in scope
 - Do NOT auto-push — the user pushes manually
-- Regression smoke test (see below) must still pass at the end of Phase 1 as
-  the gate before tagging `v0.2-monorepo-structure`
+- Phase 3 work happens on `main` directly (same pattern as Phases 1 and 5a)
+- Regression smoke test (see below) must still pass as the final gate
+  before tagging `v0.4-orchestrator`
+- The Phase 4 production prompts are OUT OF SCOPE for Phase 3 — stub prompts
+  in `agents/orchestrator.md` are fine for the first smoke test
 
-**Step plan (from `sodor-migration-roadmap.md` Phase 1, with known debt woven in):**
+**Where Phase 5b and Phase 4 sit:** Phase 5b (`yard init` CLI) lands after
+Phase 3 because its smoke test exercises a real chain. Phase 4 (prompt
+engineering) happens during/after Phase 3 and is mostly human work with LLM
+assistance, not autonomous agent work. See `sodor-migration-roadmap.md` for
+the full phase layout.
+
+---
+
+## Historical: Phase 1 step plan (for archaeology)
+
+The Phase 1 step plan below was the plan that drove the monorepo restructure.
+Phase 1 is complete as of tag `v0.2-monorepo-structure` at commit `fedd1e1`,
+and Phase 5a is complete as of tag `v0.2.1-yard-paths` at commit `c080551`.
+Everything below this line is preserved as reference.
 
 ### Step 1.1 — `go.mod` module path rename
 
