@@ -2,16 +2,30 @@ package role
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/tool"
 )
 
 type fakeSemanticSearcher struct{}
 
 func (fakeSemanticSearcher) Search(ctx context.Context, queries []string, opts codeintel.SearchOptions) ([]codeintel.SearchResult, error) {
 	return nil, nil
+}
+
+type fakeCustomTool struct{ name string }
+
+func (f fakeCustomTool) Name() string            { return f.name }
+func (f fakeCustomTool) Description() string     { return "fake custom tool" }
+func (f fakeCustomTool) ToolPurity() tool.Purity { return tool.Mutating }
+func (f fakeCustomTool) Execute(context.Context, string, json.RawMessage) (*tool.ToolResult, error) {
+	return &tool.ToolResult{Success: true, Content: "ok"}, nil
+}
+func (f fakeCustomTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"name":"` + f.name + `","description":"fake","input_schema":{"type":"object","properties":{}}}`)
 }
 
 func TestBuildRegistryIncludesOnlyRequestedToolGroups(t *testing.T) {
@@ -103,11 +117,49 @@ func TestBuildRegistryBrainToolsCarryScopedBrainPolicy(t *testing.T) {
 	}
 }
 
-func TestBuildRegistryRejectsCustomTools(t *testing.T) {
+func TestBuildRegistryRejectsCustomToolsWithoutFactory(t *testing.T) {
 	cfg := &appconfig.Config{}
 	_, _, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{CustomTools: []string{"external.runner"}}, BuilderDeps{})
 	if err == nil {
 		t.Fatal("expected error for custom_tools, got nil")
+	}
+}
+
+func TestBuildRegistryRegistersCustomToolsFromFactory(t *testing.T) {
+	cfg := &appconfig.Config{}
+	registry, _, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{CustomTools: []string{"spawn_agent"}}, BuilderDeps{CustomToolFactory: map[string]func() tool.Tool{"spawn_agent": func() tool.Tool { return fakeCustomTool{name: "spawn_agent"} }}})
+	if err != nil {
+		t.Fatalf("BuildRegistry returned error: %v", err)
+	}
+	got := registry.Names()
+	if len(got) != 1 || got[0] != "spawn_agent" {
+		t.Fatalf("Names() = %v, want [spawn_agent]", got)
+	}
+}
+
+func TestBuildRegistryRejectsMissingFactoryTool(t *testing.T) {
+	cfg := &appconfig.Config{}
+	_, _, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{CustomTools: []string{"spawn_agent"}}, BuilderDeps{CustomToolFactory: map[string]func() tool.Tool{}})
+	if err == nil {
+		t.Fatal("expected missing factory tool error, got nil")
+	}
+}
+
+func TestBuildRegistryIgnoresUnusedFactoryWhenNoCustomTools(t *testing.T) {
+	cfg := &appconfig.Config{}
+	registry, _, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{Tools: []string{"search"}}, BuilderDeps{SemanticSearcher: fakeSemanticSearcher{}, CustomToolFactory: map[string]func() tool.Tool{"spawn_agent": func() tool.Tool { return fakeCustomTool{name: "spawn_agent"} }}})
+	if err != nil {
+		t.Fatalf("BuildRegistry returned error: %v", err)
+	}
+	got := registry.Names()
+	want := []string{"search_semantic", "search_text"}
+	if len(got) != len(want) {
+		t.Fatalf("Names() len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Names()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+		}
 	}
 }
 

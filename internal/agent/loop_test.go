@@ -531,6 +531,46 @@ func TestRunTurnWithToolUse(t *testing.T) {
 	}
 }
 
+func TestRunTurnStopsCleanlyOnChainCompleteSentinel(t *testing.T) {
+	sink := NewChannelSink(32)
+	assembler := &loopContextAssemblerStub{pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true}}
+	conversations := &loopConversationManagerStub{history: []db.Message{}, seen: loopSeenFilesStub{}}
+	routerStub := &providerRouterStub{streamEvents: [][]provider.StreamEvent{{
+		provider.ToolCallStart{ID: "tool_1", Name: "chain_complete"},
+		provider.ToolCallEnd{ID: "tool_1", Input: json.RawMessage(`{"summary":"done","status":"success"}`)},
+		provider.StreamDone{StopReason: provider.StopReasonToolUse, Usage: provider.Usage{InputTokens: 20, OutputTokens: 5}},
+	}}}
+	executor := &toolExecutorStub{err: toolpkg.ErrChainComplete}
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      routerStub,
+		ToolExecutor:        executor,
+		PromptBuilder:       NewPromptBuilder(nil),
+		EventSink:           sink,
+	})
+	loop.now = func() time.Time { return time.Unix(1700000600, 0).UTC() }
+
+	result, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-1",
+		TurnNumber:        1,
+		Message:           "finish the chain",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn returned error: %v", err)
+	}
+	if result == nil || result.IterationCount != 1 {
+		t.Fatalf("result = %#v, want iteration count 1", result)
+	}
+	if len(conversations.persistIterCalls) != 0 {
+		t.Fatalf("PersistIteration calls = %d, want 0", len(conversations.persistIterCalls))
+	}
+	if len(executor.calls) != 1 || executor.calls[0].Name != "chain_complete" {
+		t.Fatalf("executor calls = %+v, want one chain_complete call", executor.calls)
+	}
+}
+
 func TestRunTurnBatchesMultipleToolCallsWhenExecutorSupportsIt(t *testing.T) {
 	sink := NewChannelSink(64)
 	assembler := &loopContextAssemblerStub{pkg: &contextpkg.FullContextPackage{Content: "context", Frozen: true}}

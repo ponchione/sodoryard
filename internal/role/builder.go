@@ -13,20 +13,18 @@ import (
 )
 
 type BuilderDeps struct {
-	BrainBackend     brain.Backend
-	BrainSearcher    appcontext.BrainSearcher
-	SemanticSearcher tool.SemanticSearcher
-	ProviderRuntime  provider.Provider
-	Queries          *appdb.Queries
-	ProjectID        string
+	BrainBackend      brain.Backend
+	BrainSearcher     appcontext.BrainSearcher
+	SemanticSearcher  tool.SemanticSearcher
+	ProviderRuntime   provider.Provider
+	Queries           *appdb.Queries
+	ProjectID         string
+	CustomToolFactory map[string]func() tool.Tool
 }
 
 func BuildRegistry(cfg *appconfig.Config, roleCfg appconfig.AgentRoleConfig, deps BuilderDeps) (*tool.Registry, appconfig.BrainConfig, error) {
 	if cfg == nil {
 		return nil, appconfig.BrainConfig{}, fmt.Errorf("role builder: config is required")
-	}
-	if len(roleCfg.CustomTools) > 0 {
-		return nil, appconfig.BrainConfig{}, fmt.Errorf("role builder: custom_tools are not implemented by SirTopham and must be provided by the external orchestrator")
 	}
 
 	brainCfg := cfg.Brain
@@ -55,6 +53,19 @@ func BuildRegistry(cfg *appconfig.Config, roleCfg appconfig.AgentRoleConfig, dep
 			continue
 		default:
 			return nil, appconfig.BrainConfig{}, fmt.Errorf("role builder: unsupported tool group %q", group)
+		}
+	}
+
+	if len(roleCfg.CustomTools) > 0 {
+		if deps.CustomToolFactory == nil {
+			return nil, appconfig.BrainConfig{}, fmt.Errorf("role builder: custom_tools are not implemented: caller did not provide a CustomToolFactory")
+		}
+		for _, name := range roleCfg.CustomTools {
+			ctor, ok := deps.CustomToolFactory[name]
+			if !ok {
+				return nil, appconfig.BrainConfig{}, fmt.Errorf("role builder: custom tool %q not provided by factory", name)
+			}
+			registry.Register(ctor())
 		}
 	}
 

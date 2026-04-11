@@ -650,6 +650,15 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 					toolResult, toolErr := l.toolExecutor.Execute(execCtx, tc)
 					batchDuration = l.now().Sub(toolStart)
 					if toolErr != nil {
+						if errors.Is(toolErr, toolpkg.ErrChainComplete) {
+							return &TurnResult{
+								TurnStartResult: *turnCtx,
+								FinalText:       result.TextContent,
+								IterationCount:  iteration,
+								TotalUsage:      totalUsage,
+								Duration:        l.now().Sub(turnStart),
+							}, nil
+						}
 						enrichedMsg := enrichToolError(tc.Name, toolErr)
 						toolResult = &provider.ToolResult{
 							ToolUseID: tc.ID,
@@ -683,6 +692,15 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 			}
 
 			if batchErr != nil {
+				if errors.Is(batchErr, toolpkg.ErrChainComplete) {
+					return &TurnResult{
+						TurnStartResult: *turnCtx,
+						FinalText:       result.TextContent,
+						IterationCount:  iteration,
+						TotalUsage:      totalUsage,
+						Duration:        l.now().Sub(turnStart),
+					}, nil
+				}
 				for i, tc := range validCalls {
 					enrichedMsg := enrichToolError(tc.Name, batchErr)
 					toolResult := provider.ToolResult{
