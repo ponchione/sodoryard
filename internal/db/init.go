@@ -185,6 +185,68 @@ func EnsureContextReportsIncludeTokenBudget(ctx context.Context, db *sql.DB) err
 	return nil
 }
 
+func EnsureChainSchema(ctx context.Context, db *sql.DB) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const ddl = `
+CREATE TABLE IF NOT EXISTS chains (
+    id                  TEXT PRIMARY KEY,
+    source_specs        TEXT,
+    source_task         TEXT,
+    status              TEXT NOT NULL DEFAULT 'running',
+    summary             TEXT,
+    total_steps         INTEGER NOT NULL DEFAULT 0,
+    total_tokens        INTEGER NOT NULL DEFAULT 0,
+    total_duration_secs INTEGER NOT NULL DEFAULT 0,
+    resolver_loops      INTEGER NOT NULL DEFAULT 0,
+    max_steps           INTEGER NOT NULL DEFAULT 100,
+    max_resolver_loops  INTEGER NOT NULL DEFAULT 3,
+    max_duration_secs   INTEGER NOT NULL DEFAULT 14400,
+    token_budget        INTEGER NOT NULL DEFAULT 5000000,
+    started_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at        TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS steps (
+    id                  TEXT PRIMARY KEY,
+    chain_id            TEXT NOT NULL REFERENCES chains(id),
+    sequence_num        INTEGER NOT NULL,
+    role                TEXT NOT NULL,
+    task                TEXT NOT NULL,
+    task_context        TEXT,
+    status              TEXT NOT NULL DEFAULT 'pending',
+    verdict             TEXT,
+    receipt_path        TEXT,
+    tokens_used         INTEGER NOT NULL DEFAULT 0,
+    turns_used          INTEGER NOT NULL DEFAULT 0,
+    duration_secs       INTEGER NOT NULL DEFAULT 0,
+    exit_code           INTEGER,
+    error_message       TEXT,
+    started_at          TEXT,
+    completed_at        TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_steps_chain ON steps(chain_id);
+CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status);
+CREATE TABLE IF NOT EXISTS events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    chain_id            TEXT NOT NULL REFERENCES chains(id),
+    step_id             TEXT REFERENCES steps(id),
+    event_type          TEXT NOT NULL,
+    event_data          TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_chain ON events(chain_id);
+CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+`
+	if _, err := db.ExecContext(ctx, ddl); err != nil {
+		return fmt.Errorf("ensure chain schema: %w", err)
+	}
+	return nil
+}
+
 func tableHasColumn(ctx context.Context, db *sql.DB, table string, column string) (bool, error) {
 	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
 	if err != nil {

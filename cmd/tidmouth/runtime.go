@@ -86,6 +86,9 @@ func buildAppRuntime(ctx context.Context, cfg *appconfig.Config) (*appRuntime, e
 	if err := appdb.EnsureContextReportsIncludeTokenBudget(ctx, database); err != nil {
 		return closeOnError(fmt.Errorf("upgrade context report token budget storage: %w", err))
 	}
+	if err := appdb.EnsureChainSchema(ctx, database); err != nil {
+		return closeOnError(fmt.Errorf("ensure chain schema: %w", err))
+	}
 	queries := appdb.New(database)
 	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
 		return closeOnError(fmt.Errorf("ensure project record: %w", err))

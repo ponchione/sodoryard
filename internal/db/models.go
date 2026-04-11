@@ -31,6 +31,26 @@ type BrainLink struct {
 	LinkText   sql.NullString `json:"link_text"`
 }
 
+type Chain struct {
+	ID                string         `json:"id"`
+	SourceSpecs       sql.NullString `json:"source_specs"`
+	SourceTask        sql.NullString `json:"source_task"`
+	Status            string         `json:"status"`
+	Summary           sql.NullString `json:"summary"`
+	TotalSteps        int64          `json:"total_steps"`
+	TotalTokens       int64          `json:"total_tokens"`
+	TotalDurationSecs int64          `json:"total_duration_secs"`
+	ResolverLoops     int64          `json:"resolver_loops"`
+	MaxSteps          int64          `json:"max_steps"`
+	MaxResolverLoops  int64          `json:"max_resolver_loops"`
+	MaxDurationSecs   int64          `json:"max_duration_secs"`
+	TokenBudget       int64          `json:"token_budget"`
+	StartedAt         string         `json:"started_at"`
+	CompletedAt       sql.NullString `json:"completed_at"`
+	CreatedAt         string         `json:"created_at"`
+	UpdatedAt         string         `json:"updated_at"`
+}
+
 type ContextReport struct {
 	ID                  int64           `json:"id"`
 	ConversationID      string          `json:"conversation_id"`
@@ -64,6 +84,15 @@ type Conversation struct {
 	Provider  sql.NullString `json:"provider"`
 	CreatedAt string         `json:"created_at"`
 	UpdatedAt string         `json:"updated_at"`
+}
+
+type Event struct {
+	ID        int64          `json:"id"`
+	ChainID   string         `json:"chain_id"`
+	StepID    sql.NullString `json:"step_id"`
+	EventType string         `json:"event_type"`
+	EventData sql.NullString `json:"event_data"`
+	CreatedAt string         `json:"created_at"`
 }
 
 type IndexState struct {
@@ -105,6 +134,26 @@ type Project struct {
 	LastIndexedAt     sql.NullString `json:"last_indexed_at"`
 	CreatedAt         string         `json:"created_at"`
 	UpdatedAt         string         `json:"updated_at"`
+}
+
+type Step struct {
+	ID           string         `json:"id"`
+	ChainID      string         `json:"chain_id"`
+	SequenceNum  int64          `json:"sequence_num"`
+	Role         string         `json:"role"`
+	Task         string         `json:"task"`
+	TaskContext  sql.NullString `json:"task_context"`
+	Status       string         `json:"status"`
+	Verdict      sql.NullString `json:"verdict"`
+	ReceiptPath  sql.NullString `json:"receipt_path"`
+	TokensUsed   int64          `json:"tokens_used"`
+	TurnsUsed    int64          `json:"turns_used"`
+	DurationSecs int64          `json:"duration_secs"`
+	ExitCode     sql.NullInt64  `json:"exit_code"`
+	ErrorMessage sql.NullString `json:"error_message"`
+	StartedAt    sql.NullString `json:"started_at"`
+	CompletedAt  sql.NullString `json:"completed_at"`
+	CreatedAt    string         `json:"created_at"`
 }
 
 type SubCall struct {
