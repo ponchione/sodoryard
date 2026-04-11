@@ -1,6 +1,6 @@
 # TECH-DEBT
 
-Last audit refresh: 2026-04-08
+Last audit refresh: 2026-04-11
 Current phase: operationally healthy, plausible daily-driver, but not yet fully proven on real day-to-day use
 Verification baseline: `make test` ✅, `make build` ✅ (frontend chunk-size warning + npm audit warning only)
 
@@ -74,6 +74,75 @@ Primary references
 - `README.md`
 - `MANUAL_LIVE_VALIDATION.md`
 - `docs/specs/04-code-intelligence-and-rag.md`
+
+### R5. SirTopham orchestrator teardown races provider sub-call recorder against DB close
+Priority: low
+Area: orchestrator runtime / cleanup
+
+Current truth
+- `cmd/sirtopham/chain.go` defers `rt.Cleanup()` which closes `.yard/yard.db` immediately on agent loop return
+- the provider router writes per-call sub-call records via a goroutine that may still be in flight at that point
+- result: the orchestrator emits a stray `ERROR msg="failed to record sub-call for stream" err="sql: database is closed"` line on every clean exit
+
+Why it matters
+- the chain itself completes correctly (verified live by Phase 3 smoke chain `phase3-smoke-1`)
+- but the noise undermines operator confidence in the "exit 0 = clean" signal and could mask real teardown errors later
+- `cmd/tidmouth/run.go` does NOT have this issue, so the fix is to align orchestrator teardown with the engine pattern
+
+Done means
+- drain or wait on in-flight sub-call writes before closing the DB in `buildOrchestratorRuntime`'s cleanup closure
+- add a regression test that runs an orchestrator chain and asserts no `database is closed` error lines on clean exit
+
+Primary references
+- `cmd/sirtopham/runtime.go` (orchestratorRuntime.Cleanup)
+- `cmd/sirtopham/chain.go` (defer rt.Cleanup)
+- `internal/provider/tracking/` (sub-call store)
+
+### R6. SirTopham auto-registers anthropic + openrouter providers even when not in yard.yaml
+Priority: low
+Area: orchestrator runtime / startup
+
+Current truth
+- `./bin/sirtopham chain --config <yaml>` against a yaml that lists only `codex` still logs `provider registered` for `anthropic` and `openrouter`
+- the anthropic provider then fails its `Ping()` startup check and gets unregistered with a credentials warning, every single startup
+- this happens regardless of whether anthropic credentials exist on the host
+
+Why it matters
+- wasted startup work + a misleading WARN line on every chain run
+- operators reading orchestrator logs will assume something is misconfigured
+- root cause is somewhere in the orchestrator's provider router init path that defaults-in providers the yaml never asked for
+
+Done means
+- only register providers explicitly listed under `providers:` in the loaded config
+- no extra WARN lines on a clean orchestrator startup
+- test that exercises a codex-only config and asserts the registration log is exactly `[codex]`
+
+Primary references
+- `cmd/sirtopham/runtime.go` (buildOrchestratorRuntime provider loop)
+- `internal/provider/router/`
+- compare with `cmd/tidmouth/runtime.go` provider registration
+
+### R7. chain_complete writes orchestrator receipts with hardcoded zero metrics
+Priority: low
+Area: orchestrator receipt fidelity
+
+Current truth
+- `internal/spawn/chain_complete.go` builds the orchestrator receipt with `turns_used: 0`, `tokens_used: 0`, `duration_seconds: 0` literals
+- the real chain metrics are tracked correctly in the chain store and surfaced via `sirtopham status`/`sirtopham receipt`
+- the receipt body is therefore informative for the chain summary text but useless for any downstream tool that wants to read run metrics from receipt frontmatter
+
+Why it matters
+- spec 13 receipt frontmatter is supposed to be the canonical source of truth
+- a Phase 4/Phase 6 dashboard that aggregates receipts will silently undercount everything orchestrators did
+
+Done means
+- `chain_complete` reads chain metrics from `Store.GetChain` before writing the receipt and emits the real numbers
+- a unit test asserts non-zero metrics flow through to the receipt body when the chain has steps recorded
+
+Primary references
+- `internal/spawn/chain_complete.go` (Execute)
+- `internal/chain/store.go` (GetChain, ChainMetrics)
+- `docs/specs/13_Headless_Run_Command.md` (receipt contract)
 
 ### R4. The current UI is usable, but still missing a first-class project/file browsing surface
 Priority: medium
