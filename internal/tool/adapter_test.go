@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func TestAdapterConvertsTypes(t *testing.T) {

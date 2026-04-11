@@ -3,7 +3,7 @@ package analysis
 import (
 	"strings"
 
-	brainparser "github.com/ponchione/sirtopham/internal/brain/parser"
+	brainparser "github.com/ponchione/sodoryard/internal/brain/parser"
 )
 
 func ParseDocument(docPath, content string) (Document, error) {

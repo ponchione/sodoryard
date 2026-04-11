@@ -12,8 +12,8 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 func TestEnsureProjectRecordCreatesProjectRow(t *testing.T) {

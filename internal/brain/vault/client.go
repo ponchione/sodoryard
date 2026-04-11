@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ponchione/sirtopham/internal/brain"
+	"github.com/ponchione/sodoryard/internal/brain"
 )
 
 var ErrPathTraversal = errors.New("path escapes vault root")

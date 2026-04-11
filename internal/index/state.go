@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 type projectState struct {

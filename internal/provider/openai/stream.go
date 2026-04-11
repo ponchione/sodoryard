@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // streamChunk is one parsed SSE data payload from the streaming response.

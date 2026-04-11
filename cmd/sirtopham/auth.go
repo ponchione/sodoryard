@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/localservices"
-	"github.com/ponchione/sirtopham/internal/provider"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/localservices"
+	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/spf13/cobra"
 )
 

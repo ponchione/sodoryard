@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
-	anthropicpkg "github.com/ponchione/sirtopham/internal/provider/anthropic"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
+	anthropicpkg "github.com/ponchione/sodoryard/internal/provider/anthropic"
 )
 
 func TestBuildPromptRequiresBasePrompt(t *testing.T) {

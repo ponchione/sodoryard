@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // Purity classifies a tool's side-effect behavior for dispatch purposes.

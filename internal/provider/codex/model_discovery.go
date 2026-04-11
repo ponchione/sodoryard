@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func visibleModels() []provider.Model {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 type fakeRunner struct {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	sid "github.com/ponchione/sirtopham/internal/id"
+	sid "github.com/ponchione/sodoryard/internal/id"
 )
 
 func TestInitCreatesTablesAndRoundTrips(t *testing.T) {

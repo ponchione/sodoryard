@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	appdb "github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/brain"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 type hybridBrainBackendStub struct {

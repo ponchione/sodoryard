@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // SemanticSearcher is the narrow interface the search_semantic tool needs

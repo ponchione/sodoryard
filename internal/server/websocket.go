@@ -12,9 +12,9 @@ import (
 
 	"nhooyr.io/websocket"
 
-	"github.com/ponchione/sirtopham/internal/agent"
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/conversation"
 )
 
 // AgentService is the interface the WebSocket handler needs from the agent loop.

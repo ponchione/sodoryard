@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 var (

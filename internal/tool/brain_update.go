@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	brainindexstate "github.com/ponchione/sirtopham/internal/brain/indexstate"
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 // BrainUpdate implements the brain_update tool — append, prepend, or replace

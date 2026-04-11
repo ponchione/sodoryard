@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/provider"
-	router "github.com/ponchione/sirtopham/internal/provider/router"
-	"github.com/ponchione/sirtopham/internal/server"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
+	router "github.com/ponchione/sodoryard/internal/provider/router"
+	"github.com/ponchione/sodoryard/internal/server"
 )
 
 func TestGetConfigIncludesToolOutputLimitAndStoreRoot(t *testing.T) {

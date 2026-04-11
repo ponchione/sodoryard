@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func TestHistoryMomentumTrackerExtractsFilesAndModuleFromRecentTurns(t *testing.T) {

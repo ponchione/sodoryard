@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/config"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // --- Compression stubs ---

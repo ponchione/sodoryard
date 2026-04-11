@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	"github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/brain"
+	"github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 var wikilinkRegexp = regexp.MustCompile(`\[\[([^\]]+)\]\]`)

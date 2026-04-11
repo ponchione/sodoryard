@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // chatResponse is the top-level JSON response from POST /chat/completions.

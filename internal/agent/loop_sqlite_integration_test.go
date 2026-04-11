@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/conversation"
-	"github.com/ponchione/sirtopham/internal/db"
-	sid "github.com/ponchione/sirtopham/internal/id"
-	"github.com/ponchione/sirtopham/internal/provider"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/db"
+	sid "github.com/ponchione/sodoryard/internal/id"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 type sqliteAssemblerStub struct {

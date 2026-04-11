@@ -8,7 +8,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // parseTypeScript uses tree-sitter to extract top-level declarations from

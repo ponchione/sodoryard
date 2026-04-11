@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 // ExecutionMeta carries the conversation context needed for tool_executions

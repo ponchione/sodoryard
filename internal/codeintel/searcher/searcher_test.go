@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // fakeEmbedder returns a fixed vector for any query.

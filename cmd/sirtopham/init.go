@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 // obsidianAppJSON is the minimal Obsidian app.json config.

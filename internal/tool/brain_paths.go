@@ -5,8 +5,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/pathglob"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/pathglob"
 )
 
 func normalizeBrainDocumentPath(raw string) (string, error) {

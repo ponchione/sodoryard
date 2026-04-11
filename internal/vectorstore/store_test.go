@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 func TestEscapeLanceFilter(t *testing.T) {

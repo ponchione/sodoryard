@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	brainindexstate "github.com/ponchione/sirtopham/internal/brain/indexstate"
-	"github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/server"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/server"
 )
 
 func TestProjectEndpoint(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 type CommandRunner interface {

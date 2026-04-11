@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/provider"
-	routerpkg "github.com/ponchione/sirtopham/internal/provider/router"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
+	routerpkg "github.com/ponchione/sodoryard/internal/provider/router"
 )
 
 // ProviderRuntimeInspector is the interface the config handler needs from the provider router.

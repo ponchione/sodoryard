@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // loopDetector tracks tool call patterns across iterations to detect when the

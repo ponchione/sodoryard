@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // markSuccess updates a provider's health record after a successful call.

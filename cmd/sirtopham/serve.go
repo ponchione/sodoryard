@@ -13,16 +13,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ponchione/sirtopham/internal/agent"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/conversation"
-	"github.com/ponchione/sirtopham/internal/provider"
-	"github.com/ponchione/sirtopham/internal/provider/anthropic"
-	"github.com/ponchione/sirtopham/internal/provider/codex"
-	"github.com/ponchione/sirtopham/internal/provider/openai"
-	"github.com/ponchione/sirtopham/internal/server"
-	"github.com/ponchione/sirtopham/internal/tool"
-	"github.com/ponchione/sirtopham/webfs"
+	"github.com/ponchione/sodoryard/internal/agent"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider/anthropic"
+	"github.com/ponchione/sodoryard/internal/provider/codex"
+	"github.com/ponchione/sodoryard/internal/provider/openai"
+	"github.com/ponchione/sodoryard/internal/server"
+	"github.com/ponchione/sodoryard/internal/tool"
+	"github.com/ponchione/sodoryard/webfs"
 )
 
 func newServeCmd(configPath *string) *cobra.Command {

@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // API request types for the Anthropic Messages API.

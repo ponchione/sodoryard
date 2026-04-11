@@ -9,7 +9,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // FileIndexResult captures the indexing outcome for one file.

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // Error classification constants for the agent loop's error recovery layer.

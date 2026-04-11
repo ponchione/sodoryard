@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 const titleSystemPrompt = `Generate a short, descriptive title (5-8 words) for a conversation based on its opening exchange. Prefer the actual subject matter or result over tool mechanics, file-access wording, or failure phrasing. Return only the title text, no quotes or formatting.`

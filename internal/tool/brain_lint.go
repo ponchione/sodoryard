@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	"github.com/ponchione/sirtopham/internal/brain/analysis"
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/brain"
+	"github.com/ponchione/sodoryard/internal/brain/analysis"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 type BrainLint struct {

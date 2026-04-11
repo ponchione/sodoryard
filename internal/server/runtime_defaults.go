@@ -3,7 +3,7 @@ package server
 import (
 	"sync"
 
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 // RuntimeDefaults stores the effective default provider/model for live runtime

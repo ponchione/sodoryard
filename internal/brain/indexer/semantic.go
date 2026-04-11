@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	brainchunks "github.com/ponchione/sirtopham/internal/brain/chunks"
-	"github.com/ponchione/sirtopham/internal/brain/parser"
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	brainchunks "github.com/ponchione/sodoryard/internal/brain/chunks"
+	"github.com/ponchione/sodoryard/internal/brain/parser"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 type SemanticIndexer struct {

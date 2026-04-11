@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	appcontext "github.com/ponchione/sirtopham/internal/context"
-	appdb "github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
-	"github.com/ponchione/sirtopham/internal/tool"
+	"github.com/ponchione/sodoryard/internal/brain"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	appcontext "github.com/ponchione/sodoryard/internal/context"
+	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
+	"github.com/ponchione/sodoryard/internal/tool"
 )
 
 type BuilderDeps struct {

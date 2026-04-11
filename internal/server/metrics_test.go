@@ -15,9 +15,9 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	appdb "github.com/ponchione/sirtopham/internal/db"
-	sid "github.com/ponchione/sirtopham/internal/id"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	appdb "github.com/ponchione/sodoryard/internal/db"
+	sid "github.com/ponchione/sodoryard/internal/id"
 )
 
 func TestContextSignalStreamEndpointReturnsOrderedSignalFlow(t *testing.T) {

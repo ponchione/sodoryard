@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // newMockServer creates a test server with a mock credential manager and

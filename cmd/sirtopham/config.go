@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/spf13/cobra"
 )
 

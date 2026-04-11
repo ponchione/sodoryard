@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	codedescriber "github.com/ponchione/sirtopham/internal/codeintel/describer"
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	codedescriber "github.com/ponchione/sodoryard/internal/codeintel/describer"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 const runtimeDescriberSystemPrompt = `You generate semantic descriptions for code entities to improve code search embeddings.

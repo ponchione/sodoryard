@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain/parser"
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/brain/parser"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 const ShortDocumentThreshold = 1000

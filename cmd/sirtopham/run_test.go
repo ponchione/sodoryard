@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/agent"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/agent"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 func TestReadTaskFromFile(t *testing.T) {

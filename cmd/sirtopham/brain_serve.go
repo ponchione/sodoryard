@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/ponchione/sirtopham/internal/brain/mcpserver"
-	"github.com/ponchione/sirtopham/internal/brain/vault"
+	"github.com/ponchione/sodoryard/internal/brain/mcpserver"
+	"github.com/ponchione/sodoryard/internal/brain/vault"
 	"github.com/spf13/cobra"
 )
 

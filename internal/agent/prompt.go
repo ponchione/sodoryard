@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strings"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
-	anthropicpkg "github.com/ponchione/sirtopham/internal/provider/anthropic"
-	"github.com/ponchione/sirtopham/internal/tool"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
+	anthropicpkg "github.com/ponchione/sodoryard/internal/provider/anthropic"
+	"github.com/ponchione/sodoryard/internal/tool"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 var _ provider.Pinger = (*CodexProvider)(nil)

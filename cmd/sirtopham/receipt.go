@@ -8,10 +8,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ponchione/sirtopham/internal/agent"
-	"github.com/ponchione/sirtopham/internal/brain"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	toolpkg "github.com/ponchione/sirtopham/internal/tool"
+	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/brain"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	toolpkg "github.com/ponchione/sodoryard/internal/tool"
 )
 
 type receiptFrontmatter struct {

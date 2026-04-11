@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func TestSessionTurnIterationHierarchy(t *testing.T) {

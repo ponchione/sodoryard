@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	dbpkg "github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/config"
+	dbpkg "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 const (

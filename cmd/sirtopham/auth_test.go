@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/provider"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 type testAuthProvider struct {

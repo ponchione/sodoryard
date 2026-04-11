@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 type AggregateToolResultBudgetReport struct {

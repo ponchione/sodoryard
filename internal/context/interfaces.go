@@ -3,8 +3,8 @@ package context
 import (
 	stdctx "context"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 // TurnAnalyzer determines what context should be retrieved for a turn.

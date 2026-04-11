@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	brainindexstate "github.com/ponchione/sirtopham/internal/brain/indexstate"
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 // BrainWrite implements the brain_write tool — create or overwrite a brain

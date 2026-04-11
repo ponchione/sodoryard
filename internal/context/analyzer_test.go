@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 func TestRuleBasedAnalyzerExtractsFileReferences(t *testing.T) {

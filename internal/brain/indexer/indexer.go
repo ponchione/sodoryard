@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	"github.com/ponchione/sirtopham/internal/brain/parser"
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/brain"
+	"github.com/ponchione/sodoryard/internal/brain/parser"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 type Indexer struct {

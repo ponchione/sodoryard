@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // MaxDescriptionFileLength is the maximum character length of file content

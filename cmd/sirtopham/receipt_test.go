@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/agent"
-	"github.com/ponchione/sirtopham/internal/brain"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/brain"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 type fakeReceiptBackend struct {

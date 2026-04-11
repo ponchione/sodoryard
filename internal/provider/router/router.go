@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
-	"github.com/ponchione/sirtopham/internal/provider/tracking"
+	"github.com/ponchione/sodoryard/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider/tracking"
 )
 
 // Compile-time interface compliance check.

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/db"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 // HistoryManager provides the first real conversation-history operations needed

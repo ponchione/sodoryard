@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // Compile-time assertions that all StreamEvent variants satisfy the interface.

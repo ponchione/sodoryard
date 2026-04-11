@@ -4,9 +4,9 @@ import (
 	stdctx "context"
 	"encoding/json"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/config"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // CompressionEngine is the narrow interface the agent loop uses to check and

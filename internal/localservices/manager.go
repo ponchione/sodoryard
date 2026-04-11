@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 func (m *Manager) Status(ctx context.Context, cfg *appconfig.Config) (StackStatus, error) {

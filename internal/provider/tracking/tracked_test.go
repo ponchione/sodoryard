@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
-	"github.com/ponchione/sirtopham/internal/provider/tracking"
+	"github.com/ponchione/sodoryard/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider/tracking"
 )
 
 // mockProvider implements provider.Provider with controllable return values.

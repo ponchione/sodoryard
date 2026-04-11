@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 func TestNew(t *testing.T) {

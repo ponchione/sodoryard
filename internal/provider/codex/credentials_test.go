@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // overrideHomeDir temporarily overrides the homeDir function to return the

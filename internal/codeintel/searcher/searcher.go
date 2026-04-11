@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // Searcher executes multi-query semantic search with deduplication,

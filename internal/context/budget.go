@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 const (

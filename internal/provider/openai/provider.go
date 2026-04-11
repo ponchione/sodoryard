@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // OpenAIConfig holds provider-level configuration for one OpenAI-compatible endpoint.

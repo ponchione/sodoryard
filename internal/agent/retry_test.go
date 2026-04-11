@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/provider"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // retryProviderRouterStub allows per-call error/success configuration.

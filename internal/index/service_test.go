@@ -13,9 +13,9 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 type fakeStore struct {

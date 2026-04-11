@@ -10,9 +10,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	"github.com/ponchione/sirtopham/internal/config"
-	appcontext "github.com/ponchione/sirtopham/internal/context"
+	"github.com/ponchione/sodoryard/internal/brain"
+	"github.com/ponchione/sodoryard/internal/config"
+	appcontext "github.com/ponchione/sodoryard/internal/context"
 )
 
 // BrainSearch implements the brain_search tool — keyword search against the

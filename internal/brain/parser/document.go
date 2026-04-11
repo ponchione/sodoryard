@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 	"gopkg.in/yaml.v3"
 )
 

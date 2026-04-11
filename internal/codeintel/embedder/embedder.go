@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 // Client is an HTTP client for the OpenAI-compatible embedding API.

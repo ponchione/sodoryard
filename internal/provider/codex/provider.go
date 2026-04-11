@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // CodexProvider implements the unified Provider interface for OpenAI's

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func newTestProvider(t *testing.T, serverURL string, apiKey string) *OpenAIProvider {

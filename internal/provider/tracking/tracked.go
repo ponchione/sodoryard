@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // TrackedProvider implements provider.Provider, wrapping an inner provider to

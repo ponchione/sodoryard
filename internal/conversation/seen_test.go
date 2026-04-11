@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
 )
 
 var _ contextpkg.SeenFileLookup = (*SeenFiles)(nil)

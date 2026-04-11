@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 const (

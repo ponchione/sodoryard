@@ -9,7 +9,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	golang "github.com/tree-sitter/tree-sitter-go/bindings/go"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // Parser dispatches to language-specific tree-sitter parsers or a fallback splitter.

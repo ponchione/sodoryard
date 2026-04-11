@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 func TestPriorityBudgetManagerComputesBudgetTotal(t *testing.T) {

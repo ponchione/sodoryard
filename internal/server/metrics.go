@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	appdb "github.com/ponchione/sirtopham/internal/db"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 // MetricsHandler serves per-conversation metrics and context report endpoints.

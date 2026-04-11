@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	brainindexer "github.com/ponchione/sirtopham/internal/brain/indexer"
-	brainindexstate "github.com/ponchione/sirtopham/internal/brain/indexstate"
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	appindex "github.com/ponchione/sirtopham/internal/index"
+	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexer "github.com/ponchione/sodoryard/internal/brain/indexer"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	appindex "github.com/ponchione/sodoryard/internal/index"
 )
 
 func TestIndexCommandPassesFlagsToService(t *testing.T) {

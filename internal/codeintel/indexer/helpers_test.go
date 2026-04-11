@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 func TestLangFromExt(t *testing.T) {

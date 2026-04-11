@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // responsesResponse is the top-level Responses API JSON response.

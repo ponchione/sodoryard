@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // Registry holds all registered tools and provides lookup and enumeration.

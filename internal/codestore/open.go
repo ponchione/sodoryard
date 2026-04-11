@@ -3,8 +3,8 @@ package codestore
 import (
 	"context"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/vectorstore"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/vectorstore"
 )
 
 func Open(ctx context.Context, path string) (codeintel.Store, error) {

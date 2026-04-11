@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
-	"github.com/ponchione/sirtopham/internal/conversation"
-	"github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/provider"
-	toolpkg "github.com/ponchione/sirtopham/internal/tool"
+	"github.com/ponchione/sodoryard/internal/config"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
+	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
+	toolpkg "github.com/ponchione/sodoryard/internal/tool"
 )
 
 // ErrTurnCancelled is returned by RunTurn when the turn is cancelled via

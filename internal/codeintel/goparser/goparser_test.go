@@ -8,8 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/codeintel/treesitter"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel/treesitter"
 )
 
 // repoRoot returns the root of the sirtopham repository.

@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	brainindexer "github.com/ponchione/sirtopham/internal/brain/indexer"
-	brainindexstate "github.com/ponchione/sirtopham/internal/brain/indexstate"
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/codeintel/embedder"
-	"github.com/ponchione/sirtopham/internal/codestore"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
-	appindex "github.com/ponchione/sirtopham/internal/index"
+	brainindexer "github.com/ponchione/sodoryard/internal/brain/indexer"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
+	"github.com/ponchione/sodoryard/internal/codestore"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
+	appindex "github.com/ponchione/sodoryard/internal/index"
 	"github.com/spf13/cobra"
 )
 

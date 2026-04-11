@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // newTestProvider creates a CodexProvider with injected state, bypassing

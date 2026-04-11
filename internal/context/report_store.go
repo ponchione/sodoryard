@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	dbpkg "github.com/ponchione/sirtopham/internal/db"
+	dbpkg "github.com/ponchione/sodoryard/internal/db"
 )
 
 type contextReportStore interface {

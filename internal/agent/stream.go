@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // streamResult holds the accumulated output from consuming a provider's stream.

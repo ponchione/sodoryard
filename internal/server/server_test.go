@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/ponchione/sirtopham/internal/server"
+	"github.com/ponchione/sodoryard/internal/server"
 )
 
 func newTestLogger() *slog.Logger {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain/parser"
+	"github.com/ponchione/sodoryard/internal/brain/parser"
 )
 
 func TestBuildDocumentUsesSingleChunkForShortDocument(t *testing.T) {

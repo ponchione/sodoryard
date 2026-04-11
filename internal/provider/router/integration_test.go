@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func TestIntegration_FullLifecycle(t *testing.T) {

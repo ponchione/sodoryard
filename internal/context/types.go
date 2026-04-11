@@ -1,6 +1,6 @@
 package context
 
-import "github.com/ponchione/sirtopham/internal/codeintel"
+import "github.com/ponchione/sodoryard/internal/codeintel"
 
 // Signal records one analyzer extraction decision for observability.
 //

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
+	"github.com/ponchione/sodoryard/internal/brain"
 )
 
 type fakeBackend struct {

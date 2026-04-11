@@ -3,7 +3,7 @@ package index
 import (
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 // Options configures one indexing run.

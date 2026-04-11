@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/brain"
-	"github.com/ponchione/sirtopham/internal/db"
-	sid "github.com/ponchione/sirtopham/internal/id"
+	"github.com/ponchione/sodoryard/internal/brain"
+	"github.com/ponchione/sodoryard/internal/db"
+	sid "github.com/ponchione/sodoryard/internal/id"
 )
 
 type fakeBackend struct {

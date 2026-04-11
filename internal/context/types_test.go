@@ -4,8 +4,8 @@ import (
 	stdctx "context"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/db"
 )
 
 type seenFilesStub struct {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
 )
 
 // SeenFiles tracks file paths that have appeared during the current session.

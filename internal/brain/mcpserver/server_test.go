@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/ponchione/sirtopham/internal/brain/vault"
+	"github.com/ponchione/sodoryard/internal/brain/vault"
 )
 
 func TestServerExposesVaultTools(t *testing.T) {

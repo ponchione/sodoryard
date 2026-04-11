@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // ToolOutputManager is the explicit domain seam for model-visible tool-result

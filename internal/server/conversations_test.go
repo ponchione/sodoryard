@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/conversation"
-	"github.com/ponchione/sirtopham/internal/server"
+	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/server"
 )
 
 // mockConversationService is a test double implementing server.ConversationService.

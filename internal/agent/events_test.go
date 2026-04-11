@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	contextpkg "github.com/ponchione/sirtopham/internal/context"
+	contextpkg "github.com/ponchione/sodoryard/internal/context"
 )
 
 var (

@@ -6,7 +6,7 @@ import (
 	"context"
 	"database/sql"
 
-	db "github.com/ponchione/sirtopham/internal/db"
+	db "github.com/ponchione/sodoryard/internal/db"
 )
 
 // SubCallStore is the persistence boundary for sub-call tracking. Its sole

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/localservices"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/localservices"
 )
 
 var newLocalServicesManager = func() *localservices.Manager {

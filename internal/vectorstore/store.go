@@ -16,7 +16,7 @@ import (
 	"github.com/lancedb/lancedb-go/pkg/contracts"
 	"github.com/lancedb/lancedb-go/pkg/lancedb"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 const tableName = "chunks"

@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/ponchione/sirtopham/internal/agent"
+	"github.com/ponchione/sodoryard/internal/agent"
 )
 
 type runProgressSink struct {

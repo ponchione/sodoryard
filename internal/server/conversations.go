@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/ponchione/sirtopham/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/conversation"
 )
 
 // ConversationService is the interface the conversation handlers need.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 type mockLLM struct {

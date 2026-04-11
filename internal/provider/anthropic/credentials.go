@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // AuthMode indicates how the CredentialManager authenticates with Anthropic.

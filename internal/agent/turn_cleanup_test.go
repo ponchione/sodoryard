@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/conversation"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func TestBuildCleanupPlanSkipsCompletedIteration(t *testing.T) {

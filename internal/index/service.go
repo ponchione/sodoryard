@@ -12,16 +12,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/codeintel/embedder"
-	"github.com/ponchione/sirtopham/internal/codeintel/goparser"
-	codegraph "github.com/ponchione/sirtopham/internal/codeintel/graph"
-	"github.com/ponchione/sirtopham/internal/codeintel/indexer"
-	"github.com/ponchione/sirtopham/internal/codeintel/treesitter"
-	"github.com/ponchione/sirtopham/internal/codestore"
-	"github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/pathglob"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
+	"github.com/ponchione/sodoryard/internal/codeintel/goparser"
+	codegraph "github.com/ponchione/sodoryard/internal/codeintel/graph"
+	"github.com/ponchione/sodoryard/internal/codeintel/indexer"
+	"github.com/ponchione/sodoryard/internal/codeintel/treesitter"
+	"github.com/ponchione/sodoryard/internal/codestore"
+	"github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/pathglob"
 )
 
 var ErrIndexAlreadyRunning = errors.New("index already running for project")

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/brain"
+	"github.com/ponchione/sodoryard/internal/brain"
 )
 
 func brainDocumentNotFoundResult(ctx context.Context, client brain.Backend, path string, errMsg string) *ToolResult {

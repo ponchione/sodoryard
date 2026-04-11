@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 func sendStreamEvent(ctx context.Context, ch chan<- provider.StreamEvent, event provider.StreamEvent) bool {

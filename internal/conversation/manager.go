@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/db"
-	sid "github.com/ponchione/sirtopham/internal/id"
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/db"
+	sid "github.com/ponchione/sodoryard/internal/id"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // Conversation is the application-level representation of a conversation row.

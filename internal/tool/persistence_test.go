@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/db"
+	"github.com/ponchione/sodoryard/internal/db"
 	_ "github.com/mattn/go-sqlite3"
 )
 

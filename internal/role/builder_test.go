@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 type fakeSemanticSearcher struct{}

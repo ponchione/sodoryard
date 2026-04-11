@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 func TestParserImplementsInterface(t *testing.T) {

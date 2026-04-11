@@ -11,12 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ponchione/sirtopham/internal/agent"
-	appconfig "github.com/ponchione/sirtopham/internal/config"
-	"github.com/ponchione/sirtopham/internal/conversation"
-	"github.com/ponchione/sirtopham/internal/id"
-	"github.com/ponchione/sirtopham/internal/role"
-	"github.com/ponchione/sirtopham/internal/tool"
+	"github.com/ponchione/sodoryard/internal/agent"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/id"
+	"github.com/ponchione/sodoryard/internal/role"
+	"github.com/ponchione/sodoryard/internal/tool"
 )
 
 const (

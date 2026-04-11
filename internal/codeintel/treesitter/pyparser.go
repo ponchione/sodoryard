@@ -8,7 +8,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
 // parsePython uses tree-sitter to extract top-level functions, classes, and

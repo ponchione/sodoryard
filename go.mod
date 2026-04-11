@@ -1,4 +1,4 @@
-module github.com/ponchione/sirtopham
+module github.com/ponchione/sodoryard
 
 go 1.25.5
 

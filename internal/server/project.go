@@ -11,11 +11,11 @@ import (
 	"strings"
 	"sync"
 
-	brainindexstate "github.com/ponchione/sirtopham/internal/brain/indexstate"
-	"github.com/ponchione/sirtopham/internal/config"
-	appdb "github.com/ponchione/sirtopham/internal/db"
-	"github.com/ponchione/sirtopham/internal/langutil"
-	"github.com/ponchione/sirtopham/internal/pathglob"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/config"
+	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/langutil"
+	"github.com/ponchione/sodoryard/internal/pathglob"
 )
 
 // ProjectHandler serves project info, file tree, and file content endpoints.

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // classifyError returns a ProviderError based on the HTTP status code,

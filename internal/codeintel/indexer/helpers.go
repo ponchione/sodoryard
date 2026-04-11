@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponchione/sirtopham/internal/codeintel"
-	"github.com/ponchione/sirtopham/internal/langutil"
-	"github.com/ponchione/sirtopham/internal/pathglob"
+	"github.com/ponchione/sodoryard/internal/codeintel"
+	"github.com/ponchione/sodoryard/internal/langutil"
+	"github.com/ponchione/sodoryard/internal/pathglob"
 )
 
 // langFromExt maps a file extension to the language identifier.
