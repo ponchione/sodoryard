@@ -1,0 +1,13 @@
+.git/
+bin/
+web/node_modules/
+webfs/dist/
+.brain/
+.yard/
+.sirtopham/
+*.log
+*.tmp
+docs/
+ops/llm/models/
+.idea/
+.vscode/
