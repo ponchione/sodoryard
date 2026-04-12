@@ -17,6 +17,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	appindex "github.com/ponchione/sodoryard/internal/index"
+	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ var runIndexService = appindex.Run
 var runBrainIndexCommand = runBrainIndex
 var openBrainVectorStore = codestore.Open
 var newBrainEmbedder = func(cfg appconfig.Embedding) codeintel.Embedder { return embedder.New(cfg) }
-var buildBrainIndexBackend = buildBrainBackend
+var buildBrainIndexBackend = rtpkg.BuildBrainBackend
 var markBrainIndexFresh = brainindexstate.MarkFresh
 
 func newIndexCmd(configPath *string) *cobra.Command {
@@ -120,7 +121,7 @@ func runBrainIndex(ctx context.Context, cfg *appconfig.Config) (brainindexer.Res
 	if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
 		return brainindexer.Result{}, fmt.Errorf("brain index: init database schema: %w", err)
 	}
-	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+	if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
 		return brainindexer.Result{}, fmt.Errorf("brain index: ensure project record: %w", err)
 	}
 

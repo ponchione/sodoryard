@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -13,6 +12,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/localservices"
 	"github.com/ponchione/sodoryard/internal/provider"
+	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +25,7 @@ type authProviderReport struct {
 	Auth       *provider.AuthStatus `json:"auth,omitempty"`
 }
 
-var buildProviderForAuthReports = buildProvider
+var buildProviderForAuthReports = rtpkg.BuildProvider
 
 func newAuthCmd(configPath *string) *cobra.Command {
 	authCmd := &cobra.Command{
@@ -120,7 +120,7 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 					report.Auth = &provider.AuthStatus{Provider: name, Detail: err.Error()}
 				}
 				var pe *provider.ProviderError
-				if ok := errorAsProviderError(err, &pe); ok {
+				if ok := rtpkg.ErrorAsProviderError(err, &pe); ok {
 					report.Auth.Remediation = pe.Remediation
 				}
 			} else {
@@ -143,7 +143,7 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 						report.Auth = &provider.AuthStatus{Provider: name, Detail: pingErr.Error()}
 					}
 					var pe *provider.ProviderError
-					if ok := errorAsProviderError(pingErr, &pe); ok {
+					if ok := rtpkg.ErrorAsProviderError(pingErr, &pe); ok {
 						if report.Auth.Remediation == "" {
 							report.Auth.Remediation = pe.Remediation
 						}
@@ -154,13 +154,6 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 		reports = append(reports, report)
 	}
 	return reports
-}
-
-func errorAsProviderError(err error, out **provider.ProviderError) bool {
-	if err == nil {
-		return false
-	}
-	return errors.As(err, out)
 }
 
 func printProviderAuthReports(out io.Writer, reports []authProviderReport) {

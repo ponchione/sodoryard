@@ -14,6 +14,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
 
 func TestEnsureProjectRecordCreatesProjectRow(t *testing.T) {
@@ -35,7 +36,7 @@ func TestEnsureProjectRecordCreatesProjectRow(t *testing.T) {
 	}
 
 	cfg := &appconfig.Config{ProjectRoot: "/tmp/sirtopham-project"}
-	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+	if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
 		t.Fatalf("ensureProjectRecord error: %v", err)
 	}
 
@@ -82,7 +83,7 @@ func TestEnsureProjectRecordUpdatesExistingProjectRow(t *testing.T) {
 	}
 
 	cfg := &appconfig.Config{ProjectRoot: "/tmp/sirtopham-project"}
-	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+	if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
 		t.Fatalf("ensureProjectRecord error: %v", err)
 	}
 
@@ -104,9 +105,9 @@ func TestEnsureProjectRecordUpdatesExistingProjectRow(t *testing.T) {
 func TestBuildBrainBackendUsesMCPClient(t *testing.T) {
 	cfg := appconfig.BrainConfig{Enabled: true, VaultPath: t.TempDir()}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	backend, cleanup, err := buildBrainBackend(context.Background(), cfg, logger)
+	backend, cleanup, err := rtpkg.BuildBrainBackend(context.Background(), cfg, logger)
 	if err != nil {
-		t.Fatalf("buildBrainBackend error: %v", err)
+		t.Fatalf("BuildBrainBackend error: %v", err)
 	}
 	defer cleanup()
 	if backend == nil {
@@ -117,9 +118,9 @@ func TestBuildBrainBackendUsesMCPClient(t *testing.T) {
 func TestBuildGraphStoreUsesProjectStatePath(t *testing.T) {
 	projectRoot := t.TempDir()
 	cfg := &appconfig.Config{ProjectRoot: projectRoot}
-	store, cleanup, err := buildGraphStore(cfg)
+	store, cleanup, err := rtpkg.BuildGraphStore(cfg)
 	if err != nil {
-		t.Fatalf("buildGraphStore error: %v", err)
+		t.Fatalf("BuildGraphStore error: %v", err)
 	}
 	defer cleanup()
 	if store == nil {
@@ -140,7 +141,7 @@ func TestBuildConventionSourceUsesBrainVaultPath(t *testing.T) {
 		t.Fatalf("WriteFile(convention): %v", err)
 	}
 	cfg := &appconfig.Config{ProjectRoot: projectRoot, Brain: appconfig.BrainConfig{VaultPath: ".brain"}}
-	source := buildConventionSource(cfg)
+	source := rtpkg.BuildConventionSource(cfg)
 	text, err := source.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load conventions: %v", err)
@@ -163,9 +164,9 @@ func TestBuildProviderSupportsCodex(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	provider, err := buildProvider("codex", appconfig.ProviderConfig{Type: "codex"})
+	provider, err := rtpkg.BuildProvider("codex", appconfig.ProviderConfig{Type: "codex"})
 	if err != nil {
-		t.Fatalf("buildProvider(codex) error = %v, want nil", err)
+		t.Fatalf("BuildProvider(codex) error = %v, want nil", err)
 	}
 	if got := provider.Name(); got != "codex" {
 		t.Fatalf("provider.Name() = %q, want codex", got)
@@ -173,9 +174,9 @@ func TestBuildProviderSupportsCodex(t *testing.T) {
 }
 
 func TestBuildProviderPreservesConfiguredAliasForAnthropic(t *testing.T) {
-	provider, err := buildProvider("primary_claude", appconfig.ProviderConfig{Type: "anthropic", APIKey: "test-key"})
+	provider, err := rtpkg.BuildProvider("primary_claude", appconfig.ProviderConfig{Type: "anthropic", APIKey: "test-key"})
 	if err != nil {
-		t.Fatalf("buildProvider(primary_claude) error = %v, want nil", err)
+		t.Fatalf("BuildProvider(primary_claude) error = %v, want nil", err)
 	}
 	if got := provider.Name(); got != "primary_claude" {
 		t.Fatalf("provider.Name() = %q, want primary_claude", got)
@@ -195,9 +196,9 @@ func TestBuildProviderPreservesConfiguredAliasForCodex(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	provider, err := buildProvider("corp_codex", appconfig.ProviderConfig{Type: "codex"})
+	provider, err := rtpkg.BuildProvider("corp_codex", appconfig.ProviderConfig{Type: "codex"})
 	if err != nil {
-		t.Fatalf("buildProvider(corp_codex) error = %v, want nil", err)
+		t.Fatalf("BuildProvider(corp_codex) error = %v, want nil", err)
 	}
 	if got := provider.Name(); got != "corp_codex" {
 		t.Fatalf("provider.Name() = %q, want corp_codex", got)

@@ -14,6 +14,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/role"
+	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -126,12 +127,12 @@ func TestLoadRoleSystemPromptResolvesRelativeToProjectRoot(t *testing.T) {
 	if err := os.WriteFile(promptPath, []byte("you are coder"), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
-	got, err := loadRoleSystemPrompt(projectRoot, "agents/coder.md")
+	got, err := rtpkg.LoadRoleSystemPrompt(projectRoot, "agents/coder.md")
 	if err != nil {
 		t.Fatalf("loadRoleSystemPrompt returned error: %v", err)
 	}
 	if got != "you are coder" {
-		t.Fatalf("loadRoleSystemPrompt = %q, want prompt contents", got)
+		t.Fatalf("LoadRoleSystemPrompt = %q, want prompt contents", got)
 	}
 }
 
@@ -140,11 +141,11 @@ func TestResolveModelContextLimitUsesConfiguredAndFallbackValues(t *testing.T) {
 		"codex": {Type: "codex", ContextLength: 111},
 		"local": {Type: "openai-compatible"},
 	}}
-	if got, err := resolveModelContextLimit(cfg, "codex"); err != nil || got != 111 {
-		t.Fatalf("resolveModelContextLimit(codex) = (%d, %v), want (111, nil)", got, err)
+	if got, err := rtpkg.ResolveModelContextLimit(cfg, "codex"); err != nil || got != 111 {
+		t.Fatalf("ResolveModelContextLimit(codex) = (%d, %v), want (111, nil)", got, err)
 	}
-	if got, err := resolveModelContextLimit(cfg, "local"); err != nil || got != 32768 {
-		t.Fatalf("resolveModelContextLimit(local) = (%d, %v), want (32768, nil)", got, err)
+	if got, err := rtpkg.ResolveModelContextLimit(cfg, "local"); err != nil || got != 32768 {
+		t.Fatalf("ResolveModelContextLimit(local) = (%d, %v), want (32768, nil)", got, err)
 	}
 }
 

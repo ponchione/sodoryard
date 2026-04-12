@@ -16,6 +16,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
 	"github.com/ponchione/sodoryard/internal/role"
+	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -151,7 +152,7 @@ func runHeadless(cmd *cobra.Command, configPath string, flags runFlags) (*runExe
 	if !ok {
 		return nil, runExitError{code: runExitInfrastructure, err: fmt.Errorf("agent role %q not found in config", flags.Role)}
 	}
-	systemPrompt, err := loadRoleSystemPrompt(cfg.ProjectRoot, roleCfg.SystemPrompt)
+	systemPrompt, err := rtpkg.LoadRoleSystemPrompt(cfg.ProjectRoot, roleCfg.SystemPrompt)
 	if err != nil {
 		return nil, runExitError{code: runExitInfrastructure, err: err}
 	}
@@ -239,7 +240,7 @@ func runHeadless(cmd *cobra.Command, configPath string, flags runFlags) (*runExe
 	if err != nil {
 		return nil, runExitError{code: runExitInfrastructure, err: fmt.Errorf("create conversation: %w", err)}
 	}
-	modelContextLimit, err := resolveModelContextLimit(cfg, cfg.Routing.Default.Provider)
+	modelContextLimit, err := rtpkg.ResolveModelContextLimit(cfg, cfg.Routing.Default.Provider)
 	if err != nil {
 		return nil, runExitError{code: runExitInfrastructure, err: err}
 	}
@@ -305,40 +306,6 @@ func resolveChainID(input string) string {
 		return strings.TrimSpace(input)
 	}
 	return id.New()
-}
-
-func loadRoleSystemPrompt(projectRoot string, promptPath string) (string, error) {
-	cfg := &appconfig.Config{ProjectRoot: projectRoot}
-	resolved := cfg.ResolveAgentRoleSystemPromptPath(promptPath)
-	if strings.TrimSpace(resolved) == "" {
-		return "", fmt.Errorf("role system_prompt is required")
-	}
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return "", fmt.Errorf("read role system prompt %s: %w", resolved, err)
-	}
-	return string(data), nil
-}
-
-func resolveModelContextLimit(cfg *appconfig.Config, providerName string) (int, error) {
-	if cfg == nil {
-		return 0, fmt.Errorf("config is required")
-	}
-	providerCfg, ok := cfg.Providers[providerName]
-	if !ok {
-		return 0, fmt.Errorf("unknown provider: %s", providerName)
-	}
-	if providerCfg.ContextLength > 0 {
-		return providerCfg.ContextLength, nil
-	}
-	switch providerCfg.Type {
-	case "anthropic", "codex":
-		return 200000, nil
-	case "openai-compatible":
-		return 32768, nil
-	default:
-		return 0, fmt.Errorf("provider %s has no positive context_length configured", providerName)
-	}
 }
 
 func exceededMaxTokens(turnResult *agent.TurnResult, maxTokens int) bool {

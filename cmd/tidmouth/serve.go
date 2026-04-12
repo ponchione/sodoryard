@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,10 +15,6 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
-	"github.com/ponchione/sodoryard/internal/provider"
-	"github.com/ponchione/sodoryard/internal/provider/anthropic"
-	"github.com/ponchione/sodoryard/internal/provider/codex"
-	"github.com/ponchione/sodoryard/internal/provider/openai"
 	"github.com/ponchione/sodoryard/internal/server"
 	"github.com/ponchione/sodoryard/internal/tool"
 	"github.com/ponchione/sodoryard/webfs"
@@ -154,107 +149,6 @@ func runServe(cmd *cobra.Command, configPath string, portOverride int, hostOverr
 	agentLoop.Cancel()
 	logger.Info("shutdown complete")
 	return nil
-}
-
-func resolveProviderAPIKey(cfg appconfig.ProviderConfig) string {
-	if cfg.APIKey != "" {
-		return cfg.APIKey
-	}
-	if cfg.APIKeyEnv != "" {
-		return os.Getenv(cfg.APIKeyEnv)
-	}
-	return ""
-}
-
-// buildProvider constructs a provider.Provider from config.
-func buildProvider(name string, cfg appconfig.ProviderConfig) (provider.Provider, error) {
-	apiKey := resolveProviderAPIKey(cfg)
-
-	switch cfg.Type {
-	case "anthropic":
-		var credOpts []anthropic.CredentialOption
-		if apiKey != "" {
-			credOpts = append(credOpts, anthropic.WithAPIKey(apiKey))
-		}
-		creds, err := anthropic.NewCredentialManager(credOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("anthropic credentials: %w", err)
-		}
-		return withProviderAlias(name, anthropic.NewAnthropicProvider(creds)), nil
-
-	case "openai-compatible":
-		return openai.NewOpenAIProvider(openai.OpenAIConfig{
-			Name:          name,
-			BaseURL:       cfg.BaseURL,
-			APIKey:        apiKey,
-			Model:         cfg.Model,
-			ContextLength: cfg.ContextLength,
-		})
-
-	case "codex":
-		var opts []codex.ProviderOption
-		if cfg.BaseURL != "" {
-			opts = append(opts, codex.WithBaseURL(cfg.BaseURL))
-		}
-		p, err := codex.NewCodexProvider(opts...)
-		if err != nil {
-			return nil, err
-		}
-		return withProviderAlias(name, p), nil
-
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %q", cfg.Type)
-	}
-}
-
-func withProviderAlias(name string, inner provider.Provider) provider.Provider {
-	if inner == nil || name == "" || inner.Name() == name {
-		return inner
-	}
-	return aliasedProvider{name: name, inner: inner}
-}
-
-type aliasedProvider struct {
-	name  string
-	inner provider.Provider
-}
-
-func (p aliasedProvider) Name() string {
-	return p.name
-}
-
-func (p aliasedProvider) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
-	return p.inner.Complete(ctx, req)
-}
-
-func (p aliasedProvider) Stream(ctx context.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
-	return p.inner.Stream(ctx, req)
-}
-
-func (p aliasedProvider) Models(ctx context.Context) ([]provider.Model, error) {
-	return p.inner.Models(ctx)
-}
-
-func (p aliasedProvider) Ping(ctx context.Context) error {
-	pinger, ok := p.inner.(provider.Pinger)
-	if !ok {
-		return nil
-	}
-	return pinger.Ping(ctx)
-}
-
-func (p aliasedProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, error) {
-	reporter, ok := p.inner.(provider.AuthStatusReporter)
-	if !ok {
-		return nil, nil
-	}
-	status, err := reporter.AuthStatus(ctx)
-	if err != nil || status == nil {
-		return status, err
-	}
-	cloned := *status
-	cloned.Provider = p.name
-	return &cloned, nil
 }
 
 func launchBrowser(url string, logger *slog.Logger) {
