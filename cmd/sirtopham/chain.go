@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
+	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/spf13/cobra"
 )
 
@@ -58,7 +58,7 @@ func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cob
 	if !ok {
 		return fmt.Errorf("agent role %q not found in config", "orchestrator")
 	}
-	systemPrompt, err := loadRoleSystemPrompt(cfg.ProjectRoot, roleCfg.SystemPrompt)
+	systemPrompt, err := rtpkg.LoadRoleSystemPrompt(cfg.ProjectRoot, roleCfg.SystemPrompt)
 	if err != nil {
 		return err
 	}
@@ -87,11 +87,11 @@ func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cob
 	if err != nil {
 		return fmt.Errorf("create conversation: %w", err)
 	}
-	limit, err := resolveModelContextLimit(cfg, cfg.Routing.Default.Provider)
+	limit, err := rtpkg.ResolveModelContextLimit(cfg, cfg.Routing.Default.Provider)
 	if err != nil {
 		return err
 	}
-	loop := newChainAgentLoop(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &registryToolExecutor{registry: registry, projectRoot: cfg.ProjectRoot}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), Config: agent.AgentLoopConfig{MaxIterations: roleCfg.MaxTurns, BasePrompt: systemPrompt, ProviderName: cfg.Routing.Default.Provider, ModelName: cfg.Routing.Default.Model, ContextConfig: cfg.Context}, Logger: rt.Logger})
+	loop := newChainAgentLoop(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), Config: agent.AgentLoopConfig{MaxIterations: roleCfg.MaxTurns, BasePrompt: systemPrompt, ProviderName: cfg.Routing.Default.Provider, ModelName: cfg.Routing.Default.Model, ContextConfig: cfg.Context}, Logger: rt.Logger})
 	defer loop.Close()
 	turnTask := buildChainTask(flags, chainID)
 	if _, err := loop.RunTurn(ctx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit}); err != nil {
@@ -133,30 +133,3 @@ func parseSpecs(specs string) []string {
 	return out
 }
 
-func loadRoleSystemPrompt(projectRoot string, promptPath string) (string, error) {
-	cfg := &appconfig.Config{ProjectRoot: projectRoot}
-	resolved := cfg.ResolveAgentRoleSystemPromptPath(promptPath)
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return "", fmt.Errorf("read role system prompt %s: %w", resolved, err)
-	}
-	return string(data), nil
-}
-
-func resolveModelContextLimit(cfg *appconfig.Config, providerName string) (int, error) {
-	providerCfg, ok := cfg.Providers[providerName]
-	if !ok {
-		return 0, fmt.Errorf("unknown provider: %s", providerName)
-	}
-	if providerCfg.ContextLength > 0 {
-		return providerCfg.ContextLength, nil
-	}
-	switch providerCfg.Type {
-	case "anthropic", "codex":
-		return 200000, nil
-	case "openai-compatible":
-		return 32768, nil
-	default:
-		return 0, fmt.Errorf("provider %s has no positive context_length configured", providerName)
-	}
-}
