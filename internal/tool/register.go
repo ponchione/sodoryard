@@ -54,10 +54,17 @@ func RegisterSearchTools(r *Registry, searcher SemanticSearcher) {
 	}
 }
 
+// RegisterDirectoryTools registers all directory navigation tools
+// (list_directory, find_files) in the given registry.
+func RegisterDirectoryTools(r *Registry) {
+	r.Register(ListDirectory{})
+	r.Register(FindFiles{})
+}
+
 // RegisterBrainTools registers all brain tools (brain_search, brain_read,
-// brain_write, brain_update, brain_lint) in the given registry. The backend parameter is
-// the configured brain backend — pass nil if brain is disabled (tools will
-// return guidance messages when invoked).
+// brain_write, brain_update, brain_lint) in the given registry when the brain
+// is enabled. When disabled, the tools are omitted entirely so the model never
+// sees brain capabilities in its tool definitions.
 func RegisterBrainTools(r *Registry, client brain.Backend, cfg config.BrainConfig) {
 	RegisterBrainToolsWithProviderRuntimeAndIndex(r, client, nil, cfg, nil, nil, "")
 }
@@ -71,6 +78,9 @@ func RegisterBrainToolsWithProvider(r *Registry, client brain.Backend, cfg confi
 // RegisterBrainToolsWithProviderRuntimeAndIndex registers brain tools with an
 // optional runtime searcher and derived brain metadata/index helpers.
 func RegisterBrainToolsWithProviderRuntimeAndIndex(r *Registry, client brain.Backend, runtime appcontext.BrainSearcher, cfg config.BrainConfig, llm provider.Provider, queries *appdb.Queries, projectID string) {
+	if !cfg.Enabled {
+		return
+	}
 	r.Register(NewBrainSearchWithRuntime(client, runtime, cfg))
 	r.Register(NewBrainReadWithIndex(client, cfg, queries, projectID))
 	r.Register(NewBrainWrite(client, cfg))

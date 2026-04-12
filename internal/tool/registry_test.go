@@ -267,6 +267,18 @@ func TestRegisterFileWriteToolsRegistersOnlyMutatingFileTools(t *testing.T) {
 	}
 }
 
+func TestRegisterDirectoryTools(t *testing.T) {
+	reg := NewRegistry()
+	RegisterDirectoryTools(reg)
+
+	if _, ok := reg.Get("list_directory"); !ok {
+		t.Fatal("list_directory not registered")
+	}
+	if _, ok := reg.Get("find_files"); !ok {
+		t.Fatal("find_files not registered")
+	}
+}
+
 func TestRegistryNames(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(newMockTool("shell", Mutating))
