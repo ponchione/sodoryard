@@ -50,8 +50,8 @@ func TestBuildChainTaskIncludesSpecsAndChainID(t *testing.T) {
 }
 
 func TestChainSpecFromFlags(t *testing.T) {
-	spec := chainSpecFromFlags("chain-1", chainFlags{Specs: "specs/a.md", Task: "ignored", MaxSteps: 7, MaxDuration: time.Hour, TokenBudget: 123})
-	if spec.ChainID != "chain-1" || len(spec.SourceSpecs) != 1 || spec.MaxSteps != 7 || spec.TokenBudget != 123 {
+	spec := chainSpecFromFlags("chain-1", chainFlags{Specs: "specs/a.md", Task: "ignored", MaxSteps: 7, MaxResolverLoops: 4, MaxDuration: time.Hour, TokenBudget: 123})
+	if spec.ChainID != "chain-1" || len(spec.SourceSpecs) != 1 || spec.MaxSteps != 7 || spec.MaxResolverLoops != 4 || spec.TokenBudget != 123 {
 		t.Fatalf("unexpected spec: %+v", spec)
 	}
 }

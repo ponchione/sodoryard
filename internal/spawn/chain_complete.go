@@ -44,11 +44,17 @@ func (t *ChainCompleteTool) Execute(ctx context.Context, projectRoot string, raw
 	}
 	status := strings.TrimSpace(in.Status)
 	chainStatus := "completed"
+	receiptVerdict := "completed"
 	switch status {
-	case "success", "partial":
+	case "success":
 		chainStatus = "completed"
+		receiptVerdict = "completed"
+	case "partial":
+		chainStatus = "partial"
+		receiptVerdict = "completed"
 	case "failed":
 		chainStatus = "failed"
+		receiptVerdict = "blocked"
 	default:
 		return nil, fmt.Errorf("chain_complete: invalid status %q", in.Status)
 	}
@@ -71,7 +77,7 @@ func (t *ChainCompleteTool) Execute(ctx context.Context, projectRoot string, raw
 agent: orchestrator
 chain_id: %s
 step: 1
-verdict: completed
+verdict: %s
 timestamp: %s
 turns_used: %d
 tokens_used: %d
@@ -83,7 +89,7 @@ duration_seconds: %d
 Status: %s
 
 %s
-`, t.ChainID, now().UTC().Format(time.RFC3339), turnsUsed, tokensUsed, durationSecs, status, strings.TrimSpace(in.Summary))
+`, t.ChainID, receiptVerdict, now().UTC().Format(time.RFC3339), turnsUsed, tokensUsed, durationSecs, status, strings.TrimSpace(in.Summary))
 	if err := t.Backend.WriteDocument(ctx, receiptPath, receiptBody); err != nil {
 		return nil, fmt.Errorf("chain_complete: write receipt: %w", err)
 	}

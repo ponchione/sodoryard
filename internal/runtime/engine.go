@@ -10,6 +10,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
+	"github.com/ponchione/sodoryard/internal/codeintel"
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
 	codegraph "github.com/ponchione/sodoryard/internal/codeintel/graph"
 	codesearcher "github.com/ponchione/sodoryard/internal/codeintel/searcher"
@@ -122,17 +123,11 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	semanticEmbedder := embedder.New(cfg.Embedding)
 	semanticSearcher := codesearcher.New(codeStore, semanticEmbedder)
 
-	brainStore, err := codestore.Open(ctx, cfg.BrainLanceDBPath())
+	brainBackend, brainSearcher, closeBrainRuntime, err := buildBrainRuntime(ctx, cfg, semanticEmbedder, queries, logger)
 	if err != nil {
-		return closeOnError(fmt.Errorf("open brain vectorstore: %w", err))
+		return closeOnError(err)
 	}
-	cleanup = ChainCleanup(cleanup, func() { _ = brainStore.Close() })
-
-	brainBackend, closeBrainBackend, err := BuildBrainBackend(ctx, cfg.Brain, logger)
-	if err != nil {
-		return closeOnError(fmt.Errorf("build brain backend: %w", err))
-	}
-	cleanup = ChainCleanup(cleanup, closeBrainBackend)
+	cleanup = ChainCleanup(cleanup, closeBrainRuntime)
 
 	graphStore, closeGraphStore, err := BuildGraphStore(cfg)
 	if err != nil {
@@ -141,7 +136,6 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	cleanup = ChainCleanup(cleanup, closeGraphStore)
 
 	conventionSource := BuildConventionSource(cfg)
-	brainSearcher := contextpkg.NewHybridBrainSearcher(brainBackend, brainStore, semanticEmbedder, queries, cfg.ProjectRoot)
 	retrievalOrchestrator := contextpkg.NewRetrievalOrchestrator(semanticSearcher, graphStore, conventionSource, brainSearcher, cfg.ProjectRoot)
 	retrievalOrchestrator.SetLogBrainQueries(cfg.Brain.LogBrainQueries)
 	retrievalOrchestrator.SetBrainConfig(cfg.Brain)
@@ -175,6 +169,27 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	}, nil
 }
 
+func buildBrainRuntime(ctx context.Context, cfg *appconfig.Config, semanticEmbedder codeintel.Embedder, queries *appdb.Queries, logger *slog.Logger) (brain.Backend, *contextpkg.HybridBrainSearcher, func(), error) {
+	if cfg == nil {
+		return nil, nil, func() {}, fmt.Errorf("runtime config is required")
+	}
+	if !cfg.Brain.Enabled {
+		return nil, nil, func() {}, nil
+	}
+	brainStore, err := codestore.Open(ctx, cfg.BrainLanceDBPath())
+	if err != nil {
+		return nil, nil, func() {}, fmt.Errorf("open brain vectorstore: %w", err)
+	}
+	brainBackend, closeBrainBackend, err := BuildBrainBackend(ctx, cfg.Brain, logger)
+	if err != nil {
+		_ = brainStore.Close()
+		return nil, nil, func() {}, fmt.Errorf("build brain backend: %w", err)
+	}
+	cleanup := ChainCleanup(closeBrainBackend, func() { _ = brainStore.Close() })
+	brainSearcher := contextpkg.NewHybridBrainSearcher(brainBackend, brainStore, semanticEmbedder, queries, cfg.ProjectRoot)
+	return brainBackend, brainSearcher, cleanup, nil
+}
+
 // BuildBrainBackend constructs a brain.Backend from a BrainConfig. It returns
 // a no-op backend and cleanup when the brain is disabled.
 func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *slog.Logger) (brain.Backend, func(), error) {
@@ -203,7 +218,12 @@ func BuildGraphStore(cfg *appconfig.Config) (*codegraph.Store, func(), error) {
 }
 
 // BuildConventionSource constructs a ConventionSource backed by the brain
-// vault at the path derived from cfg.
+// vault at the path derived from cfg when the brain is enabled. Disabled-brain
+// mode returns a no-op source so context assembly does not read convention
+// documents from the vault.
 func BuildConventionSource(cfg *appconfig.Config) contextpkg.ConventionSource {
+	if cfg == nil || !cfg.Brain.Enabled {
+		return contextpkg.NoopConventionSource{}
+	}
 	return contextpkg.NewBrainConventionSource(cfg.BrainVaultPath())
 }

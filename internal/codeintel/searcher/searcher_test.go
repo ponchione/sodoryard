@@ -101,13 +101,13 @@ func TestSearch_HopExpansion(t *testing.T) {
 	store := &fakeStore{
 		searchResults: []codeintel.SearchResult{
 			{Chunk: codeintel.Chunk{
-				ID:   "a",
-				Name: "FuncA",
+				ID:    "a",
+				Name:  "FuncA",
 				Calls: []codeintel.FuncRef{{Name: "HelperB", Package: "pkg"}},
 			}, Score: 0.9},
 		},
 		byName: map[string][]codeintel.Chunk{
-			"HelperB": {{ID: "b", Name: "HelperB"}},
+			"HelperB": {{ID: "b", Name: "HelperB", FilePath: "pkg/helper.go"}},
 		},
 	}
 	embedder := &fakeEmbedder{vec: make([]float32, 10)}
@@ -115,10 +115,10 @@ func TestSearch_HopExpansion(t *testing.T) {
 	s := New(store, embedder)
 
 	results, err := s.Search(context.Background(), []string{"find auth"}, codeintel.SearchOptions{
-		TopK:              10,
-		MaxResults:        10,
+		TopK:               10,
+		MaxResults:         10,
 		EnableHopExpansion: true,
-		HopBudgetFraction: 0.5,
+		HopBudgetFraction:  0.5,
 	})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -180,8 +180,8 @@ func TestSearch_HopBudgetFractionDefault(t *testing.T) {
 	store := &fakeStore{
 		searchResults: []codeintel.SearchResult{
 			{Chunk: codeintel.Chunk{
-				ID:   "a",
-				Name: "FuncA",
+				ID:    "a",
+				Name:  "FuncA",
 				Calls: []codeintel.FuncRef{{Name: "HelperB", Package: "pkg"}},
 			}, Score: 0.9},
 		},
@@ -235,6 +235,53 @@ func TestSearch_AllQueriesFail(t *testing.T) {
 	}
 }
 
+func TestSearch_HopExpansionFiltersCandidatesByPackage(t *testing.T) {
+	store := &fakeStore{
+		searchResults: []codeintel.SearchResult{{Chunk: codeintel.Chunk{
+			ID:       "a",
+			Name:     "FuncA",
+			Calls:    []codeintel.FuncRef{{Name: "HelperB", Package: "service/auth"}},
+			FilePath: "service/auth/a.go",
+		}, Score: 0.9}},
+		byName: map[string][]codeintel.Chunk{
+			"HelperB": {
+				{ID: "b1", Name: "HelperB", FilePath: "service/auth/helper.go"},
+				{ID: "b2", Name: "HelperB", FilePath: "service/billing/helper.go"},
+			},
+		},
+	}
+	embedder := &fakeEmbedder{vec: make([]float32, 10)}
+	s := New(store, embedder)
+
+	results, err := s.Search(context.Background(), []string{"find auth"}, codeintel.SearchOptions{
+		TopK:               10,
+		MaxResults:         10,
+		EnableHopExpansion: true,
+		HopBudgetFraction:  0.5,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	var authHop, billingHop bool
+	for _, r := range results {
+		if !r.FromHop || r.Chunk.Name != "HelperB" {
+			continue
+		}
+		switch r.Chunk.ID {
+		case "b1":
+			authHop = true
+		case "b2":
+			billingHop = true
+		}
+	}
+	if !authHop {
+		t.Fatal("expected auth HelperB hop result")
+	}
+	if billingHop {
+		t.Fatal("did not expect billing HelperB hop result")
+	}
+}
+
 func TestSearch_HopDepthRespected(t *testing.T) {
 	// Chain: A calls B, B calls C.
 	// Direct search finds only A.
@@ -243,15 +290,15 @@ func TestSearch_HopDepthRespected(t *testing.T) {
 	store := &fakeStore{
 		searchResults: []codeintel.SearchResult{
 			{Chunk: codeintel.Chunk{
-				ID:   "a",
-				Name: "FuncA",
+				ID:    "a",
+				Name:  "FuncA",
 				Calls: []codeintel.FuncRef{{Name: "FuncB", Package: "pkg"}},
 			}, Score: 0.9},
 		},
 		byName: map[string][]codeintel.Chunk{
 			"FuncB": {{
-				ID:   "b",
-				Name: "FuncB",
+				ID:    "b",
+				Name:  "FuncB",
 				Calls: []codeintel.FuncRef{{Name: "FuncC", Package: "pkg"}},
 			}},
 			"FuncC": {{

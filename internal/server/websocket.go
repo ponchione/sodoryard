@@ -203,14 +203,14 @@ func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFu
 		var msg ClientMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			h.logger.Warn("invalid websocket message", "error", err)
-			h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "invalid message"})
+			h.writeErrorMessage(ctx, conn, "invalid message", false, "invalid_message")
 			continue
 		}
 
 		switch msg.Type {
 		case "message":
 			if !turnActive.CompareAndSwap(false, true) {
-				h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "a turn is already in progress"})
+				h.writeErrorMessage(ctx, conn, "a turn is already in progress", true, "turn_in_progress")
 				continue
 			}
 
@@ -314,7 +314,7 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 		stored, err := h.convSvc.Get(ctx, convID)
 		if err != nil {
 			h.logger.Error("load conversation defaults", "error", err, "conversation_id", convID)
-			h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "failed to load conversation"})
+			h.writeErrorMessage(ctx, conn, "failed to load conversation", false, "conversation_load_failed")
 			return
 		}
 		conversationDefaults = stored
@@ -348,7 +348,7 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 		c, err := h.convSvc.Create(ctx, h.projectID, opts...)
 		if err != nil {
 			h.logger.Error("create conversation for ws", "error", err)
-			h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "failed to create conversation"})
+			h.writeErrorMessage(ctx, conn, "failed to create conversation", false, "conversation_create_failed")
 			return
 		}
 		convID = c.ID
@@ -359,7 +359,7 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 		if providerChanged || modelChanged {
 			if err := h.convSvc.SetRuntimeDefaults(ctx, convID, &prov, &model); err != nil {
 				h.logger.Error("persist conversation defaults", "error", err, "conversation_id", convID)
-				h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "failed to persist conversation defaults"})
+				h.writeErrorMessage(ctx, conn, "failed to persist conversation defaults", false, "conversation_defaults_persist_failed")
 				return
 			}
 		}
@@ -368,13 +368,13 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 	turnNumber, turnErr := h.nextTurnNumber(ctx, convID)
 	if turnErr != nil {
 		h.logger.Error("compute next turn number", "error", turnErr, "conversation_id", convID)
-		h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "failed to compute next turn number"})
+		h.writeErrorMessage(ctx, conn, "failed to compute next turn number", false, "turn_number_failed")
 		return
 	}
 	modelContextLimit, limitErr := h.resolveModelContextLimit(prov)
 	if limitErr != nil {
 		h.logger.Error("resolve model context limit", "error", limitErr, "provider", prov, "conversation_id", convID)
-		h.writeJSONMessage(ctx, conn, "error", map[string]string{"error": "failed to resolve model context limit"})
+		h.writeErrorMessage(ctx, conn, "failed to resolve model context limit", false, "model_context_limit_failed")
 		return
 	}
 
@@ -394,6 +394,16 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 	}
 }
 
+type wsErrorData struct {
+	Message     string `json:"message"`
+	Recoverable bool   `json:"recoverable,omitempty"`
+	ErrorCode   string `json:"error_code,omitempty"`
+}
+
+func (h *WebSocketHandler) writeErrorMessage(ctx context.Context, conn *websocket.Conn, message string, recoverable bool, errorCode string) {
+	h.writeJSONMessage(ctx, conn, "error", wsErrorData{Message: message, Recoverable: recoverable, ErrorCode: errorCode})
+}
+
 // writeJSONMessage sends a JSON message to the WebSocket client.
 func (h *WebSocketHandler) writeJSONMessage(ctx context.Context, conn *websocket.Conn, msgType string, data any) {
 	msg := ServerMessage{
@@ -409,6 +419,6 @@ func (h *WebSocketHandler) writeJSONMessage(ctx context.Context, conn *websocket
 	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer writeCancel()
 	if err := conn.Write(writeCtx, websocket.MessageText, raw); err != nil {
-		h.logger.Debug("websocket writeJSONMessage failed", "error", err, "type", msgType)
+		h.logger.Debug("websocket write failed", "error", err, "type", msgType)
 	}
 }

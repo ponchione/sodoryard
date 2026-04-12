@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +26,8 @@ type yardReceiptMetrics struct {
 	TokensUsed      int
 	DurationSeconds int
 }
+
+var yardFallbackReceiptStepPattern = regexp.MustCompile(`-step-(\d+)\.md$`)
 
 func yardResolveReceiptPath(role string, chainID string, override string) string {
 	if strings.TrimSpace(override) != "" {
@@ -58,14 +63,14 @@ func yardEnsureReceipt(ctx context.Context, backend brain.Backend, brainCfg appc
 	if !strings.Contains(err.Error(), "Document not found") {
 		return "", nil, fmt.Errorf("read receipt %s: %w", normalizedPath, err)
 	}
-	fallback, r := yardFormatFallbackReceipt(role, chainID, verdict, finalText, turnResult)
+	fallback, r := yardFormatFallbackReceipt(role, chainID, normalizedPath, verdict, finalText, turnResult)
 	if err := backend.WriteDocument(ctx, normalizedPath, fallback); err != nil {
 		return "", nil, fmt.Errorf("write fallback receipt %s: %w", normalizedPath, err)
 	}
 	return normalizedPath, r, nil
 }
 
-func yardFormatFallbackReceipt(role string, chainID string, verdict string, finalText string, turnResult *agent.TurnResult) (string, *yardReceiptFrontmatter) {
+func yardFormatFallbackReceipt(role string, chainID string, receiptPath string, verdict string, finalText string, turnResult *agent.TurnResult) (string, *yardReceiptFrontmatter) {
 	metrics := yardReceiptMetrics{}
 	if turnResult != nil {
 		metrics.TurnsUsed = turnResult.IterationCount
@@ -73,10 +78,11 @@ func yardFormatFallbackReceipt(role string, chainID string, verdict string, fina
 		metrics.DurationSeconds = int(turnResult.Duration.Round(time.Second) / time.Second)
 	}
 	now := time.Now().UTC()
+	step := yardFallbackReceiptStep(receiptPath)
 	r := &yardReceiptFrontmatter{
 		Agent:           role,
 		ChainID:         chainID,
-		Step:            1,
+		Step:            step,
 		Verdict:         receipt.Verdict(verdict),
 		Timestamp:       now,
 		TurnsUsed:       metrics.TurnsUsed,
@@ -90,7 +96,7 @@ func yardFormatFallbackReceipt(role string, chainID string, verdict string, fina
 	content := fmt.Sprintf(`---
 agent: %s
 chain_id: %s
-step: 1
+step: %d
 verdict: %s
 timestamp: %s
 turns_used: %d
@@ -109,8 +115,21 @@ duration_seconds: %d
 
 ## Next Steps
 - Inspect the task outcome and decide whether follow-up work is needed.
-`, role, chainID, verdict, now.Format(time.RFC3339), metrics.TurnsUsed, metrics.TokensUsed, metrics.DurationSeconds, body)
+`, role, chainID, step, verdict, now.Format(time.RFC3339), metrics.TurnsUsed, metrics.TokensUsed, metrics.DurationSeconds, body)
 	return content, r
+}
+
+func yardFallbackReceiptStep(receiptPath string) int {
+	path := filepath.Base(strings.TrimSpace(receiptPath))
+	matches := yardFallbackReceiptStepPattern.FindStringSubmatch(path)
+	if len(matches) != 2 {
+		return 1
+	}
+	step, err := strconv.Atoi(matches[1])
+	if err != nil || step <= 0 {
+		return 1
+	}
+	return step
 }
 
 type yardRunProgressSink struct {

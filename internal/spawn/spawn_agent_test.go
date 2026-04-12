@@ -146,3 +146,63 @@ func TestSpawnAgentRejectsStepLimit(t *testing.T) {
 		t.Fatalf("error = %v, want max_steps exceeded", err)
 	}
 }
+
+func TestSpawnAgentStopsCleanlyWhenChainPaused(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err := store.SetChainStatus(ctx, chainID, "paused"); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	runCalled := false
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		runCalled = true
+		return RunResult{ExitCode: 0}
+	}
+	_, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+	if err == nil || err.Error() != "tool: chain complete" {
+		t.Fatalf("error = %v, want tool.ErrChainComplete", err)
+	}
+	if runCalled {
+		t.Fatal("runCommand called unexpectedly for paused chain")
+	}
+	steps, err := store.ListSteps(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %+v, want none", steps)
+	}
+}
+
+func TestSpawnAgentStopsCleanlyWhenChainCancelled(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err := store.SetChainStatus(ctx, chainID, "cancelled"); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	runCalled := false
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		runCalled = true
+		return RunResult{ExitCode: 0}
+	}
+	_, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+	if err == nil || err.Error() != "tool: chain complete" {
+		t.Fatalf("error = %v, want tool.ErrChainComplete", err)
+	}
+	if runCalled {
+		t.Fatal("runCommand called unexpectedly for cancelled chain")
+	}
+	steps, err := store.ListSteps(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %+v, want none", steps)
+	}
+}

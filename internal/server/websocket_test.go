@@ -354,7 +354,7 @@ func TestWebSocketUsesRoutingDefaultProvider(t *testing.T) {
 	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0, DevMode: true}, newTestLogger())
 	cfg := &config.Config{
 		ProjectRoot: "test-project",
-		Routing: config.RoutingConfig{Default: config.RouteConfig{Provider: "anthropic", Model: "claude-sonnet-4-6-20250514"}},
+		Routing:     config.RoutingConfig{Default: config.RouteConfig{Provider: "anthropic", Model: "claude-sonnet-4-6-20250514"}},
 		Providers: map[string]config.ProviderConfig{
 			"anthropic": {Type: "anthropic", ContextLength: 200000},
 			"codex":     {Type: "codex", ContextLength: 200000},
@@ -413,7 +413,7 @@ func TestWebSocketUsesUpdatedRuntimeDefaultsFromConfigAPI(t *testing.T) {
 	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0, DevMode: true}, newTestLogger())
 	cfg := &config.Config{
 		ProjectRoot: "test-project",
-		Routing: config.RoutingConfig{Default: config.RouteConfig{Provider: "codex", Model: "old-default-model"}},
+		Routing:     config.RoutingConfig{Default: config.RouteConfig{Provider: "codex", Model: "old-default-model"}},
 		Providers: map[string]config.ProviderConfig{
 			"codex": {Type: "codex", ContextLength: 200000},
 			"local": {Type: "openai-compatible", ContextLength: 32768},
@@ -711,16 +711,80 @@ func TestWebSocketOneTurnAtATime(t *testing.T) {
 		t.Fatalf("read failed: %v", err)
 	}
 
-	var resp map[string]any
-	json.Unmarshal(respData, &resp)
-	if resp["type"] != "error" {
-		t.Fatalf("expected error response, got %v", resp["type"])
+	var resp struct {
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Type != "error" {
+		t.Fatalf("expected error response, got %v", resp.Type)
+	}
+	if got := resp.Data["message"]; got != "a turn is already in progress" {
+		t.Fatalf("error message = %v, want %q", got, "a turn is already in progress")
+	}
+	if got := resp.Data["recoverable"]; got != true {
+		t.Fatalf("recoverable = %v, want true", got)
+	}
+	if got := resp.Data["error_code"]; got != "turn_in_progress" {
+		t.Fatalf("error_code = %v, want %q", got, "turn_in_progress")
+	}
+	if _, ok := resp.Data["error"]; ok {
+		t.Fatalf("unexpected legacy error field in payload: %#v", resp.Data)
 	}
 
 	// Unblock.
 	close(blockCh)
 
 	conn.Close(websocket.StatusNormalClosure, "test done")
+}
+
+func TestWebSocketInvalidJSONUsesMessageErrorPayload(t *testing.T) {
+	agentMock := &mockAgentService{}
+	base, _ := setupWSTest(t, agentMock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	if err := conn.Write(ctx, websocket.MessageText, []byte("{not json")); err != nil {
+		t.Fatalf("write invalid json failed: %v", err)
+	}
+
+	_, respData, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	var resp struct {
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Type != "error" {
+		t.Fatalf("expected error response, got %v", resp.Type)
+	}
+	if got := resp.Data["message"]; got != "invalid message" {
+		t.Fatalf("error message = %v, want %q", got, "invalid message")
+	}
+	if _, ok := resp.Data["recoverable"]; ok {
+		t.Fatalf("recoverable should be omitted for false values: %#v", resp.Data)
+	}
+	if got := resp.Data["error_code"]; got != "invalid_message" {
+		t.Fatalf("error_code = %v, want %q", got, "invalid_message")
+	}
+	if _, ok := resp.Data["error"]; ok {
+		t.Fatalf("unexpected legacy error field in payload: %#v", resp.Data)
+	}
 }
 
 func TestWebSocketEventForwarding(t *testing.T) {

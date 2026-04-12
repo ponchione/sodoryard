@@ -117,6 +117,29 @@ func TestBuildRegistryBrainToolsCarryScopedBrainPolicy(t *testing.T) {
 	}
 }
 
+func TestBuildRegistryOmitsBrainToolsWhenBrainDisabled(t *testing.T) {
+	cfg := &appconfig.Config{}
+	cfg.Brain = appconfig.BrainConfig{Enabled: false}
+
+	registry, scopedBrainCfg, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{
+		Tools:           []string{"brain"},
+		BrainWritePaths: []string{"receipts/**"},
+		BrainDenyPaths:  []string{"receipts/private/**"},
+	}, BuilderDeps{ProjectID: "/tmp/project"})
+	if err != nil {
+		t.Fatalf("BuildRegistry returned error: %v", err)
+	}
+	if got := registry.Names(); len(got) != 0 {
+		t.Fatalf("Names() len = %d, want 0 when brain disabled (%v)", len(got), got)
+	}
+	if len(scopedBrainCfg.BrainWritePaths) != 1 || scopedBrainCfg.BrainWritePaths[0] != "receipts/**" {
+		t.Fatalf("BrainWritePaths = %#v, want [receipts/**]", scopedBrainCfg.BrainWritePaths)
+	}
+	if len(scopedBrainCfg.BrainDenyPaths) != 1 || scopedBrainCfg.BrainDenyPaths[0] != "receipts/private/**" {
+		t.Fatalf("BrainDenyPaths = %#v, want [receipts/private/**]", scopedBrainCfg.BrainDenyPaths)
+	}
+}
+
 func TestBuildRegistryRejectsCustomToolsWithoutFactory(t *testing.T) {
 	cfg := &appconfig.Config{}
 	_, _, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{CustomTools: []string{"external.runner"}}, BuilderDeps{})

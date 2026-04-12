@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/ponchione/sodoryard/internal/codeintel"
 )
@@ -166,10 +168,13 @@ func (s *Searcher) expandHops(
 				}
 				chunks, err := s.store.GetByName(ctx, ref.Name)
 				if err != nil {
-					slog.Debug("hop lookup failed", "name", ref.Name, "error", err)
+					slog.Debug("hop lookup failed", "name", ref.Name, "package", ref.Package, "error", err)
 					continue
 				}
 				for _, c := range chunks {
+					if !chunkMatchesFuncRef(c, ref) {
+						continue
+					}
 					if len(allHops) >= budget {
 						break
 					}
@@ -197,4 +202,32 @@ func (s *Searcher) expandHops(
 	}
 
 	return allHops
+}
+
+func chunkMatchesFuncRef(chunk codeintel.Chunk, ref codeintel.FuncRef) bool {
+	pkg := strings.TrimSpace(ref.Package)
+	if pkg == "" {
+		return true
+	}
+	filePath := filepath.ToSlash(strings.TrimSpace(chunk.FilePath))
+	if filePath == "" {
+		return true
+	}
+	dir := filepath.ToSlash(filepath.Dir(filePath))
+	if dir == "." {
+		dir = ""
+	}
+	base := filepath.Base(dir)
+	pkg = filepath.ToSlash(pkg)
+	if pkg == base {
+		return true
+	}
+	if strings.HasSuffix(dir, "/"+pkg) || dir == pkg {
+		return true
+	}
+	pkgBase := filepath.Base(pkg)
+	if pkgBase != "." && pkgBase != "/" && pkgBase != "" && pkgBase == base {
+		return true
+	}
+	return false
 }

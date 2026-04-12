@@ -140,7 +140,7 @@ func TestBuildConventionSourceUsesBrainVaultPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(vaultPath, "conventions", "testing.md"), []byte("- Prefer table-driven tests\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(convention): %v", err)
 	}
-	cfg := &appconfig.Config{ProjectRoot: projectRoot, Brain: appconfig.BrainConfig{VaultPath: ".brain"}}
+	cfg := &appconfig.Config{ProjectRoot: projectRoot, Brain: appconfig.BrainConfig{Enabled: true, VaultPath: ".brain"}}
 	source := rtpkg.BuildConventionSource(cfg)
 	text, err := source.Load(context.Background())
 	if err != nil {

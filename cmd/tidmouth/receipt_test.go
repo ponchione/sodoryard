@@ -122,3 +122,20 @@ func TestEnsureReceiptRejectsDisallowedFallbackPath(t *testing.T) {
 		t.Fatalf("error = %q, want receipt path policy message", err)
 	}
 }
+
+func TestEnsureReceiptFallbackInfersStepFromReceiptPath(t *testing.T) {
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	path, receipt, err := ensureReceipt(context.Background(), backend, appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/**"}}, "coder", "chain-1", "receipts/coder/chain-1-step-003.md", "completed_no_receipt", "done", nil)
+	if err != nil {
+		t.Fatalf("ensureReceipt returned error: %v", err)
+	}
+	if path != "receipts/coder/chain-1-step-003.md" {
+		t.Fatalf("path = %q, want step path", path)
+	}
+	if receipt == nil || receipt.Step != 3 {
+		t.Fatalf("receipt.Step = %#v, want 3", receipt)
+	}
+	if !strings.Contains(backend.docs[path], "step: 3") {
+		t.Fatalf("fallback receipt content = %q, want step 3", backend.docs[path])
+	}
+}

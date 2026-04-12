@@ -1354,17 +1354,11 @@ func TestBrainToolSchemas(t *testing.T) {
 
 // ── Registration ────────────────────────────────────────────────────
 
-func TestRegisterBrainTools(t *testing.T) {
+func TestRegisterBrainToolsOmitsToolsWhenBrainDisabled(t *testing.T) {
 	reg := NewRegistry()
 	RegisterBrainTools(reg, nil, brainConfig(false))
-	names := make(map[string]bool)
-	for _, tool := range reg.All() {
-		names[tool.Name()] = true
-	}
-	for _, expected := range []string{"brain_search", "brain_read", "brain_write", "brain_update", "brain_lint"} {
-		if !names[expected] {
-			t.Fatalf("missing tool %q in registry", expected)
-		}
+	if len(reg.All()) != 0 {
+		t.Fatalf("tool count = %d, want 0 when brain disabled", len(reg.All()))
 	}
 }
 

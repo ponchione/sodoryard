@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -80,13 +81,24 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 		return nil, fmt.Errorf("spawn_agent: role %q not defined in config", in.Role)
 	}
 	if err := t.Store.CheckLimits(ctx, t.ChainID, chain.LimitCheckInput{Role: in.Role, TaskContext: in.TaskContext}); err != nil {
+		if errors.Is(err, chain.ErrChainNotRunning) {
+			if stopErr := t.stopIfChainNotRunnable(ctx); stopErr != nil {
+				return nil, stopErr
+			}
+		}
 		_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventSafetyLimitHit, map[string]any{"role": in.Role, "limit": err.Error()})
 		return nil, fmt.Errorf("spawn_agent: %w", err)
+	}
+	if stopErr := t.stopIfChainNotRunnable(ctx); stopErr != nil {
+		return nil, stopErr
 	}
 	if in.ReindexBefore {
 		if err := t.reindex(ctx); err != nil {
 			return nil, fmt.Errorf("spawn_agent: reindex: %w", err)
 		}
+	}
+	if stopErr := t.stopIfChainNotRunnable(ctx); stopErr != nil {
+		return nil, stopErr
 	}
 	steps, err := t.Store.ListSteps(ctx, t.ChainID)
 	if err != nil {
@@ -160,6 +172,23 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 		return nil, fmt.Errorf("spawn_agent: run command: %w", res.Err)
 	}
 	return &tool.ToolResult{Success: true, Content: receiptContent}, nil
+}
+
+func (t *SpawnAgentTool) stopIfChainNotRunnable(ctx context.Context) error {
+	ch, err := t.Store.GetChain(ctx, t.ChainID)
+	if err != nil {
+		return fmt.Errorf("spawn_agent: load chain control state: %w", err)
+	}
+	switch ch.Status {
+	case "running":
+		return nil
+	case "paused":
+		return tool.ErrChainComplete
+	case "cancelled":
+		return tool.ErrChainComplete
+	default:
+		return fmt.Errorf("spawn_agent: chain %s is %s", t.ChainID, ch.Status)
+	}
 }
 
 func (t *SpawnAgentTool) reindex(ctx context.Context) error {
