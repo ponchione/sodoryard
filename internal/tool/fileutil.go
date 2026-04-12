@@ -95,3 +95,9 @@ func isBinaryContent(data []byte) bool {
 	}
 	return false
 }
+
+// fileExists reports whether the file or directory at path exists.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}

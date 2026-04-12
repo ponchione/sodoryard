@@ -190,3 +190,51 @@ func TestRegisterShellTool(t *testing.T) {
 		t.Fatal("shell not registered")
 	}
 }
+
+func TestShellRTKPrefix(t *testing.T) {
+	got := applyRTKPrefix("git status", true)
+	want := "rtk git status"
+	if got != want {
+		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "git status", got, want)
+	}
+}
+
+func TestShellRTKPrefixSkipsWhenUnavailable(t *testing.T) {
+	got := applyRTKPrefix("git status", false)
+	want := "git status"
+	if got != want {
+		t.Fatalf("applyRTKPrefix(%q, false) = %q; want %q", "git status", got, want)
+	}
+}
+
+func TestShellRTKPrefixSkipsRTKCommands(t *testing.T) {
+	got := applyRTKPrefix("rtk git status", true)
+	want := "rtk git status"
+	if got != want {
+		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "rtk git status", got, want)
+	}
+}
+
+func TestShellRTKPrefixSkipsShellBuiltins(t *testing.T) {
+	got := applyRTKPrefix("cd /tmp && ls", true)
+	want := "cd /tmp && ls"
+	if got != want {
+		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "cd /tmp && ls", got, want)
+	}
+}
+
+func TestShellRTKPrefixSkipsExport(t *testing.T) {
+	got := applyRTKPrefix("export FOO=bar", true)
+	want := "export FOO=bar"
+	if got != want {
+		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "export FOO=bar", got, want)
+	}
+}
+
+func TestShellRTKPrefixSkipsSource(t *testing.T) {
+	got := applyRTKPrefix("source .env", true)
+	want := "source .env"
+	if got != want {
+		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "source .env", got, want)
+	}
+}

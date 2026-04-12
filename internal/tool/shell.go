@@ -26,12 +26,34 @@ type ShellConfig struct {
 // Shell implements the shell tool — arbitrary command execution with safety
 // guardrails, timeout management, and process group lifecycle control.
 type Shell struct {
-	config ShellConfig
+	config       ShellConfig
+	rtkAvailable bool
 }
 
 // NewShell creates a shell tool with the given configuration.
 func NewShell(config ShellConfig) *Shell {
-	return &Shell{config: config}
+	_, err := exec.LookPath("rtk")
+	return &Shell{
+		config:       config,
+		rtkAvailable: err == nil,
+	}
+}
+
+var rtkSkipPrefixes = []string{
+	"rtk", "cd ", "export ", "source ", "eval ",
+}
+
+func applyRTKPrefix(command string, rtkAvailable bool) string {
+	if !rtkAvailable {
+		return command
+	}
+	trimmed := strings.TrimSpace(command)
+	for _, prefix := range rtkSkipPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return command
+		}
+	}
+	return "rtk " + command
 }
 
 type shellInput struct {
@@ -125,7 +147,8 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.Command("sh", "-c", params.Command)
+	execCommand := applyRTKPrefix(params.Command, s.rtkAvailable)
+	cmd := exec.Command("sh", "-c", execCommand)
 	cmd.Dir = workDir
 
 	// Set process group for cleanup.
