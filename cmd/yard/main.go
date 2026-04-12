@@ -1,6 +1,6 @@
-// Command yard is the operator-facing CLI for railway project bootstrap
-// and (in future phases) other top-level operator workflows. Today its
-// only subcommand is `init`.
+// Command yard is the unified operator-facing CLI for railway projects.
+// It consolidates all operator commands from tidmouth and sirtopham under
+// a single binary with a single --help.
 package main
 
 import (
@@ -8,11 +8,15 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 var version = "dev"
 
 func newRootCmd() *cobra.Command {
+	var configPath string
+
 	rootCmd := &cobra.Command{
 		Use:          "yard",
 		Short:        "Yard — railway project operator CLI",
@@ -22,9 +26,21 @@ func newRootCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", appconfig.ConfigFilename, "Path to yard.yaml config file")
+
 	rootCmd.AddCommand(
 		newInitCmd(),
 		newInstallCmd(),
+		newYardServeCmd(&configPath),
+		newYardRunCmd(&configPath),
+		newYardIndexCmd(&configPath),
+		newYardAuthCmd(&configPath),
+		newYardDoctorCmd(&configPath),
+		newYardConfigCmd(&configPath),
+		newYardLLMCmd(&configPath),
+		newYardBrainCmd(&configPath),
+		newYardChainCmd(&configPath),
 	)
 	return rootCmd
 }
