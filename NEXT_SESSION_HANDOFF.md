@@ -16,10 +16,10 @@ Target monorepo layout (all in place as of this handoff):
 
 - **Tidmouth** — headless engine harness (`cmd/tidmouth/`)
 - **SirTopham** — chain orchestrator (`cmd/sirtopham/`)
-- **Yard** — operator-facing CLI for project bootstrap (`cmd/yard/`, fully shipped — `yard init`)
+- **Yard** — operator-facing CLI (`cmd/yard/` — `yard init` + `yard install`)
 - **Knapford** — web dashboard (`cmd/knapford/`, placeholder until Phase 6)
 
-The full migration roadmap is `sodor-migration-roadmap.md`. Read phases 0–7 before touching code.
+The full migration roadmap is `sodor-migration-roadmap.md`.
 
 ---
 
@@ -31,93 +31,91 @@ The full migration roadmap is `sodor-migration-roadmap.md`. Read phases 0–7 be
 | 1 — monorepo restructure | done | `v0.2-monorepo-structure` |
 | 2 — headless run command | done | (no separate tag) |
 | 3 — SirTopham orchestrator | done | `v0.4-orchestrator` |
-| 4 — system prompts | deferred (handled out-of-band) | — |
+| 4 — system prompts | **done** (landed this session) | — |
 | 5a — yard paths rename | done | `v0.2.1-yard-paths` |
-| **5b — yard init** | **done** | `v0.5-yard-init` |
-| 6 — Knapford dashboard | deferred (waiting on Phase 4) | — |
-| **7 — yard containerization** | spec + plan ready, NOT executed | (will be `v0.7-containerization`) |
+| 5b — yard init | done | `v0.5-yard-init` |
+| 6 — Knapford dashboard | deferred | — |
+| **7 — yard containerization** | **done** | `v0.7-containerization` |
 
 ---
 
-## Phase 5b — complete
+## Phase 7 — complete
 
-**Tag:** `v0.5-yard-init`
-**Commit range:** `30217d8..91d57ac` (10 commits on top of `v0.4-orchestrator` cleanup stack)
+**Tag:** `v0.7-containerization`
+**Commit range:** `249e28f..d1503fa` (tech debt fixes + Phase 7 implementation)
 
 **What shipped:**
-- New `cmd/yard/` top-level binary (`yard init` subcommand only)
-- New `internal/initializer/` package — embedded `templates/init/` via `//go:embed all:templates/init`, substitution helpers, Obsidian config writer, gitignore patcher, database bootstrap, `Run()` orchestrator
-- `templates/init/` moved from repo root into `internal/initializer/templates/init/` (go:embed requires paths relative to source file's package dir)
-- `templates/init/yard.yaml.example` rewritten with all 13 `agent_roles` entries seeded with `{{SODORYARD_AGENTS_DIR}}` placeholders (quoted for YAML validity pre-substitution)
-- Deletion of `cmd/tidmouth/init.go` and `cmd/tidmouth/init_test.go`
-- Makefile `yard:` target with the same FTS5/lancedb cgo wiring as `tidmouth:` and `sirtopham:`
+- `yard install` subcommand — substitutes `{{SODORYARD_AGENTS_DIR}}` in yard.yaml from flag or env var
+- Three-stage Dockerfile: `node:22-slim` (frontend) → `golang:1.25-trixie` (Go binaries with corrected lancedb rpath) → `debian:trixie-slim` (runtime with codex CLI, lancedb at `/usr/local/lib/`, agents at `/opt/yard/agents/`)
+- Root `docker-compose.yaml` — `yard` service + profile-gated `knapford` placeholder, both on `llm-net`
+- `.dockerignore` — keeps host artifacts out of build context
 
-**Verified live:** smoke test in `/tmp/yard-init-smoke-*` — empty bootstrap, idempotent re-run, `{{SODORYARD_AGENTS_DIR}}` substitution, end-to-end sirtopham chain with receipts produced by both orchestrator and correctness-auditor.
+**Implementation deviations from plan:**
+1. **Trixie instead of Bookworm** — `liblancedb_go.so` requires GLIBC_2.38 (`__isoc23_strtol`, `__isoc23_sscanf`) which Bookworm's glibc 2.36 cannot satisfy. All three stages switched to Trixie/testing-based images.
+2. **Codex CLI in runtime** — the codex provider shells out to the `codex` binary for auth token management. Node.js + npm + `@openai/codex` installed in the runtime image.
+3. **Go 1.25** — project uses go 1.25.5 (go.mod), not 1.22 as the plan assumed.
 
-**Implementation deviation from plan:** the plan assumed `//go:embed all:templates/init` would reach `templates/init/` at the repo root from `internal/initializer/`. Go's embed only resolves paths relative to the source file's package directory and does not follow symlinks, so the templates tree was moved to `internal/initializer/templates/init/`. All embed paths and tests remained unchanged because the relative reference `templates/init/` resolves correctly from its new location.
+**Also shipped (tech debt):**
+- R5: drain in-flight sub-call writes before DB close (no more "sql: database is closed" on clean exit)
+- R6: only register YAML-configured providers (no more spurious anthropic/openrouter registration)
+- R7: real chain metrics in orchestrator receipts (was hardcoded zeros)
 
----
-
-## Phase 7 — ready to execute
-
-**Spec:** `docs/specs/17-yard-containerization.md` (407 lines)
-**Plan:** `docs/plans/2026-04-11-phase-7-yard-containerization-implementation-plan.md` (1288 lines)
-
-**Depends on:** Phase 5b (fully landed and tagged).
-
-**What it ships:**
-- New `cmd/yard/install.go` subcommand — substitutes `{{SODORYARD_AGENTS_DIR}}` in `yard.yaml`
-- New `internal/initializer/install.go` + tests
-- New `Dockerfile` — three-stage build
-- New `docker-compose.yaml` at the repo root
-- New `.dockerignore`
-
-**Locked decisions** (do not re-litigate during execution):
-1. Headless-only Phase 7
-2. `yard install` is the only command that performs the agents-dir substitution
-3. `debian:bookworm-slim` runtime base
-4. amd64 only
-5. Two compose files, share `llm-net` external network
-6. `liblancedb_go.so` staged at `/usr/local/lib/` + `ldconfig`
-7. Image filesystem: binaries at `/usr/local/bin/`, agent prompts at `/opt/yard/agents/`, project bind-mounted at `/project`
-8. Tag is `v0.7-containerization`
-
-**Note for Phase 7 plan:** the plan references `templates/init/` at the repo root in several places (e.g., `.dockerignore` rules, builder stage embed). These references need to be updated to `internal/initializer/templates/init/` since Phase 5b moved the templates.
+**Verified live:** container smoke test — `yard init` + `yard install` + `sirtopham chain` end-to-end inside the container. Both receipts visible on host bind mount. Receipt frontmatter shows real metrics (`turns_used: 1`, `tokens_used: 5966`, `duration_seconds: 3`).
 
 ---
 
-## Deferred (not in this session)
+## Phase 4 — complete
 
-### Phase 4 — system prompts
+**What shipped:** production agent prompts (13 files, ~5KB each) with Thomas & Friends engine names:
 
-The 13 agent prompt files in `agents/` are operational stubs. Phase 4 expands them into production prompts. The user is handling Phase 4 out-of-band. Do NOT touch `agents/` files.
+| Role | Engine | File |
+|---|---|---|
+| Orchestrator | Sir Topham Hatt | `sirtophamhatt.md` |
+| Planner | Gordon | `gordon.md` |
+| Epic Decomposer | Edward | `edward.md` |
+| Task Decomposer | Emily | `emily.md` |
+| Coder | Thomas | `thomas.md` |
+| Correctness Auditor | Percy | `percy.md` |
+| Quality Auditor | James | `james.md` |
+| Performance Auditor | Spencer | `spencer.md` |
+| Security Auditor | Diesel | `diesel.md` |
+| Integration Auditor | Toby | `toby.md` |
+| Test Writer | Rosie | `rosie.md` |
+| Resolver | Victor | `victor.md` |
+| Docs Arbiter | Harold | `harold.md` |
+
+---
+
+## Deferred
 
 ### Phase 6 — Knapford dashboard
 
-Web dashboard. Deferred until Phase 4 prompts are ready for dogfooding. The Phase 7 docker-compose.yaml has a profile-gated `knapford` service slot waiting for Phase 6.
+Web dashboard that consumes `.brain/`, `.yard/yard.db`, and chain state. The Phase 7 docker-compose.yaml has a profile-gated `knapford` service slot ready. Once Phase 6 ships, the profile gate is removed and `knapford` becomes a default-on service.
+
+**Status:** the largest remaining phase. Needs decomposition into per-epic specs. Phase 4 prompts are now ready for dogfooding.
 
 ---
 
 ## Recent commits
 
 ```
-HEAD  91d57ac  refactor(tidmouth): remove init subcommand, replaced by yard init
-      8d4afd4  build: add yard binary target with FTS5 and lancedb cgo flags
-      f2d71e2  feat(yard): add cmd/yard binary with init subcommand
-      d9010ae  feat(initializer): add Run() entrypoint that orchestrates init
-      21768b8  feat(initializer): add EnsureDatabase for .yard/yard.db bootstrap
-      bfe7318  feat(initializer): add EnsureGitignoreEntries for .yard/ and .brain/
-      c88b95e  feat(initializer): add EnsureObsidianConfig for .brain/.obsidian/
-      1b6da3f  feat(initializer): add placeholder substitution at copy time
-      d0b6495  feat(initializer): embed templates/init/ via go:embed
-      30217d8  feat(templates/init): seed all 13 agent_roles in yard.yaml template
-      7866938  docs: rewrite NEXT_SESSION_HANDOFF.md from scratch        ← pre-5b
+HEAD  d1503fa  fix(docker): install codex CLI in runtime image
+      04ebf10  build: add Phase 7 root docker-compose.yaml
+      46e6d45  build: add Phase 7 multi-stage Dockerfile
+      8885238  build: add .dockerignore for Phase 7 Docker build context
+      69fff1c  feat(yard): add yard install subcommand for agents-dir substitution
+      25602ab  fix(sirtopham): drain in-flight sub-call writes before DB close
+      a2d7f1d  fix(sirtopham): only register YAML-configured providers
+      249e28f  fix(spawn): populate real chain metrics in orchestrator receipt
+      8592baa  feat(agents): replace stubs with production prompts, rename to engine names
+      1198039  docs: update handoff for Phase 5b completion
 ```
 
 - Working tree: clean
 - `make test`: green
 - `make all`: green (4 binaries: tidmouth, sirtopham, knapford, yard)
-- Tags: `v0.1-pre-sodor`, `v0.2-monorepo-structure`, `v0.2.1-yard-paths`, `v0.4-orchestrator`, `v0.5-yard-init`
+- `docker compose build yard`: green
+- Tags: `v0.1-pre-sodor`, `v0.2-monorepo-structure`, `v0.2.1-yard-paths`, `v0.4-orchestrator`, `v0.5-yard-init`, `v0.7-containerization`
 - **Not pushed.** User pushes manually.
 
 ---
@@ -129,52 +127,46 @@ HEAD  91d57ac  refactor(tidmouth): remove init subcommand, replaced by yard init
 - **Per-step commits** — don't batch multi-task work into one mega-commit.
 - **Do not push** — the user pushes manually.
 - **Do not skip git hooks** unless the user explicitly asks.
-- **Do not touch `agents/`** — Phase 4 prompts are being handled out-of-band.
-- **Do not touch `cmd/sirtopham/` or `internal/{chain,spawn,receipt}/`** beyond the TECH-DEBT items unless the user explicitly asks.
-- **Do not modify `ops/llm/docker-compose.yml`** in Phase 7.
 
-### Pre-flight checks before any smoke test
-
-Local llama.cpp services (only needed if dogfooding against local LLM):
+### Running the containerized railway
 
 ```bash
-curl -s --max-time 3 http://localhost:12434/v1/models | head -c 80
-curl -s --max-time 3 http://localhost:12435/v1/models | head -c 80
+# Build the image
+docker compose build yard
+
+# Initialize a project
+PROJECT_DIR=/path/to/project docker compose run --rm yard yard init
+PROJECT_DIR=/path/to/project docker compose run --rm yard yard install
+
+# Run a chain (needs codex auth mounted)
+PROJECT_DIR=/path/to/project docker compose run --rm \
+  -v ~/.sirtopham:/root/.sirtopham:ro \
+  yard sirtopham chain --config /project/yard.yaml --task "..."
 ```
-
-Codex auth:
-
-```bash
-./bin/tidmouth auth status
-```
-
-Should show `codex (codex): healthy` with non-expired tokens. As of 2026-04-12 the tokens expire 2026-04-13 — re-auth via `codex auth` if needed.
 
 ### Where to find things
 
-- **Current product specs:** `docs/specs/01-15` (numbered) plus `docs/specs/16-yard-init.md` and `docs/specs/17-yard-containerization.md`.
-- **Ready-to-execute implementation plans:** `docs/plans/2026-04-11-phase-7-yard-containerization-implementation-plan.md`. Phase 5b plan is now historical (completed).
-- **Roadmap:** `sodor-migration-roadmap.md` (overall phase plan, still authoritative).
-- **Tech debt:** `TECH-DEBT.md` (R5/R6/R7 are open Phase 3 follow-ups; R1–R4 are pre-existing).
-- **Live validation procedures:** `MANUAL_LIVE_VALIDATION.md` at the repo root.
-- **Templates:** `internal/initializer/templates/init/` (moved from repo-root `templates/init/` during Phase 5b).
+- **Templates:** `internal/initializer/templates/init/` (moved from repo-root `templates/init/` during Phase 5b)
+- **Agent prompts:** `agents/` — 13 engine-named `.md` files
+- **Specs:** `docs/specs/16-yard-init.md`, `docs/specs/17-yard-containerization.md`
+- **Roadmap:** `sodor-migration-roadmap.md`
+- **Tech debt:** `TECH-DEBT.md` (R5/R6/R7 closed this session; R1-R4 remain)
 
-### Tools and services this project uses
+### Codex auth
 
-- **llama.cpp** at `localhost:12434` (qwen-coder-7b) and `localhost:12435` (nomic-embed-code). Managed via `ops/llm/docker-compose.yml`. Optional.
-- **Codex auth** stored in `~/.sirtopham/auth.json`. Status check: `./bin/tidmouth auth status`.
-- **LanceDB** via `lib/linux_amd64/liblancedb_go.so`. Tests need the env vars set by `make test`.
-- **sqlc** generates `internal/db/*.sql.go` from `internal/db/query/*.sql`.
+Tokens in `~/.sirtopham/auth.json` expire 2026-04-13. Re-auth via `codex auth` if needed.
 
-### Next session
+---
 
-The next session should pick one of:
+## Next session
 
-1. **Execute Phase 7** — work through `docs/plans/2026-04-11-phase-7-yard-containerization-implementation-plan.md` task by task. Note: plan references to `templates/init/` need updating to `internal/initializer/templates/init/`. End state: `Dockerfile` and `docker-compose.yaml` at the repo root, `yard install` command exists, container smoke chain passes end-to-end, tag `v0.7-containerization`.
+The next session should focus on:
 
-2. **TECH-DEBT cleanup** — work through R5/R6/R7 (Phase 3 orchestrator follow-ups). Each is small (one to two commits).
+1. **Phase 6 — Knapford dashboard** — the only remaining migration phase. Needs epic decomposition before implementation. The docker-compose.yaml knapford service slot and the Phase 4 agent prompts are ready.
 
-Phase 4 (prompts) and Phase 6 (Knapford) are NOT for this conversation series.
+2. **Daily-driver validation (TECH-DEBT R1/R2)** — prove the harness on a real project, real vault, real workflow. Now that containerization works, this is the natural next step.
+
+3. **Index freshness UX (TECH-DEBT R3)** — make stale-index states obvious or implement auto-refresh.
 
 ---
 
