@@ -139,6 +139,9 @@ func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cob
 		}
 		return err
 	}
+	if err := finalizeRequestedChainStatus(ctx, rt.ChainStore, chainID); err != nil {
+		return err
+	}
 	stored, err := rt.ChainStore.GetChain(ctx, chainID)
 	if err != nil {
 		return err
@@ -192,7 +195,7 @@ func prepareExistingChainForExecution(ctx context.Context, store *chain.Store, e
 		return nil
 	}
 	switch existing.Status {
-	case "paused":
+	case "paused", "pause_requested":
 		if err := store.SetChainStatus(ctx, existing.ID, "running"); err != nil {
 			return err
 		}
@@ -202,7 +205,7 @@ func prepareExistingChainForExecution(ctx context.Context, store *chain.Store, e
 	case "running":
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "chain %s continuing from existing running state\n", existing.ID)
 		return nil
-	case "cancelled", "completed", "failed", "partial":
+	case "cancelled", "completed", "failed", "partial", "cancel_requested":
 		return fmt.Errorf("chain %s is %s and cannot be resumed", existing.ID, existing.Status)
 	default:
 		return fmt.Errorf("chain %s is in unsupported state %q", existing.ID, existing.Status)
@@ -229,6 +232,9 @@ func handleChainRunInterruption(ctx context.Context, store *chain.Store, chainID
 	if !errors.Is(err, agent.ErrTurnCancelled) {
 		return false, nil
 	}
+	if err := finalizeRequestedChainStatus(ctx, store, chainID); err != nil {
+		return true, err
+	}
 	ch, loadErr := store.GetChain(ctx, chainID)
 	if loadErr != nil {
 		return true, loadErr
@@ -243,6 +249,19 @@ func handleChainRunInterruption(ctx context.Context, store *chain.Store, chainID
 	default:
 		return false, nil
 	}
+}
+
+func finalizeRequestedChainStatus(ctx context.Context, store *chain.Store, chainID string) error {
+	ch, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		return err
+	}
+	if finalStatus, ok := chain.FinalizeControlStatus(ch.Status); ok {
+		if err := store.SetChainStatus(ctx, chainID, finalStatus); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateChainFlags(flags chainFlags) error {

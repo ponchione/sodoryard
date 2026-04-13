@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { ContextReport, ContextSignalStreamResponse } from "@/types/metrics";
 
+const latestTurnFetchDeferMs = 250;
+
 export interface UseContextReportReturn {
   report: ContextReport | null;
   loading: boolean;
@@ -73,11 +75,30 @@ export function useContextReport(conversationId?: string): UseContextReportRetur
     [conversationId],
   );
 
+  const reportTurn = report?.turn_number ?? 0;
+
   useEffect(() => {
-    if (currentTurn > 0) {
-      fetchReport(currentTurn);
+    if (currentTurn <= 0 || reportTurn === currentTurn) {
+      return;
     }
-  }, [currentTurn, fetchReport]);
+
+    const shouldDeferLatestFetch = (
+      isFollowingLatest
+      && currentTurn === totalTurns
+      && reportTurn === 0
+    );
+
+    if (shouldDeferLatestFetch) {
+      const timer = window.setTimeout(() => {
+        void fetchReport(currentTurn);
+      }, latestTurnFetchDeferMs);
+      return () => {
+        window.clearTimeout(timer);
+      };
+    }
+
+    void fetchReport(currentTurn);
+  }, [currentTurn, fetchReport, isFollowingLatest, reportTurn, totalTurns]);
 
   const goToTurn = useCallback(
     (turn: number) => {

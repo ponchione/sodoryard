@@ -75,6 +75,26 @@ A chain is a multi-agent pipeline. The orchestrator agent reads a task or spec, 
 
 Chains support pause/resume semantics and can be cancelled mid-execution. The `yard chain status` command shows progress; `yard chain receipt` retrieves the structured output from any step.
 
+The shipped role set is intentionally themed around the Railway Series / Thomas universe:
+
+| Role | Engine | Why |
+|------|--------|-----|
+| Orchestrator | Sir Topham Hatt | He's not an engine — he's the boss. Dispatches, evaluates, decides. |
+| Planner | Gordon | The big express engine. Thinks he's the most important. Goes first, sets the course for everyone else, and sees the big picture. |
+| Epic Decomposer | Edward | Wise, experienced, methodical. Breaks big jobs into sensible pieces. The reliable one everyone trusts with important work. |
+| Task Decomposer | Emily | Organized, detail-oriented, and makes sure everything is in order before work starts. |
+| Coder | Thomas | The main character. Does the actual branch line work, gets his hands dirty, occasionally goes off-script, but gets the job done. |
+| Code Correctness Auditor | Percy | Thomas's best friend but independent. Honest, catches what Thomas missed. Runs the mail — delivering the truth about what actually happened. |
+| Code Quality Auditor | James | Vain, cares about appearances. Everything should look right, be polished, and follow proper form. |
+| Performance Auditor | Spencer | The sleek silver private engine. Fast, efficiency-obsessed, always measuring himself against others. |
+| Security Auditor | Diesel | Suspicious of everything. Looks for hidden problems and bad actors. Doesn't trust easily. |
+| Integration Auditor | Toby | The tramway engine who works at the junction between different lines. Lives at the seams and understands how different parts of the railway connect. |
+| Test Writer | Rosie | Independent-minded, approaches things from her own angle, and writes tests from the spec rather than from Thomas's implementation. |
+| Resolver | Victor | Runs the Steamworks repair shop. You bring him broken things, he fixes them. Targeted, efficient, doesn't redesign — just repairs. |
+| Docs Arbiter | Harold | The helicopter. Sees everything from above, checks that the whole railway makes sense as a system, and brings a different perspective entirely. |
+
+In config and prompts, these roles are exposed through the checked-in `agents/` prompt set and the `agent_roles` mapping in `yard.yaml`.
+
 ### Brain
 
 The brain is an Obsidian-compatible vault (`.brain/`) that serves as structured long-term project memory. Agents read and write documents through an MCP (Model Context Protocol) interface — specs, receipts, conventions, architectural decisions. The brain is indexed both relationally (SQLite FTS5 for full-text search) and semantically (LanceDB vectors for embedding-based retrieval).

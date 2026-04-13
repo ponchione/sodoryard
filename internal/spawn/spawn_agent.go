@@ -105,7 +105,7 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 		return nil, fmt.Errorf("spawn_agent: list steps: %w", err)
 	}
 	seq := len(steps) + 1
-	receiptPath := fmt.Sprintf("receipts/%s/%s-step-%03d.md", in.Role, t.ChainID, seq)
+	receiptPath := receipt.StepPath(in.Role, t.ChainID, seq)
 	stepID, err := t.Store.StartStep(ctx, chain.StepSpec{ChainID: t.ChainID, SequenceNum: seq, Role: in.Role, Task: in.Task, TaskContext: in.TaskContext})
 	if err != nil {
 		return nil, fmt.Errorf("spawn_agent: create step: %w", err)
@@ -179,16 +179,13 @@ func (t *SpawnAgentTool) stopIfChainNotRunnable(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("spawn_agent: load chain control state: %w", err)
 	}
-	switch ch.Status {
-	case "running":
-		return nil
-	case "paused":
+	if chain.ShouldStopScheduling(ch.Status) {
 		return tool.ErrChainComplete
-	case "cancelled":
-		return tool.ErrChainComplete
-	default:
-		return fmt.Errorf("spawn_agent: chain %s is %s", t.ChainID, ch.Status)
 	}
+	if ch.Status == "running" {
+		return nil
+	}
+	return fmt.Errorf("spawn_agent: chain %s is %s", t.ChainID, ch.Status)
 }
 
 func (t *SpawnAgentTool) reindex(ctx context.Context) error {

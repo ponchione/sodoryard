@@ -18,7 +18,7 @@ interface ContextInspectorProps {
 }
 
 export function ContextInspector({ ctx, onClose }: ContextInspectorProps) {
-  const { report, loading, currentTurn, totalTurns, isFollowingLatest, nextTurn, prevTurn, jumpToLatest } = ctx;
+  const { report, loading, error, currentTurn, totalTurns, isFollowingLatest, nextTurn, prevTurn, jumpToLatest } = ctx;
   const budgetCategories = normalizeBudgetBreakdown(report?.budget_breakdown);
 
   return (
@@ -85,7 +85,14 @@ export function ContextInspector({ ctx, onClose }: ContextInspectorProps) {
           <p className="py-4 text-center text-xs text-muted-foreground">Loading…</p>
         )}
 
-        {!loading && !report && (
+        {!loading && error && (
+          <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive space-y-1">
+            <div className="font-medium uppercase tracking-widest">Inspector load failed</div>
+            <div>{error}</div>
+          </div>
+        )}
+
+        {!loading && !report && !error && (
           <p className="py-4 text-center text-xs text-muted-foreground">
             {totalTurns === 0
               ? "No context data yet — send a message to generate the first report"

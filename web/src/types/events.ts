@@ -111,7 +111,12 @@ export interface ErrorEvent {
 }
 
 /** Agent state machine transition. */
-export type AgentState = "idle" | "thinking" | "executing_tools";
+export type AgentState =
+  | "idle"
+  | "assembling_context"
+  | "waiting_for_llm"
+  | "executing_tools"
+  | "compressing";
 
 export interface StatusEvent {
   type: "status";

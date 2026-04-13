@@ -25,6 +25,22 @@ const conversationPageSessionState = {
   inspectorOpen: false,
 };
 
+function agentStateLabel(state: string): string {
+  switch (state) {
+    case "assembling_context":
+      return "Assembling context…";
+    case "waiting_for_llm":
+      return "Waiting for model…";
+    case "executing_tools":
+      return "Running tools…";
+    case "compressing":
+      return "Compressing history…";
+    case "idle":
+    default:
+      return "Processing…";
+  }
+}
+
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -410,9 +426,7 @@ export function ConversationPage() {
               messages[messages.length - 1].blocks.length === 0) && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="inline-block h-2 w-2 bg-primary pulse-glow" />
-                {agentState === "thinking" && "Thinking…"}
-                {agentState === "executing_tools" && "Running tools…"}
-                {agentState === "idle" && "Processing…"}
+                {agentStateLabel(agentState)}
               </div>
             )}
 

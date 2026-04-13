@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -82,6 +85,51 @@ func setupWSTest(t *testing.T, agentMock *mockAgentService) (string, *mockConver
 	server.NewWebSocketHandler(srv, agentMock, convMock, cfg, nil, newTestLogger())
 	_, base := startServer(t, srv)
 	return base, convMock
+}
+
+func TestWebSocketDoesNotLogExpectedCancellationAsRunTurnError(t *testing.T) {
+	testLogBuf := &bytes.Buffer{}
+	logger := slog.New(slog.NewTextHandler(testLogBuf, nil))
+	agentMock := &mockAgentService{
+		runTurnFn: func(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+			return nil, fmt.Errorf("%w: %v", agent.ErrTurnCancelled, context.Canceled)
+		},
+	}
+	conv123 := &conversation.Conversation{ID: "conv-123", ProjectID: "test-project", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	convMock := &mockConversationService{conversations: []*conversation.Conversation{conv123}}
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0, DevMode: true}, logger)
+	cfg := &config.Config{ProjectRoot: "test-project", Providers: map[string]config.ProviderConfig{
+		"codex": {Type: "codex", ContextLength: 200000},
+	}}
+	server.NewWebSocketHandler(srv, agentMock, convMock, cfg, nil, logger)
+	_, base := startServer(t, srv)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	msg := map[string]string{
+		"type":            "message",
+		"conversation_id": "conv-123",
+		"content":         "cancel me",
+	}
+	data, _ := json.Marshal(msg)
+	if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	logOutput := testLogBuf.String()
+	if strings.Contains(logOutput, "level=ERROR msg=\"run turn\"") {
+		t.Fatalf("expected no run-turn error log for expected cancellation, got logs:\n%s", logOutput)
+	}
 }
 
 func TestWebSocketUpgrade(t *testing.T) {

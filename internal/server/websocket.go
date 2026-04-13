@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -389,6 +390,10 @@ func (h *WebSocketHandler) handleMessage(ctx context.Context, conn *websocket.Co
 
 	_, err := h.agent.RunTurn(ctx, req)
 	if err != nil {
+		if errors.Is(err, agent.ErrTurnCancelled) {
+			h.logger.Info("run turn cancelled", "error", err, "conversation_id", convID)
+			return
+		}
 		h.logger.Error("run turn", "error", err, "conversation_id", convID)
 		// ErrorEvent is emitted by the agent loop itself; no need to send another.
 	}

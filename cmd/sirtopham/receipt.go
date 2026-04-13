@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/receipt"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +19,7 @@ func newReceiptCmd(configPath *string) *cobra.Command {
 			return err
 		}
 		defer rt.Cleanup()
-		path := fmt.Sprintf("receipts/orchestrator/%s.md", args[0])
+		path := receipt.OrchestratorPath(args[0])
 		if len(args) == 2 {
 			steps, err := rt.ChainStore.ListSteps(cmd.Context(), args[0])
 			if err != nil {

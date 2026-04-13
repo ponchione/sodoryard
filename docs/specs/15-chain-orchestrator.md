@@ -130,7 +130,7 @@ The orchestrator agent's primary tool. Spawns a headless engine session and bloc
 2. Check chain safety limits (max steps, token budget, duration).
 3. If `reindex_before`: exec `tidmouth index --quiet` and wait.
 4. Create a step record in SQLite (status: running).
-5. Exec `tidmouth run --role {role} --task {task} --chain-id {chain-id} --quiet` as subprocess.
+5. Exec `tidmouth run --role {role} --task {task} --chain-id {chain-id} --receipt-path receipts/{role}/{chain-id}-step-{NNN}.md --quiet` as subprocess.
 6. Wait for process exit.
 7. Read receipt from brain at the expected path.
 8. Parse receipt frontmatter (verdict, tokens used, turns used, duration).

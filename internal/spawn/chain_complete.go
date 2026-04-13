@@ -9,6 +9,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/receipt"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -72,7 +73,7 @@ func (t *ChainCompleteTool) Execute(ctx context.Context, projectRoot string, raw
 		durationSecs = ch.TotalDurationSecs
 	}
 
-	receiptPath := fmt.Sprintf("receipts/orchestrator/%s.md", t.ChainID)
+	receiptPath := receipt.OrchestratorPath(t.ChainID)
 	receiptBody := fmt.Sprintf(`---
 agent: orchestrator
 chain_id: %s

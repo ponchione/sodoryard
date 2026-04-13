@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,13 +24,11 @@ type yardReceiptMetrics struct {
 	DurationSeconds int
 }
 
-var yardFallbackReceiptStepPattern = regexp.MustCompile(`-step-(\d+)\.md$`)
-
 func yardResolveReceiptPath(role string, chainID string, override string) string {
 	if strings.TrimSpace(override) != "" {
 		return strings.TrimSpace(override)
 	}
-	return fmt.Sprintf("receipts/%s/%s.md", strings.TrimSpace(role), strings.TrimSpace(chainID))
+	return receipt.DefaultPath(role, chainID)
 }
 
 func yardValidateReceiptContent(content string) (*yardReceiptFrontmatter, error) {
@@ -120,16 +115,7 @@ duration_seconds: %d
 }
 
 func yardFallbackReceiptStep(receiptPath string) int {
-	path := filepath.Base(strings.TrimSpace(receiptPath))
-	matches := yardFallbackReceiptStepPattern.FindStringSubmatch(path)
-	if len(matches) != 2 {
-		return 1
-	}
-	step, err := strconv.Atoi(matches[1])
-	if err != nil || step <= 0 {
-		return 1
-	}
-	return step
+	return receipt.StepFromPath(receiptPath)
 }
 
 type yardRunProgressSink struct {

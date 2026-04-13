@@ -84,10 +84,16 @@ func TestValidateYardChainStatusTransition(t *testing.T) {
 	if err := validateYardChainStatusTransition("paused", "running", "chain-1"); err != nil {
 		t.Fatalf("resume paused chain error = %v, want nil", err)
 	}
+	if err := validateYardChainStatusTransition("pause_requested", "running", "chain-1"); err != nil {
+		t.Fatalf("resume pause_requested chain error = %v, want nil", err)
+	}
 	if err := validateYardChainStatusTransition("completed", "running", "chain-1"); err == nil {
 		t.Fatal("expected completed chain resume to fail")
 	}
 	if err := validateYardChainStatusTransition("running", "paused", "chain-1"); err != nil {
 		t.Fatalf("pause running chain error = %v, want nil", err)
+	}
+	if err := validateYardChainStatusTransition("pause_requested", "cancelled", "chain-1"); err != nil {
+		t.Fatalf("cancel pause_requested chain error = %v, want nil", err)
 	}
 }

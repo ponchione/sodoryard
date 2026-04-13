@@ -148,10 +148,18 @@ func TestSpawnAgentRejectsStepLimit(t *testing.T) {
 }
 
 func TestSpawnAgentStopsCleanlyWhenChainPaused(t *testing.T) {
+	testSpawnAgentStopsCleanlyForChainStatus(t, "paused")
+}
+
+func TestSpawnAgentStopsCleanlyWhenPauseRequested(t *testing.T) {
+	testSpawnAgentStopsCleanlyForChainStatus(t, "pause_requested")
+}
+
+func testSpawnAgentStopsCleanlyForChainStatus(t *testing.T, status string) {
 	ctx := context.Background()
 	store := chain.NewStore(newSpawnTestDB(t))
 	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	if err := store.SetChainStatus(ctx, chainID, "paused"); err != nil {
+	if err := store.SetChainStatus(ctx, chainID, status); err != nil {
 		t.Fatalf("SetChainStatus returned error: %v", err)
 	}
 	backend := &fakeBrainBackend{docs: map[string]string{}}
@@ -166,7 +174,7 @@ func TestSpawnAgentStopsCleanlyWhenChainPaused(t *testing.T) {
 		t.Fatalf("error = %v, want tool.ErrChainComplete", err)
 	}
 	if runCalled {
-		t.Fatal("runCommand called unexpectedly for paused chain")
+		t.Fatalf("runCommand called unexpectedly for %s chain", status)
 	}
 	steps, err := store.ListSteps(ctx, chainID)
 	if err != nil {
@@ -178,10 +186,18 @@ func TestSpawnAgentStopsCleanlyWhenChainPaused(t *testing.T) {
 }
 
 func TestSpawnAgentStopsCleanlyWhenChainCancelled(t *testing.T) {
+	testSpawnAgentStopsCleanlyForCancellationStatus(t, "cancelled")
+}
+
+func TestSpawnAgentStopsCleanlyWhenCancelRequested(t *testing.T) {
+	testSpawnAgentStopsCleanlyForCancellationStatus(t, "cancel_requested")
+}
+
+func testSpawnAgentStopsCleanlyForCancellationStatus(t *testing.T, status string) {
 	ctx := context.Background()
 	store := chain.NewStore(newSpawnTestDB(t))
 	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	if err := store.SetChainStatus(ctx, chainID, "cancelled"); err != nil {
+	if err := store.SetChainStatus(ctx, chainID, status); err != nil {
 		t.Fatalf("SetChainStatus returned error: %v", err)
 	}
 	backend := &fakeBrainBackend{docs: map[string]string{}}
@@ -196,7 +212,7 @@ func TestSpawnAgentStopsCleanlyWhenChainCancelled(t *testing.T) {
 		t.Fatalf("error = %v, want tool.ErrChainComplete", err)
 	}
 	if runCalled {
-		t.Fatal("runCommand called unexpectedly for cancelled chain")
+		t.Fatalf("runCommand called unexpectedly for %s chain", status)
 	}
 	steps, err := store.ListSteps(ctx, chainID)
 	if err != nil {

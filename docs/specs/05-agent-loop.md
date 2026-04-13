@@ -349,9 +349,21 @@ tool_call_end    — tool execution complete (result, duration, success/failure)
 turn_complete    — turn finished (usage summary, iteration count)
 turn_cancelled   — turn was cancelled by user
 error            — recoverable or non-recoverable error
-status           — agent state change (idle, thinking, executing_tools)
+status           — agent state change (assembling_context, waiting_for_llm, executing_tools, compressing, idle)
 context_debug    — ContextAssemblyReport emitted after context assembly (frontend may ignore unless the debug panel is open)
 ```
+
+Current shipped status values are more explicit than the older three-state shorthand:
+
+```
+assembling_context — Layer 3 context assembly is running
+waiting_for_llm    — the provider request is in flight
+executing_tools    — one or more tool calls are running
+compressing        — history compression is running
+idle               — no turn is currently active
+```
+
+The web UI maps those states to operator-facing labels like "Assembling context…", "Waiting for model…", "Running tools…", and "Compressing history…".
 
 Tool call events include the tool call ID so the UI can match starts to ends and display concurrent tool executions correctly.
 

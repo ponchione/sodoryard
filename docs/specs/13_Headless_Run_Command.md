@@ -55,7 +55,7 @@ tidmouth run [flags]
 | `--max-turns <int>` | 50 | Maximum turns before forced stop. |
 | `--max-tokens <int>` | 500000 | Total token budget across all turns. |
 | `--timeout <duration>` | 30m | Wall-clock timeout for the entire session. |
-| `--receipt-path <path>` | `receipts/{role}/{chain-id}.md` | Override the brain-relative receipt output path. |
+| `--receipt-path <path>` | `receipts/{role}/{chain-id}.md` | Override the brain-relative receipt output path for a direct headless run. Orchestrator-managed runs typically pass a step-specific path like `receipts/{role}/{chain-id}-step-{NNN}.md`. |
 | `--quiet` | false | Suppress all stdout except the receipt path on completion. |
 | `--project-root <path>` | cwd | Override the project root for file tool operations. |
 

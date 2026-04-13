@@ -68,6 +68,13 @@ type ServerMessage = {
 Current event payloads follow the live backend/frontend contract:
 
 ```typescript
+type AgentState =
+  | "idle"
+  | "assembling_context"
+  | "waiting_for_llm"
+  | "executing_tools"
+  | "compressing";
+
 // Server → Client events
 type ServerEvent =
   | { type: "conversation_created"; data: { conversation_id: string } }
@@ -95,6 +102,8 @@ type ClientEvent =
 - Tool outputs stream incrementally via `tool_call_output` events.
 - Multiple concurrent tool calls are represented as interleaved event streams keyed by `tool_call_id`.
 - `context_debug` is emitted by the backend after context assembly; the frontend decides whether to render it.
+- the context inspector also fetches stored reports from `GET /api/metrics/conversation/:id/context/:turn` and the ordered signal stream from `GET /api/metrics/conversation/:id/context/:turn/signals` when browsing history.
+- if inspector report loading fails, the shipped UI now renders an explicit error state instead of silently looking empty.
 - `conversation_created` is sent when a new conversation is created over WebSocket so the frontend can update routing and subsequent REST calls.
 - Closing the WebSocket cancels any in-flight turn via shared context cancellation. This is distinct from an explicit client `cancel` message.
 
@@ -121,6 +130,7 @@ GET    /api/auth/providers             Provider auth/status diagnostics for oper
 
 GET    /api/metrics/conversation/:id              Per-conversation token/tool/context metrics
 GET    /api/metrics/conversation/:id/context/:turn ContextAssemblyReport for a specific turn
+GET    /api/metrics/conversation/:id/context/:turn/signals Ordered signal-flow stream for a specific turn
 
 WS     /api/ws                         WebSocket for streaming
 ```
@@ -131,7 +141,7 @@ WS     /api/ws                         WebSocket for streaming
 
 - **Conversation view:** Chat-style message thread with streaming token display
 - **Tool call visualization:** Inline syntax-highlighted diffs, command output, search results
-- **Context inspector (debug):** RAG chunks retrieved, conventions included, token budget allocation
+- **Context inspector (debug):** turn-by-turn context reports, ordered signal flow, retrieval results, token budget allocation, and explicit load errors when report fetches fail
 - **Conversation sidebar:** Past conversations with search and delete controls
 - **Settings page:** Model selection, provider config, tool permissions
 - **Metrics/stats:** Token usage, cost per conversation, model breakdown

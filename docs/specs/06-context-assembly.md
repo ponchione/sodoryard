@@ -522,7 +522,7 @@ Three metrics measure whether context assembly is doing its job:
 
 ### Storage
 
-Reports are stored per-turn in SQLite in `context_reports`. The web UI's context inspector reads the full report from `GET /api/metrics/conversation/:id/context/:turn`, and a narrower ordered signal-flow view is available at `GET /api/metrics/conversation/:id/context/:turn/signals`.
+Reports are stored per-turn in SQLite in `context_reports`. The web UI's context inspector reads the full report from `GET /api/metrics/conversation/:id/context/:turn`, and a narrower ordered signal-flow view is available at `GET /api/metrics/conversation/:id/context/:turn/signals`. On historical loads, the inspector fetches both; on live turns, it can also hydrate from the `context_debug` WebSocket event.
 
 ### Context Inspector Debug Panel
 
@@ -533,7 +533,10 @@ The web UI displays the assembly report for each turn:
 - Which chunks were included vs excluded by budget fitting, with reasons
 - Token budget allocation breakdown
 - Turn analyzer signals (what was detected, what was missed)
+- Ordered signal flow, including semantic queries and key flags when available
 - Quality metrics (search tool usage, hit rate)
+
+If report loading fails, the inspector should surface that failure explicitly rather than falling back to an ambiguous empty state.
 
 This panel is not a nice-to-have. It is the primary mechanism for tuning the relevance threshold, budget cap, and query extraction rules. For a system with no prior art to benchmark against, the debug panel IS the benchmark.
 

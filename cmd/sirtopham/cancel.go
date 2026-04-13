@@ -35,19 +35,34 @@ func setChainStatus(cmd *cobra.Command, configPath string, chainID string, statu
 	if err := validateChainStatusTransition(existing.Status, status, chainID); err != nil {
 		return err
 	}
-	if existing.Status == status {
+	nextStatus, err := chain.NextControlStatus(existing.Status, status)
+	if err != nil {
+		return fmt.Errorf("chain %s %w", chainID, err)
+	}
+	if existing.Status == nextStatus {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "chain %s already %s\n", chainID, message)
 		return nil
 	}
-	if status == "cancelled" {
+	if nextStatus == "cancel_requested" {
 		_ = signalActiveChainProcess(cmd.Context(), rt.ChainStore, chainID)
 	}
-	if err := rt.ChainStore.SetChainStatus(cmd.Context(), chainID, status); err != nil {
+	if err := rt.ChainStore.SetChainStatus(cmd.Context(), chainID, nextStatus); err != nil {
 		return err
 	}
-	_ = rt.ChainStore.LogEvent(cmd.Context(), chainID, "", eventType, nil)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "chain %s %s\n", chainID, message)
+	_ = rt.ChainStore.LogEvent(cmd.Context(), chainID, "", eventType, map[string]any{"status": nextStatus})
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "chain %s %s\n", chainID, controlStatusMessage(status, nextStatus, message))
 	return nil
+}
+
+func controlStatusMessage(targetStatus string, persistedStatus string, fallback string) string {
+	switch {
+	case targetStatus == "paused" && persistedStatus == "pause_requested":
+		return "pause requested"
+	case targetStatus == "cancelled" && persistedStatus == "cancel_requested":
+		return "cancel requested"
+	default:
+		return fallback
+	}
 }
 
 func signalActiveChainProcess(ctx context.Context, store *chain.Store, chainID string) error {
@@ -82,29 +97,9 @@ func signalActiveChainProcess(ctx context.Context, store *chain.Store, chainID s
 }
 
 func validateChainStatusTransition(currentStatus string, targetStatus string, chainID string) error {
-	switch targetStatus {
-	case "paused":
-		switch currentStatus {
-		case "running", "paused":
-			return nil
-		default:
-			return fmt.Errorf("chain %s is %s and cannot be paused", chainID, currentStatus)
-		}
-	case "cancelled":
-		switch currentStatus {
-		case "running", "paused", "cancelled":
-			return nil
-		default:
-			return fmt.Errorf("chain %s is %s and cannot be cancelled", chainID, currentStatus)
-		}
-	case "running":
-		switch currentStatus {
-		case "paused", "running":
-			return nil
-		default:
-			return fmt.Errorf("chain %s is %s and cannot be resumed", chainID, currentStatus)
-		}
-	default:
-		return fmt.Errorf("unsupported chain status transition to %s", targetStatus)
+	_, err := chain.NextControlStatus(currentStatus, targetStatus)
+	if err != nil {
+		return fmt.Errorf("chain %s %w", chainID, err)
 	}
+	return nil
 }

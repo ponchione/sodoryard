@@ -99,18 +99,26 @@ The brain is an Obsidian vault. A human can open it at any time, read every docu
 
 ### Document Naming Conventions
 
-Receipt documents follow the pattern:
+Receipt documents follow the shipped runtime conventions:
 ```
-receipts/{role}/{chain-id}--{task-slug}.md
+# direct standalone headless run
+receipts/{role}/{chain-id}.md
+
+# orchestrator-managed step run
+receipts/{role}/{chain-id}-step-{NNN}.md
+
+# final orchestrator completion receipt
+receipts/orchestrator/{chain-id}.md
 ```
 
 Example:
 ```
-receipts/coder/2026-04-11-auth--01-jwt-middleware.md
-receipts/correctness/2026-04-11-auth--01-jwt-middleware.md
+receipts/coder/auth-2026-04-11-step-001.md
+receipts/correctness/auth-2026-04-11-step-002.md
+receipts/orchestrator/auth-2026-04-11.md
 ```
 
-This groups all receipts for a given chain execution and task, making it easy to see all agent outputs for a single piece of work.
+The direct-run path stays simple for one-off headless sessions. Orchestrated step runs use a monotonic step number because the orchestrator decides sequencing dynamically at runtime and does not have a durable task-slug contract when it spawns an engine.
 
 Task documents follow the pattern:
 ```
