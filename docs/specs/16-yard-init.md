@@ -46,13 +46,13 @@ The seeded `yard.yaml` contains `agent_roles` entries for every role in `agents/
 
 `orchestrator`, `coder`, `planner`, `test-writer`, `resolver`, `correctness-auditor`, `integration-auditor`, `performance-auditor`, `security-auditor`, `quality-auditor`, `docs-arbiter`, `epic-decomposer`, `task-decomposer`.
 
-Each role has `system_prompt`, `tools`, `custom_tools` (orchestrator only), `brain_write_paths`, `brain_deny_paths`, `max_turns`, and `max_tokens` populated with sensible defaults. Where init cannot know the right value (specifically: the absolute filesystem path to the operator's sodoryard install), it leaves an explicit placeholder for the operator to substitute by hand.
+Each role has `system_prompt`, `tools`, `custom_tools` (orchestrator only), `brain_write_paths`, `brain_deny_paths`, `max_turns`, and `max_tokens` populated with sensible defaults. Stock roles use explicit `builtin:<role>` prompt selectors, so a fresh config is self-contained and runnable without an external prompt directory. Operators only need a filesystem prompt path when intentionally overriding a stock built-in prompt.
 
 **Why:** the operator-facing promise of `yard init` is "this works the moment you finish typing it" — within the boundary of "you also told it where your provider credentials live." A freshly initialized project must be able to immediately run any role or any chain. Seeding fewer than all 13 means every operator's first-day workflow includes "discover which roles weren't seeded and add them by hand."
 
 **Cost:** the seeded yaml is large (~250 lines). The yaml is generated, not hand-edited, so its length never matters to a human reading it.
 
-**Placeholder convention:** any unsubstituted value uses `{{NAME}}` syntax. Two are auto-substituted at copy time (see 3.4), the rest stay as placeholders the operator edits. The template uses `{{SODORYARD_AGENTS_DIR}}/coder.md` style for agent prompt paths so the operator can run a single sed/find-replace to wire them all up.
+**Placeholder convention:** any unsubstituted value uses `{{NAME}}` syntax. The shipped `yard.yaml` template now substitutes `{{PROJECT_ROOT}}` / `{{PROJECT_NAME}}` at copy time and uses explicit `builtin:<role>` markers for stock agent prompts, so no prompt-path placeholder edit is required for normal operation.
 
 **Alternatives considered:**
 - **Critical-loop-only subset (orchestrator + 6 engines).** Saves a few dozen yaml lines but creates a "which roles exist?" knowledge requirement.
@@ -101,19 +101,21 @@ When init copies `templates/init/yard.yaml.example` to `<project_root>/yard.yaml
 | `{{PROJECT_ROOT}}` | absolute path returned by `os.Getwd()` at the time `yard init` runs |
 | `{{PROJECT_NAME}}` | basename of `os.Getwd()`, used in the yaml header comment |
 
-Every other `{{PLACEHOLDER}}` token is left as-is for the operator to substitute by hand. The operator workflow after `yard init` is:
+Every other `{{PLACEHOLDER}}` token is left as-is for the operator to substitute by hand. In the shipped stock template, prompt-path placeholders are no longer part of the default flow because stock roles use embedded `builtin:<role>` markers. The operator workflow after `yard init` is:
 
 1. Open the generated `yard.yaml`.
-2. Search-and-replace `{{SODORYARD_AGENTS_DIR}}` with the absolute path to their sodoryard install's `agents/` directory.
+2. Confirm the seeded `builtin:<role>` prompt selections are acceptable, or replace a specific role's `system_prompt` with a filesystem path if a custom prompt override is desired.
 3. Confirm the provider block matches their auth setup (default is codex, see 3.5).
 4. Run `yard init` again to verify it's a no-op (idempotency check, see 3.6).
 
-**Why minimal substitution:** every clever auto-detection (env var resolution, sodoryard install detection from binary location, prompt embedding into the binary) is a real implementation surface that can break in non-obvious ways. Explicit hand-substitution is the simplest path that always works regardless of where the binary lives or how the operator installed sodoryard. Phase 5b can ship with no magic; a future `yard install` or `yard configure` command can layer cleverness on top later.
+**Why minimal substitution:** the only required substitutions for a fresh stock config are still `{{PROJECT_ROOT}}` and `{{PROJECT_NAME}}`. Built-in prompt selectors remove the need for any prompt-dir substitution in the normal path, while still allowing explicit filesystem overrides when an operator wants them. Keeping init to these two substitutions preserves portability across repo checkouts, standalone binaries, and Docker images.
 
 **Alternatives considered:**
-- **Resolve `{{SODORYARD_AGENTS_DIR}}` from `$SODORYARD_HOME` env var.** Requires the operator to set the env var before running init, which is the same friction we're trying to eliminate.
-- **Auto-detect sodoryard from the running `yard` binary's location.** Works when the binary is in `<sodoryard>/bin/yard`, breaks when it's anywhere else.
-- **Embed all 13 agent prompts into the yard binary via `go:embed agents/*`.** Most magical, but it means agent prompt edits in `agents/` require a `yard` rebuild before they take effect in initialized projects, which is exactly backwards from the iteration loop the operator wants.
+- **Resolve `{{SODORYARD_AGENTS_DIR}}` from `$SODORYARD_HOME` env var.** Still unnecessary for stock configs now that embedded built-ins cover the default prompt set.
+- **Auto-detect sodoryard from the running `yard` binary's location.** Still brittle when the binary lives outside a checkout.
+- **Keep stock prompts as filesystem-only paths in generated configs.** Simpler at first glance, but it makes fresh projects depend on an external prompt directory and turns prompt-path setup into required operator ceremony.
+
+Current shipped implementation note: the repo keeps `agents/` as the editable source prompt set and copies those files into an embedded asset directory at build time. A sync test guards against drift between the repo-root prompts and the embedded defaults.
 
 ### 3.5 Default provider — codex / gpt-5.4-mini
 
@@ -260,8 +262,7 @@ Initializing yard in /home/operator/source/myproject
 
 Done.
 Next steps:
-  1. Edit yard.yaml — replace {{SODORYARD_AGENTS_DIR}} with the absolute path
-     to your sodoryard install's agents/ directory.
+  1. Confirm the provider/auth settings in yard.yaml and optionally replace any builtin prompt marker with a file path override
   2. Confirm the provider block matches your auth setup
      (default is codex via ~/.sirtopham/auth.json).
   3. Run `tidmouth index` to populate the code search index.
@@ -287,7 +288,7 @@ Each agent role entry has the shape:
 
 ```yaml
   <role-name>:
-    system_prompt: {{SODORYARD_AGENTS_DIR}}/<role-name>.md
+    system_prompt: builtin:<role-name>
     tools:
       - brain
       - <other tools as appropriate for the role>
@@ -337,10 +338,10 @@ Phase 5b is complete when **all** of the following are true:
 2. `make test` is green, including new tests in `internal/initializer/`.
 3. `cmd/tidmouth/init.go` and `cmd/tidmouth/init_test.go` no longer exist; `tidmouth init` returns `unknown command` from cobra.
 4. `internal/initializer/` exists and houses all the file/directory/database creation logic.
-5. `templates/init/yard.yaml.example` contains all 13 `agent_roles` with placeholders, embedded into the `yard` binary via `go:embed`.
+5. `templates/init/yard.yaml.example` contains all 13 `agent_roles` with stock `builtin:<role>` prompt selectors, embedded into the `yard` binary via `go:embed`.
 6. Running `yard init` in an empty `/tmp/yard-init-smoke-<timestamp>/` directory produces the full file tree from section 6, exits 0, and prints the operator-facing report.
 7. Running `yard init` again in the same directory exits 0 and prints `(already exists, skipped)` lines for everything; no file content is modified.
-8. The smoke test in step 6 can be followed by a hand-substitution of `{{SODORYARD_AGENTS_DIR}}` with the actual path, then `tidmouth index --config yard.yaml` and `sirtopham chain --config yard.yaml --task "..."` both succeed against the freshly initialized project.
+8. The smoke test in step 6 can be followed directly by `tidmouth index --config yard.yaml` and `sirtopham chain --config yard.yaml --task "..."` succeeding against the freshly initialized project without any prompt-path substitution.
 9. `docs/specs/16-yard-init.md` (this file) is updated to match anything that changed during implementation.
 10. The Phase 5b commit stack is tagged `v0.5-yard-init`.
 
@@ -351,8 +352,7 @@ The smoke test in steps 6–8 is **end-to-end live**, not just unit tests. The P
 The following are explicitly **not** in Phase 5b. Each may become a future spec.
 
 - **Other `yard` subcommands.** `yard run`, `yard chain`, `yard status`, `yard up`, `yard validate`, etc. are deferred. The new binary ships with exactly one command.
-- **Auto-resolution of `{{SODORYARD_AGENTS_DIR}}`** from env vars, binary location, or any other source. Operators substitute by hand. A later `yard install` or `yard configure` command may layer this on.
-- **Embedding agent prompts into the binary.** The 13 prompt files in `agents/` stay on disk; init only references them via placeholder paths.
+- **Auto-materializing built-in prompts onto disk.** Stock prompts are embedded and selected via `builtin:<role>` markers; `yard init` does not copy prompt files into the target project.
 - **First-run wizard / interactive prompts.** Init is fully non-interactive.
 - **`--force` / `--reset` flag.** Operators delete `.yard/` and `.brain/` themselves if they want to start over.
 - **Provider auto-detection or credential validation at init time.** The seeded `yard.yaml` may point at a provider whose credentials don't exist; that's discovered on first `tidmouth run`, not at init.
@@ -365,7 +365,7 @@ The following are explicitly **not** in Phase 5b. Each may become a future spec.
 
 These are intentionally left unresolved by this spec. Each is a future decision point, not a Phase 5b blocker.
 
-- **Should `yard install` exist?** A separate command that *does* the `{{SODORYARD_AGENTS_DIR}}` substitution by detecting the binary location and patching the seeded yaml. Would remove the only manual step from the operator workflow. Not in Phase 5b because the auto-detection logic is real surface area and the manual step is one find-and-replace.
+- **Should `yard install` keep shipping long-term?** It now exists as compatibility tooling for older placeholder-based configs. A future cleanup could remove it once those configs are no longer worth supporting, but that is not a Phase 5b blocker.
 - **Should the `yard` binary eventually replace `tidmouth` and `sirtopham` as the operator surface?** Possible long-term direction (`yard run`, `yard chain`, etc.) but not a Phase 5b commitment. The internal binaries stay as the implementation surface.
 - **Should `templates/init/` ship example brain content** (e.g., a starter `specs/00-getting-started.md` that explains the brain layout)? Excluded from Phase 5b because brain content overlaps with Phase 4 prompt content; lock that in only after the prompts have stabilized.
 - **Should `yard init` create a `.brain/_log.md`** the way tidmouth's brain MCP server does at runtime? Probably yes, but not a Phase 5b blocker — the brain MCP server already creates it on first connect, so init's job is just to make sure the parent directory exists.

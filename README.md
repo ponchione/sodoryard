@@ -93,7 +93,7 @@ The shipped role set is intentionally themed around the Railway Series / Thomas 
 | Resolver | Victor | Runs the Steamworks repair shop. You bring him broken things, he fixes them. Targeted, efficient, doesn't redesign — just repairs. |
 | Docs Arbiter | Harold | The helicopter. Sees everything from above, checks that the whole railway makes sense as a system, and brings a different perspective entirely. |
 
-In config and prompts, these roles are exposed through the checked-in `agents/` prompt set and the `agent_roles` mapping in `yard.yaml`.
+In config, these roles are exposed through the `agent_roles` mapping in `yard.yaml`. Stock prompt selections use embedded `builtin:<role>` markers; the checked-in `agents/` directory remains the editable source prompt set and the sync source for embedded defaults.
 
 ### Brain
 
@@ -179,8 +179,9 @@ cd /path/to/your/project
 # Bootstrap config and directory structure
 yard init
 
-# Set the agents directory path in yard.yaml
-yard install --agents-dir /path/to/sodoryard/agents
+# Optional: only for older configs that still contain
+# {{SODORYARD_AGENTS_DIR}} prompt placeholders
+yard install --sodoryard-agents-dir /path/to/sodoryard/agents
 
 # Index the codebase for semantic retrieval
 yard index

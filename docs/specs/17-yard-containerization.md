@@ -11,7 +11,7 @@
 
 ## 1. Goal
 
-Package the railway as a runnable Docker image and a `docker-compose.yaml` so an operator can mount any project directory and use the railway CLI surface (`yard init`, `yard install`, `tidmouth run`, `sirtopham chain`, `tidmouth index`) inside a container without installing Go, lancedb, or anything else on the host. Also introduce a new top-level `yard install` command that performs the `{{SODORYARD_AGENTS_DIR}}` substitution Phase 5b's `yard init` deliberately leaves manual.
+Package the railway as a runnable Docker image and a `docker-compose.yaml` so an operator can mount any project directory and use the railway CLI surface (`yard init`, `yard install`, `tidmouth run`, `sirtopham chain`, `tidmouth index`) inside a container without installing Go, lancedb, or anything else on the host. `yard install` remains as compatibility tooling for older placeholder-based configs, but stock `yard init` configs now run with embedded prompts and do not require an agents-dir substitution step.
 
 The container is **headless-only** in Phase 7. The `knapford` service in `docker-compose.yaml` is a placeholder slot that points at the existing `cmd/knapford/main.go` placeholder binary and exposes port 8080. It does not start a real web service. Phase 6 fills it in.
 
@@ -23,7 +23,7 @@ Three things are missing today:
 
 2. **The lancedb shared library is wired with a host-absolute rpath.** The current Makefile builds with `-Wl,-rpath,/home/gernsback/source/sodoryard/lib/linux_amd64`. That path is baked into every binary at link time and does not exist inside any container. A Dockerfile that just copies the binaries in will produce a container that fails at startup with `error while loading shared libraries: liblancedb_go.so`. Phase 7 fixes this once: the runtime image puts `liblancedb_go.so` at `/usr/local/lib/`, the builder rebuilds with `-Wl,-rpath,/usr/local/lib`, and `ldconfig` updates the linker cache so the standard search path finds the library regardless of rpath.
 
-3. **`yard init` deliberately leaves `{{SODORYARD_AGENTS_DIR}}` as a manual placeholder** (per spec 16 §3.4). On a host where the operator has cloned sodoryard once, hand-substituting that path is annoying-but-fine. Inside a container that ships `agents/` at a fixed known location (`/opt/yard/agents/`), the substitution should be automatic. Phase 7 introduces a new `yard install` command that performs the substitution explicitly, takes either a flag or the `SODORYARD_AGENTS_DIR` env var, and works the same way on host and in container. The Dockerfile sets the env var so `yard install` inside the container is a single zero-flag invocation; on the host the operator passes the flag once.
+3. **Older configs may still contain `{{SODORYARD_AGENTS_DIR}}` placeholders.** The container still ships the editable `agents/` directory at `/opt/yard/agents/` and `yard install` can still rewrite those older configs. The Dockerfile sets the env var so `yard install` inside the container is a single zero-flag invocation; on the host the operator passes the flag once.
 
 ## 3. Locked decisions
 
@@ -33,7 +33,7 @@ The Phase 7 deliverable is a Dockerfile and a `docker-compose.yaml` that produce
 
 - `docker compose build yard` produces a working image
 - `docker compose run --rm yard yard init` initializes the mounted project
-- `docker compose run --rm yard yard install` performs the agents-dir substitution
+- `docker compose run --rm yard yard install` can still perform the agents-dir substitution for legacy placeholder-based configs
 - `docker compose run --rm yard tidmouth run --role <r> --task <t>` runs a headless engine session
 - `docker compose run --rm yard sirtopham chain --task <t>` runs a chain
 - `docker compose up knapford` starts a container that immediately exits with the placeholder string (until Phase 6 ships a real long-running service)
@@ -56,9 +56,9 @@ Flags:
   --config string                 Override the yard.yaml path (default "yard.yaml")
 ```
 
-`yard install` is the **only** thing that performs the agents-dir substitution. `yard init` stays exactly as spec 16 defined it: drops a templated yaml with the placeholder intact.
+`yard install` is the compatibility path for configs that still carry the agents-dir placeholder. `yard init` now emits built-in prompt selectors for stock roles, so no substitution is needed in the default path.
 
-**Why:** spec 16 §3.4 locked "exactly two substitutions in init: `{{PROJECT_ROOT}}` and `{{PROJECT_NAME}}`." Resolving the agents dir inside `yard init` would break that decision and require Phase 5b to ship together with Phase 7. Splitting into a second command keeps the two phases independent and gives every operator (host or container) the same two-command bootstrap sequence: `yard init && yard install`.
+**Why:** spec 16 §3.4 locked "exactly two substitutions in init: `{{PROJECT_ROOT}}` and `{{PROJECT_NAME}}`." Resolving the agents dir inside `yard init` would break that decision and require Phase 5b to ship together with Phase 7. Splitting into a second command keeps the phases independent and preserves `yard install` as compatibility tooling for older placeholder-based configs, while fresh stock `yard init` configs run immediately without it.
 
 The Dockerfile sets `ENV SODORYARD_AGENTS_DIR=/opt/yard/agents`, so inside the container `yard install` works with no flags. On the host, the operator runs `yard install --sodoryard-agents-dir /home/me/source/sodoryard/agents` once per project.
 

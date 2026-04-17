@@ -142,7 +142,7 @@ The orchestrator is an LLM agent that reads brain state and decides which agent 
 
 ```yaml
 orchestrator:
-  system_prompt: agents/orchestrator.md
+  system_prompt: builtin:orchestrator
   tools:
     - brain
   custom_tools:
@@ -171,7 +171,7 @@ Reads project specs and produces structured epic documents. Each epic defines a 
 
 ```yaml
 epic-decomposer:
-  system_prompt: agents/epic-decomposer.md
+  system_prompt: builtin:epic-decomposer
   tools:
     - brain
   brain_write_paths:
@@ -199,7 +199,7 @@ Reads a single epic and produces an ordered list of implementation tasks. Each t
 
 ```yaml
 task-decomposer:
-  system_prompt: agents/task-decomposer.md
+  system_prompt: builtin:task-decomposer
   tools:
     - brain
   brain_write_paths:
@@ -227,7 +227,7 @@ Reads a single task, examines the codebase (via search tools and brain docs), an
 
 ```yaml
 planner:
-  system_prompt: agents/planner.md
+  system_prompt: builtin:planner
   tools:
     - brain
     - search
@@ -256,7 +256,7 @@ The primary implementation agent. Reads the plan, writes code, updates brain doc
 
 ```yaml
 coder:
-  system_prompt: agents/coder.md
+  system_prompt: builtin:coder
   tools:
     - brain
     - file
@@ -288,7 +288,7 @@ Validates that the implementation matches the spec and task requirements. Does t
 
 ```yaml
 correctness-auditor:
-  system_prompt: agents/correctness-auditor.md
+  system_prompt: builtin:correctness-auditor
   tools:
     - brain
     - file
@@ -318,7 +318,7 @@ Reviews code for maintainability, structure, and adherence to project convention
 
 ```yaml
 quality-auditor:
-  system_prompt: agents/quality-auditor.md
+  system_prompt: builtin:quality-auditor
   tools:
     - brain
     - file
@@ -348,7 +348,7 @@ Identifies performance issues in the implementation.
 
 ```yaml
 performance-auditor:
-  system_prompt: agents/performance-auditor.md
+  system_prompt: builtin:performance-auditor
   tools:
     - brain
     - file
@@ -378,7 +378,7 @@ Identifies security vulnerabilities in the implementation.
 
 ```yaml
 security-auditor:
-  system_prompt: agents/security-auditor.md
+  system_prompt: builtin:security-auditor
   tools:
     - brain
     - file
@@ -408,7 +408,7 @@ Checks whether changes break contracts with the rest of the system.
 
 ```yaml
 integration-auditor:
-  system_prompt: agents/integration-auditor.md
+  system_prompt: builtin:integration-auditor
   tools:
     - brain
     - file
@@ -438,7 +438,7 @@ Writes tests based on the spec and task requirements — not from the implementa
 
 ```yaml
 test-writer:
-  system_prompt: agents/test-writer.md
+  system_prompt: builtin:test-writer
   tools:
     - brain
     - file
@@ -469,7 +469,7 @@ Makes targeted fixes based on auditor findings. A specialized fixer agent that r
 
 ```yaml
 resolver:
-  system_prompt: agents/resolver.md
+  system_prompt: builtin:resolver
   tools:
     - brain
     - file
@@ -500,7 +500,7 @@ Validates brain document consistency and maintains architecture docs. The only a
 
 ```yaml
 docs-arbiter:
-  system_prompt: agents/docs-arbiter.md
+  system_prompt: builtin:docs-arbiter
   tools:
     - brain
   brain_write_paths:
