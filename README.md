@@ -244,3 +244,39 @@ PROJECT_DIR=/path/to/project docker compose run --rm yard yard serve
 | Brain interface | Model Context Protocol (MCP) |
 | Container | Debian Trixie, multi-stage Docker build |
 | LLM providers | Anthropic, OpenAI-compatible, Codex |
+
+## Current status and next session starting point
+
+Current repo state:
+- `make test` and `make build` are green on the current tree.
+- The unified `yard` CLI is the real operator-facing surface.
+- Exact-setup daily-driver validation already passed on the intended runtime, including first-turn chat, reload/history, settings/model routing, search quality, code-retrieval grounding, and the maintained brain-retrieval package.
+- Recent cleanup also fixed noisy latest-turn context-inspector 404s and reclassified expected user cancellation so it no longer logs as an error-class runtime failure.
+
+If you are resuming work cold, read in this order:
+1. `AGENTS.md`
+2. this `README.md`
+3. `docs/manual-live-validation.md` if you are doing runtime validation
+4. `docs/v2-b4-brain-retrieval-validation.md` if brain retrieval is in scope
+5. `docs/plans/2026-04-13-sodoryard-stability-closeout-plan.md` if you want the broader remaining-work ledger
+
+First thing to address next session:
+- do a repeated real-use runtime soak on the intended setup, not another abstract readiness audit
+- reuse the real config/provider/model/project you actually plan to daily-drive
+- rerun the live validation flow, then do at least one longer mixed session covering first turn, reload/history, settings/model routing, cancellation, search, and retrieval/context-inspector evidence
+- if that run is clean, stop control-plane churn and start using the harness for real chain work
+- if it reproduces one concrete annoyance, take exactly one narrow regression-first bugfix slice next
+
+Useful commands:
+```bash
+make test
+make build
+make install-user-bin
+yard index
+yard brain index
+yard serve
+yard chain start --task "<real task>"
+yard chain status
+yard chain logs <chain-id>
+yard chain receipt <chain-id>
+```

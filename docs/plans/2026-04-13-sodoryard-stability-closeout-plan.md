@@ -34,8 +34,7 @@ Objective
 
 Files
 - Read: `AGENTS.md`
-- Read: `TECH-DEBT.md`
-- Read: `NEXT_SESSION_HANDOFF.md`
+- Read: `README.md` (especially the current status / next session section)
 
 Steps
 1. Run `git status --short --branch`.
@@ -100,7 +99,7 @@ Decision gate after Slice 1.1
 ## Phase 2 — Daily-driver operator confidence gaps
 
 Why this matters
-- `TECH-DEBT.md` now says the big remaining work is mostly proving/stabilizing real use, not audit mismatch cleanup.
+- `README.md` now says the big remaining work is mostly proving/stabilizing real use, not audit mismatch cleanup.
 
 ### Slice 2.1 — Repeated real-use runtime soak on the intended setup
 
@@ -108,12 +107,12 @@ Objective
 - Confirm the intended runtime remains stable across repeated normal use, not just a single maintained validation pass.
 
 References
-- `MANUAL_LIVE_VALIDATION.md`
+- `docs/manual-live-validation.md`
 - `docs/v2-b4-brain-retrieval-validation.md`
-- latest `NEXT_SESSION_HANDOFF.md`
+- latest `README.md`
 
 Plan
-1. Use the intended `my-website` runtime already documented in handoff unless reality has changed.
+1. Use the intended `my-website` runtime already documented in `README.md` unless reality has changed.
 2. Re-run the maintained validation flow.
 3. Add at least one longer mixed session that exercises:
    - first turn
@@ -145,7 +144,7 @@ Stop rule
 ## Phase 3 — Brain usefulness / real-vault confidence
 
 Why this matters
-- The brain is usable, but `TECH-DEBT.md` still identifies broader real-vault usefulness as a remaining meaningful gap.
+- The brain is usable, but `README.md` still identifies broader real-vault usefulness as a remaining meaningful gap.
 
 ### Slice 3.1 — Broader real-vault retrieval proof
 
@@ -192,7 +191,6 @@ Likely files
 - `internal/server/project.go`
 - `web/src/pages/settings.tsx`
 - `README.md`
-- `TECH-DEBT.md`
 
 Plan
 1. Inspect what freshness metadata is already exposed.
@@ -244,9 +242,7 @@ Objective
 - Once the above slices are either completed or explicitly skipped by evidence, rewrite the top-level docs to reflect reality rather than ongoing generic churn.
 
 Files
-- `TECH-DEBT.md`
-- `NEXT_SESSION_HANDOFF.md`
-- maybe `README.md`
+- `README.md`
 
 Plan
 1. Remove already-finished control-plane hardening items from active “open” framing.

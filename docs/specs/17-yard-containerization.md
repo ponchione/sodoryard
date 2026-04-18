@@ -394,7 +394,7 @@ These are intentionally left unresolved by this spec. Each is a future decision,
 
 ## 9. References
 
-- `sodor-migration-roadmap.md` — Phase 7 description
+- `docs/plans/sodor-migration-roadmap.md` — Phase 7 description
 - `docs/specs/16-yard-init.md` — `yard init` (the predecessor that introduces the placeholder this spec resolves)
 - `Makefile` — current build with the host-absolute rpath that Phase 7 fixes inside the Dockerfile
 - `ops/llm/docker-compose.yml` — the existing LLM services compose that Phase 7's compose coexists with (not modified)

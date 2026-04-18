@@ -373,13 +373,13 @@ These are intentionally left unresolved by this spec. Each is a future decision 
 
 ## 12. References
 
-- `sodor-migration-roadmap.md` — Phase 5 description
+- `docs/plans/sodor-migration-roadmap.md` — Phase 5 description
 - `cmd/tidmouth/init.go` — current init implementation, deleted as part of Phase 5b
 - `templates/init/yard.yaml.example` — rewritten as part of Phase 5b
 - `docs/specs/13_Headless_Run_Command.md` — defines the `yard.yaml` schema
 - `docs/specs/14_Agent_Roles_and_Brain_Conventions.md` — defines the `agent_roles` config shape
 - `docs/specs/15-chain-orchestrator.md` — defines the orchestrator's role config requirements
-- `NEXT_SESSION_HANDOFF.md` — tracks Phase 5a completion (the immediate predecessor) and orchestrator-related session state
+- `README.md` — tracks the current repo state and next-session starting point
 
 ---
 
