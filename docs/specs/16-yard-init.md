@@ -175,7 +175,7 @@ Makefile
 └── new yard target using the same CGO_BUILD_ENV / GOFLAGS_DB conventions as the other retained binaries
 ```
 
-`internal/initializer.Run` returns a structured report (created/skipped/error per file) so `cmd/yard/init.go` can print operator-friendly status without re-walking the filesystem. The same package can later be called from `cmd/knapford/` (Phase 6) if the dashboard wants to expose a "create new project here" action.
+`internal/initializer.Run` returns a structured report (created/skipped/error per file) so `cmd/yard/init.go` can print operator-friendly status without re-walking the filesystem.
 
 ## 5. CLI surface
 
@@ -373,7 +373,6 @@ These are intentionally left unresolved by this spec. Each is a future decision 
 
 ## 12. References
 
-- `docs/plans/sodor-migration-roadmap.md` — Phase 5 description
 - `cmd/tidmouth/init.go` — current init implementation, deleted as part of Phase 5b
 - `templates/init/yard.yaml.example` — rewritten as part of Phase 5b
 - `docs/specs/13_Headless_Run_Command.md` — defines the `yard.yaml` schema

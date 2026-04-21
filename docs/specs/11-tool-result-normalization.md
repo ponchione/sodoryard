@@ -4,23 +4,23 @@
 
 ## Purpose
 
-Tool results accumulate in conversation history and are re-sent as input tokens on every subsequent API call within a turn. A `file_read` of a pretty-printed `package.json` at iteration 2 is still consuming tokens at iteration 47. This document specifies how sirtopham normalizes tool result content at write time and compresses historical results at serialization time to reduce cumulative token waste — without any external dependencies.
+Tool results accumulate in conversation history and are re-sent as input tokens on every subsequent API call within a turn. A `file_read` of a pretty-printed `package.json` at iteration 2 is still consuming tokens at iteration 47. This document specifies how sodoryard normalizes tool result content at write time and compresses historical results at serialization time to reduce cumulative token waste — without any external dependencies.
 
-tamp solves this problem as an external HTTP proxy because tools like Claude Code don't expose their request pipeline. sirtopham owns the entire pipeline from tool execution through context assembly through API request construction. Every optimization tamp applies externally, sirtopham can apply natively with better information about content age and relevance.
+tamp solves this problem as an external HTTP proxy because tools like Claude Code don't expose their request pipeline. sodoryard owns the entire pipeline from tool execution through context assembly through API request construction. Every optimization tamp applies externally, sodoryard can apply natively with better information about content age and relevance.
 
 ---
 
 ## Why Not Use tamp Directly
 
-Running tamp as a localhost proxy between sirtopham and the Anthropic API would:
+Running tamp as a localhost proxy between sodoryard and the Anthropic API would:
 
 - Add a network hop (latency) for every API call
 - Introduce a Node.js runtime dependency for no structural reason
 - Operate blind — tamp compresses all tool results equally because it has no concept of which results the LLM is actively reasoning about vs. ancient history
-- Duplicate work — tamp would re-compress content sirtopham already normalized
+- Duplicate work — tamp would re-compress content sodoryard already normalized
 - Conflict with prompt caching — tamp mutates the request body, which changes the cache key, potentially invalidating Anthropic's prefix cache on every request
 
-sirtopham has context that tamp cannot: tool names, result age (turn and iteration number), content type awareness from the tool that produced it, and the compression lifecycle from [[06-context-assembly]]. Native implementation makes smarter decisions.
+sodoryard has context that tamp cannot: tool names, result age (turn and iteration number), content type awareness from the tool that produced it, and the compression lifecycle from [[06-context-assembly]]. Native implementation makes smarter decisions.
 
 ---
 
@@ -89,7 +89,7 @@ After (523 chars, -38%):
 
 **Why not strip at write time:** This is the one transform that is **deferred to Phase 2**. The line numbers are actively useful during the current turn — the LLM references them in `file_edit` calls. Stripping them from historical results (Phase 2) is safe because the LLM won't be editing based on stale line numbers from a prior turn.
 
-**Note:** This transform is Phase 2 only. Listed here for completeness because tamp applies it universally — sirtopham is smarter about when.
+**Note:** This transform is Phase 2 only. Listed here for completeness because tamp applies it universally — sodoryard is smarter about when.
 
 ### Transform: Trailing Whitespace and Empty Lines
 
@@ -197,19 +197,19 @@ The LLM knows the file exists, knows approximately what it contained, and can re
 
 tamp's most novel technique: converting homogeneous JSON arrays into a columnar text format. For example, a file listing array becomes a tab-separated table.
 
-**Why not:** TOON is a non-standard format that LLMs haven't been trained on extensively. The compression ratio is good (~40% on arrays), but the risk of confusing the LLM or degrading response quality is not worth the savings. sirtopham's tools don't produce homogeneous arrays as a common case anyway — `file_read` returns text, `search_text` returns formatted matches, `shell` returns raw output. The array case is narrow.
+**Why not:** TOON is a non-standard format that LLMs haven't been trained on extensively. The compression ratio is good (~40% on arrays), but the risk of confusing the LLM or degrading response quality is not worth the savings. sodoryard's tools don't produce homogeneous arrays as a common case anyway — `file_read` returns text, `search_text` returns formatted matches, `shell` returns raw output. The array case is narrow.
 
 ### LLMLingua Neural Compression
 
 tamp optionally uses Microsoft's LLMLingua sidecar for neural text compression — a language model that identifies and removes low-information tokens from natural language.
 
-**Why not:** Adds a Python dependency and a model inference step. The latency cost on every API call is non-trivial. The compression targets natural language text, which is a small fraction of tool results (most are code, JSON, or structured output). The complexity-to-savings ratio is poor for sirtopham's use case.
+**Why not:** Adds a Python dependency and a model inference step. The latency cost on every API call is non-trivial. The compression targets natural language text, which is a small fraction of tool results (most are code, JSON, or structured output). The complexity-to-savings ratio is poor for sodoryard's use case.
 
 ### Proxy Architecture
 
 tamp's core pattern — intercepting HTTP requests and mutating the body before forwarding.
 
-**Why not:** sirtopham owns the request construction. There is no request to intercept. The transforms are applied directly in the serialization path.
+**Why not:** sodoryard owns the request construction. There is no request to intercept. The transforms are applied directly in the serialization path.
 
 ---
 
@@ -274,7 +274,7 @@ All toggles default to `true`. Individual transforms can be disabled for debuggi
 
 ## Estimated Savings
 
-Based on tamp's published benchmarks and sirtopham's tool output characteristics:
+Based on tamp's published benchmarks and sodoryard's tool output characteristics:
 
 |Transform|Phase|Applies To|Estimated Savings|
 |---|---|---|---|

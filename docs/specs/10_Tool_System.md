@@ -4,7 +4,7 @@
 
 ## Overview
 
-The tool system is Layer 4 in sirtopham's architecture. It provides the agent with structured capabilities to read, write, search, and execute within the project. The agent loop (Layer 5) dispatches tool calls against this layer; the provider layer (Layer 2) serializes tool definitions into the LLM request.
+The tool system is Layer 4 in sodoryard's architecture. It provides the agent with structured capabilities to read, write, search, and execute within the project. The agent loop (Layer 5) dispatches tool calls against this layer; the provider layer (Layer 2) serializes tool definitions into the LLM request.
 
 Every tool exists because it provides something the `shell` tool alone cannot — structured output for the web UI, safety guardrails, or token efficiency. Adding a new tool is: implement the interface, register it, done.
 
@@ -1072,7 +1072,7 @@ shell_denylist:
   - "git push --force"
 ```
 
-This is intentionally minimal. sirtopham is a personal tool running as the developer's user. The agent should be able to run builds, tests, installs, and routine git operations without friction. The denylist catches catastrophic mistakes — commands that are essentially never intentional in a development context.
+This is intentionally minimal. sodoryard is a personal tool running as the developer's user. The agent should be able to run builds, tests, installs, and routine git operations without friction. The denylist catches catastrophic mistakes — commands that are essentially never intentional in a development context.
 
 The developer can extend the denylist in config. No patterns are hardcoded beyond the defaults.
 
@@ -1082,7 +1082,7 @@ Brain tools operate within the configured vault path only. The historical `Obsid
 
 ### No Network Sandboxing
 
-sirtopham runs as the developer's user with full network access. There is no attempt to restrict the agent's network operations. The shell tool can `curl`, `wget`, `go get`, `npm install`, etc. This is a personal tool for a developer who understands what the agent is doing — the observability layer (tool execution logs, web UI tool call visualization) provides visibility, not restriction.
+sodoryard runs as the developer's user with full network access. There is no attempt to restrict the agent's network operations. The shell tool can `curl`, `wget`, `go get`, `npm install`, etc. This is a personal tool for a developer who understands what the agent is doing — the observability layer (tool execution logs, web UI tool call visualization) provides visibility, not restriction.
 
 ---
 
@@ -1141,7 +1141,7 @@ tools:
 
 brain:
   enabled: true
-  vault_path: ~/obsidian-vaults/sirtopham-brain
+  vault_path: ~/obsidian-vaults/sodoryard-brain
   obsidian_api_url: http://localhost:27124
   obsidian_api_key: "your-api-key-here"
   # v0.2+ smart-retrieval fields (reactive keyword tools are the v0.1 scope)
@@ -1191,7 +1191,7 @@ Very little. topham's pipeline model made single-shot LLM calls per phase with n
 - Git command construction from topham's git integration
 - Ripgrep invocation patterns from topham's text search
 
-**Net-new for sirtopham:**
+**Net-new for sodoryard:**
 
 - The entire `Tool` interface and registry
 - Purity classification and dispatch logic

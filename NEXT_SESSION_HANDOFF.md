@@ -1,17 +1,17 @@
 # Next session handoff
 
 Objective
-- Continue the no-legacy cleanup program from `NO_LEGACY_PUNCHLIST_2026-04-21.md`.
-- Treat Phases 0-4 as checkpointed work: the public `sirtopham` CLI is gone, `tidmouth` is internal-only, shared helper extraction is landed, and the operator-facing contradiction sweep is complete enough to stop churning there.
-- Start the next session with the first real post-checkpoint question, not more Phase 4 cleanup: decide what to do about Phase 5 placeholder surfaces, starting with `cmd/knapford/` and related docs/build references.
+- Continue keeping the repo on the no-legacy/current-truth contract now that the public `sirtopham` CLI, placeholder `knapford` surfaces, and stale live packaging/install residue are gone.
+- Treat Phases 0-5 cleanup as checkpointed work: `yard` is the only public CLI, `tidmouth` is internal-only, live packaging/install surfaces are trimmed, and the current-truth doc set is being kept clean instead of preserving stale migration notes.
+- Start the next session from the current README/specs/handoff, not from historical planning artifacts.
 
 Read first
 1. `AGENTS.md`
 2. `README.md`
-3. `NO_LEGACY_PUNCHLIST_2026-04-21.md`
-4. `docs/specs/13_Headless_Run_Command.md`
-5. `docs/specs/17-yard-containerization.md`
-6. `docs/specs/18-unified-yard-cli.md`
+3. `docs/specs/13_Headless_Run_Command.md`
+4. `docs/specs/17-yard-containerization.md`
+5. `docs/specs/18-unified-yard-cli.md`
+6. `NEXT_SESSION_HANDOFF.md`
 
 Current state
 - `cmd/sirtopham/` has been removed from the working tree.
@@ -45,7 +45,6 @@ Current state
   - `docs/specs/10_Tool_System.md`
   - `docs/specs/14_Agent_Roles_and_Brain_Conventions.md`
 - Those specs now use `yard serve` / `yard init` / `yard index` for operator-facing flows, and use `tidmouth index` only where the spec is explicitly describing the current internal orchestrator subprocess contract.
-- Dirty tree was expected before the checkpoint commit; after landing this checkpoint the tree should be clean unless the next session intentionally starts a new slice.
 - The helper-only command-test collapse pass is now a little further along:
   - shared receipt/read-task/progress-format coverage now lives in `internal/headless/headless_test.go`
   - deleted `cmd/yard/run_helpers_test.go`
@@ -54,6 +53,21 @@ Current state
   - dropped the remaining non-command `LoadRoleSystemPrompt(...)` coverage from `cmd/tidmouth/run_test.go` because `internal/runtime/helpers_test.go` already owns that helper contract
   - moved `ResolveModelContextLimit(...)` coverage out of `cmd/tidmouth/run_test.go` into `internal/runtime/helpers_test.go`, so the runtime helper owns its own contract
 - `cmd/tidmouth/run_test.go` now looks limited to command-specific `runHeadless(...)` behavior coverage, while shared helper behavior is owned by `internal/headless` / `internal/runtime`.
+- Phase 5 Knapford live-surface cleanup is now landed:
+  - deleted `cmd/knapford/main.go`
+  - removed the `knapford` target from `Makefile all`
+  - removed the placeholder `knapford` service from `docker-compose.yaml`
+  - removed placeholder `knapford` build/copy steps from `Dockerfile`
+  - removed live README/spec/script references that still treated `knapford` as a shipped artifact
+- immediate post-Knapford packaging/install cleanup is now landed too:
+  - removed `sirtopham` build/copy steps from `Dockerfile`
+  - removed `sirtopham` from `scripts/install-user-bin.sh`
+  - updated `scripts/test_install_user_bin.sh` to expect only the retained shipped binaries (`tidmouth`, `yard`)
+  - taught `Makefile` to delete stale retired binaries from `bin/` before `make all` / `make build`
+
+- Remaining `sirtopham` mentions in current specs are intentional historical/problem-statement or no-legacy-negation references unless a future session takes a broader archive/doc-cleanup pass.
+- Stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
+- The working tree is intentionally dirty with these cleanup slices until they are committed.
 
 Validated on current tree
 - checkpoint validation before commit:
@@ -71,24 +85,37 @@ Validated on current tree
   - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" go test ./internal/runtime` ✅
   - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" go test ./internal/cmdutil` ✅
   - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" go test -tags sqlite_fts5 ./cmd/tidmouth ./cmd/yard` ✅
+- focused validation for the Phase 5 Knapford live-surface cleanup:
+  - `bash ./scripts/test_install_user_bin.sh` ✅
+  - `docker compose config` ✅
+  - `make all` ✅
+  - `make build` ✅
+  - `make test` ✅
+  - targeted live-file search across `Makefile`, `Dockerfile`, `docker-compose.yaml`, `README.md`, `scripts/*.sh`, and `docs/specs/*.md` for `knapford` now returns no matches ✅
+- focused validation for the immediate post-Knapford packaging/install cleanup:
+  - `bash ./scripts/test_install_user_bin.sh` ✅
+  - `docker compose config` ✅
+  - `make build` ✅
+  - `make all` ✅
+  - `make test` ✅
+  - targeted live-file search across `Dockerfile`, `README.md`, `scripts/*.sh`, `docs/specs/*.md`, `Makefile`, and `docker-compose.yaml` for `sirtopham` now returns no matches ✅
+  - `make all` / `make build` now remove stale retired binaries from `bin/`, leaving only `tidmouth` and `yard` in the built artifact directory ✅
 
 Immediate next checkpoint
-- Phase 0-4 cleanup is ready to live as a completed checkpoint rather than more in-flight churn.
-- The next real question is Phase 5: whether `cmd/knapford/` and related placeholder references should be removed or given a real contract.
-- Start from an audit/recon slice, not deletion-by-default: confirm exactly what still references Knapford in `Makefile`, README/specs, and any runtime/build paths before changing it.
+- The no-legacy/live-surface cleanup is substantially complete.
+- The active doc set should now stay small and current-truth: README, current specs, and this handoff.
+- If another cleanup slice is needed, prefer narrow current-truth fixes over reviving historical migration/implementation plans.
 
 Best next slice
-1. Audit `cmd/knapford/`, `Makefile`, README/specs, and any compose/build references for real remaining Knapford contract vs placeholder-only residue.
-2. If it is still placeholder-only, take a narrow deletion/update slice with focused validation.
-3. If it unexpectedly has a real contract, document that contract explicitly and stop calling it placeholder.
+1. Audit the remaining current specs for any operator-facing guidance that still diverges from the live `yard` / `tidmouth` / container/runtime contract.
+2. Patch only the still-live current-truth docs that are actually misleading.
+3. Avoid recreating broad historical planning backlogs unless a new real implementation effort needs them.
 
 Files likely in next slice
-- `cmd/knapford/*`
-- `Makefile`
 - `README.md`
-- `docs/specs/17-yard-containerization.md`
-- `docs/specs/18-unified-yard-cli.md`
-- any container/build references that still mention Knapford
+- `docs/specs/*.md`
+- `NEXT_SESSION_HANDOFF.md`
+- optionally `AGENTS.md` if workflow guidance drifts again
 
 Do not change
 - Do not redesign the orchestrator spawn contract.

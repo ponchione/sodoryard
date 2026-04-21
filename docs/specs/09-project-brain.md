@@ -14,7 +14,7 @@ The project brain is a persistent, project-scoped knowledge base backed by an Ob
 
 Both the developer and the agent are co-authors. The developer works directly in Obsidian — reading, editing, organizing, browsing the graph view. The agent reads from and writes to the vault via tools, and context assembly queries the brain alongside code RAG to surface relevant project knowledge on each turn.
 
-This is sirtopham's long-term memory. Conversations are ephemeral — they live for a session, get compressed, eventually fade. The brain is where durable insights get extracted and persisted. A conversation is a working session. The brain is the institutional knowledge that sessions contribute to.
+This is sodoryard's long-term memory. Conversations are ephemeral — they live for a session, get compressed, eventually fade. The brain is where durable insights get extracted and persisted. A conversation is a working session. The brain is the institutional knowledge that sessions contribute to.
 
 ---
 
@@ -34,23 +34,23 @@ Obsidian is not just a markdown renderer. It's a structured knowledge tool with 
 
 **Plugin ecosystem.** Dataview for structured queries across documents. Templater for document templates. Git integration for version-controlled vaults. Available when needed.
 
-**Local-first, file-based.** Obsidian vaults are directories of markdown files on disk. No proprietary format, no server dependency, no sync requirement. Architecturally aligned with sirtopham.
+**Local-first, file-based.** Obsidian vaults are directories of markdown files on disk. No proprietary format, no server dependency, no sync requirement. Architecturally aligned with sodoryard.
 
 ---
 
 ## Architecture
 
-The brain is not a feature bolted onto sirtopham. It's a first-class component with its own storage, retrieval logic, tools, and lifecycle.
+The brain is not a feature bolted onto sodoryard. It's a first-class component with its own storage, retrieval logic, tools, and lifecycle.
 
 ### Integration Model
 
 Historical-design note: the diagram below still contains older REST/indexer boxes to preserve planning context, but the live runtime path today is narrower: MCP/vault-backed keyword retrieval and tool access are real; the semantic/indexer pieces shown here are future-facing unless separately landed.
 
-Obsidian runs alongside sirtopham as the human-facing vault UI, but the implemented runtime path is now the in-process MCP-backed vault backend. sirtopham talks to the vault through `internal/brain/mcpclient` and MCP `vault_*` tools rather than the older Obsidian Local REST API design.
+Obsidian runs alongside sodoryard as the human-facing vault UI, but the implemented runtime path is now the in-process MCP-backed vault backend. sodoryard talks to the vault through `internal/brain/mcpclient` and MCP `vault_*` tools rather than the older Obsidian Local REST API design.
 
 ```
 ┌─────────────────────────────────┐     ┌──────────────────────────┐
-│  sirtopham                      │     │  Obsidian                │
+│  sodoryard                      │     │  Obsidian                │
 │                                 │     │                          │
 │  Agent Loop                     │     │  Project Brain Vault     │
 │    ├─ brain_read ──────────────────→  │    ├─ architecture/      │
@@ -66,7 +66,7 @@ Obsidian runs alongside sirtopham as the human-facing vault UI, but the implemen
 │    ├─ Wikilink graph                        ↕
 │    └─ Metadata extraction               Developer works directly
 │                                         in Obsidian alongside
-│                                         sirtopham
+│                                         sodoryard
 └─────────────────────────────────┘
 ```
 
@@ -74,11 +74,11 @@ Obsidian runs alongside sirtopham as the human-facing vault UI, but the implemen
 
 **In Obsidian (source of truth):** All brain documents. Markdown files with frontmatter, wikilinks, tags. The developer reads, edits, organizes, and browses here. Obsidian's graph view visualizes the knowledge structure.
 
-**In sirtopham today (tools + proactive retrieval):** The agent-facing interface and the current proactive retrieval source of truth. Read/write/search operations go through the MCP/vault backend. Proactive context assembly currently uses keyword search from that same backend.
+**In sodoryard today (tools + proactive retrieval):** The agent-facing interface and the current proactive retrieval source of truth. Read/write/search operations go through the MCP/vault backend. Proactive context assembly currently uses keyword search from that same backend.
 
 **In future brain-index work (not yet the active runtime path):** Vector embeddings of brain documents in a separate LanceDB collection. A parsed wikilink graph stored in SQLite. Extracted frontmatter metadata and tags for structured queries. If this becomes real operator-facing behavior, it should be described as a derived layer under the MCP/vault source of truth rather than implied as already-landed runtime.
 
-**In sirtopham current v0.2 runtime (context assembly):** Brain keyword retrieval runs in parallel with code RAG during context assembly. Results compete for budget alongside code chunks, are serialized into a distinct Project Brain section, and appear in context reports/inspector payloads.
+**In sodoryard current v0.2 runtime (context assembly):** Brain keyword retrieval runs in parallel with code RAG during context assembly. Results compete for budget alongside code chunks, are serialized into a distinct Project Brain section, and appear in context reports/inspector payloads.
 
 ---
 
@@ -90,7 +90,7 @@ The vault is an Obsidian vault at a configurable path. The directory structure i
 
 ```
 brain-vault/
-├── .obsidian/                        # Obsidian config (sirtopham ignores this)
+├── .obsidian/                        # Obsidian config (sodoryard ignores this)
 ├── architecture/
 │   ├── provider-design.md
 │   ├── rag-pipeline-audit.md
@@ -227,7 +227,7 @@ Historical/future-design note: this section describes the older planned indexing
 
 ### MCP/vault backend handles the live keyword path
 
-The current operator-facing brain path is MCP/vault-backed keyword retrieval. sirtopham does not currently promise a separate live FTS/vector/graph indexing pipeline for brain content.
+The current operator-facing brain path is MCP/vault-backed keyword retrieval. sodoryard does not currently promise a separate live FTS/vector/graph indexing pipeline for brain content.
 
 ### Future brain-index work remains future work
 
@@ -251,7 +251,7 @@ Short documents (under ~1000 characters) are embedded as a single chunk.
 - **Wikilink graph:** SQLite table `brain_links` with columns: source_path, target_path, link_text. Enables bidirectional traversal.
 - **Document metadata:** SQLite table `brain_documents` with columns: path, title, content_hash, tags (JSON), frontmatter (JSON), created_at, updated_at, created_by, source_session_id, token_count.
 
-These tables live in the main sirtopham SQLite database alongside conversation and metrics tables.
+These tables live in the main sodoryard SQLite database alongside conversation and metrics tables.
 
 ---
 
@@ -448,7 +448,7 @@ Current runtime uses the project brain vault plus the MCP/vault backend. The min
 ```yaml
 brain:
   enabled: true
-  vault_path: ~/obsidian-vaults/sirtopham-brain
+  vault_path: ~/obsidian-vaults/sodoryard-brain
   log_brain_queries: true
 ```
 
@@ -543,9 +543,9 @@ Separate collection `brain_chunks` in the same LanceDB instance as code:
 
 **Additional MCP productization (v0.5+):** The runtime already uses an MCP/vault backend internally. Future work here is about exposing that capability more broadly — for example surfacing brain tools as an MCP server for external tools, or standardizing richer backend contracts — rather than doing the original REST→MCP migration described in older drafts.
 
-**MCP server exposure (v0.5+):** Expose sirtopham's brain tools as an MCP server, letting other tools (Claude Code, Codex) query the project brain. The brain becomes a shared knowledge layer across your entire tool chain.
+**MCP server exposure (v0.5+):** Expose sodoryard's brain tools as an MCP server, letting other tools (Claude Code, Codex) query the project brain. The brain becomes a shared knowledge layer across your entire tool chain.
 
-**Obsidian URI integration (v0.3):** Use the `obsidian://` URI protocol to open specific documents from sirtopham's web UI. Click a brain reference in a conversation → Obsidian focuses that document.
+**Obsidian URI integration (v0.3):** Use the `obsidian://` URI protocol to open specific documents from sodoryard's web UI. Click a brain reference in a conversation → Obsidian focuses that document.
 
 **Session summary automation (v0.3):** At the end of sessions where meaningful work was done, the agent proposes a session summary for the brain. The developer approves, edits, or declines. Not fully automatic — gated on quality.
 

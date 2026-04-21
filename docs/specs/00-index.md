@@ -1,7 +1,7 @@
-# sirtopham — Architecture Documents
+# sodoryard — Architecture Documents
 
-**Project:** sirtopham
-**Version:** Pre-implementation
+**Project:** sodoryard
+**Version:** current
 **Last Updated:** 2026-03-27
 
 ---
@@ -10,7 +10,7 @@
 
 | #   | Document                             | Status  | Summary                                                                |
 | --- | ------------------------------------ | ------- | ---------------------------------------------------------------------- |
-| 01  | [[01-project-vision-and-principles]] | ✅ Draft | What sirtopham is, design principles, success criteria                 |
+| 01  | [[01-project-vision-and-principles]] | ✅ Draft | What sodoryard is, design principles, success criteria                 |
 | 02  | [[02-tech-stack-decisions]]          | ✅ Draft | Every technology choice with rationale and alternatives                |
 | 03  | [[03-provider-architecture]]         | ✅ Draft | LLM provider interface, OAuth credential reuse, routing                |
 | 04  | [[04-code-intelligence-and-rag]]     | ✅ Draft | Tree-sitter, embeddings, vector store — blocked on LanceDB eval        |
@@ -27,10 +27,10 @@
 
 ## Next Actions
 
-1. **Evaluate LanceDB** — Audit topham's indexing pipeline, run test queries, assess retrieval quality. Unblocks [[04-code-intelligence-and-rag]].
-2. **Deep dive: Agent Loop** — Design the turn state machine, tool dispatch, iteration management. Fills in [[05-agent-loop]].
-3. **Deep dive: Context Assembly** — Design the turn analyzer, trigger heuristics, budget management. Fills in [[06-context-assembly]].
-4. **Deep dive: Frontend Stack** — Finalize React vs alternatives, design the streaming protocol. Fills in [[07-web-interface-and-streaming]].
+1. Keep the specs aligned with the live `yard` / `tidmouth` / container/runtime contract.
+2. Remove stale planning residue when a slice is fully landed.
+3. Prefer `NEXT_SESSION_HANDOFF.md` plus the current README over old implementation plans when resuming work.
+4. Treat these specs as current-truth architecture docs, not historical migration notes.
 
 ## Architecture Diagram (Layers)
 

@@ -6,7 +6,7 @@
 
 ## Overview
 
-The code intelligence layer is sirtopham's differentiator. It provides semantic understanding of the codebase via tree-sitter parsing, Go AST analysis, and vector-based retrieval, enabling the context assembly layer ([[06-context-assembly]]) to fetch exactly the right code for each conversation turn.
+The code intelligence layer is sodoryard's differentiator. It provides semantic understanding of the codebase via tree-sitter parsing, Go AST analysis, and vector-based retrieval, enabling the context assembly layer ([[06-context-assembly]]) to fetch exactly the right code for each conversation turn.
 
 This document covers the parsing pipeline, embedding strategy, vector storage, indexing lifecycle, query/retrieval flow, and the structural graph that complements RAG.
 
@@ -33,7 +33,7 @@ The quality bottleneck, if one exists, is in the local LLM's description quality
 
 ## Architecture: Two Complementary Systems
 
-sirtopham carries forward two code intelligence systems from topham. They serve different purposes and should both be preserved.
+sodoryard carries forward two code intelligence systems from topham. They serve different purposes and should both be preserved.
 
 ### RAG (Semantic Search)
 
@@ -47,7 +47,7 @@ Given a natural language query, returns the most semantically relevant code chun
 
 Given a specific symbol (function, type), traverses the call graph to find upstream callers, downstream callees, and interface relationships. Powered by Go AST / tree-sitter analysis stored in SQLite. Good for impact analysis: "what would break if I change this function", "what calls this handler."
 
-In sirtopham's context assembly, RAG answers "what's relevant to this question" and the graph answers "what's structurally related to these files."
+In sodoryard's context assembly, RAG answers "what's relevant to this question" and the graph answers "what's structurally related to these files."
 
 ---
 
@@ -189,7 +189,7 @@ The LanceDB API surface is minimal enough that sqlite-vec could be a drop-in rep
 - Schema version changes trigger a full re-index (drop and recreate table)
 - Force flag available for manual full re-index
 
-### Indexing Triggers for sirtopham
+### Indexing Triggers for sodoryard
 
 - **Full index:** on `yard init` or first run against a project
 - **Incremental index:** via `yard index` without `--force`; file-hash change detection decides what gets re-parsed and re-embedded
@@ -214,9 +214,9 @@ The sophisticated search path used by topham's pipeline phases:
 4. **Budget allocation:** 60% of max results for direct vector hits, 40% for dependency hops
 5. **One-hop call graph expansion:** For each direct hit, look up functions it calls and functions that call it via the store's name index
 
-### Adaptation for sirtopham
+### Adaptation for sodoryard
 
-topham's `SearchForWorkOrder` is pipeline-specific (work orders, acceptance criteria). sirtopham needs a conversational equivalent — the turn analyzer ([[06-context-assembly]]) determines what to search for, and the searcher executes it. The multi-query expansion and dependency hop patterns should be preserved; only the input structure changes.
+topham's `SearchForWorkOrder` is pipeline-specific (work orders, acceptance criteria). sodoryard needs a conversational equivalent — the turn analyzer ([[06-context-assembly]]) determines what to search for, and the searcher executes it. The multi-query expansion and dependency hop patterns should be preserved; only the input structure changes.
 
 ---
 
@@ -239,7 +239,7 @@ Given a target symbol, returns:
 - **Interfaces:** interfaces the target type implements
 - Configurable depth, budget, and confidence thresholds
 
-### Use in sirtopham
+### Use in sodoryard
 
 When the user asks "what would break if I change function X", the structural graph provides the answer. When context assembly identifies specific files being modified, the graph can automatically pull in structurally related code that might need updating.
 
@@ -287,7 +287,7 @@ From `internal/graph/`:
 - Go/Python/TypeScript analyzers
 - SQLite-based graph store
 
-## What's Net-New for sirtopham
+## What's Net-New for sodoryard
 
 - **Incremental indexing via git-aware/manual change detection** (incremental runs happen when `yard index` is invoked without `--force`)
 - **Explicit operator-controlled indexing before `serve`**

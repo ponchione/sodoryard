@@ -8,7 +8,7 @@
 
 ## Overview
 
-sirtopham's primary interface is a locally-served web application. `yard serve` starts the supported HTTP server and opens the browser. The frontend communicates with the Go backend via REST (CRUD operations) and WebSocket (real-time streaming).
+sodoryard's primary interface is a locally-served web application. `yard serve` starts the supported HTTP server and opens the browser. The frontend communicates with the Go backend via REST (CRUD operations) and WebSocket (real-time streaming).
 
 This document covers the frontend stack, the backend HTTP/WebSocket server, the streaming message protocol, and the UI component architecture.
 

@@ -8,7 +8,7 @@
 
 The agent loop is the core orchestration engine. It receives a user message, assembles context, makes LLM calls, dispatches tools, and iterates until the turn is complete. Every other layer feeds into or is driven by this loop.
 
-This is entirely net-new for sirtopham. topham's pipeline model (scope → build → verify → approve) has no equivalent — topham made single-shot LLM calls per phase with no tool calling and no iteration. The agent loop is the fundamental architectural shift from pipeline to conversation.
+This is entirely net-new for sodoryard. topham's pipeline model (scope → build → verify → approve) has no equivalent — topham made single-shot LLM calls per phase with no tool calling and no iteration. The agent loop is the fundamental architectural shift from pipeline to conversation.
 
 ---
 
@@ -314,7 +314,7 @@ Even with a 1M context window and subscription access (no per-token cost), promp
 
 Anthropic's prompt caching is keyed on exact prefix matching. If the first N tokens of the current request match the first N tokens of a previous request, those N tokens are served from cache.
 
-### sirtopham's Cache Layout
+### sodoryard's Cache Layout
 
 **Block 1 — System prompt (stable across all calls):** Base personality, tool instructions. Thin — under 5k tokens. Cache hit rate: ~100% across an entire session.
 
@@ -438,7 +438,7 @@ Very little directly:
 
 - **Event sink pattern:** topham's `EventSink` interface (Emit/ChannelSink) is a clean pattern for the agent loop to emit events. Reusable concept, different event types.
 - **Streaming parsing:** SSE line parsing from `llm/client.go` for OpenAI-compatible providers. Anthropic streaming uses a different format that's net-new.
-- **RoleResolver concept:** mapping roles to providers. Simplified in sirtopham to per-conversation model selection rather than per-pipeline-phase.
+- **RoleResolver concept:** mapping roles to providers. Simplified in sodoryard to per-conversation model selection rather than per-pipeline-phase.
 
 Everything else — the turn loop, tool dispatch, iteration management, cancellation, caching strategy — is net-new.
 

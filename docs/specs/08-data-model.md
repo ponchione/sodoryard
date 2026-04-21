@@ -614,7 +614,7 @@ If this becomes a problem in practice (database file size growing unreasonably),
 
 - **Backup strategy.** SQLite's `.backup` command is trivial. Worth automating as a pre-conversation hook or periodic background task? Low priority but cheap to implement.
 - **Database size monitoring.** At what point does the single SQLite file become unwieldy? Thousands of conversations with full tool output history could reach hundreds of MB. Worth monitoring, but unlikely to be a problem for a personal tool.
-- **FTS5 for brain documents.** The brain uses Obsidian's built-in search for keyword queries. Should sirtopham also maintain its own FTS5 index on brain document content for cases where Obsidian isn't running? Probably not for v0.1 — Obsidian is assumed to be running alongside sirtopham.
+- **FTS5 for brain documents.** The brain uses Obsidian's built-in search for keyword queries. Should sodoryard also maintain its own FTS5 index on brain document content for cases where Obsidian isn't running? Probably not for v0.1 — Obsidian is assumed to be running alongside sodoryard.
 - **Archived conversations.** Should there be a soft-delete or archive flag on conversations? The sidebar could get long over months of use. Low priority — can add an `archived_at` column later.
 
 ---

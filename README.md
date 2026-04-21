@@ -127,7 +127,6 @@ Each provider is configured in `yard.yaml` with routing rules that map surfaces 
 cmd/
   yard/           Unified operator CLI (documented public surface)
   tidmouth/       Internal engine binary retained for chain subprocess spawning
-  knapford/       Placeholder web binary slated for removal unless given a real contract
 
 internal/
   runtime/        Shared runtime builders (engine + orchestrator construction)
@@ -152,7 +151,7 @@ webfs/            Embedded frontend assets (go:embed)
 docs/             Specs and implementation plans
 ```
 
-The internal binary names (tidmouth, knapford) follow a naming convention from the codebase's development history. The operator-facing surface is exclusively `yard`.
+The retained internal binary name (`tidmouth`) follows a naming convention from the codebase's development history. The operator-facing surface is exclusively `yard`.
 
 ## Getting Started
 
@@ -166,7 +165,7 @@ make all
 
 # Binaries land in bin/
 ls bin/
-# tidmouth  knapford  yard
+# tidmouth  yard
 
 # Copy the current build into ~/bin for normal shell use
 make install-user-bin
@@ -248,25 +247,24 @@ PROJECT_DIR=/path/to/project docker compose run --rm yard yard chain start --tas
 ## Current status and next session starting point
 
 Current repo state:
-- `make test` and `make build` are green on the current tree.
+- `make test`, `make build`, and `make all` are green on the current tree.
 - The unified `yard` CLI is the real operator-facing surface.
-- Exact-setup daily-driver validation already passed on the intended runtime, including first-turn chat, reload/history, settings/model routing, search quality, code-retrieval grounding, and the maintained brain-retrieval package.
-- Recent cleanup also fixed noisy latest-turn context-inspector 404s and reclassified expected user cancellation so it no longer logs as an error-class runtime failure.
+- `tidmouth` remains only as the internal engine binary required by the current spawn contract.
+- Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
+- The remaining active docs are the README, current specs, and `NEXT_SESSION_HANDOFF.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
 
 If you are resuming work cold, read in this order:
 1. `AGENTS.md`
 2. this `README.md`
 3. `NEXT_SESSION_HANDOFF.md`
-4. `NO_LEGACY_PUNCHLIST_2026-04-21.md`
-5. `docs/specs/13_Headless_Run_Command.md`
-6. `docs/specs/17-yard-containerization.md`
-7. `docs/specs/18-unified-yard-cli.md`
+4. `docs/specs/13_Headless_Run_Command.md`
+5. `docs/specs/17-yard-containerization.md`
+6. `docs/specs/18-unified-yard-cli.md`
 
 First thing to address next session:
-- continue the no-legacy cleanup from the current dirty tree, not a fresh readiness/runtime audit
-- treat Phases 0-3 as already in progress on disk and start with Phase 4 internal de-duplication
+- prefer current-truth docs (`README.md`, specs, handoff) over historical planning artifacts
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
-- after Phase 4 extraction, do the contradiction sweep for remaining legacy references in docs/help/comments/tests
+- keep operator-facing docs aligned with the actual `yard` / container / runtime surface
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:

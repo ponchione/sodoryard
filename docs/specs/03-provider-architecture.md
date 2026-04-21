@@ -8,7 +8,7 @@
 
 ## Overview
 
-sirtopham's provider layer is responsible for all communication with LLM inference services. The key architectural insight — derived from studying Hermes Agent's implementation — is that the primary inference path does not use per-token API keys. Instead, it reuses OAuth credentials from existing CLI tool subscriptions (Claude Code, OpenAI Codex), making direct API calls with those tokens.
+sodoryard's provider layer is responsible for all communication with LLM inference services. The key architectural insight — derived from studying Hermes Agent's implementation — is that the primary inference path does not use per-token API keys. Instead, it reuses OAuth credentials from existing CLI tool subscriptions (Claude Code, OpenAI Codex), making direct API calls with those tokens.
 
 This document covers the unified provider interface, the three backend implementations, credential lifecycle management, and routing logic.
 
@@ -50,11 +50,11 @@ This interface must be sufficient for all three providers. The design constraint
 
 ### How It Works
 
-The developer has a Claude Pro/Max subscription and uses Claude Code. Claude Code stores OAuth credentials on disk. sirtopham discovers these credentials and uses them to make direct Anthropic Messages API calls.
+The developer has a Claude Pro/Max subscription and uses Claude Code. Claude Code stores OAuth credentials on disk. sodoryard discovers these credentials and uses them to make direct Anthropic Messages API calls.
 
 ### Credential Discovery
 
-Claude Code stores credentials at `~/.claude/.credentials.json`. The file contains OAuth tokens (access token, refresh token, expiry). sirtopham reads this file directly.
+Claude Code stores credentials at `~/.claude/.credentials.json`. The file contains OAuth tokens (access token, refresh token, expiry). sodoryard reads this file directly.
 
 **Discovery order** (matches Hermes's precedence):
 1. `ANTHROPIC_API_KEY` environment variable — if set, use as a traditional API key (X-Api-Key header). This is the escape hatch for users who want to pay per-token.
@@ -62,7 +62,7 @@ Claude Code stores credentials at `~/.claude/.credentials.json`. The file contai
 
 ### Token Refresh
 
-OAuth tokens expire. sirtopham must handle refresh transparently:
+OAuth tokens expire. sodoryard must handle refresh transparently:
 - Before each API call, check if the access token is expired or near expiry (within 2-minute buffer).
 - If expired, use the refresh token to obtain a new access token via Anthropic's OAuth token endpoint.
 - Write the refreshed credentials back to `~/.claude/.credentials.json` (so Claude Code also benefits from the refresh).
@@ -87,7 +87,7 @@ Content-Type: application/json
 
 ### Anthropic-Specific Concerns
 
-- **Content block structure:** Anthropic responses contain typed content blocks (text, tool_use, thinking). The provider must parse these into sirtopham's unified response format.
+- **Content block structure:** Anthropic responses contain typed content blocks (text, tool_use, thinking). The provider must parse these into sodoryard's unified response format.
 - **Prompt caching:** Anthropic supports prompt caching that dramatically reduces costs on long conversations. The provider should set cache control markers on the system prompt and early conversation turns. Since we're on a subscription this may be less critical for cost, but it improves latency.
 - **Streaming format:** Anthropic uses Server-Sent Events with specific event types (content_block_start, content_block_delta, content_block_stop, message_delta, message_stop). The streaming parser must handle all of these.
 
@@ -97,11 +97,11 @@ Content-Type: application/json
 
 ### How It Works
 
-The developer has a Codex subscription and uses the Codex CLI. Unlike the Anthropic path, sirtopham delegates credential management to the Codex CLI binary rather than managing tokens directly.
+The developer has a Codex subscription and uses the Codex CLI. Unlike the Anthropic path, sodoryard delegates credential management to the Codex CLI binary rather than managing tokens directly.
 
 ### Credential Flow
 
-Hermes's approach (adapted to Sirtopham's local runtime contract):
+Hermes's approach (adapted to Sodoryard's local runtime contract):
 1. Check if the `codex` CLI is installed.
 2. If `~/.sirtopham/auth.json` is missing Codex state, import from `~/.codex/auth.json` once.
 3. Read access/refresh tokens from `~/.sirtopham/auth.json` for runtime use.
@@ -127,7 +127,7 @@ Content-Type: application/json
 
 ### Codex-Specific Concerns
 
-- **CLI dependency:** The `codex` binary must be installed. sirtopham should check for this at startup and provide a clear error if missing.
+- **CLI dependency:** The `codex` binary must be installed. sodoryard should check for this at startup and provide a clear error if missing.
 - **Refresh latency:** Shelling out to `codex refresh` adds latency before each call. May want to cache the token and only refresh when near expiry, checking the expiry timestamp in auth.json.
 - **Model selection:** Codex exposes multiple models (GPT-5 variants). The user should be able to select which model to use. Auto-detection from the Codex API is possible.
 
@@ -176,7 +176,7 @@ The router selects which provider handles a given request.
 ### Routing Logic (v0.1 — Manual)
 
 For v0.1, routing is explicit:
-- **Default provider** is configured in `sirtopham.yaml` (e.g., anthropic with claude-sonnet-4-6).
+- **Default provider** is configured in `yard.yaml` (e.g., anthropic with claude-sonnet-4-6).
 - **User override** per-conversation or per-turn via the web UI.
 - **Fallback** if the primary provider fails (rate limit, auth error): configurable backup provider.
 
@@ -203,12 +203,12 @@ This is explicitly out of scope for v0.1. Start manual, automate later.
 
 ## Credential Storage & Security
 
-**Principle:** sirtopham reuses CLI-managed credentials where practical, but may keep a provider-owned local auth store when that produces a safer runtime contract.
+**Principle:** sodoryard reuses CLI-managed credentials where practical, but may keep a provider-owned local auth store when that produces a safer runtime contract.
 
 - Anthropic credentials: read from `~/.claude/.credentials.json` (managed by Claude Code)
 - Codex credentials: imported from `~/.codex/auth.json` only when needed, then stored/refreshed in `~/.sirtopham/auth.json`
-- API keys (OpenRouter, etc.): read from environment variables or `sirtopham.yaml`
-- No credentials are stored in sirtopham's SQLite database. API keys may still come from environment variables or `sirtopham.yaml`, and Codex keeps provider auth state in `~/.sirtopham/auth.json` rather than mutating the shared CLI store.
+- API keys (OpenRouter, etc.): read from environment variables or `yard.yaml`
+- No credentials are stored in sodoryard's SQLite database. API keys may still come from environment variables or `yard.yaml`, and Codex keeps provider auth state in `~/.sirtopham/auth.json` rather than mutating the shared CLI store.
 
 **File locking:** When reading/writing credential files (especially for Anthropic token refresh), use advisory file locking to avoid races with Claude Code itself accessing the same file.
 

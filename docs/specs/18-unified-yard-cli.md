@@ -12,13 +12,13 @@ The operator previously interacted with three separate binaries:
 
 - `yard` — project bootstrap
 - `tidmouth` — engine harness, indexing, web UI, auth
-- `sirtopham` — chain orchestrator
+- `sodoryard` — chain orchestrator
 
 That split operator-visible commands across 3 CLIs with no discoverability between them. The original intent (documented in project memory) was a single `yard` prefix for all operator-facing commands.
 
 ## 2. Goal
 
-Consolidate all operator-facing commands under `yard`. One binary, one `--help`, one mental model. Under the no-legacy target state, `yard` is the only operator-facing CLI, `sirtopham` is removed as a duplicate public binary, and `tidmouth` is retained only for the minimal internal subprocess contract still required by chain execution.
+Consolidate all operator-facing commands under `yard`. One binary, one `--help`, one mental model. Under the no-legacy target state, `yard` is the only operator-facing CLI, `sodoryard` is removed as a duplicate public binary, and `tidmouth` is retained only for the minimal internal subprocess contract still required by chain execution.
 
 ## 3. Command tree
 
@@ -192,7 +192,7 @@ The no-legacy target state does not preserve duplicated public command trees in 
 7. `yard auth status` exposes provider auth state from the unified CLI
 8. `make all` builds the supported artifact set for the no-legacy target state; compatibility-only binaries are not acceptance requirements
 9. `make test` green
-10. No acceptance criterion requires `sirtopham` to remain as a working public binary
+10. No acceptance criterion requires `sodoryard` to remain as a working public binary
 11. A chain started via `yard chain start` successfully spawns engine subprocesses (proving the internal spawn path still works)
 12. `internal/runtime/` package exists with extracted runtime builders callable from `cmd/yard/` and any retained minimal internal engine wrapper
 

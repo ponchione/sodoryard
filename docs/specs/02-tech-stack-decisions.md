@@ -150,7 +150,7 @@ Each decision records what was chosen, what alternatives were considered, and wh
 
 **Credential sources:**
 - Anthropic/Claude: `~/.claude/.credentials.json` (OAuth tokens from Claude Code)
-- OpenAI/Codex: one-time import from `~/.codex/auth.json` into Sirtopham's private store at `~/.sirtopham/auth.json`; refreshes and runtime use the Sirtopham-owned store thereafter
+- OpenAI/Codex: one-time import from `~/.codex/auth.json` into Sodoryard's private store at `~/.sirtopham/auth.json`; refreshes and runtime use the Sodoryard-owned store thereafter
 
 **Alternatives considered:**
 - *Direct API keys with per-token billing:* Works but costs money unnecessarily when subscriptions already provide access.

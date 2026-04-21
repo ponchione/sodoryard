@@ -6,11 +6,11 @@
 
 ## Overview
 
-Context assembly is the implementation of sirtopham's core thesis: programmatic, task-specific, minimal context beats static context files. Every turn, before the first LLM call, the system examines the user's message and recent conversation history, retrieves relevant code and project knowledge via code RAG, explicit file reads, structural analysis, project-brain retrieval, conventions, and git context, and packages it within the available token budget. The project brain was intentionally reactive-only in v0.1; the first v0.2 slice now wires proactive keyword-backed brain retrieval into this layer, with broader semantic/graph brain work still deferred.
+Context assembly is the implementation of sodoryard's core thesis: programmatic, task-specific, minimal context beats static context files. Every turn, before the first LLM call, the system examines the user's message and recent conversation history, retrieves relevant code and project knowledge via code RAG, explicit file reads, structural analysis, project-brain retrieval, conventions, and git context, and packages it within the available token budget. The project brain was intentionally reactive-only in v0.1; the first v0.2 slice now wires proactive keyword-backed brain retrieval into this layer, with broader semantic/graph brain work still deferred.
 
-This is what makes sirtopham "understand" the codebase. Get this right and the agent feels like a senior engineer who's read every file. Get it wrong and it's just another chatbot.
+This is what makes sodoryard "understand" the codebase. Get this right and the agent feels like a senior engineer who's read every file. Get it wrong and it's just another chatbot.
 
-This layer is entirely net-new. No prior art exists for per-turn RAG-driven context assembly in a conversational coding agent. Hermes Agent relies on static context files (AGENTS.md, SOUL.md) loaded once at session start. Claude Code uses CLAUDE.md. sirtopham takes a different approach — dynamic, per-turn retrieval that assembles exactly the context the current turn needs. Because it's novel, heavy instrumentation is built in from day one to measure whether it's working.
+This layer is entirely net-new. No prior art exists for per-turn RAG-driven context assembly in a conversational coding agent. Hermes Agent relies on static context files (AGENTS.md, SOUL.md) loaded once at session start. Claude Code uses CLAUDE.md. sodoryard takes a different approach — dynamic, per-turn retrieval that assembles exactly the context the current turn needs. Because it's novel, heavy instrumentation is built in from day one to measure whether it's working.
 
 ---
 
@@ -66,7 +66,7 @@ MESSAGES ARRAY:
 
 ### Why Not User Message Injection?
 
-Hermes/Honcho puts per-turn context on the user message instead of the system prompt, preserving system prompt caching across turns. We considered this but rejected it for sirtopham because:
+Hermes/Honcho puts per-turn context on the user message instead of the system prompt, preserving system prompt caching across turns. We considered this but rejected it for sodoryard because:
 
 - Assembled context is 10-30k tokens — large enough that within-turn caching across iterations provides significant latency savings.
 - Stuffing 30k tokens of code into a user message is semantically incorrect. It's not something the user said; it's system-provided context. This matters for model behavior — the LLM treats system prompt content differently from user content.
@@ -129,7 +129,7 @@ The `Signals` field is the observability hook. Every decision the analyzer makes
 
 The rule-based analyzer extracts signals in priority order:
 
-**File references:** Regex for paths with file extensions (`internal/auth/middleware.go`, `./config.yaml`). Also matches Go-convention directory references without extensions (`internal/auth/`, `pkg/server`, `cmd/sirtopham`).
+**File references:** Regex for paths with file extensions (`internal/auth/middleware.go`, `./config.yaml`). Also matches Go-convention directory references without extensions (`internal/auth/`, `pkg/server`, `cmd/tidmouth`).
 
 **Symbol references:** Backtick-wrapped identifiers (`` `ValidateToken` ``). PascalCase and camelCase words that aren't common English, checked against a small stopword set. Identifiers preceded by keywords: "function", "method", "type", "struct", "interface", "func".
 
@@ -430,7 +430,7 @@ When conversation history gets compressed (older turns summarized), the LLM lose
 
 ## Compression
 
-Context compression is adopted from Hermes Agent's proven implementation, with adaptations for sirtopham's architecture.
+Context compression is adopted from Hermes Agent's proven implementation, with adaptations for sodoryard's architecture.
 
 ### Trigger
 
@@ -640,7 +640,7 @@ context:
 
 **Concepts, not code:**
 
-- **Assembler pattern:** topham's `Assembler → FullContextPackage` concept carries forward, but the implementation is entirely different. topham assembled context for pipeline phases with structured work orders. sirtopham assembles for conversational turns with free-form messages.
+- **Assembler pattern:** topham's `Assembler → FullContextPackage` concept carries forward, but the implementation is entirely different. topham assembled context for pipeline phases with structured work orders. sodoryard assembles for conversational turns with free-form messages.
 - **RAG query construction:** topham's multi-query expansion and dependency hop patterns are preserved in the searcher layer ([[04-code-intelligence-and-rag]]). Context assembly calls into the same searcher.
 - **Convention extraction:** topham's convention cache is reused directly.
 
