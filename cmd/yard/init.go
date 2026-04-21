@@ -63,7 +63,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, configFilename string) err
 	_, _ = fmt.Fprintln(out, "Next steps:")
 	_, _ = fmt.Fprintln(out, "  1. Confirm the provider block matches your auth setup")
 	_, _ = fmt.Fprintln(out, "     (default is codex via ~/.sirtopham/auth.json).")
-	_, _ = fmt.Fprintln(out, "  2. Run `tidmouth index` to populate the code search index.")
-	_, _ = fmt.Fprintln(out, "  3. Run `sirtopham chain --task \"...\"` to start your first chain.")
+	_, _ = fmt.Fprintln(out, "  2. Run `yard index` to populate the code search index.")
+	_, _ = fmt.Fprintln(out, "  3. Run `yard chain start --task \"...\"` to start your first chain.")
 	return nil
 }

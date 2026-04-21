@@ -1,28 +1,14 @@
-package main
+package cmdutil
 
 import (
 	"fmt"
 	"io"
-
-	appconfig "github.com/ponchione/sodoryard/internal/config"
-	"github.com/spf13/cobra"
 )
 
-func newConfigCmd(configPath *string) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "config",
-		Short: "Show or validate configuration",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfig(cmd.OutOrStdout(), *configPath)
-		},
-	}
-	return cmd
-}
-
-func runConfig(out io.Writer, configPath string) error {
-	cfg, err := appconfig.Load(configPath)
+func RunConfig(out io.Writer, configPath string) error {
+	cfg, err := LoadConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
 
 	brainVaultPath := "<disabled>"
@@ -36,8 +22,8 @@ func runConfig(out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "server_address: %s\n", cfg.ServerAddress())
 	_, _ = fmt.Fprintf(out, "default_provider: %s\n", cfg.Routing.Default.Provider)
 	_, _ = fmt.Fprintf(out, "default_model: %s\n", cfg.Routing.Default.Model)
-	_, _ = fmt.Fprintf(out, "fallback_provider: %s\n", displayValue(cfg.Routing.Fallback.Provider))
-	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", displayValue(cfg.Routing.Fallback.Model))
+	_, _ = fmt.Fprintf(out, "fallback_provider: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Provider, "<unset>"))
+	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Model, "<unset>"))
 	_, _ = fmt.Fprintf(out, "database_path: %s\n", cfg.DatabasePath())
 	_, _ = fmt.Fprintf(out, "code_index_path: %s\n", cfg.CodeLanceDBPath())
 	_, _ = fmt.Fprintf(out, "brain_vault_path: %s\n", brainVaultPath)

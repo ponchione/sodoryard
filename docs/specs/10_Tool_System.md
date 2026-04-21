@@ -757,7 +757,7 @@ Found 5 relevant results for "authentication middleware":
 
 **Error cases:**
 
-- RAG index not built → "Error: code index not found for this project. Run 'sirtopham index' to build it."
+- RAG index not built → "Error: code index not found for this project. Run 'yard index' to build it."
 - No results above threshold → "No relevant results found for '{query}'. The codebase may not contain code related to this concept, or try rephrasing the query."
 - Embedding service unavailable → "Error: embedding service unavailable (localhost:8081). Ensure the embeddings Docker container is running."
 

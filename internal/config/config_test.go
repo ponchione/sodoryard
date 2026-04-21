@@ -412,7 +412,7 @@ func TestProjectPathsUseCanonicalYardDirectory(t *testing.T) {
 	}
 	// Every other derived path is hardcoded to the canonical .yard name
 	// regardless of basename.
-	if got := DefaultConfigFilename(cfg.ProjectRoot); got != "yard.yaml" {
+	if got := DefaultConfigFilename(); got != "yard.yaml" {
 		t.Fatalf("DefaultConfigFilename() = %q, want yard.yaml", got)
 	}
 	if got := cfg.StateDir(); got != filepath.Join(cfg.ProjectRoot, ".yard") {

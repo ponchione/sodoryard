@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 func TestLoadRoleSystemPromptSupportsFileOverrideAndBuiltIns(t *testing.T) {
@@ -65,5 +67,18 @@ func TestLoadRoleSystemPromptRejectsMissingOverridesAndUnknownBuiltIns(t *testin
 
 	if _, _, err := LoadRoleSystemPrompt("custom-role", projectRoot, ""); err == nil || !strings.Contains(err.Error(), "no built-in role system prompt") {
 		t.Fatalf("LoadRoleSystemPrompt(empty custom role) error = %v, want no built-in error", err)
+	}
+}
+
+func TestResolveModelContextLimitUsesConfiguredAndFallbackValues(t *testing.T) {
+	cfg := &appconfig.Config{Providers: map[string]appconfig.ProviderConfig{
+		"codex": {Type: "codex", ContextLength: 111},
+		"local": {Type: "openai-compatible"},
+	}}
+	if got, err := ResolveModelContextLimit(cfg, "codex"); err != nil || got != 111 {
+		t.Fatalf("ResolveModelContextLimit(codex) = (%d, %v), want (111, nil)", got, err)
+	}
+	if got, err := ResolveModelContextLimit(cfg, "local"); err != nil || got != 32768 {
+		t.Fatalf("ResolveModelContextLimit(local) = (%d, %v), want (32768, nil)", got, err)
 	}
 }

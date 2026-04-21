@@ -46,7 +46,7 @@ Everything else — the judgment, the sequencing, the decision-making — is the
 ### Starting a Chain
 
 ```
-sirtopham chain [flags]
+yard chain start [flags]
 ```
 
 | Flag | Required | Description |
@@ -65,17 +65,17 @@ sirtopham chain [flags]
 ### Inspecting Chains
 
 ```
-sirtopham status [chain-id]          # Show chain status, steps, verdicts
-sirtopham logs [chain-id]            # Stream chain event log
-sirtopham receipt [chain-id] [step]  # Show a specific step's receipt
+yard chain status [chain-id]          # Show chain status, steps, verdicts
+yard chain logs [chain-id]            # Stream chain event log
+yard chain receipt [chain-id] [step]  # Show a specific step's receipt
 ```
 
 ### Chain Control
 
 ```
-sirtopham pause [chain-id]           # Pause after current step completes
-sirtopham resume [chain-id]          # Resume a paused chain
-sirtopham cancel [chain-id]          # Cancel a running chain
+yard chain pause [chain-id]           # Pause after current step completes
+yard chain resume [chain-id]          # Resume a paused chain
+yard chain cancel [chain-id]          # Cancel a running chain
 ```
 
 ### Exit Codes
@@ -284,7 +284,7 @@ CREATE INDEX IF NOT EXISTS idx_events_chain ON events(chain_id);
 ## Orchestrator Startup Flow
 
 ```
-sirtopham chain --specs specs/auth.md
+yard chain start --specs specs/auth.md
     │
     ├─ Load project config (yard.yaml)
     ├─ Validate orchestrator role exists in config
@@ -462,14 +462,14 @@ orchestrator:
 
 ### What Exists Today
 
-From the current sirtopham (becoming Tidmouth):
+From the current runtime/orchestrator stack:
 - Brain vault client — used directly by orchestrator for receipt reading
 - Config loading — extended for orchestrator config
 - SQLite patterns — adapted from conductor v1 (see extraction guide)
 
 ### What Needs Built
 
-1. **`cmd/sirtopham/main.go`** — CLI entry point. Parses chain flags, initializes state, starts orchestrator session.
+1. **`cmd/yard/chain.go`** plus **`internal/runtime/orchestrator.go`** — CLI entry point and shared runtime construction for chain startup.
 
 2. **`internal/chain/`** — Chain state management. SQLite schema, step tracking, event logging, limit enforcement.
 

@@ -6,9 +6,9 @@
 
 ## Overview
 
-The `tidmouth run` subcommand executes a single agent session headlessly — no web UI, no HTTP server. It receives a task, runs the agent loop to completion, and exits. The primary consumer is the orchestration layer (SirTopham), but it is also useful for manual scripting and testing.
+The `tidmouth run` subcommand executes a single agent session headlessly — no web UI, no HTTP server. It receives a task, runs the agent loop to completion, and exits. The primary consumer is the chain orchestrator, and under the no-legacy CLI contract it is treated as an internal engine entrypoint rather than a public operator command. Operators use `yard run`; orchestrator internals may continue to use `tidmouth run` until the spawn contract is redesigned.
 
-This is the interface contract between Tidmouth (the harness) and any external orchestrator. The harness remains responsible for context assembly, tool dispatch, brain access, and LLM interaction. The orchestrator is responsible for deciding *what* to run and *what to do* with the result.
+This is the internal interface contract between Tidmouth (the harness) and the chain orchestrator. The harness remains responsible for context assembly, tool dispatch, brain access, and LLM interaction. The orchestrator is responsible for deciding *what* to run and *what to do* with the result.
 
 ---
 
@@ -288,7 +288,7 @@ What the agent recommends the next agent (or human) should do.
 
 ### What Needs Built
 
-1. **`cmd/sirtopham/run.go`** — CLI command wiring. Parses flags, loads role config, builds registry, creates headless session, drives agent loop, handles exit codes.
+1. **`cmd/tidmouth/run.go`** — CLI command wiring for the internal engine entrypoint. Parses flags, loads role config, builds registry, creates headless session, drives agent loop, handles exit codes.
 
 2. **Role-based registry builder** — Function that reads `agent_roles` config and constructs a `tool.Registry` with only the specified tool groups. Small, likely in `internal/config` or a new `internal/role` package.
 
@@ -314,7 +314,7 @@ What the agent recommends the next agent (or human) should do.
 
 These are explicitly out of scope for the initial implementation but inform design decisions:
 
-- **`spawn_agent` custom tool** — Used by the orchestrator agent role. Implemented by the conductor binary, not by SirTopham. SirTopham only provides the headless `run` command that the conductor calls.
+- **`spawn_agent` custom tool** — Used by the orchestrator agent role. Implemented by the conductor/orchestrator layer, not by the engine binary. The engine contract provided here is the headless `tidmouth run` entrypoint that the conductor calls.
 - **Multi-turn headless sessions** — Allowing the orchestrator to send follow-up messages mid-session. Not needed initially; agents should be self-directed within a single turn.
 - **Parallel agent execution** — Running multiple agents concurrently against the same brain. Requires brain-level write locking or conflict resolution. Deferred.
 - **Brain write hooks** — Triggering events when specific brain paths are written (e.g., auto-spawning the arbiter when `specs/` changes). Deferred.

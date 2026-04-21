@@ -24,8 +24,6 @@ type listDirectoryInput struct {
 var defaultDirExcludes = map[string]struct{}{
 	".git":        {},
 	".yard":       {},
-	".sirtopham":  {},
-	".sodoryard":  {},
 	".brain":      {},
 	".obsidian":   {},
 	"vendor":      {},

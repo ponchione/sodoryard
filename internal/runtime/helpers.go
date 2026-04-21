@@ -1,6 +1,6 @@
 // Package runtime provides shared runtime construction helpers used by
-// cmd/yard, cmd/tidmouth, and cmd/sirtopham. It exists because Go does
-// not allow importing main packages across binaries.
+// cmd/yard and cmd/tidmouth. It exists because Go does not allow importing
+// main packages across binaries.
 package runtime
 
 import (

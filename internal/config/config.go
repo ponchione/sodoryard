@@ -476,13 +476,8 @@ func DefaultProjectName(projectRoot string) string {
 	return base
 }
 
-// DefaultConfigFilename returns the canonical yard config filename
-// (ConfigFilename). The projectRoot parameter is retained for API
-// compatibility during the phase 5a rename — it is intentionally unused.
-// When phase 5a Task 4 relocates the only current caller
-// (cmd/tidmouth/init.go), this function will either be deleted or have
-// its parameter dropped.
-func DefaultConfigFilename(projectRoot string) string {
+// DefaultConfigFilename returns the canonical yard config filename.
+func DefaultConfigFilename() string {
 	return ConfigFilename
 }
 

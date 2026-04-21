@@ -8,11 +8,12 @@ LANCEDB_CGO_LDFLAGS := -L$(LANCEDB_LIB_DIR) -llancedb_go -lm -ldl -lpthread
 CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIBRARY_PATH="$(LANCEDB_LIB_DIR)"
 CGO_BUILD_ENV       := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS) -Wl,-rpath,$(LANCEDB_LIB_DIR)"
 
-.PHONY: all build tidmouth sirtopham knapford yard install-user-bin test dev-backend dev-frontend dev frontend-deps frontend-build frontend-typecheck clean
+.PHONY: all build tidmouth knapford yard install-user-bin test dev-backend dev-frontend dev frontend-deps frontend-build frontend-typecheck clean
 
-# `make all` builds every monorepo binary. `make build` is an alias for
-# `make tidmouth` to preserve the single-binary workflow during Phase 1/2.
-all: tidmouth sirtopham knapford yard
+# `make all` builds every remaining repo binary after legacy public CLI cleanup.
+# `make build` is an alias for `make tidmouth` because the internal engine
+# binary still carries the frontend embed and runtime harness.
+all: tidmouth knapford yard
 
 build: tidmouth
 
@@ -24,20 +25,13 @@ tidmouth: frontend-build
 	mkdir -p $(BIN_DIR)
 	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/tidmouth ./cmd/tidmouth
 
-# sirtopham: chain orchestrator. Shares the same SQLite (FTS5) and lancedb
-# cgo wiring as tidmouth because it opens the same .yard/yard.db file.
-sirtopham:
-	mkdir -p $(BIN_DIR)
-	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/sirtopham ./cmd/sirtopham
-
 # knapford: web dashboard (Phase 6 placeholder for now).
 knapford:
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/knapford ./cmd/knapford
 
-# yard: operator-facing CLI for project bootstrap. Same SQLite (FTS5) and
-# lancedb cgo wiring as tidmouth/sirtopham because internal/initializer
-# opens the same .yard/yard.db database.
+# yard: operator-facing CLI for project bootstrap, runtime control, and chain
+# orchestration. Same SQLite (FTS5) and lancedb cgo wiring as tidmouth.
 yard:
 	mkdir -p $(BIN_DIR)
 	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/yard ./cmd/yard

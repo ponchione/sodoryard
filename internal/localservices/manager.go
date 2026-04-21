@@ -133,8 +133,8 @@ func remediationLines(cfg *appconfig.Config, status StackStatus) []string {
 		lines = append(lines, fmt.Sprintf("verify compose file exists: %s", cfg.LocalServices.ComposeFile))
 	}
 	lines = append(lines,
-		"inspect stack status: tidmouth llm status",
-		"inspect stack logs: tidmouth llm logs",
+		"inspect stack status: yard llm status",
+		"inspect stack logs: yard llm logs",
 		fmt.Sprintf("start stack manually: docker compose -f %s up -d", cfg.LocalServices.ComposeFile),
 	)
 	return lines

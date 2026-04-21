@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/headless"
 	"github.com/ponchione/sodoryard/internal/id"
 	"github.com/ponchione/sodoryard/internal/role"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
@@ -264,22 +264,5 @@ func yardRunHeadless(cmd *cobra.Command, configPath string, flags yardRunFlags) 
 }
 
 func yardReadTask(task string, taskFile string) (string, error) {
-	if strings.TrimSpace(task) != "" && strings.TrimSpace(taskFile) != "" {
-		return "", fmt.Errorf("--task and --task-file are mutually exclusive")
-	}
-	if strings.TrimSpace(task) != "" {
-		return strings.TrimSpace(task), nil
-	}
-	if strings.TrimSpace(taskFile) == "" {
-		return "", fmt.Errorf("task text is required")
-	}
-	data, err := os.ReadFile(strings.TrimSpace(taskFile))
-	if err != nil {
-		return "", fmt.Errorf("read task file: %w", err)
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "" {
-		return "", fmt.Errorf("task file is empty")
-	}
-	return text, nil
+	return headless.ReadTask(task, taskFile)
 }

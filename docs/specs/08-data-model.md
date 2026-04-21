@@ -29,7 +29,7 @@ IDs use the type that best fits each table's access pattern:
 
 ### Migration Strategy
 
-During active development: nuke and rebuild. The schema lives in a single `schema.sql` file. `sirtopham init` creates the database from scratch. No migration framework during dev.
+During active development: nuke and rebuild. The schema lives in a single `schema.sql` file. `yard init` creates the database from scratch. No migration framework during dev.
 
 Once the schema stabilizes (v0.5+), migrate to versioned migration files — either golang-migrate or hand-written `.sql` files with a version table. The schema is simple enough that manual migrations are viable for a personal tool.
 

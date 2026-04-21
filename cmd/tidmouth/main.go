@@ -18,7 +18,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:          "tidmouth",
-		Short:        "A self-hosted AI coding agent",
+		Short:        "Internal engine binary used by yard orchestration",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stdout, "tidmouth %s\n", version)
@@ -29,17 +29,9 @@ func newRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultCLIConfigPath, "Path to config file")
 
 	indexCmd := newIndexCmd(&configPath)
-
-	configCmd := newConfigCmd(&configPath)
-	llmCmd := newLLMCmd(&configPath)
-
-	authCmd := newAuthCmd(&configPath)
-	doctorCmd := newDoctorCmd(&configPath)
-	serveCmd := newServeCmd(&configPath)
 	runCmd := newRunCmd(&configPath)
-	brainServeCmd := newBrainServeCmd()
 
-	rootCmd.AddCommand(serveCmd, runCmd, brainServeCmd, indexCmd, configCmd, llmCmd, authCmd, doctorCmd)
+	rootCmd.AddCommand(runCmd, indexCmd)
 	return rootCmd
 }
 

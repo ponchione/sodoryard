@@ -36,7 +36,7 @@ func newIndexCmd(configPath *string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "index",
-		Short: "Index the codebase for backend retrieval",
+		Short: "Build backend retrieval indexes for internal engine use",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := appconfig.Load(*configPath)
 			if err != nil {
@@ -73,7 +73,7 @@ func newIndexBrainCmd(configPath *string) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "brain",
-		Short: "Rebuild derived brain metadata from the vault",
+		Short: "Rebuild derived brain metadata for internal engine use",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := appconfig.Load(*configPath)
 			if err != nil {

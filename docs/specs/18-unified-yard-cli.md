@@ -8,24 +8,23 @@
 
 ## 1. Problem
 
-The operator currently interacts with three separate binaries:
+The operator previously interacted with three separate binaries:
 
-- `yard` — project bootstrap (2 commands)
-- `tidmouth` — engine harness, indexing, web UI, auth (10 commands)
-- `sirtopham` — chain orchestrator (7 commands)
+- `yard` — project bootstrap
+- `tidmouth` — engine harness, indexing, web UI, auth
+- `sirtopham` — chain orchestrator
 
-This splits 19 operator-visible commands across 3 CLIs with no discoverability between them. The original intent (documented in project memory) was a single `yard` prefix for all operator-facing commands.
+That split operator-visible commands across 3 CLIs with no discoverability between them. The original intent (documented in project memory) was a single `yard` prefix for all operator-facing commands.
 
 ## 2. Goal
 
-Consolidate all operator-facing commands under `yard`. One binary, one `--help`, one mental model. Internal binaries (`tidmouth`, `sirtopham`) continue building for subprocess use but are not part of the documented operator surface.
+Consolidate all operator-facing commands under `yard`. One binary, one `--help`, one mental model. Under the no-legacy target state, `yard` is the only operator-facing CLI, `sirtopham` is removed as a duplicate public binary, and `tidmouth` is retained only for the minimal internal subprocess contract still required by chain execution.
 
 ## 3. Command tree
 
 ```
 yard [--config yard.yaml]
 ├── init                        # project bootstrap (exists)
-├── install                     # agents-dir substitution (exists)
 ├── serve                       # web UI + API server
 ├── run                         # single headless agent session
 ├── index                       # code index build/rebuild
@@ -53,34 +52,34 @@ yard [--config yard.yaml]
 
 ### 3.1 Global flags
 
-`--config <path>` is a persistent flag on the root command, defaulting to `yard.yaml`. Every subcommand that needs config inherits it. This matches the existing pattern on both `tidmouth` and `sirtopham`.
+`--config <path>` is a persistent flag on the root command, defaulting to `yard.yaml`. Every subcommand that needs config inherits it.
 
 ### 3.2 Naming decisions
 
 | Current | New | Rationale |
 |---|---|---|
-| `sirtopham chain` | `yard chain start` | `chain` becomes a group; `start` is the action |
-| `sirtopham status` | `yard chain status` | nests under the chain group |
-| `sirtopham logs` | `yard chain logs` | nests under the chain group |
-| `sirtopham receipt` | `yard chain receipt` | nests under the chain group |
-| `sirtopham cancel` | `yard chain cancel` | nests under the chain group |
-| `sirtopham pause` | `yard chain pause` | nests under the chain group |
-| `sirtopham resume` | `yard chain resume` | nests under the chain group |
-| `tidmouth serve` | `yard serve` | top-level, most-used command |
+| legacy chain start command | `yard chain start` | `chain` becomes a group; `start` is the action |
+| legacy chain status command | `yard chain status` | nests under the chain group |
+| legacy chain logs command | `yard chain logs` | nests under the chain group |
+| legacy chain receipt command | `yard chain receipt` | nests under the chain group |
+| legacy chain cancel command | `yard chain cancel` | nests under the chain group |
+| legacy chain pause command | `yard chain pause` | nests under the chain group |
+| legacy chain resume command | `yard chain resume` | nests under the chain group |
+| legacy serve command | `yard serve` | top-level, most-used command |
 | `tidmouth run` | `yard run` | top-level, headless single agent |
 | `tidmouth index` | `yard index` | top-level, code indexing |
 | `tidmouth index brain` | `yard brain index` | brain group owns brain indexing |
 | `tidmouth brain-serve` | `yard brain serve` | brain group owns brain MCP |
-| `tidmouth auth` | `yard auth` | top-level group |
-| `tidmouth auth status` | `yard auth status` | same nesting |
+| legacy auth command | `yard auth` | top-level group |
+| legacy auth status command | `yard auth status` | same nesting |
 | `tidmouth doctor` | `yard doctor` | top-level |
-| `tidmouth config` | `yard config` | top-level |
-| `tidmouth llm` | `yard llm` | same group structure |
-| `tidmouth llm status/up/down/logs` | `yard llm status/up/down/logs` | same nesting |
+| legacy config command | `yard config` | top-level |
+| legacy llm command group | `yard llm` | same group structure |
+| legacy llm status/up/down/logs | `yard llm status/up/down/logs` | same nesting |
 
 ### 3.3 Flags and arguments
 
-Every subcommand preserves its existing flags and arguments exactly. No flag renames, no behavior changes. The only addition is the `--config` persistent flag inherited from the root.
+Every retained operator-facing subcommand preserves its existing flags and arguments exactly. Compatibility-only install/substitution flows do not survive the no-legacy cleanup.
 
 Commands that currently take `configPath *string` as a constructor argument will receive it from the root persistent flag instead.
 
@@ -101,24 +100,24 @@ cmd/yard/serve.go
 
 ### 4.2 Runtime builders
 
-Today, two runtime builders exist:
+Today, the retained runtime builders are:
 
 - `cmd/tidmouth/runtime.go` — `buildRuntime()` for the engine harness
-- `cmd/sirtopham/runtime.go` — `buildOrchestratorRuntime()` for the chain orchestrator
+- `internal/runtime/orchestrator.go` — shared chain orchestrator runtime construction used by `cmd/yard`
 
-These need to be callable from `cmd/yard/`. Two approaches:
+These need to be callable from `cmd/yard/`. After the cleanup, only `yard` and the minimal internal `tidmouth` engine wrapper should depend on the shared runtime builders.
 
 **Approach chosen: extract to internal package.** Move the runtime construction into `internal/runtime/` (or `internal/harness/`) so both `cmd/yard/` and the legacy binaries can call it. This is the right move because:
 
-1. It eliminates code duplication between `cmd/yard/` and `cmd/tidmouth/`/`cmd/sirtopham/`
+1. It eliminates code duplication between `cmd/yard/` and the retained internal wrappers
 2. It makes the runtime constructors testable in isolation
 3. It keeps the door open for the web UI to start chains by calling the same runtime builder from an HTTP handler
 
 ### 4.3 Spawn subprocess path
 
-The chain orchestrator spawns engine subprocesses via `internal/spawn/`. Today, the spawn config references `tidmouth` as the engine binary name (set in `cmd/sirtopham/runtime.go` line 190: `EngineBinary: "tidmouth"`).
+The chain orchestrator spawns engine subprocesses via `internal/spawn/`. Today, the spawn config references `tidmouth` as the engine binary name (now set in `internal/runtime/orchestrator.go`: `EngineBinary: "tidmouth"`).
 
-**This does not change.** The spawned engine subprocess is `tidmouth run`, not `yard run`. The operator types `yard chain start`, but under the hood the orchestrator still spawns `tidmouth` subprocesses. `tidmouth` must remain on PATH for chains to work. The Makefile already builds it.
+The no-legacy contract keeps this as an internal implementation detail only. The operator invokes `yard chain start`; the orchestrator may continue spawning `tidmouth run` until that internal contract is redesigned. `tidmouth` is therefore retained only as an internal engine binary, not as a supported public CLI.
 
 ### 4.4 Future: UI-driven chains
 
@@ -137,7 +136,7 @@ The actual extraction of `buildOrchestratorRuntime` into a shared package (§4.2
 ```
 internal/runtime/
 ├── engine.go               # extracted from cmd/tidmouth/runtime.go
-├── orchestrator.go         # extracted from cmd/sirtopham/runtime.go
+├── orchestrator.go         # shared chain orchestrator runtime construction
 └── helpers.go              # shared helpers (buildProvider, ensureProjectRecord, etc.)
 
 cmd/yard/
@@ -152,31 +151,31 @@ cmd/yard/
 └── llm.go                  # llm group: status, up, down, logs
 ```
 
+`cmd/yard/install.go` is intentionally absent from the target state; compatibility-only install/substitution flows are removed rather than preserved.
+
 ### 5.2 Modified files
 
 ```
 cmd/yard/main.go            # register all new subcommands, add --config persistent flag
 cmd/tidmouth/runtime.go     # thin wrapper calling internal/runtime/engine.go
-cmd/sirtopham/runtime.go    # thin wrapper calling internal/runtime/orchestrator.go
-Makefile                    # no changes (already builds all 4 binaries)
+Makefile                    # builds the retained artifact set after CLI cleanup
 ```
 
 ### 5.3 Unchanged
 
 - All `internal/` packages (except the new `internal/runtime/`)
-- `cmd/tidmouth/*.go` subcommand files (they keep working, just undocumented)
-- `cmd/sirtopham/*.go` subcommand files (same)
-- `cmd/knapford/` (placeholder)
 - Web frontend
 - Docker infrastructure
 - Templates, agent prompts, specs
 
+The no-legacy target state does not preserve duplicated public command trees in `cmd/sirtopham/`, does not require `cmd/tidmouth/*.go` to remain operator-usable beyond the internal engine contract, and does not treat placeholder surfaces like `cmd/knapford/` as protected by this spec.
+
 ## 6. What doesn't change
 
-- The internal binary architecture
-- The spawn subprocess mechanism (`tidmouth run` stays)
+- The runtime/business-logic split between CLI wiring and `internal/` packages
+- The current internal spawn subprocess mechanism until a separate redesign replaces it (`tidmouth run` stays internal)
 - The web frontend
-- Any existing command's flags or behavior
+- Any retained operator-facing command's flags or behavior
 - The chain execution flow
 - Brain read/write paths
 - Database schema
@@ -184,27 +183,27 @@ Makefile                    # no changes (already builds all 4 binaries)
 
 ## 7. Acceptance criteria
 
-1. `yard --help` shows all command groups (init, install, serve, run, index, auth, doctor, config, chain, brain, llm)
-2. `yard serve` starts the web UI identically to `tidmouth serve`
-3. `yard chain start --task "..." --config yard.yaml` runs a chain identically to `sirtopham chain --task "..."`
+1. `yard --help` shows all supported operator command groups (init, serve, run, index, auth, doctor, config, chain, brain, llm)
+2. `yard serve` starts the supported web UI/API server flow
+3. `yard chain start --task "..." --config yard.yaml` runs the supported chain flow through the unified CLI
 4. `yard brain index` indexes the brain identically to `tidmouth index brain`
 5. `yard index` indexes code identically to `tidmouth index`
-6. `yard llm status/up/down/logs` behaves identically to `tidmouth llm status/up/down/logs`
-7. `yard auth status` behaves identically to `tidmouth auth status`
-8. `make all` still builds all 4 binaries
+6. `yard llm status/up/down/logs` exposes the supported local-service management flow from the unified CLI
+7. `yard auth status` exposes provider auth state from the unified CLI
+8. `make all` builds the supported artifact set for the no-legacy target state; compatibility-only binaries are not acceptance requirements
 9. `make test` green
-10. Existing `tidmouth` and `sirtopham` binaries continue to work unchanged
-11. A chain started via `yard chain start` successfully spawns engine subprocesses (proving the spawn path still works)
-12. `internal/runtime/` package exists with extracted runtime builders callable from both `cmd/yard/` and `cmd/tidmouth/`/`cmd/sirtopham/`
+10. No acceptance criterion requires `sirtopham` to remain as a working public binary
+11. A chain started via `yard chain start` successfully spawns engine subprocesses (proving the internal spawn path still works)
+12. `internal/runtime/` package exists with extracted runtime builders callable from `cmd/yard/` and any retained minimal internal engine wrapper
 
 ## 8. Out of scope
 
-- Renaming `tidmouth` or `sirtopham` internal binaries
-- Changing the spawn subprocess binary name
+- Renaming the retained internal `tidmouth` engine binary
+- Changing the spawn subprocess binary name in the same slice as public CLI cleanup
 - Adding new commands that don't exist today
 - UI-driven chain execution (future Phase 6 work, but §4.4 keeps the door open)
-- Deprecation warnings on `tidmouth`/`sirtopham` direct usage
-- Changing any existing command's flags or behavior
+- Deprecation warnings or compatibility aliases for removed legacy surfaces
+- Changing any retained operator-facing command's flags or behavior
 
 ## 9. Tag
 

@@ -109,7 +109,7 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 	}
 
 	// Write atomically: write to temp file in same dir, then rename.
-	tmpFile, err := os.CreateTemp(dir, ".sirtopham-write-*")
+	tmpFile, err := os.CreateTemp(dir, ".yard-write-*")
 	if err != nil {
 		return &ToolResult{
 			Success: false,

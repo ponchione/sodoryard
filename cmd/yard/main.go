@@ -1,6 +1,5 @@
 // Command yard is the unified operator-facing CLI for railway projects.
-// It consolidates all operator commands from tidmouth and sirtopham under
-// a single binary with a single --help.
+// It consolidates operator commands under a single binary with a single --help.
 package main
 
 import (
@@ -31,7 +30,6 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(
 		newInitCmd(),
-		newInstallCmd(),
 		newYardServeCmd(&configPath),
 		newYardRunCmd(&configPath),
 		newYardIndexCmd(&configPath),

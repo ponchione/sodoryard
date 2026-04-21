@@ -41,7 +41,6 @@ Both share a common runtime layer (`internal/runtime/`) for provider constructio
 ```
 yard [--config yard.yaml]
  |-- init                          Project bootstrap
- |-- install                       Substitute agent paths in config
  |-- serve                         Web UI + API server
  |-- run                           Single headless agent session
  |-- index                         Code index build/rebuild
@@ -126,10 +125,9 @@ Each provider is configured in `yard.yaml` with routing rules that map surfaces 
 
 ```
 cmd/
-  yard/           Unified operator CLI (19 commands)
-  tidmouth/       Engine harness binary (used as subprocess by orchestrator)
-  sirtopham/      Chain orchestrator binary (used as subprocess by yard)
-  knapford/       Web dashboard (placeholder)
+  yard/           Unified operator CLI (documented public surface)
+  tidmouth/       Internal engine binary retained for chain subprocess spawning
+  knapford/       Placeholder web binary slated for removal unless given a real contract
 
 internal/
   runtime/        Shared runtime builders (engine + orchestrator construction)
@@ -154,7 +152,7 @@ webfs/            Embedded frontend assets (go:embed)
 docs/             Specs and implementation plans
 ```
 
-The internal binary names (tidmouth, sirtopham, knapford) follow a naming convention from the codebase's development history. The operator-facing surface is exclusively `yard`.
+The internal binary names (tidmouth, knapford) follow a naming convention from the codebase's development history. The operator-facing surface is exclusively `yard`.
 
 ## Getting Started
 
@@ -168,7 +166,7 @@ make all
 
 # Binaries land in bin/
 ls bin/
-# tidmouth  sirtopham  knapford  yard
+# tidmouth  knapford  yard
 
 # Copy the current build into ~/bin for normal shell use
 make install-user-bin
@@ -181,10 +179,6 @@ cd /path/to/your/project
 
 # Bootstrap config and directory structure
 yard init
-
-# Optional: only for older configs that still contain
-# {{SODORYARD_AGENTS_DIR}} prompt placeholders
-yard install --sodoryard-agents-dir /path/to/sodoryard/agents
 
 # Index the codebase for semantic retrieval
 yard index
@@ -234,6 +228,7 @@ docker compose build yard
 # Run inside container
 PROJECT_DIR=/path/to/project docker compose run --rm yard yard init
 PROJECT_DIR=/path/to/project docker compose run --rm yard yard serve
+PROJECT_DIR=/path/to/project docker compose run --rm yard yard chain start --task "do the thing"
 ```
 
 ## Tech Stack
@@ -261,16 +256,18 @@ Current repo state:
 If you are resuming work cold, read in this order:
 1. `AGENTS.md`
 2. this `README.md`
-3. `docs/manual-live-validation.md` if you are doing runtime validation
-4. `docs/v2-b4-brain-retrieval-validation.md` if brain retrieval is in scope
-5. `docs/plans/2026-04-13-sodoryard-stability-closeout-plan.md` if you want the broader remaining-work ledger
+3. `NEXT_SESSION_HANDOFF.md`
+4. `NO_LEGACY_PUNCHLIST_2026-04-21.md`
+5. `docs/specs/13_Headless_Run_Command.md`
+6. `docs/specs/17-yard-containerization.md`
+7. `docs/specs/18-unified-yard-cli.md`
 
 First thing to address next session:
-- do a repeated real-use runtime soak on the intended setup, not another abstract readiness audit
-- reuse the real config/provider/model/project you actually plan to daily-drive
-- rerun the live validation flow, then do at least one longer mixed session covering first turn, reload/history, settings/model routing, cancellation, search, and retrieval/context-inspector evidence
-- if that run is clean, stop control-plane churn and start using the harness for real chain work
-- if it reproduces one concrete annoyance, take exactly one narrow regression-first bugfix slice next
+- continue the no-legacy cleanup from the current dirty tree, not a fresh readiness/runtime audit
+- treat Phases 0-3 as already in progress on disk and start with Phase 4 internal de-duplication
+- keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
+- after Phase 4 extraction, do the contradiction sweep for remaining legacy references in docs/help/comments/tests
+- rerun `make test` and `make build` after each narrow slice
 
 Useful commands:
 ```bash

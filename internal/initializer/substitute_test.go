@@ -20,13 +20,13 @@ func TestSubstituteReplacesProjectRootAndName(t *testing.T) {
 }
 
 func TestSubstituteLeavesOtherPlaceholdersAlone(t *testing.T) {
-	in := "system_prompt: {{SODORYARD_AGENTS_DIR}}/coder.md\n"
+	in := "system_prompt: {{CUSTOM_PROMPT_DIR}}/coder.md\n"
 	out := substituteTemplate(in, SubstitutionValues{
 		ProjectRoot: "/home/user/myapp",
 		ProjectName: "myapp",
 	})
-	if !strings.Contains(out, "{{SODORYARD_AGENTS_DIR}}/coder.md") {
-		t.Errorf("expected {{SODORYARD_AGENTS_DIR}} placeholder to be preserved, got: %s", out)
+	if !strings.Contains(out, "{{CUSTOM_PROMPT_DIR}}/coder.md") {
+		t.Errorf("expected {{CUSTOM_PROMPT_DIR}} placeholder to be preserved, got: %s", out)
 	}
 }
 

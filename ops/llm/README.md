@@ -31,9 +31,9 @@ Prerequisites:
 
 Operator flow:
 1. Put or symlink the model files into `ops/llm/models/`.
-2. Check readiness with `./bin/sirtopham llm status`.
-3. If `local_services.mode: auto`, use `./bin/sirtopham llm up` to bring the stack up.
-4. Build the code index with `./bin/sirtopham index`.
+2. Check readiness with `./bin/yard llm status`.
+3. If `local_services.mode: auto`, use `./bin/yard llm up` to bring the stack up.
+4. Build the code index with `./bin/yard index`.
 
 Policy modes:
 - `off`: never start containers; only report missing services
@@ -41,14 +41,14 @@ Policy modes:
 - `auto`: create missing networks, run `docker compose up -d`, and wait for health
 
 Useful commands:
-- `./bin/sirtopham llm status`
-- `./bin/sirtopham llm up`
-- `./bin/sirtopham llm down`
-- `./bin/sirtopham llm logs`
+- `./bin/yard llm status`
+- `./bin/yard llm up`
+- `./bin/yard llm down`
+- `./bin/yard llm logs`
 
 Common failures:
-- Docker daemon down: start Docker and rerun `sirtopham llm status`
+- Docker daemon down: start Docker and rerun `yard llm status`
 - missing NVIDIA runtime: verify Docker can access the GPU and the llama.cpp CUDA image runs correctly
 - missing model files: confirm the two expected GGUF filenames exist under `ops/llm/models/`
-- missing `llm-net`: rerun `sirtopham llm up` with auto-create enabled or create it manually with `docker network create llm-net`
-- health endpoint never ready: inspect `sirtopham llm logs` and confirm the selected ports are free on the host
+- missing `llm-net`: rerun `yard llm up` with auto-create enabled or create it manually with `docker network create llm-net`
+- health endpoint never ready: inspect `yard llm logs` and confirm the selected ports are free on the host

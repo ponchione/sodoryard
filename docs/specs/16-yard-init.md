@@ -19,7 +19,7 @@ The command lives in a new `cmd/yard` binary, not as a Tidmouth subcommand. This
 Three things are wrong with the current `cmd/tidmouth/init.go` that this spec resolves:
 
 1. **It's branded wrong.** Operators bootstrap projects with `tidmouth init`, then everything else they touch is named `yard.*`. The internal binary name leaks into the only operator entry point that nothing else mentions.
-2. **It lies about the railway shape.** The current init creates `.brain/notes/` and `.brain/.obsidian/` and stops there. The 8 railway brain section directories (`specs/`, `architecture/`, `epics/`, `tasks/`, `plans/`, `receipts/`, `logs/`, `conventions/`) are not created. The seeded `yard.yaml` does not contain any `agent_roles`, so a freshly initialized project cannot run `tidmouth run --role X` or `sirtopham chain` against itself without the operator hand-writing 13 role blocks first.
+2. **It lies about the railway shape.** The current init creates `.brain/notes/` and `.brain/.obsidian/` and stops there. The 8 railway brain section directories (`specs/`, `architecture/`, `epics/`, `tasks/`, `plans/`, `receipts/`, `logs/`, `conventions/`) are not created. The seeded `yard.yaml` does not contain any `agent_roles`, so a freshly initialized project cannot run the internal engine contract or `yard chain start` against itself without the operator hand-writing 13 role blocks first.
 3. **It has a parallel source of truth.** `cmd/tidmouth/init.go:generateConfigYAML()` is a 100-line string-builder that ignores `templates/init/yard.yaml.example` entirely. The two have already drifted: the inline generator uses `anthropic`/Claude as the default provider with no agent_roles section, the template file uses `codex`/`gpt-5.4-mini` with two roles seeded. Whichever wins, neither actually matches the railway's needs.
 
 Phase 5b makes one thing the source of truth (`templates/init/`), one binary the entry point (`yard`), and one invocation the bootstrap (`yard init`).
@@ -133,7 +133,7 @@ providers:
     model: gpt-5.4-mini
 ```
 
-**Why:** codex is the path that works on the maintainer's host today (verified end-to-end by the Phase 3 `phase3-smoke-1` smoke chain on 2026-04-11), uses the existing `~/.sirtopham/auth.json` credential store, and requires no environment variable setup at the operator level. Anthropic was the previous default in `cmd/tidmouth/init.go` but currently fails its `Ping()` startup check on the same host with `Claude credentials file missing accessToken field`.
+**Why:** codex is the path that worked on the maintainer's host when this spec was written (verified by the Phase 3 `phase3-smoke-1` smoke chain on 2026-04-11), uses the existing local Codex auth store, and requires no environment variable setup at the operator level. Anthropic was the previous default in `cmd/tidmouth/init.go` but currently failed its `Ping()` startup check on the same host with `Claude credentials file missing accessToken field`.
 
 `gpt-5.4-mini` is a deliberate placeholder, not a long-term recommendation. Operators (including the maintainer) will swap the model field after init based on what they want to dogfood with. The model field is already pluggable via `routing.default.model` and `providers.codex.model`, so this is a one-line edit, not a structural change.
 
@@ -172,7 +172,7 @@ cmd/tidmouth/
 └── (init.go, init_test.go deleted)
 
 Makefile
-└── new yard: target with the same CGO_BUILD_ENV / GOFLAGS_DB as tidmouth and sirtopham
+└── new yard target using the same CGO_BUILD_ENV / GOFLAGS_DB conventions as the other retained binaries
 ```
 
 `internal/initializer.Run` returns a structured report (created/skipped/error per file) so `cmd/yard/init.go` can print operator-friendly status without re-walking the filesystem. The same package can later be called from `cmd/knapford/` (Phase 6) if the dashboard wants to expose a "create new project here" action.
@@ -208,8 +208,8 @@ After `yard init` runs in `<project_root>` and exits with code 0, the following 
 ├── .yard/
 │   ├── yard.db                   # SQLite, schema initialized
 │   └── lancedb/
-│       ├── code/                 # empty, ready for `tidmouth index`
-│       └── brain/                # empty, ready for `tidmouth index brain`
+│       ├── code/                 # empty, ready for `yard index`
+│       └── brain/                # empty, ready for `yard brain index`
 └── .brain/
     ├── .obsidian/
     │   ├── app.json
@@ -264,9 +264,9 @@ Done.
 Next steps:
   1. Confirm the provider/auth settings in yard.yaml and optionally replace any builtin prompt marker with a file path override
   2. Confirm the provider block matches your auth setup
-     (default is codex via ~/.sirtopham/auth.json).
-  3. Run `tidmouth index` to populate the code search index.
-  4. Run `sirtopham chain --task "..."` to start your first chain.
+     (default is codex via the local Codex auth store).
+  3. Run `yard index` to populate the code search index.
+  4. Run `yard chain start --task "..."` to start your first chain.
 ```
 
 ## 7. The seeded `yard.yaml` shape
@@ -334,14 +334,14 @@ The idempotency is also the spec's only "validation" gate: if `yard init && yard
 
 Phase 5b is complete when **all** of the following are true:
 
-1. `make all` builds `bin/yard` alongside `bin/tidmouth`, `bin/sirtopham`, `bin/knapford`, with the same FTS5 + lancedb cgo flags as tidmouth and sirtopham.
+1. `make all` builds the retained artifact set for the current no-legacy target state with the required FTS5 + lancedb cgo flags.
 2. `make test` is green, including new tests in `internal/initializer/`.
 3. `cmd/tidmouth/init.go` and `cmd/tidmouth/init_test.go` no longer exist; `tidmouth init` returns `unknown command` from cobra.
 4. `internal/initializer/` exists and houses all the file/directory/database creation logic.
 5. `templates/init/yard.yaml.example` contains all 13 `agent_roles` with stock `builtin:<role>` prompt selectors, embedded into the `yard` binary via `go:embed`.
 6. Running `yard init` in an empty `/tmp/yard-init-smoke-<timestamp>/` directory produces the full file tree from section 6, exits 0, and prints the operator-facing report.
 7. Running `yard init` again in the same directory exits 0 and prints `(already exists, skipped)` lines for everything; no file content is modified.
-8. The smoke test in step 6 can be followed directly by `tidmouth index --config yard.yaml` and `sirtopham chain --config yard.yaml --task "..."` succeeding against the freshly initialized project without any prompt-path substitution.
+8. The smoke test in step 6 can be followed directly by `yard index --config yard.yaml` and `yard chain start --config yard.yaml --task "..."` succeeding against the freshly initialized project without any prompt-path substitution.
 9. `docs/specs/16-yard-init.md` (this file) is updated to match anything that changed during implementation.
 10. The Phase 5b commit stack is tagged `v0.5-yard-init`.
 
@@ -355,7 +355,7 @@ The following are explicitly **not** in Phase 5b. Each may become a future spec.
 - **Auto-materializing built-in prompts onto disk.** Stock prompts are embedded and selected via `builtin:<role>` markers; `yard init` does not copy prompt files into the target project.
 - **First-run wizard / interactive prompts.** Init is fully non-interactive.
 - **`--force` / `--reset` flag.** Operators delete `.yard/` and `.brain/` themselves if they want to start over.
-- **Provider auto-detection or credential validation at init time.** The seeded `yard.yaml` may point at a provider whose credentials don't exist; that's discovered on first `tidmouth run`, not at init.
+- **Provider auto-detection or credential validation at init time.** The seeded `yard.yaml` may point at a provider whose credentials don't exist; that's discovered on first real runtime use, not at init.
 - **Updating `docs/specs/00-index.md`** to reference specs 10–16. The index is already stale (only references 01–09); fixing it is its own out-of-scope task.
 - **`tidmouth init` deprecation alias.** Outright deletion only. No transitional period.
 - **Brain section starter content.** No README files in `specs/`, `architecture/`, etc. Phase 4 prompts will tell agents what each section is for; embedding that as filesystem README content would be a second source of truth that drifts.
@@ -365,8 +365,8 @@ The following are explicitly **not** in Phase 5b. Each may become a future spec.
 
 These are intentionally left unresolved by this spec. Each is a future decision point, not a Phase 5b blocker.
 
-- **Should `yard install` keep shipping long-term?** It now exists as compatibility tooling for older placeholder-based configs. A future cleanup could remove it once those configs are no longer worth supporting, but that is not a Phase 5b blocker.
-- **Should the `yard` binary eventually replace `tidmouth` and `sirtopham` as the operator surface?** Possible long-term direction (`yard run`, `yard chain`, etc.) but not a Phase 5b commitment. The internal binaries stay as the implementation surface.
+- **Should `yard init` also offer optional first-run runtime validation?** Not in this phase; the bootstrap step stays non-interactive and deterministic.
+- **How much of the internal engine contract should remain exposed in docs?** The current no-legacy direction keeps operator docs on `yard` while allowing `tidmouth` to remain internal for spawn-only use.
 - **Should `templates/init/` ship example brain content** (e.g., a starter `specs/00-getting-started.md` that explains the brain layout)? Excluded from Phase 5b because brain content overlaps with Phase 4 prompt content; lock that in only after the prompts have stabilized.
 - **Should `yard init` create a `.brain/_log.md`** the way tidmouth's brain MCP server does at runtime? Probably yes, but not a Phase 5b blocker — the brain MCP server already creates it on first connect, so init's job is just to make sure the parent directory exists.
 - **Should there be a `yard init --template <name>` flag** that picks between minimal/full/etc. starter templates? Not in Phase 5b. One canonical template only.

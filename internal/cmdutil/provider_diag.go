@@ -1,4 +1,4 @@
-package main
+package cmdutil
 
 import (
 	"context"
@@ -13,10 +13,11 @@ import (
 	"github.com/ponchione/sodoryard/internal/localservices"
 	"github.com/ponchione/sodoryard/internal/provider"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
-	"github.com/spf13/cobra"
 )
 
-type authProviderReport struct {
+type ProviderBuilder func(name string, cfg appconfig.ProviderConfig) (provider.Provider, error)
+
+type ProviderAuthReport struct {
 	Name       string               `json:"name"`
 	Type       string               `json:"type"`
 	Healthy    bool                 `json:"healthy"`
@@ -25,60 +26,21 @@ type authProviderReport struct {
 	Auth       *provider.AuthStatus `json:"auth,omitempty"`
 }
 
-var buildProviderForAuthReports = rtpkg.BuildProvider
-
-func newAuthCmd(configPath *string) *cobra.Command {
-	authCmd := &cobra.Command{
-		Use:   "auth",
-		Short: "Inspect provider authentication state",
-	}
-	authCmd.AddCommand(newAuthStatusCmd(configPath))
-	return authCmd
-}
-
-func newDoctorCmd(configPath *string) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Run lightweight auth diagnostics for configured providers",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProviderDiagnostics(cmd, *configPath, false, true)
-		},
-	}
-	return cmd
-}
-
-func newAuthStatusCmd(configPath *string) *cobra.Command {
-	var jsonOutput bool
-	cmd := &cobra.Command{
-		Use:   "status",
-		Short: "Show auth mode, source, and expiry for each provider without probing connectivity",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProviderDiagnostics(cmd, *configPath, jsonOutput, false)
-		},
-	}
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit auth status as JSON")
-	return cmd
-}
-
-func runAuthStatus(cmd *cobra.Command, configPath string, jsonOutput bool) error {
-	return runProviderDiagnostics(cmd, configPath, jsonOutput, true)
-}
-
-func runProviderDiagnostics(cmd *cobra.Command, configPath string, jsonOutput bool, includePing bool) error {
-	cfg, err := appconfig.Load(configPath)
+func RunProviderDiagnostics(ctx context.Context, out io.Writer, configPath string, jsonOutput bool, includePing bool, manager LocalServicesManager, builder ProviderBuilder) error {
+	cfg, err := LoadConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
-	reports := collectProviderAuthReports(cmd.Context(), cfg, includePing)
+	reports := CollectProviderAuthReports(ctx, cfg, includePing, builder)
 	var llmStatus *localservices.StackStatus
-	if includePing {
-		status, err := newLLMManager().Status(cmd.Context(), cfg)
+	if includePing && manager != nil {
+		status, err := manager.Status(ctx, cfg)
 		if err == nil {
 			llmStatus = &status
 		}
 	}
 	if jsonOutput {
-		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		payload := map[string]any{"providers": reports}
 		if llmStatus != nil {
@@ -86,15 +48,18 @@ func runProviderDiagnostics(cmd *cobra.Command, configPath string, jsonOutput bo
 		}
 		return enc.Encode(payload)
 	}
-	printProviderAuthReports(cmd.OutOrStdout(), reports)
+	PrintProviderAuthReports(out, reports)
 	if llmStatus != nil {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "local_services:")
-		_ = printLLMStatus(cmd.OutOrStdout(), *llmStatus, false)
+		_, _ = fmt.Fprintln(out, "local_services:")
+		_ = PrintLLMStatus(out, *llmStatus, false)
 	}
 	return nil
 }
 
-func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, includePing bool) []authProviderReport {
+func CollectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, includePing bool, builder ProviderBuilder) []ProviderAuthReport {
+	if builder == nil {
+		builder = rtpkg.BuildProvider
+	}
 	providerNames := cfg.ProviderNamesForSurfaces()
 	names := make([]string, 0, len(providerNames))
 	for _, name := range providerNames {
@@ -102,11 +67,11 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 	}
 	sort.Strings(names)
 
-	reports := make([]authProviderReport, 0, len(names))
+	reports := make([]ProviderAuthReport, 0, len(names))
 	for _, name := range names {
 		provCfg := cfg.Providers[name]
-		report := authProviderReport{Name: name, Type: provCfg.Type, Healthy: true}
-		p, err := buildProviderForAuthReports(name, provCfg)
+		report := ProviderAuthReport{Name: name, Type: provCfg.Type, Healthy: true}
+		p, err := builder(name, provCfg)
 		if err != nil {
 			report.Healthy = false
 			report.BuildError = err.Error()
@@ -120,7 +85,7 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 					report.Auth = &provider.AuthStatus{Provider: name, Detail: err.Error()}
 				}
 				var pe *provider.ProviderError
-				if ok := rtpkg.ErrorAsProviderError(err, &pe); ok {
+				if rtpkg.ErrorAsProviderError(err, &pe) {
 					report.Auth.Remediation = pe.Remediation
 				}
 			} else {
@@ -143,10 +108,8 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 						report.Auth = &provider.AuthStatus{Provider: name, Detail: pingErr.Error()}
 					}
 					var pe *provider.ProviderError
-					if ok := rtpkg.ErrorAsProviderError(pingErr, &pe); ok {
-						if report.Auth.Remediation == "" {
-							report.Auth.Remediation = pe.Remediation
-						}
+					if rtpkg.ErrorAsProviderError(pingErr, &pe) && report.Auth.Remediation == "" {
+						report.Auth.Remediation = pe.Remediation
 					}
 				}
 			}
@@ -156,7 +119,7 @@ func collectProviderAuthReports(ctx context.Context, cfg *appconfig.Config, incl
 	return reports
 }
 
-func printProviderAuthReports(out io.Writer, reports []authProviderReport) {
+func PrintProviderAuthReports(out io.Writer, reports []ProviderAuthReport) {
 	for _, report := range reports {
 		status := "healthy"
 		if !report.Healthy {
@@ -174,7 +137,7 @@ func printProviderAuthReports(out io.Writer, reports []authProviderReport) {
 			_, _ = fmt.Fprintln(out, "  auth: unavailable")
 			continue
 		}
-		_, _ = fmt.Fprintf(out, "  auth_mode: %s\n", blankIfEmpty(report.Auth.Mode, "unknown"))
+		_, _ = fmt.Fprintf(out, "  auth_mode: %s\n", reportValueOrDefault(report.Auth.Mode, "unknown"))
 		if report.Auth.Source != "" {
 			_, _ = fmt.Fprintf(out, "  source: %s\n", report.Auth.Source)
 		}
@@ -203,7 +166,7 @@ func printProviderAuthReports(out io.Writer, reports []authProviderReport) {
 	}
 }
 
-func blankIfEmpty(s, fallback string) string {
+func reportValueOrDefault(s, fallback string) string {
 	if strings.TrimSpace(s) == "" {
 		return fallback
 	}

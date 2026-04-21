@@ -51,7 +51,7 @@ func TestMatchesGlob_YAMLExcludesNodeModulesAndHiddenState(t *testing.T) {
 	}{
 		{pattern: "**/node_modules/**", path: "web/node_modules/react/index.js", want: true},
 		{pattern: "**/.brain/**", path: ".brain/notes/hello.md", want: true},
-		{pattern: "**/.sirtopham/**", path: ".sirtopham/lancedb/code/0001.lance", want: true},
+		{pattern: "**/.yard/**", path: ".yard/lancedb/code/0001.lance", want: true},
 		{pattern: "**/node_modules/**", path: "web/src/main.tsx", want: false},
 	}
 	for _, tt := range tests {

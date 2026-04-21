@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/headless"
 	"github.com/ponchione/sodoryard/internal/id"
 	"github.com/ponchione/sodoryard/internal/role"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
@@ -84,7 +84,7 @@ func newRunCmd(configPath *string) *cobra.Command {
 	flags := runFlags{Timeout: 30 * time.Minute}
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run one autonomous headless agent session",
+		Short: "Run one internal headless agent session",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := runHeadless(cmd, *configPath, flags)
 			if result != nil && (result.ExitCode == runExitOK || result.ExitCode == runExitSafetyLimit) {
@@ -281,24 +281,7 @@ func runHeadless(cmd *cobra.Command, configPath string, flags runFlags) (*runExe
 }
 
 func readTask(task string, taskFile string) (string, error) {
-	if strings.TrimSpace(task) != "" && strings.TrimSpace(taskFile) != "" {
-		return "", fmt.Errorf("--task and --task-file are mutually exclusive")
-	}
-	if strings.TrimSpace(task) != "" {
-		return strings.TrimSpace(task), nil
-	}
-	if strings.TrimSpace(taskFile) == "" {
-		return "", fmt.Errorf("task text is required")
-	}
-	data, err := os.ReadFile(strings.TrimSpace(taskFile))
-	if err != nil {
-		return "", fmt.Errorf("read task file: %w", err)
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "" {
-		return "", fmt.Errorf("task file is empty")
-	}
-	return text, nil
+	return headless.ReadTask(task, taskFile)
 }
 
 func resolveChainID(input string) string {
@@ -309,18 +292,11 @@ func resolveChainID(input string) string {
 }
 
 func exceededMaxTokens(turnResult *agent.TurnResult, maxTokens int) bool {
-	if turnResult == nil || maxTokens <= 0 {
-		return false
-	}
-	used := turnResult.TotalUsage.InputTokens + turnResult.TotalUsage.OutputTokens
-	return used >= maxTokens
+	return headless.ExceededMaxTokens(turnResult, maxTokens)
 }
 
 func finalText(turnResult *agent.TurnResult) string {
-	if turnResult == nil {
-		return ""
-	}
-	return strings.TrimSpace(turnResult.FinalText)
+	return headless.FinalText(turnResult)
 }
 
 func writeString(out io.Writer, value string) {

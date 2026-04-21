@@ -249,7 +249,7 @@ func TestProjectTreeHonorsYamlExcludePatterns(t *testing.T) {
 
 	raw, _ := json.Marshal(body)
 	got := string(raw)
-	if strings.Contains(got, "node_modules") || strings.Contains(got, ".brain") || strings.Contains(got, ".sirtopham") {
+	if strings.Contains(got, "node_modules") || strings.Contains(got, ".brain") || strings.Contains(got, ".yard") {
 		t.Fatalf("excluded directories leaked into tree: %s", got)
 	}
 	foundSrc := false

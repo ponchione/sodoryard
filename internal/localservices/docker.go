@@ -97,7 +97,7 @@ func normalizeComposeUpError(stderr string) string {
 	trimmed := strings.TrimSpace(stderr)
 	lower := strings.ToLower(trimmed)
 	if strings.Contains(lower, "container name") && strings.Contains(lower, "already in use") {
-		return trimmed + " | remediation: remove the conflicting container (for example `docker rm -f <name>`) or run `tidmouth llm down` if it belongs to this repo-owned stack. If this happens across multiple repo-owned stacks, remove explicit container_name entries or rely on compose project scoping instead."
+		return trimmed + " | remediation: remove the conflicting container (for example `docker rm -f <name>`) or run `yard llm down` if it belongs to this repo-owned stack. If this happens across multiple repo-owned stacks, remove explicit container_name entries or rely on compose project scoping instead."
 	}
 	return trimmed
 }

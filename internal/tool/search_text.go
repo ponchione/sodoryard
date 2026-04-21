@@ -25,17 +25,12 @@ type searchTextInput struct {
 	MaxResults   *int   `json:"max_results,omitempty"`
 }
 
-// Default exclude patterns for project search. `.yard` is the canonical yard
-// state directory (phase 5a); `.sirtopham` and `.sodoryard` are kept
-// defensively so legacy state directories in pre-rename projects continue to
-// be excluded until they are manually migrated.
-var defaultExcludes = []string{".git", ".yard", ".sirtopham", ".sodoryard", ".brain", ".obsidian", "vendor", "node_modules", ".venv", "__pycache__", ".idea", ".vscode"}
+// Default exclude patterns for project search.
+var defaultExcludes = []string{".git", ".yard", ".brain", ".obsidian", "vendor", "node_modules", ".venv", "__pycache__", ".idea", ".vscode"}
 
 var hiddenStateSearchExcludes = map[string]struct{}{
 	".git":       {},
 	".yard":      {},
-	".sirtopham": {},
-	".sodoryard": {},
 	".brain":     {},
 	".obsidian":  {},
 }

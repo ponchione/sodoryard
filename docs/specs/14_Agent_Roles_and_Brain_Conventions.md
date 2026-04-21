@@ -542,7 +542,7 @@ Orchestrator reads specs/
   │    │
   │    ├─ for each task (in order):
   │    │    ├─ Reindex (deterministic, not an agent)
-  │    │    │    sirtopham index --quiet
+  │    │    │    tidmouth index --quiet
   │    │    │
   │    │    ├─ spawns Planner
   │    │    │    reads tasks/{feature}/{task}.md, specs/, architecture/
@@ -583,7 +583,7 @@ Orchestrator reads specs/
 
 ### Reindexing
 
-Reindexing is a deterministic operation, not an agent. The orchestrator binary (conductor) calls `sirtopham index` as a subprocess at two points:
+Reindexing is a deterministic operation, not an agent. The orchestrator binary (conductor) calls `tidmouth index` as an internal subprocess at two points:
 
 1. **Before the planner** — ensures the planner's search tools reflect the current codebase state.
 2. **After the coder** — ensures auditors' context assembly picks up the new/changed files.
