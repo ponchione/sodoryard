@@ -119,6 +119,7 @@ var genericPathSegments = map[string]struct{}{
 }
 
 var pathAnchorSegments = map[string]struct{}{
+	"agents":   {},
 	"api":      {},
 	"app":      {},
 	"bin":      {},
@@ -130,6 +131,7 @@ var pathAnchorSegments = map[string]struct{}{
 	"internal": {},
 	"lib":      {},
 	"pkg":      {},
+	"receipts": {},
 	"scripts":  {},
 	"src":      {},
 	"test":     {},
@@ -387,7 +389,10 @@ func normalizePathToken(token string) (string, string, bool) {
 		return "", "vault_rooted_note_path", false
 	}
 	if strings.Contains(candidate, "/") {
-		return candidate, "", true
+		if fileTokenPattern.MatchString(candidate) || isAnchoredRepoPath(candidate) {
+			return candidate, "", true
+		}
+		return "", "low_confidence_slash_path", false
 	}
 	if fileTokenPattern.MatchString(candidate) {
 		return candidate, "", true
@@ -441,6 +446,22 @@ func isVaultRootedNotePath(candidate string) bool {
 		return false
 	}
 	return strings.HasPrefix(trimmed, "notes/") || strings.HasPrefix(trimmed, ".brain/notes/")
+}
+
+func isAnchoredRepoPath(candidate string) bool {
+	trimmed := strings.TrimPrefix(candidate, "./")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 2 {
+		return false
+	}
+	anchor := strings.ToLower(strings.TrimSpace(parts[0]))
+	if _, ok := pathAnchorSegments[anchor]; !ok {
+		return false
+	}
+	if anchor == "receipts" {
+		return len(parts) >= 3
+	}
+	return true
 }
 
 func extractSymbolReferences(message string) []extraction {

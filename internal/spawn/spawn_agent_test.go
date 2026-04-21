@@ -33,6 +33,19 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	var gotArgs []string
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		gotArgs = append([]string(nil), in.Args...)
+		if in.Stdout != nil {
+			_, _ = in.Stdout.Write([]byte("stdout line 1\nstdout line 2\n"))
+		}
+		if in.OnStdoutLine != nil {
+			in.OnStdoutLine("stdout line 1")
+			in.OnStdoutLine("stdout line 2")
+		}
+		if in.Stderr != nil {
+			_, _ = in.Stderr.Write([]byte("stderr line 1\n"))
+		}
+		if in.OnStderrLine != nil {
+			in.OnStderrLine("stderr line 1")
+		}
 		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
 agent: coder
 chain_id: ` + chainID + `
@@ -56,8 +69,12 @@ Done.
 	if result == nil || !result.Success || !strings.Contains(result.Content, "Done.") {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-	if len(gotArgs) == 0 || gotArgs[0] != "run" || !strings.Contains(strings.Join(gotArgs, " "), "--receipt-path receipts/coder/"+chainID+"-step-001.md") {
+	joinedArgs := strings.Join(gotArgs, " ")
+	if len(gotArgs) == 0 || gotArgs[0] != "run" || !strings.Contains(joinedArgs, "--receipt-path receipts/coder/"+chainID+"-step-001.md") {
 		t.Fatalf("unexpected args: %v", gotArgs)
+	}
+	if strings.Contains(joinedArgs, "--quiet") {
+		t.Fatalf("spawn args unexpectedly include --quiet: %v", gotArgs)
 	}
 	steps, err := store.ListSteps(ctx, chainID)
 	if err != nil {
@@ -77,8 +94,23 @@ Done.
 	if err != nil {
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
-	if len(events) < 2 {
-		t.Fatalf("expected events, got %+v", events)
+	if len(events) < 5 {
+		t.Fatalf("expected step output events, got %+v", events)
+	}
+	var stdoutSeen, stderrSeen bool
+	for _, event := range events {
+		if event.EventType != chain.EventStepOutput {
+			continue
+		}
+		if strings.Contains(event.EventData, `"stream":"stdout"`) && strings.Contains(event.EventData, "stdout line 1") {
+			stdoutSeen = true
+		}
+		if strings.Contains(event.EventData, `"stream":"stderr"`) && strings.Contains(event.EventData, "stderr line 1") {
+			stderrSeen = true
+		}
+	}
+	if !stdoutSeen || !stderrSeen {
+		t.Fatalf("step output events missing stdout/stderr lines: %+v", events)
 	}
 }
 

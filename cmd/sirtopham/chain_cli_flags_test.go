@@ -22,6 +22,16 @@ func TestChainCommandExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := cmd.Flags().Lookup("brain"); flag == nil {
 		t.Fatal("expected brain flag")
 	}
+	if flag := cmd.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
+		t.Fatalf("watch flag = %#v, want default true", flag)
+	}
+	if flag := cmd.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
+		t.Fatalf("verbosity flag = %#v, want default normal", flag)
+	}
+	logs := newLogsCmd(&configPath)
+	if flag := logs.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
+		t.Fatalf("logs verbosity flag = %#v, want default normal", flag)
+	}
 }
 
 func TestChainSpecFromFlagsUsesMaxResolverLoops(t *testing.T) {

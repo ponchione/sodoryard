@@ -617,6 +617,86 @@ func TestHTTPTest_StreamTextResponse(t *testing.T) {
 	}
 }
 
+func TestHTTPTest_StreamHandlesLargeSSEToken(t *testing.T) {
+	largeDelta := strings.Repeat("A", 70*1024)
+	ssePayload := strings.Join([]string{
+		"event: response.output_item.added",
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_large","role":"assistant"}}`,
+		"",
+		"event: response.output_text.delta",
+		fmt.Sprintf(`data: {"type":"response.output_text.delta","item_id":"msg_large","content_index":0,"delta":%q}`, largeDelta),
+		"",
+		"event: response.completed",
+		`data: {"type":"response.completed","response":{"id":"resp_ht_large","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}}`,
+		"",
+	}, "\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		fmt.Fprint(w, ssePayload)
+	}))
+	defer server.Close()
+
+	p := newHTTPTestProvider(t, server.URL)
+	ch, err := p.Stream(context.Background(), &provider.Request{
+		Model:    "o3",
+		Messages: []provider.Message{provider.NewUserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var gotLarge bool
+	for event := range ch {
+		switch e := event.(type) {
+		case provider.TokenDelta:
+			if e.Text == largeDelta {
+				gotLarge = true
+			}
+		case provider.StreamError:
+			t.Fatalf("unexpected stream error: %v", e)
+		}
+	}
+	if !gotLarge {
+		t.Fatal("expected large token delta to be delivered")
+	}
+}
+
+func TestHTTPTest_CompleteHandlesLargeSSEToken(t *testing.T) {
+	largeDelta := strings.Repeat("B", 70*1024)
+	ssePayload := strings.Join([]string{
+		"event: response.output_item.added",
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_large","role":"assistant"}}`,
+		"",
+		"event: response.output_text.delta",
+		fmt.Sprintf(`data: {"type":"response.output_text.delta","item_id":"msg_large","content_index":0,"delta":%q}`, largeDelta),
+		"",
+		"event: response.completed",
+		`data: {"type":"response.completed","response":{"id":"resp_complete_large","status":"completed","usage":{"input_tokens":2,"output_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}}`,
+		"",
+	}, "\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		fmt.Fprint(w, ssePayload)
+	}))
+	defer server.Close()
+
+	p := newHTTPTestProvider(t, server.URL+"/codex")
+	resp, err := p.Complete(context.Background(), &provider.Request{
+		Model:    "o3",
+		Messages: []provider.Message{provider.NewUserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Content) != 1 || resp.Content[0].Text != largeDelta {
+		t.Fatalf("expected large streamed text response, got %#v", resp.Content)
+	}
+}
+
 // ---------- Stream: tool call ----------
 
 func TestHTTPTest_StreamToolCall(t *testing.T) {

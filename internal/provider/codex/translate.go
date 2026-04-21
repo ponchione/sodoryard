@@ -50,8 +50,7 @@ type responsesTool struct {
 
 // responsesReasoning controls reasoning behavior.
 type responsesReasoning struct {
-	Effort           string `json:"effort"`            // "high", "medium", "low"
-	EncryptedContent string `json:"encrypted_content"` // "retain"
+	Effort string `json:"effort"` // "high", "medium", "low"
 }
 
 // buildResponsesRequest translates a unified Request into the Responses API
@@ -151,8 +150,7 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 
 	// Reasoning configuration is currently pinned for the forced Codex daily-driver model.
 	rr.Reasoning = &responsesReasoning{
-		Effort:           forcedCodexReasoningEffort,
-		EncryptedContent: "retain",
+		Effort: forcedCodexReasoningEffort,
 	}
 
 	return rr

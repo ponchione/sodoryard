@@ -669,6 +669,29 @@ func historyMessage(content string) db.Message {
 	}
 }
 
+func TestRuleBasedAnalyzerRejectsLowConfidenceSlashProse(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+	needs := analyzer.AnalyzeTurn("Investigate add/update and receipts/state before continuing", nil)
+
+	if slices.Contains(needs.ExplicitFiles, "add/update") {
+		t.Fatalf("ExplicitFiles = %v, want add/update rejected", needs.ExplicitFiles)
+	}
+	if slices.Contains(needs.ExplicitFiles, "receipts/state") {
+		t.Fatalf("ExplicitFiles = %v, want receipts/state rejected", needs.ExplicitFiles)
+	}
+	requireSignal(t, needs.Signals, "file_ref_rejected", "add/update", "low_confidence_slash_path")
+	requireSignal(t, needs.Signals, "file_ref_rejected", "receipts/state", "low_confidence_slash_path")
+}
+
+func TestRuleBasedAnalyzerKeepsAnchoredRepoPaths(t *testing.T) {
+	analyzer := RuleBasedAnalyzer{}
+	needs := analyzer.AnalyzeTurn("Inspect internal/server/websocket.go docs/specs/15-chain-orchestrator.md and receipts/planner/chain-123-step-001.md", nil)
+
+	requireStringsContain(t, needs.ExplicitFiles, "internal/server/websocket.go")
+	requireStringsContain(t, needs.ExplicitFiles, "docs/specs/15-chain-orchestrator.md")
+	requireStringsContain(t, needs.ExplicitFiles, "receipts/planner/chain-123-step-001.md")
+}
+
 func requireStringsContain(t *testing.T, got []string, want string) {
 	t.Helper()
 	if !slices.Contains(got, want) {

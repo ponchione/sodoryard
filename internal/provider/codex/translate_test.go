@@ -214,9 +214,6 @@ func TestBuildResponsesRequest_ForcesGPT54AndXHighReasoning(t *testing.T) {
 	if rr.Reasoning.Effort != "xhigh" {
 		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
 	}
-	if rr.Reasoning.EncryptedContent != "retain" {
-		t.Errorf("expected encrypted_content %q, got %q", "retain", rr.Reasoning.EncryptedContent)
-	}
 }
 
 func TestBuildResponsesRequest_ForcesGPT54EvenWhenRequestedModelDiffers(t *testing.T) {

@@ -275,6 +275,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 // values and determines the stop reason.
 func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usage, provider.StopReason, error) {
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSEScannerTokenSize)
 	var eventType string
 	var text strings.Builder
 	var usage provider.Usage

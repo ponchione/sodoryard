@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/agent"
@@ -28,8 +31,12 @@ type chainFlags struct {
 	MaxDuration      time.Duration
 	TokenBudget      int
 	DryRun           bool
+	Watch            bool
+	Verbosity        string
 	ProjectRoot      string
 }
+
+const chainWatchFlushTimeout = 2 * time.Second
 
 type chainTurnRunner interface {
 	RunTurn(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error)
@@ -40,8 +47,64 @@ var buildChainRuntime = buildOrchestratorRuntime
 var buildChainRegistry = buildOrchestratorRegistry
 var newChainTurnRunner = func(deps agent.AgentLoopDeps) chainTurnRunner { return agent.NewAgentLoop(deps) }
 
+type backgroundChainExecutionRequest struct {
+	ChainID     string
+	IsNew       bool
+	Resumed     bool
+	ProjectRoot string
+	Brain       string
+}
+
+type backgroundChainChildHandle struct {
+	wait <-chan error
+}
+
+var launchChainBackgroundChild = func(configPath string, req backgroundChainExecutionRequest) (*backgroundChainChildHandle, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve executable: %w", err)
+	}
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", os.DevNull, err)
+	}
+	defer devNull.Close()
+	args := make([]string, 0, 8)
+	if strings.TrimSpace(configPath) != "" {
+		args = append(args, "--config", configPath)
+	}
+	args = append(args, "_run-chain-background", "--chain-id", req.ChainID)
+	if strings.TrimSpace(req.ProjectRoot) != "" {
+		args = append(args, "--project", req.ProjectRoot)
+	}
+	if strings.TrimSpace(req.Brain) != "" {
+		args = append(args, "--brain", req.Brain)
+	}
+	if req.IsNew {
+		args = append(args, "--is-new")
+	}
+	if req.Resumed {
+		args = append(args, "--resumed")
+	}
+	cmd := exec.Command(exePath, args...)
+	cmd.Stdin = devNull
+	cmd.Stdout = devNull
+	cmd.Stderr = devNull
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start background chain child: %w", err)
+	}
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+		close(waitCh)
+	}()
+	return &backgroundChainChildHandle{wait: waitCh}, nil
+}
+
 func defaultChainFlags() chainFlags {
-	return chainFlags{MaxSteps: 100, MaxResolverLoops: 3, MaxDuration: 4 * time.Hour, TokenBudget: 5_000_000}
+	return chainFlags{MaxSteps: 100, MaxResolverLoops: 3, MaxDuration: 4 * time.Hour, TokenBudget: 5_000_000, Watch: true, Verbosity: chainVerbosityNormal}
 }
 
 func newChainCmd(configPath *string) *cobra.Command {
@@ -62,27 +125,39 @@ func newChainCmd(configPath *string) *cobra.Command {
 	cmd.Flags().DurationVar(&flags.MaxDuration, "max-duration", 4*time.Hour, "Wall-clock timeout for entire chain")
 	cmd.Flags().IntVar(&flags.TokenBudget, "token-budget", 5_000_000, "Total token ceiling across all agents")
 	cmd.Flags().BoolVar(&flags.DryRun, "dry-run", false, "Create the chain row but do not run the orchestrator")
+	cmd.Flags().BoolVar(&flags.Watch, "watch", true, "Stream live chain progress to stderr while the command runs")
+	cmd.Flags().StringVar(&flags.Verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")
 	return cmd
 }
 
-func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cobra.Command) (err error) {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
-	defer stop()
+func newRunChainBackgroundCmd(configPath *string) *cobra.Command {
+	var req backgroundChainExecutionRequest
+	cmd := &cobra.Command{
+		Use:    "_run-chain-background",
+		Short:  "Run a chain execution in hidden background worker mode",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(req.ChainID) == "" {
+				return fmt.Errorf("--chain-id is required")
+			}
+			return runChainBackgroundWorker(cmd.Context(), *configPath, req, cmd)
+		},
+	}
+	cmd.Flags().StringVar(&req.ChainID, "chain-id", "", "Chain execution identifier")
+	cmd.Flags().StringVar(&req.ProjectRoot, "project", "", "Override project root")
+	cmd.Flags().StringVar(&req.Brain, "brain", "", "Override brain vault path")
+	cmd.Flags().BoolVar(&req.IsNew, "is-new", false, "Whether this background execution owns a newly created chain")
+	cmd.Flags().BoolVar(&req.Resumed, "resumed", false, "Whether this background execution is resuming a paused chain")
+	return cmd
+}
 
+func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cobra.Command) error {
 	cfg, err := appconfig.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 	applyChainOverrides(cfg, flags)
 	if err := cfg.Validate(); err != nil {
-		return err
-	}
-	roleCfg, ok := cfg.AgentRoles["orchestrator"]
-	if !ok {
-		return fmt.Errorf("agent role %q not found in config", "orchestrator")
-	}
-	systemPrompt, _, err := rtpkg.LoadRoleSystemPrompt("orchestrator", cfg.ProjectRoot, roleCfg.SystemPrompt)
-	if err != nil {
 		return err
 	}
 	rt, err := buildChainRuntime(ctx, cfg)
@@ -100,11 +175,13 @@ func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cob
 	if err != nil {
 		return err
 	}
+	launchReq := backgroundChainExecutionRequest{ChainID: chainID, IsNew: existing == nil, ProjectRoot: strings.TrimSpace(flags.ProjectRoot), Brain: strings.TrimSpace(flags.Brain)}
 	if existing != nil {
 		flags, err = populateChainFlagsFromExisting(flags, existing)
 		if err != nil {
 			return err
 		}
+		launchReq.Resumed = existing.Status == "paused"
 		if err := prepareExistingChainForExecution(ctx, rt.ChainStore, existing, cmd); err != nil {
 			return err
 		}
@@ -119,22 +196,78 @@ func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cob
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)
 		return nil
 	}
+	child, err := launchChainBackgroundChild(configPath, launchReq)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)
+	if err := waitForChainBackgroundHandshake(ctx, rt.ChainStore, chainID, os.Getpid(), child, 5*time.Second); err != nil {
+		return err
+	}
+	if !flags.Watch {
+		return nil
+	}
+	watchCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+	watch := startChainWatch(watchCtx, cmd.ErrOrStderr(), rt.ChainStore, chainID, true, chainRenderOptions{Verbosity: normalizeChainVerbosity(flags.Verbosity)})
+	if err := watch.wait(chainWatchFlushTimeout); err != nil {
+		return err
+	}
+	if watchCtx.Err() != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "detached from live output; chain %s continues running\n", chainID)
+	}
+	return nil
+}
 
+func runChainBackgroundWorker(ctx context.Context, configPath string, req backgroundChainExecutionRequest, cmd *cobra.Command) (err error) {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+	cfg, err := appconfig.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	applyChainOverrides(cfg, chainFlags{ProjectRoot: req.ProjectRoot, Brain: req.Brain})
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	roleCfg, ok := cfg.AgentRoles["orchestrator"]
+	if !ok {
+		return fmt.Errorf("agent role %q not found in config", "orchestrator")
+	}
+	systemPrompt, _, err := rtpkg.LoadRoleSystemPrompt("orchestrator", cfg.ProjectRoot, roleCfg.SystemPrompt)
+	if err != nil {
+		return err
+	}
+	rt, err := buildChainRuntime(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer rt.Cleanup()
+	existing, err := resolveExistingChain(ctx, rt.ChainStore, req.ChainID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return fmt.Errorf("chain %s not found", req.ChainID)
+	}
+	flags, err := populateChainFlagsFromExisting(chainFlags{ChainID: req.ChainID}, existing)
+	if err != nil {
+		return err
+	}
 	executionRegistered := false
 	defer func() {
 		if err == nil || !executionRegistered {
 			return
 		}
-		if closeErr := closeErroredChainExecution(ctx, rt.ChainStore, chainID, err.Error()); closeErr != nil {
+		if closeErr := closeErroredChainExecution(context.WithoutCancel(ctx), rt.ChainStore, req.ChainID, err.Error()); closeErr != nil {
 			err = fmt.Errorf("%w (while closing active execution: %v)", err, closeErr)
 		}
 	}()
-	if err := registerActiveChainExecution(ctx, rt.ChainStore, chainID, existing == nil, existing != nil && existing.Status == "paused"); err != nil {
+	if err := registerActiveChainExecution(ctx, rt.ChainStore, req.ChainID, req.IsNew, req.Resumed); err != nil {
 		return err
 	}
 	executionRegistered = true
-
-	registry, err := buildChainRegistry(rt, roleCfg, chainID)
+	registry, err := buildChainRegistry(rt, roleCfg, req.ChainID)
 	if err != nil {
 		return err
 	}
@@ -148,32 +281,91 @@ func runChain(ctx context.Context, configPath string, flags chainFlags, cmd *cob
 	}
 	loop := newChainTurnRunner(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), Config: agent.AgentLoopConfig{MaxIterations: roleCfg.MaxTurns, BasePrompt: systemPrompt, ProviderName: cfg.Routing.Default.Provider, ModelName: cfg.Routing.Default.Model, ContextConfig: cfg.Context}, Logger: rt.Logger})
 	defer loop.Close()
-	turnTask := buildChainTask(flags, chainID)
+	steps, err := rt.ChainStore.ListSteps(ctx, req.ChainID)
+	if err != nil {
+		return err
+	}
+	turnTask := buildChainTask(flags, req.ChainID, existingReceiptPaths(steps))
 	if _, err := loop.RunTurn(ctx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit}); err != nil {
-		if handled, handleErr := handleChainRunInterruption(ctx, rt.ChainStore, chainID, err, cmd); handled || handleErr != nil {
+		if handled, handleErr := handleChainRunInterruption(ctx, rt.ChainStore, req.ChainID, err, cmd); handled || handleErr != nil {
 			return handleErr
 		}
 		return err
 	}
-	if err := finalizeRequestedChainStatus(ctx, rt.ChainStore, chainID); err != nil {
+	if err := finalizeRequestedChainStatus(ctx, rt.ChainStore, req.ChainID); err != nil {
 		return err
 	}
-	stored, err := rt.ChainStore.GetChain(ctx, chainID)
+	stored, err := rt.ChainStore.GetChain(ctx, req.ChainID)
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)
 	if stored.Status == "failed" {
-		return fmt.Errorf("chain %s failed", chainID)
+		return fmt.Errorf("chain %s failed", req.ChainID)
 	}
 	return nil
 }
 
-func buildChainTask(flags chainFlags, chainID string) string {
-	if strings.TrimSpace(flags.Specs) != "" {
-		return fmt.Sprintf("You are managing a chain execution. Source specs: %s. Chain ID: %s. Read the specs from the brain, inspect existing receipts/state for this chain, and continue orchestrating from the current point.", strings.Join(parseSpecs(flags.Specs), ", "), chainID)
+func waitForChainBackgroundHandshake(ctx context.Context, store *chain.Store, chainID string, parentPID int, child *backgroundChainChildHandle, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
 	}
-	return fmt.Sprintf("You are managing a chain execution. Task: %s. Chain ID: %s. Inspect existing receipts/state for this chain and continue orchestrating from the current point.", strings.TrimSpace(flags.Task), chainID)
+	deadline := time.Now().Add(timeout)
+	for {
+		events, err := store.ListEvents(ctx, chainID)
+		if err == nil {
+			if exec, ok := chain.LatestActiveExecution(events); ok && exec.OrchestratorPID > 0 && exec.OrchestratorPID != parentPID {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case waitErr, ok := <-child.wait:
+			if ok {
+				events, _ := store.ListEvents(context.WithoutCancel(ctx), chainID)
+				if exec, active := chain.LatestActiveExecution(events); active && exec.OrchestratorPID > 0 && exec.OrchestratorPID != parentPID {
+					return nil
+				}
+				if waitErr != nil {
+					return fmt.Errorf("background chain child exited before registering execution: %w", waitErr)
+				}
+				return fmt.Errorf("background chain child exited before registering execution")
+			}
+		default:
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("background chain child did not register active execution for chain %s", chainID)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func buildChainTask(flags chainFlags, chainID string, receiptPaths []string) string {
+	history := "No existing receipt paths were found for this chain yet."
+	if len(receiptPaths) > 0 {
+		history = fmt.Sprintf("Relevant existing receipt paths to read first: %s.", strings.Join(receiptPaths, ", "))
+	}
+	if strings.TrimSpace(flags.Specs) != "" {
+		return fmt.Sprintf("You are managing a chain execution. Source specs: %s. Chain ID: %s. Read the specs from the brain. %s Continue orchestrating from the current point.", strings.Join(parseSpecs(flags.Specs), ", "), chainID, history)
+	}
+	return fmt.Sprintf("You are managing a chain execution. Task: %s. Chain ID: %s. %s Continue orchestrating from the current point.", strings.TrimSpace(flags.Task), chainID, history)
+}
+
+func existingReceiptPaths(steps []chain.Step) []string {
+	paths := make([]string, 0, len(steps))
+	seen := make(map[string]struct{}, len(steps))
+	for _, step := range steps {
+		path := strings.TrimSpace(step.ReceiptPath)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func resolveExistingChain(ctx context.Context, store *chain.Store, chainID string) (*chain.Chain, error) {
@@ -224,8 +416,56 @@ func prepareExistingChainForExecution(ctx context.Context, store *chain.Store, e
 		return err
 	}
 	_ = store.LogEvent(ctx, existing.ID, "", chain.EventChainResumed, map[string]any{"resumed_by": "cli"})
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "chain %s resumed\n", existing.ID)
 	return nil
+}
+
+type chainWatchHandle struct {
+	cancel func()
+	done   <-chan error
+}
+
+func startChainWatch(ctx context.Context, out io.Writer, store *chain.Store, chainID string, enabled bool, opts chainRenderOptions) *chainWatchHandle {
+	if !enabled {
+		return &chainWatchHandle{}
+	}
+	watchCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- followChainEvents(watchCtx, out, store, chainID, 0, opts)
+	}()
+	return &chainWatchHandle{cancel: cancel, done: done}
+}
+
+func (h *chainWatchHandle) wait(timeout time.Duration) error {
+	if h == nil || h.done == nil {
+		return nil
+	}
+	if timeout <= 0 {
+		timeout = chainWatchFlushTimeout
+	}
+	select {
+	case err := <-h.done:
+		if h.cancel != nil {
+			h.cancel()
+		}
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	case <-time.After(timeout):
+		if h.cancel != nil {
+			h.cancel()
+		}
+		select {
+		case err := <-h.done:
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
+		case <-time.After(250 * time.Millisecond):
+			return nil
+		}
+	}
 }
 
 func registerActiveChainExecution(ctx context.Context, store *chain.Store, chainID string, isNew bool, resumed bool) error {

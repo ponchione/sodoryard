@@ -13,6 +13,8 @@ import (
 	"github.com/ponchione/sodoryard/internal/provider"
 )
 
+const maxSSEScannerTokenSize = 1024 * 1024
+
 func sendStreamEvent(ctx context.Context, ch chan<- provider.StreamEvent, event provider.StreamEvent) bool {
 	select {
 	case ch <- event:
@@ -178,6 +180,7 @@ func (p *CodexProvider) Stream(ctx context.Context, req *provider.Request) (<-ch
 
 		state := &streamState{}
 		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), maxSSEScannerTokenSize)
 
 		var eventType string
 

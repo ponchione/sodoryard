@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -54,12 +55,52 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := cmd.Flags().Lookup("brain"); flag == nil {
 		t.Fatal("expected brain flag")
 	}
+	if flag := cmd.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
+		t.Fatalf("watch flag = %#v, want default true", flag)
+	}
+	if flag := cmd.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
+		t.Fatalf("verbosity flag = %#v, want default normal", flag)
+	}
+	resume := newYardChainResumeCmd(&configPath)
+	if flag := resume.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
+		t.Fatalf("resume watch flag = %#v, want default true", flag)
+	}
+	if flag := resume.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
+		t.Fatalf("resume verbosity flag = %#v, want default normal", flag)
+	}
+	logs := newYardChainLogsCmd(&configPath)
+	if flag := logs.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
+		t.Fatalf("logs verbosity flag = %#v, want default normal", flag)
+	}
 }
 
 func TestYardChainSpecFromFlagsUsesMaxResolverLoops(t *testing.T) {
 	spec := yardChainSpecFromFlags("chain-1", yardChainFlags{Specs: "specs/a.md", MaxSteps: 7, MaxResolverLoops: 9, MaxDuration: time.Hour, TokenBudget: 123})
 	if spec.MaxResolverLoops != 9 {
 		t.Fatalf("MaxResolverLoops = %d, want 9", spec.MaxResolverLoops)
+	}
+}
+
+func TestYardBuildChainTaskIncludesNoHistoryFallback(t *testing.T) {
+	msg := yardBuildChainTask(yardChainFlags{Specs: "specs/a.md,specs/b.md"}, "chain-1", nil)
+	if !strings.Contains(msg, "specs/a.md") || !strings.Contains(msg, "chain-1") {
+		t.Fatalf("message = %q", msg)
+	}
+	if !strings.Contains(msg, "No existing receipt paths were found for this chain yet.") {
+		t.Fatalf("message = %q, want no-history fallback", msg)
+	}
+	if strings.Contains(msg, "receipts/state") {
+		t.Fatalf("message = %q, unexpected generic receipts/state wording", msg)
+	}
+}
+
+func TestYardBuildChainTaskIncludesOnlyExistingReceiptPaths(t *testing.T) {
+	msg := yardBuildChainTask(yardChainFlags{Task: "fix auth"}, "chain-1", []string{"receipts/planner/chain-1-step-001.md", "receipts/coder/chain-1-step-002.md"})
+	if !strings.Contains(msg, "Relevant existing receipt paths to read first: receipts/planner/chain-1-step-001.md, receipts/coder/chain-1-step-002.md") {
+		t.Fatalf("message = %q, want existing receipt paths", msg)
+	}
+	if strings.Contains(msg, "No existing receipt paths were found") {
+		t.Fatalf("message = %q, unexpected no-history fallback", msg)
 	}
 }
 
@@ -267,6 +308,327 @@ func TestSignalYardActiveChainProcessUsesLatestRegisteredOrchestratorPID(t *test
 	}
 }
 
+func TestYardRunChainLaunchesBackgroundChildAndParentDoesNotRegisterActiveExecution(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	db := newYardChainControlTestDB(t)
+	store := chain.NewStore(db)
+
+	originalBuildRuntime := buildYardChainRuntime
+	originalLaunch := launchYardChainBackgroundChild
+	defer func() {
+		buildYardChainRuntime = originalBuildRuntime
+		launchYardChainBackgroundChild = originalLaunch
+	}()
+
+	buildYardChainRuntime = func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if cfg.ProjectRoot != projectRoot {
+			t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, projectRoot)
+		}
+		if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+			t.Fatalf("EnsureProjectRecord returned error: %v", err)
+		}
+		return &rtpkg.OrchestratorRuntime{Config: cfg, Logger: slog.Default(), ConversationManager: conversation.NewManager(db, nil, slog.Default()), ContextAssembler: rtpkg.NoopContextAssembler{}, ChainStore: store, Cleanup: func() {}}, nil
+	}
+
+	const chainID = "yard-run-background-parent"
+	launchYardChainBackgroundChild = func(configPath string, req yardBackgroundChainExecutionRequest) (*yardBackgroundChainChildHandle, error) {
+		if configPath != cfgPath {
+			t.Fatalf("configPath = %q, want %q", configPath, cfgPath)
+		}
+		if req.ChainID != chainID {
+			t.Fatalf("req.ChainID = %q, want %q", req.ChainID, chainID)
+		}
+		if !req.IsNew || req.Resumed {
+			t.Fatalf("request = %+v, want new non-resumed launch", req)
+		}
+		waitCh := make(chan error, 1)
+		go func() {
+			time.Sleep(25 * time.Millisecond)
+			if err := store.LogEvent(context.Background(), chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 9777, "execution_id": "exec-child", "active_execution": true}); err != nil {
+				waitCh <- err
+				return
+			}
+			waitCh <- nil
+		}()
+		return &yardBackgroundChainChildHandle{wait: waitCh}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := yardRunChain(ctx, cfgPath, yardChainFlags{Task: "launch child", ChainID: chainID, Watch: false}, cmd); err != nil {
+		t.Fatalf("yardRunChain returned error: %v", err)
+	}
+	if stdout.String() != chainID+"\n" {
+		t.Fatalf("stdout = %q, want only chain id", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want no watch output", stderr.String())
+	}
+	finalEvents, err := store.ListEvents(context.Background(), chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	exec, ok := chain.LatestActiveExecution(finalEvents)
+	if !ok || exec.OrchestratorPID != 9777 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want child pid 9777", exec, ok)
+	}
+	for _, event := range finalEvents {
+		if strings.Contains(event.EventData, `"active_execution":true`) && strings.Contains(event.EventData, fmt.Sprintf(`"orchestrator_pid":%d`, os.Getpid())) {
+			t.Fatalf("event data = %s, want parent process to avoid active_execution registration", event.EventData)
+		}
+	}
+}
+
+func TestYardRunChainWatchInterruptDetachesWithoutClosingBackgroundExecution(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	db := newYardChainControlTestDB(t)
+	store := chain.NewStore(db)
+
+	originalBuildRuntime := buildYardChainRuntime
+	originalLaunch := launchYardChainBackgroundChild
+	defer func() {
+		buildYardChainRuntime = originalBuildRuntime
+		launchYardChainBackgroundChild = originalLaunch
+	}()
+
+	buildYardChainRuntime = func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if cfg.ProjectRoot != projectRoot {
+			t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, projectRoot)
+		}
+		if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+			t.Fatalf("EnsureProjectRecord returned error: %v", err)
+		}
+		return &rtpkg.OrchestratorRuntime{Config: cfg, Logger: slog.Default(), ConversationManager: conversation.NewManager(db, nil, slog.Default()), ContextAssembler: rtpkg.NoopContextAssembler{}, ChainStore: store, Cleanup: func() {}}, nil
+	}
+
+	const chainID = "yard-run-detach"
+	launchYardChainBackgroundChild = func(configPath string, req yardBackgroundChainExecutionRequest) (*yardBackgroundChainChildHandle, error) {
+		waitCh := make(chan error)
+		go func() {
+			time.Sleep(25 * time.Millisecond)
+			_ = store.LogEvent(context.Background(), chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 9888, "execution_id": "exec-child", "active_execution": true})
+			time.Sleep(25 * time.Millisecond)
+			_ = store.LogEvent(context.Background(), chainID, "", chain.EventStepStarted, map[string]any{"role": "planner", "task": "background task"})
+		}()
+		return &yardBackgroundChainChildHandle{wait: waitCh}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- yardRunChain(ctx, cfgPath, yardChainFlags{Task: "detach", ChainID: chainID, Watch: true}, cmd)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(stderr.String(), "step_started") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(stderr.String(), "step_started") {
+		t.Fatalf("stderr = %q, want streamed watch output before detach", stderr.String())
+	}
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Fatalf("yardRunChain returned error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "detached from live output; chain "+chainID+" continues running") {
+		t.Fatalf("stderr = %q, want detach message", stderr.String())
+	}
+	stored, err := store.GetChain(context.Background(), chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != "running" {
+		t.Fatalf("status = %q, want running after detach", stored.Status)
+	}
+	finalEvents, err := store.ListEvents(context.Background(), chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	exec, ok := chain.LatestActiveExecution(finalEvents)
+	if !ok || exec.OrchestratorPID != 9888 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want child pid 9888 still active", exec, ok)
+	}
+}
+
+func TestYardRunChainBackgroundWorkerRegistersActiveExecutionWithOwnPID(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	db := newYardChainControlTestDB(t)
+	store := chain.NewStore(db)
+	const chainID = "yard-worker-registers"
+	if _, err := store.StartChain(ctx, yardChainSpecFromFlags(chainID, yardChainFlags{Task: "worker task", MaxSteps: 100, MaxResolverLoops: 3, MaxDuration: 4 * time.Hour, TokenBudget: 5_000_000})); err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"task": "worker task"}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+
+	originalBuildRuntime := buildYardChainRuntime
+	originalBuildRegistry := buildYardChainRegistry
+	originalNewTurnRunner := newYardChainTurnRunner
+	defer func() {
+		buildYardChainRuntime = originalBuildRuntime
+		buildYardChainRegistry = originalBuildRegistry
+		newYardChainTurnRunner = originalNewTurnRunner
+	}()
+
+	buildYardChainRuntime = func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if cfg.ProjectRoot != projectRoot {
+			t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, projectRoot)
+		}
+		if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+			t.Fatalf("EnsureProjectRecord returned error: %v", err)
+		}
+		return &rtpkg.OrchestratorRuntime{Config: cfg, Logger: slog.Default(), ConversationManager: conversation.NewManager(db, nil, slog.Default()), ContextAssembler: rtpkg.NoopContextAssembler{}, ChainStore: store, Cleanup: func() {}}, nil
+	}
+	buildYardChainRegistry = func(rt *rtpkg.OrchestratorRuntime, roleCfg appconfig.AgentRoleConfig, chainID string) (*tool.Registry, error) {
+		return tool.NewRegistry(), nil
+	}
+	newYardChainTurnRunner = func(deps agent.AgentLoopDeps) chainTurnRunner {
+		return &blockingYardChainTurnRunner{run: func(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+			if err := store.SetChainStatus(ctx, chainID, "completed"); err != nil {
+				t.Fatalf("SetChainStatus returned error: %v", err)
+			}
+			return &agent.TurnResult{FinalText: "done", IterationCount: 1, Duration: time.Second}, nil
+		}}
+	}
+
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	if err := yardRunChainBackgroundWorker(ctx, cfgPath, yardBackgroundChainExecutionRequest{ChainID: chainID, IsNew: true}, cmd); err != nil {
+		t.Fatalf("yardRunChainBackgroundWorker returned error: %v", err)
+	}
+	events, err := store.ListEvents(context.Background(), chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	exec, ok := chain.LatestActiveExecution(events)
+	if !ok || exec.OrchestratorPID != os.Getpid() {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want current pid %d", exec, ok, os.Getpid())
+	}
+}
+
+func TestYardRunChainPrintsChainIDEarlyAndStreamsWatchOutput(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	db := newYardChainControlTestDB(t)
+	store := chain.NewStore(db)
+
+	originalBuildRuntime := buildYardChainRuntime
+	originalLaunch := launchYardChainBackgroundChild
+	defer func() {
+		buildYardChainRuntime = originalBuildRuntime
+		launchYardChainBackgroundChild = originalLaunch
+	}()
+
+	buildYardChainRuntime = func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if cfg.ProjectRoot != projectRoot {
+			t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, projectRoot)
+		}
+		if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+			t.Fatalf("EnsureProjectRecord returned error: %v", err)
+		}
+		return &rtpkg.OrchestratorRuntime{Config: cfg, Logger: slog.Default(), ConversationManager: conversation.NewManager(db, nil, slog.Default()), ContextAssembler: rtpkg.NoopContextAssembler{}, ChainStore: store, Cleanup: func() {}}, nil
+	}
+
+	const chainID = "yard-run-watch"
+	launchYardChainBackgroundChild = func(configPath string, req yardBackgroundChainExecutionRequest) (*yardBackgroundChainChildHandle, error) {
+		waitCh := make(chan error, 1)
+		go func() {
+			time.Sleep(25 * time.Millisecond)
+			_ = store.LogEvent(context.Background(), chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 9901, "execution_id": "exec-child", "active_execution": true})
+			time.Sleep(25 * time.Millisecond)
+			_ = store.LogEvent(context.Background(), chainID, "", chain.EventStepStarted, map[string]any{"role": "planner", "task": "watch task"})
+			time.Sleep(25 * time.Millisecond)
+			_ = store.SetChainStatus(context.Background(), chainID, "completed")
+			waitCh <- nil
+		}()
+		return &yardBackgroundChainChildHandle{wait: waitCh}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := yardRunChain(ctx, cfgPath, yardChainFlags{Task: "watch task", ChainID: chainID, Watch: true}, cmd); err != nil {
+		t.Fatalf("yardRunChain returned error: %v", err)
+	}
+	if stdout.String() != chainID+"\n" {
+		t.Fatalf("stdout = %q, want chain id before watch completion", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "step_started") || !strings.Contains(stderr.String(), "role=planner") {
+		t.Fatalf("stderr = %q, want streamed step_started output", stderr.String())
+	}
+}
+
+func TestYardRunChainWatchFalseSuppressesStderrProgress(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	db := newYardChainControlTestDB(t)
+	store := chain.NewStore(db)
+
+	originalBuildRuntime := buildYardChainRuntime
+	originalLaunch := launchYardChainBackgroundChild
+	defer func() {
+		buildYardChainRuntime = originalBuildRuntime
+		launchYardChainBackgroundChild = originalLaunch
+	}()
+
+	buildYardChainRuntime = func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if cfg.ProjectRoot != projectRoot {
+			t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, projectRoot)
+		}
+		if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+			t.Fatalf("EnsureProjectRecord returned error: %v", err)
+		}
+		return &rtpkg.OrchestratorRuntime{Config: cfg, Logger: slog.Default(), ConversationManager: conversation.NewManager(db, nil, slog.Default()), ContextAssembler: rtpkg.NoopContextAssembler{}, ChainStore: store, Cleanup: func() {}}, nil
+	}
+
+	const chainID = "yard-run-no-watch"
+	launchYardChainBackgroundChild = func(configPath string, req yardBackgroundChainExecutionRequest) (*yardBackgroundChainChildHandle, error) {
+		waitCh := make(chan error, 1)
+		go func() {
+			time.Sleep(25 * time.Millisecond)
+			_ = store.LogEvent(context.Background(), chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 9902, "execution_id": "exec-child", "active_execution": true})
+			_ = store.LogEvent(context.Background(), chainID, "", chain.EventStepStarted, map[string]any{"role": "planner", "task": "watch task"})
+			waitCh <- nil
+		}()
+		return &yardBackgroundChainChildHandle{wait: waitCh}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := yardRunChain(ctx, cfgPath, yardChainFlags{Task: "watch task", ChainID: chainID, Watch: false}, cmd); err != nil {
+		t.Fatalf("yardRunChain returned error: %v", err)
+	}
+	if stdout.String() != chainID+"\n" {
+		t.Fatalf("stdout = %q, want only chain id", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want no streamed output when watch=false", stderr.String())
+	}
+}
+
 func TestYardRunChainPauseRequestedInterruptionClosesActiveExecution(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -274,6 +636,13 @@ func TestYardRunChainPauseRequestedInterruptionClosesActiveExecution(t *testing.
 	cfgPath, projectRoot := writeYardRunConfig(t)
 	db := newYardChainControlTestDB(t)
 	store := chain.NewStore(db)
+	const chainID = "yard-run-pause"
+	if _, err := store.StartChain(ctx, yardChainSpecFromFlags(chainID, yardChainFlags{Task: "prove pause cleanup", MaxSteps: 100, MaxResolverLoops: 3, MaxDuration: 4 * time.Hour, TokenBudget: 5_000_000})); err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"task": "prove pause cleanup"}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
 
 	originalBuildRuntime := buildYardChainRuntime
 	originalBuildRegistry := buildYardChainRegistry
@@ -321,9 +690,8 @@ func TestYardRunChainPauseRequestedInterruptionClosesActiveExecution(t *testing.
 	cmd.SetErr(&out)
 
 	errCh := make(chan error, 1)
-	const chainID = "yard-run-pause"
 	go func() {
-		errCh <- yardRunChain(ctx, cfgPath, yardChainFlags{Task: "prove pause cleanup", ChainID: chainID}, cmd)
+		errCh <- yardRunChainBackgroundWorker(ctx, cfgPath, yardBackgroundChainExecutionRequest{ChainID: chainID, IsNew: true}, cmd)
 	}()
 
 	select {
@@ -406,4 +774,52 @@ func writeYardRunConfig(t *testing.T) (string, string) {
 		t.Fatalf("WriteFile(config) returned error: %v", err)
 	}
 	return configPath, projectRoot
+}
+
+func TestFormatChainEventRendersStepOutputCompactly(t *testing.T) {
+	event := chain.Event{
+		ID:        42,
+		CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC),
+		EventType: chain.EventStepOutput,
+		EventData: `{"stream":"stderr","line":"thinking hard"}`,
+	}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "42\t2026-04-21T01:02:03Z\tstep_output\t[stderr] thinking hard\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatChainEventSuppressesNormalModeBootstrapChatter(t *testing.T) {
+	event := chain.Event{ID: 43, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepOutput, EventData: `{"stream":"stderr","line":"status: waiting_for_llm"}`}
+	if got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal}); got != "" {
+		t.Fatalf("formatChainEvent() = %q, want empty for suppressed normal-mode chatter", got)
+	}
+	want := "43\t2026-04-21T01:02:03Z\tstep_output\t[stderr] status: waiting_for_llm\n"
+	if got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityDebug}); got != want {
+		t.Fatalf("debug formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatChainEventRendersStepStartedCompactly(t *testing.T) {
+	event := chain.Event{ID: 7, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepStarted, EventData: `{"role":"coder","task":"fix auth","receipt_path":"receipts/coder/chain-step-001.md"}`}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "7\t2026-04-21T01:02:03Z\tstep_started\trole=coder task=\"fix auth\" receipt_path=receipts/coder/chain-step-001.md\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatChainEventFallsBackToRawPayloadForNonStepOutput(t *testing.T) {
+	event := chain.Event{
+		ID:        7,
+		CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC),
+		EventType: chain.EventStepStarted,
+		EventData: `not-json`,
+	}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "7\t2026-04-21T01:02:03Z\tstep_started\tnot-json\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
 }

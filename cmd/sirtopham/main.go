@@ -26,6 +26,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultCLIConfigPath, "Path to yard.yaml config file")
 	rootCmd.AddCommand(
 		newChainCmd(&configPath),
+		newRunChainBackgroundCmd(&configPath),
 		newStatusCmd(&configPath),
 		newLogsCmd(&configPath),
 		newReceiptCmd(&configPath),

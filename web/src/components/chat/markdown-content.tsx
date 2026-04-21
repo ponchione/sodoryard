@@ -1,33 +1,42 @@
+import { lazy, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Components } from "react-markdown";
 
 interface MarkdownContentProps {
   content: string;
 }
 
+const LazyCodeBlockRenderer = lazy(async () => {
+  const module = await import("./code-block-renderer");
+  return { default: module.CodeBlockRenderer };
+});
+
+function PlainCodeBlock({ code }: { code: string }) {
+  return (
+    <pre
+      data-code-block-renderer="plain"
+      className="my-2 overflow-x-auto rounded-md bg-[#282c34] p-3 text-xs text-slate-100"
+    >
+      <code>{code}</code>
+    </pre>
+  );
+}
+
 const components: Components = {
   code(props) {
     const { children, className, ...rest } = props;
-    const match = /language-(\w+)/.exec(className || "");
+    const match = /language-([\w-]+)/.exec(className || "");
     const code = String(children).replace(/\n$/, "");
 
     if (match) {
       return (
-        <SyntaxHighlighter
-          style={oneDark}
-          language={match[1]}
-          PreTag="div"
-          className="!rounded-md !text-xs !my-2"
-        >
-          {code}
-        </SyntaxHighlighter>
+        <Suspense fallback={<PlainCodeBlock code={code} />}>
+          <LazyCodeBlockRenderer code={code} language={match[1]} />
+        </Suspense>
       );
     }
 
-    // Inline code.
     return (
       <code
         className="rounded bg-muted-foreground/15 px-1 py-0.5 text-xs font-mono"
@@ -38,7 +47,6 @@ const components: Components = {
     );
   },
   pre(props) {
-    // Let the code component handle syntax highlighting inside pre.
     return <>{props.children}</>;
   },
   p(props) {
@@ -74,7 +82,7 @@ const components: Components = {
   table(props) {
     return (
       <div className="mb-2 overflow-x-auto last:mb-0">
-        <table className="min-w-full text-xs border-collapse" {...props} />
+        <table className="min-w-full border-collapse text-xs" {...props} />
       </div>
     );
   },

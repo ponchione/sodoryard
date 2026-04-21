@@ -14,6 +14,7 @@ type EventType string
 const (
 	EventChainStarted     EventType = "chain_started"
 	EventStepStarted      EventType = "step_started"
+	EventStepOutput       EventType = "step_output"
 	EventStepCompleted    EventType = "step_completed"
 	EventStepFailed       EventType = "step_failed"
 	EventReindexStarted   EventType = "reindex_started"

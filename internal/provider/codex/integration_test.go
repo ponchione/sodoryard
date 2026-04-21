@@ -441,9 +441,6 @@ func TestIntegration_CompleteRequestBodyValidation(t *testing.T) {
 	if reasoning["effort"] != "xhigh" {
 		t.Errorf("expected effort %q, got %v", "xhigh", reasoning["effort"])
 	}
-	if reasoning["encrypted_content"] != "retain" {
-		t.Errorf("expected encrypted_content %q, got %v", "retain", reasoning["encrypted_content"])
-	}
 }
 
 func TestIntegration_StreamTextResponse(t *testing.T) {

@@ -206,9 +206,14 @@ yard serve
 # Start a multi-agent chain
 yard chain start --task "implement user authentication"
 
-# Monitor progress
+# `yard chain start` prints the chain ID immediately on stdout
+# and streams live progress on stderr by default.
+# Use `--watch=false` when you only want the ID.
+yard chain start --watch=false --task "implement user authentication"
+
+# Reattach to an already-running chain
+yard chain logs --follow <chain-id>
 yard chain status
-yard chain logs <chain-id>
 
 # Read the result
 yard chain receipt <chain-id>

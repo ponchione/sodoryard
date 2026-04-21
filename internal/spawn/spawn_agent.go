@@ -117,10 +117,16 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 	start := t.now()
 	var stdout, stderr bytes.Buffer
 	res := t.runCommand(ctx, RunCommandInput{
-		Name:    t.EngineBinary,
-		Args:    []string{"run", "--config", appconfig.ConfigFilename, "--role", in.Role, "--task", in.Task, "--chain-id", t.ChainID, "--receipt-path", receiptPath, "--quiet"},
-		Stdout:  &stdout,
-		Stderr:  &stderr,
+		Name:   t.EngineBinary,
+		Args:   []string{"run", "--config", appconfig.ConfigFilename, "--role", in.Role, "--task", in.Task, "--chain-id", t.ChainID, "--receipt-path", receiptPath},
+		Stdout: &stdout,
+		Stderr: &stderr,
+		OnStdoutLine: func(line string) {
+			t.logStepOutput(ctx, stepID, "stdout", line)
+		},
+		OnStderrLine: func(line string) {
+			t.logStepOutput(ctx, stepID, "stderr", line)
+		},
 		Env:     t.SubprocessEnv,
 		Dir:     t.ProjectRoot,
 		Timeout: 30 * time.Minute,
@@ -197,6 +203,13 @@ func (t *SpawnAgentTool) reindex(ctx context.Context) error {
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventReindexCompleted, map[string]any{"duration_secs": int(t.now().Sub(start).Round(time.Second) / time.Second)})
 	return nil
+}
+
+func (t *SpawnAgentTool) logStepOutput(ctx context.Context, stepID string, stream string, line string) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	_ = t.Store.LogEvent(ctx, t.ChainID, stepID, chain.EventStepOutput, map[string]any{"stream": stream, "line": line})
 }
 
 func statusFromVerdict(v receipt.Verdict) string {
