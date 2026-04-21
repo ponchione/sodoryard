@@ -7,15 +7,19 @@ LANCEDB_LIB_DIR     := $(CURDIR)/lib/linux_amd64
 LANCEDB_CGO_LDFLAGS := -L$(LANCEDB_LIB_DIR) -llancedb_go -lm -ldl -lpthread
 CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIBRARY_PATH="$(LANCEDB_LIB_DIR)"
 CGO_BUILD_ENV       := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS) -Wl,-rpath,$(LANCEDB_LIB_DIR)"
+RETIRED_BINARIES    := $(BIN_DIR)/sirtopham $(BIN_DIR)/knapford
 
-.PHONY: all build tidmouth knapford yard install-user-bin test dev-backend dev-frontend dev frontend-deps frontend-build frontend-typecheck clean
+.PHONY: all build cleanup-retired-binaries tidmouth yard install-user-bin test dev-backend dev-frontend dev frontend-deps frontend-build frontend-typecheck clean
 
 # `make all` builds every remaining repo binary after legacy public CLI cleanup.
 # `make build` is an alias for `make tidmouth` because the internal engine
 # binary still carries the frontend embed and runtime harness.
-all: tidmouth knapford yard
+all: cleanup-retired-binaries tidmouth yard
 
-build: tidmouth
+build: cleanup-retired-binaries tidmouth
+
+cleanup-retired-binaries:
+	rm -f $(RETIRED_BINARIES)
 
 # ── Binaries ─────────────────────────────────────────────────────────
 # tidmouth: the headless engine harness. Embeds the React frontend via
@@ -24,11 +28,6 @@ tidmouth: frontend-build
 	rm -rf $(WEBFS_DIST) && cp -r $(WEB_DIR)/dist $(WEBFS_DIST)
 	mkdir -p $(BIN_DIR)
 	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/tidmouth ./cmd/tidmouth
-
-# knapford: web dashboard (Phase 6 placeholder for now).
-knapford:
-	mkdir -p $(BIN_DIR)
-	go build -o $(BIN_DIR)/knapford ./cmd/knapford
 
 # yard: operator-facing CLI for project bootstrap, runtime control, and chain
 # orchestration. Same SQLite (FTS5) and lancedb cgo wiring as tidmouth.

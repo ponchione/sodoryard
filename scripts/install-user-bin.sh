@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_ROOT=${REPO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}
 TARGET_BIN_DIR=${TARGET_BIN_DIR:-${HOME}/bin}
 SKIP_BUILD=${SKIP_BUILD:-0}
-BINARIES=(${BINARIES:-tidmouth sirtopham knapford yard})
+BINARIES=(${BINARIES:-tidmouth yard})
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
   echo "Building binaries via make all"

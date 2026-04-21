@@ -18,7 +18,7 @@ RUN npm run build
 
 
 # ─── Stage 2: Go builder ────────────────────────────────────────────
-# Compiles the four Go binaries (tidmouth, sirtopham, yard, knapford)
+# Compiles the retained Go binaries (tidmouth, yard)
 # with sqlite_fts5 + lancedb cgo wiring. Rebuilds rpath to point at
 # the runtime image's library location (/usr/local/lib) so the
 # binaries find liblancedb_go.so without env var gymnastics.
@@ -37,20 +37,18 @@ COPY . .
 # webfs/embed.go expects.
 COPY --from=frontend-builder /web/dist ./webfs/dist
 
-# Build the four binaries with the corrected rpath. The CGO_LDFLAGS
+# Build the retained binaries with the corrected rpath. The CGO_LDFLAGS
 # rpath points at /usr/local/lib because that's where the runtime
 # stage stages liblancedb_go.so.
 ENV CGO_ENABLED=1
 ENV CGO_LDFLAGS="-L/workspace/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread -Wl,-rpath,/usr/local/lib"
 
 RUN go build -tags sqlite_fts5 -o /out/tidmouth ./cmd/tidmouth
-RUN go build -tags sqlite_fts5 -o /out/sirtopham ./cmd/sirtopham
 RUN go build -tags sqlite_fts5 -o /out/yard ./cmd/yard
-RUN go build -o /out/knapford ./cmd/knapford
 
 
 # ─── Stage 3: runtime ───────────────────────────────────────────────
-# Slim debian image with glibc + the four binaries + lancedb shared
+# Slim debian image with glibc + the retained binaries + lancedb shared
 # library + agent prompts. No Go toolchain, no Node, no source.
 FROM debian:trixie-slim AS runtime
 
@@ -73,19 +71,16 @@ RUN apt-get update \
 COPY --from=go-builder /workspace/lib/linux_amd64/liblancedb_go.so /usr/local/lib/
 RUN ldconfig
 
-# Install the four binaries.
+# Install the retained binaries.
 COPY --from=go-builder /out/tidmouth /usr/local/bin/tidmouth
-COPY --from=go-builder /out/sirtopham /usr/local/bin/sirtopham
 COPY --from=go-builder /out/yard /usr/local/bin/yard
-COPY --from=go-builder /out/knapford /usr/local/bin/knapford
 
-# Install the 13 agent prompts at the canonical container location.
-# yard install reads SODORYARD_AGENTS_DIR (set below) when invoked
-# inside the container, so the substitution lands at this path.
+# Install the 13 agent prompts at the canonical container location for
+# the retained container runtime.
 COPY --from=go-builder /workspace/agents /opt/yard/agents
 
-# Tell yard install where the agents directory lives. Operators
-# inside the container do not need to pass --sodoryard-agents-dir.
+# Expose the canonical container agent-prompts path for runtime code that
+# needs it.
 ENV SODORYARD_AGENTS_DIR=/opt/yard/agents
 
 # Bind-mounted project lives at /project; make it the working
