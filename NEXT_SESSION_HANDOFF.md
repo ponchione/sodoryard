@@ -3,8 +3,8 @@
 You are resuming work in `/home/gernsback/source/sodoryard`.
 
 Objective
-- Continue the Go simplification sweep in `internal/agent` with only narrow, behavior-preserving slices.
-- Do not reopen broad runtime, UI, provider, or docs-cleanup work unless the user explicitly asks.
+- Continue the repo simplification sweep only with narrow, behavior-preserving slices.
+- Do not reopen runtime, provider, UI, or broad docs cleanup unless the user explicitly asks.
 - Treat this file as the self-contained prompt for the next agent.
 
 Read first
@@ -12,140 +12,115 @@ Read first
 2. `README.md`
 3. `GO_SIMPLIFICATION_SWEEP.md`
 4. `NEXT_SESSION_HANDOFF.md`
-5. Skill: `software-development/agent-loop-tool-dispatch-simplification`
+5. Skill: `agent-loop-tool-dispatch-simplification`
+6. Skill: `test-driven-development`
 
 Current repo truth
-- The current simplification focus remains P0.1 from `GO_SIMPLIFICATION_SWEEP.md`: shrink `internal/agent` orchestration complexity without changing behavior.
-- The `RunTurn` decomposition is already spread across focused files instead of one giant body.
-- Cleanup/finalization logic remains split across:
-  - `internal/agent/turn_cleanup.go`
-  - `internal/agent/turn_cleanup_plan.go`
-  - `internal/agent/turn_cleanup_apply.go`
-  - `internal/agent/turn_cleanup_finalize.go`
-- Tool dispatch remains split across:
-  - `internal/agent/runturn_tools.go`
-  - `internal/agent/runturn_tool_execute.go`
-  - `internal/agent/runturn_tool_finalize.go`
-- Tool-iteration persistence/bookkeeping now also has a dedicated orchestration seam in:
-  - `internal/agent/runturn_persist.go`
-- Shared cleanup-facing inflight scalar construction already lives in `internal/agent/turn_cleanup_inflight.go`.
+- The old P0.1 `internal/agent` micro-extraction track should stop here unless a brand-new seam is obviously clearer than the remaining inline orchestration.
+- Fresh re-scout still supports that stop decision:
+  - `internal/agent/runturn_orchestration.go` is already small and direct.
+  - `internal/agent/runturn_iteration.go` now contains only a few tight helper seams (`normalizeOverflowRecovery(...)`, `normalizeIterationSetupError(...)`, `partialAssistantCleanupTurn(...)`) plus straightforward inline orchestration.
+  - No remaining `internal/agent` helper candidate looked clearly better than the current inline code.
+- P0.2 is already materially landed:
+  - `cmd/yard/run.go` and `cmd/tidmouth/run.go` are thin wrappers over `internal/headless.RunSession(...)`.
+- P0.3A is already landed:
+  - shared mutating-file safety/read-state helpers for `internal/tool/file_write.go` and `internal/tool/file_edit.go` are extracted into `internal/tool/file_mutation_state.go`.
+- P1.1A is now landed:
+  - rendering helpers are split into `cmd/yard/chain_render.go`.
+  - watch/follow helpers are split into `cmd/yard/chain_watch.go`.
+  - `cmd/yard/chain.go` no longer owns the event rendering and watch-loop internals.
 
-What landed across the current uncommitted tree
-- Earlier narrow slices still present in the worktree:
-  - `internal/agent/runturn_tools.go`
-  - `internal/agent/runturn_tools_test.go`
-  - `TestNewInflightToolTurnBuildsBaseAndToolMetadata`
-- That slice rewired `newInflightToolTurn(...)` to start from `cleanupInflightTurn(...)` for shared scalar metadata while keeping tool-path-specific payload shaping local.
-- The next narrow slice still present in the worktree:
-  - `internal/agent/runturn_persist.go`
-  - `internal/agent/runturn_persist_test.go`
-  - `internal/agent/runturn_orchestration.go`
-  - `TestCompleteToolIterationPersistsMessagesAndAdvancesState`
-- That slice introduced `completeToolIteration(...)` and rewired `runSingleIteration(...)` so the post-tool-success bookkeeping tail is centralized while preserving the existing order:
-  1. apply tool-result budget
-  2. build assistant/tool persist messages
-  3. persist the iteration through `persistToolIteration(...)`
-  4. set `turnExec.completedIterations = iteration`
-  5. append assistant/tool messages to `turnExec.currentTurnMessages`
-  6. inject loop nudge if needed
-- This worktree also contains the overflow-recovery normalization slice:
-  - `internal/agent/runturn_iteration.go`
-  - `internal/agent/runturn_iteration_test.go`
-  - `TestNormalizeOverflowRecoveryUsesEmergencyCompressionRetryResult`
-  - `TestNormalizeOverflowRecoveryLeavesNonOverflowErrorUntouched`
-- That helper keeps overflow retry normalization narrow:
-  - returns the original `result` + `err` unchanged for nil or non-overflow errors
-  - delegates retry attempts to `tryEmergencyCompression(...)`
-  - preserves the original `result` + `err` when emergency compression is unavailable (`nil, nil`)
-  - returns the retry result on success
-  - returns the retry error on failure
-- This session landed one more narrow setup-cancellation normalization slice:
-  - `internal/agent/runturn_iteration.go`
-  - `internal/agent/runturn_iteration_test.go`
-  - `internal/agent/runturn_orchestration.go`
-  - `TestNormalizeIterationSetupErrorReturnsCancellationCleanup`
-  - `TestNormalizeIterationSetupErrorLeavesNonCancellationUntouched`
-- That slice introduced `normalizeIterationSetupError(...)` and rewired the `prepareIteration(...)` error branch in `runSingleIteration(...)` to use it.
-- `normalizeIterationSetupError(...)` intentionally stays tiny:
-  - returns `nil` unchanged for `err == nil`
-  - returns the original setup error unchanged when the context is not cancelled
-  - maps cancelled setup failures through the existing `handleIterationSetupCancellation(...)` path using the current conversation/turn/iteration metadata
-- The top-of-iteration `isCancelled(ctx)` guard remains inline in `runSingleIteration(...)` so the pre-iteration cancellation check still reads as an obvious guard rather than a helper indirection.
-- No cancellation behavior, provider execution timing, setup persistence semantics, cleanup-plan semantics, or event ordering were changed.
+What landed in the most recent session
+- Added the first `cmd/yard/chain.go` responsibility split:
+  - `cmd/yard/chain_render.go`
+  - `cmd/yard/chain_watch.go`
+- Added a focused helper-contract regression:
+  - `cmd/yard/chain_test.go` (`TestRenderYardChainEventsSkipsSuppressedOutputAndReturnsLastID`)
+- Rewired the existing command flow to use the extracted seam:
+  - `cmd/yard/chain.go`
+- Kept this handoff current after validating the new split.
 
-Behavior that must remain unchanged
-- malformed tool calls stay recoverable and skip executor dispatch
-- tool execution errors become enriched error tool results, not turn-ending errors
-- batch execution preserves tool-call/result ordering
-- batch cardinality mismatch normalizes into per-call error tool results
-- `toolpkg.ErrChainComplete` returns a successful final `TurnResult` and bypasses iteration persistence
-- cancellation cleanup still routes through the outer orchestration / `handleTurnCancellation(...)`
-- cleanup still emits `TurnCancelledEvent` before `StatusEvent(StateIdle)`
-- interrupted and failed assistant tombstones keep their current payload semantics
-- cancellation during `PersistIteration(...)` still replays the already-computed assistant/tool messages
-- loop-nudge injection still happens only after successful iteration persistence and assistant/tool message append
-- `runProviderIteration(...)` still decides cancellation-vs-stream-failure handling at the existing call sites
-- iteration-setup cancellation before any provider work still persists nothing and still avoids provider streaming
+Behavior intentionally preserved
+- `file_edit` still requires a prior full `file_read`.
+- `file_edit` still rejects partial-read snapshots with `not_read_first`.
+- `file_edit` still rejects stale snapshots with `stale_write` and clears the stored snapshot on mismatch.
+- `file_edit` still requires a fresh read after a successful edit.
+- `file_edit` still owns match counting, zero/multiple-match messaging, identical-old/new rejection, diff generation, and permission preservation.
+- `file_write` still requires a prior full `file_read` before overwriting existing non-empty content.
+- `file_write` still allows overwriting an existing empty file without a prior read.
+- `file_write` still re-checks freshness before the final rename and still requires a fresh read after a successful overwrite.
+- `file_write` still owns directory creation, temp-file atomic write, permission preservation, new-file behavior, and diff truncation.
+- `file_read` was intentionally left untouched in P0.3A.
 
-Validated on current tree
-- new helper-contract tests before implementation:
-  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./internal/agent -run 'TestNormalizeIterationSetupErrorReturnsCancellationCleanup|TestNormalizeIterationSetupErrorLeavesNonCancellationUntouched' -v` ❌ (`loop.normalizeIterationSetupError undefined`)
-- new helper-contract tests after implementation:
-  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./internal/agent -run 'TestNormalizeIterationSetupErrorReturnsCancellationCleanup|TestNormalizeIterationSetupErrorLeavesNonCancellationUntouched' -v` ✅
-- focused regression bundle after refactor:
-  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./internal/agent -run 'TestNormalizeIterationSetupErrorReturnsCancellationCleanup|TestNormalizeIterationSetupErrorLeavesNonCancellationUntouched|TestBuildCleanupPlanSkipsUnmaterializedIterationSetupCancellation|TestRunTurnCancelsBeforeIterationExecution|TestNormalizeOverflowRecoveryUsesEmergencyCompressionRetryResult|TestNormalizeOverflowRecoveryLeavesNonOverflowErrorUntouched|TestPartialAssistantCleanupTurnBuildsCleanupStateFromStreamResult|TestHandleTurnCancellationPersistsInterruptedAssistant|TestHandleTurnStreamFailurePersistsFailedAssistant|TestRunTurnCancellationDuringPersistIterationReplaysComputedMessages|TestRunSingleIterationCompletesTextOnlyTurn|TestCompleteToolIterationPersistsMessagesAndAdvancesState|TestRunTurnEmergencyCompressionOnContextOverflow' -v` ✅
-- focused package:
-  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./internal/agent` ✅
-- project validation:
+Re-scout conclusion for the next live slice
+- P1.1A is complete; do not reopen the render/watch split unless a regression appears.
+- `cmd/yard/chain.go` is now narrower because watch/follow logic and event rendering moved out to dedicated files.
+- The next best live simplification item is still inside P1.1, but no longer the render/watch seam.
+- The most likely next bounded follow-up is a second `cmd/yard/chain.go` split around one of these seams:
+  - status/receipt read-only command helpers, or
+  - control/status-transition helpers (`yardSetChainStatus(...)`, `validateYardChainStatusTransition(...)`, signaling helpers).
+- Do not widen back into `internal/tool/file_read.go` by default; that remains a lower-confidence continuation than further `cmd/yard/chain.go` responsibility cleanup.
+
+Why the next slice moved again
+- `cmd/yard/chain.go` still mixes command wiring with several distinct responsibilities, but the render/watch seam is no longer the biggest easy win.
+- The current split files now exist:
+  - `cmd/yard/chain.go`
+  - `cmd/yard/chain_render.go`
+  - `cmd/yard/chain_watch.go`
+  - `cmd/yard/chain_test.go`
+  - `cmd/yard/chain_control_sqlite_test.go`
+- That makes the next narrow opportunity a second command-surface split, not another extraction from the just-landed render/watch files.
+
+Recommended next slice
+- Start with a narrow P1.1B split of the remaining `cmd/yard/chain.go` responsibilities.
+- Best first cut:
+  - extract status/receipt read-only command helpers or control/status-transition helpers into a dedicated file
+  - keep `yardRunChain(...)` behavior unchanged
+  - avoid redesigning chain execution semantics
+- Before editing, re-read:
+  - `cmd/yard/chain.go`
+  - `cmd/yard/chain_render.go`
+  - `cmd/yard/chain_watch.go`
+  - `cmd/yard/chain_test.go`
+  - `cmd/yard/chain_control_sqlite_test.go`
+- Add one focused failing test first for the exact helper seam you want to preserve.
+
+Files currently changed in the worktree
+- `NEXT_SESSION_HANDOFF.md`
+- `cmd/yard/chain.go`
+- `cmd/yard/chain_render.go`
+- `cmd/yard/chain_watch.go`
+- `cmd/yard/chain_test.go`
+- `internal/tool/file_edit.go`
+- `internal/tool/file_write.go`
+- `internal/tool/file_mutation_state.go`
+- `internal/tool/file_mutation_state_test.go`
+
+Validation run in the most recent session
+- New helper-contract test before implementation:
+  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" go test -tags sqlite_fts5 ./cmd/yard -run TestRenderYardChainEventsSkipsSuppressedOutputAndReturnsLastID -v` ❌ (`undefined: renderYardChainEvents`)
+- Focused render/watch regressions after implementation:
+  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" go test -tags sqlite_fts5 ./cmd/yard -run 'TestRenderYardChainEventsSkipsSuppressedOutputAndReturnsLastID|TestYardRunChainWatchFalseRunsInForegroundWithoutHiddenChild|TestYardRunChainWatchInterruptCancelsForegroundExecution|TestFormatChainEvent' -v` ✅
+- Full command package:
+  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" go test -tags sqlite_fts5 ./cmd/yard -v` ✅
+- Project validation:
   - `rtk make test` ✅
   - `rtk make build` ✅
 
-Files changed in the current uncommitted tree
-- `internal/agent/runturn_tools.go`
-- `internal/agent/runturn_tools_test.go`
-- `internal/agent/runturn_orchestration.go`
-- `internal/agent/runturn_persist.go`
-- `internal/agent/runturn_persist_test.go`
-- `internal/agent/runturn_iteration.go`
-- `internal/agent/runturn_iteration_test.go`
-- `internal/agent/turn_cleanup_test.go`
-- `NEXT_SESSION_HANDOFF.md`
+Notes from validation
+- `rtk make build` still reports existing npm audit warnings in `web/` (`2 moderate severity vulnerabilities`), but the build completed successfully and this slice did not touch frontend deps.
 
-Current grounded state after this slice
-- `runSingleIteration(...)` is slightly smaller and no longer duplicates the setup-cancellation error tail after `prepareIteration(...)`.
-- Iteration-setup cancellation normalization now has a tiny helper contract with direct focused tests.
-- The obvious pre-iteration cancellation guard remains inline, so the setup phase still reads clearly.
-- The remaining non-test orchestration hotspots inside `internal/agent` now look close to the point where forcing another extraction may cost more clarity than it saves.
-- Stale plan markdown for the landed overflow/setup helper slices was cleaned from `.hermes/plans/` in this session.
-
-Best next slice
-- Re-scout `internal/agent/runturn_orchestration.go` and `internal/agent/runturn_iteration.go` for one more tiny behavior-preserving extraction only if it is obviously smaller and clearer than the inline code.
-- If no such seam is plainly better, stop the P0.1 micro-extraction track rather than forcing it and move the next session to the next highest-value simplification item from `GO_SIMPLIFICATION_SWEEP.md`.
-- A plausible candidate only if it stays truly tiny is consolidating the duplicated iteration-start logging/guard shape around `runSingleIteration(...)`, but do not take it unless it is clearer on first read.
-
-Recommended slice shape
-1. Add one focused failing helper/regression test first for the exact seam you want to preserve.
-2. Prefer structural extraction over semantic changes.
-3. Keep cancellation-vs-stream-failure handler choice at the existing `runProviderIteration(...)` / `runSingleIteration(...)` call sites.
-4. Rerun focused tests, then `rtk make test`, then `rtk make build`.
+Recommended workflow for the next agent
+1. Accept P1.1A as landed; do not reopen the render/watch split by default.
+2. Re-read `cmd/yard/chain.go`, `cmd/yard/chain_render.go`, and `cmd/yard/chain_watch.go` together.
+3. Choose one narrow remaining P1.1B seam inside `cmd/yard/chain.go`.
+4. Add a focused failing test first.
+5. Make a behavior-preserving extraction only.
+6. Rerun focused `./cmd/yard` tests, then `rtk make test`, then `rtk make build`.
 
 Do not change
-- do not redesign the overall `RunTurn` lifecycle
-- do not change tool-result semantics, event ordering, or cancellation behavior
-- do not reopen broad markdown cleanup beyond current-truth handoff maintenance unless the user asks
-- do not touch `yard.yaml`, `.yard/`, or `.brain/` unless the task requires it
-
-Useful commands
-```bash
-rtk git status --short --branch
-CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./internal/agent
-rtk make test
-rtk make build
-```
-
-Before handing off again
-- update this file as a self-contained prompt again, not as a partial note
-- record the exact narrow slice landed
-- record the exact validation commands actually run
-- name the next unresolved sub-step concretely
-- if you discover a better repeatable simplification pattern, patch the `agent-loop-tool-dispatch-simplification` skill immediately
+- Do not redesign the file tool schemas.
+- Do not change existing user-facing `not_read_first`, `stale_write`, or file-not-found semantics without focused tests first.
+- Do not reopen `internal/agent` extractions unless a newly obvious tiny seam appears during live inspection.
+- Do not touch `yard.yaml`, `.yard/`, or `.brain/` unless the task requires it.
+- Do not reopen broad markdown cleanup beyond keeping this handoff current.

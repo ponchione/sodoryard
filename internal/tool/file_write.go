@@ -70,11 +70,7 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 		}, nil
 	}
 
-	store := f.store
-	if store == nil {
-		store = defaultReadStateStore
-	}
-	scopeKey := readScopeKey(ctx)
+	store := mutableFileStore(f.store)
 
 	// Create parent directories.
 	dir := filepath.Dir(absPath)
@@ -88,6 +84,7 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 
 	// Check if file exists for diff generation and stale-write protection.
 	var oldContent string
+	var mutationState mutableFileState
 	isNew := true
 	requiresFreshRead := false
 	if existing, err := os.ReadFile(absPath); err == nil {
@@ -103,9 +100,15 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 	}
 
 	if requiresFreshRead {
-		if result := ensureFreshFullRead(ctx, store, scopeKey, absPath, params.Path, "file_write", []byte(oldContent)); result != nil {
+		var result *ToolResult
+		mutationState, result = loadMutableFileState(ctx, projectRoot, store, absPath, params.Path, "file_write")
+		if result != nil {
 			return result, nil
 		}
+		if result = verifyMutableFileSnapshotFresh(ctx, store, projectRoot, mutationState, params.Path, "file_write"); result != nil {
+			return result, nil
+		}
+		oldContent = string(mutationState.data)
 	}
 
 	// Write atomically: write to temp file in same dir, then rename.
@@ -152,7 +155,7 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 	}
 
 	if requiresFreshRead {
-		if result := ensureFreshFullRead(ctx, store, scopeKey, absPath, params.Path, "file_write", nil); result != nil {
+		if result := verifyMutableFileSnapshotFresh(ctx, store, projectRoot, mutationState, params.Path, "file_write"); result != nil {
 			os.Remove(tmpPath)
 			return result, nil
 		}
@@ -167,7 +170,7 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 		}, nil
 	}
 	if !isNew {
-		_ = store.Clear(ctx, scopeKey, absPath)
+		clearMutableFileSnapshot(ctx, store, mutationState.scopeKey, mutationState.absPath)
 	}
 
 	// Generate response.
@@ -201,48 +204,4 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 		Success: true,
 		Content: diff,
 	}, nil
-}
-
-func ensureFreshFullRead(ctx context.Context, store readStateStore, scopeKey, absPath, displayPath, toolName string, currentData []byte) *ToolResult {
-	snapshot, ok, err := store.Get(ctx, scopeKey, absPath)
-	if err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Failed to load read state: %v", err),
-			Error:   err.Error(),
-		}
-	}
-	if !ok || snapshot.Kind != readKindFull {
-		return notReadFirstForToolError(toolName, displayPath)
-	}
-	info, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &ToolResult{Success: false, Content: fmt.Sprintf("File not found: %s", displayPath), Error: "file not found"}
-		}
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Error stating file: %v", err),
-			Error:   err.Error(),
-		}
-	}
-	data := currentData
-	if data == nil {
-		data, err = os.ReadFile(absPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return &ToolResult{Success: false, Content: fmt.Sprintf("File not found: %s", displayPath), Error: "file not found"}
-			}
-			return &ToolResult{
-				Success: false,
-				Content: fmt.Sprintf("Error reading file: %v", err),
-				Error:   err.Error(),
-			}
-		}
-	}
-	if snapshot.Fingerprint != fileFingerprint(data) || snapshot.SizeBytes != info.Size() || !snapshot.MTime.Equal(info.ModTime()) {
-		_ = store.Clear(ctx, scopeKey, absPath)
-		return staleWriteReadError(toolName, displayPath)
-	}
-	return nil
 }

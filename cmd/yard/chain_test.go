@@ -773,6 +773,22 @@ func writeYardRunConfig(t *testing.T) (string, string) {
 	return configPath, projectRoot
 }
 
+func TestRenderYardChainEventsSkipsSuppressedOutputAndReturnsLastID(t *testing.T) {
+	events := []chain.Event{
+		{ID: 42, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepOutput, EventData: `{"stream":"stderr","line":"status: waiting_for_llm"}`},
+		{ID: 43, CreatedAt: time.Date(2026, 4, 21, 1, 2, 4, 0, time.UTC), EventType: chain.EventStepStarted, EventData: `{"role":"coder","task":"fix auth","receipt_path":"receipts/coder/chain-step-001.md"}`},
+	}
+	var out bytes.Buffer
+	got := renderYardChainEvents(&out, events, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	if got != 43 {
+		t.Fatalf("renderYardChainEvents() last id = %d, want 43", got)
+	}
+	want := "43\t2026-04-21T01:02:04Z\tstep_started\trole=coder task=\"fix auth\" receipt_path=receipts/coder/chain-step-001.md\n"
+	if out.String() != want {
+		t.Fatalf("renderYardChainEvents() output = %q, want %q", out.String(), want)
+	}
+}
+
 func TestFormatChainEventRendersStepOutputCompactly(t *testing.T) {
 	event := chain.Event{
 		ID:        42,
