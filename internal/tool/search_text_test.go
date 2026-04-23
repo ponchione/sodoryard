@@ -241,6 +241,25 @@ func TestFormatRipgrepStreamStopsAtGlobalMaxResults(t *testing.T) {
 	}
 }
 
+func TestIsHiddenStateSearchPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{path: ".brain", want: true},
+		{path: filepath.Join("notes", ".brain", "cache"), want: true},
+		{path: filepath.Join(".brain", ".obsidian", "workspace.json"), want: true},
+		{path: filepath.Join("docs", "brainstorm.md"), want: false},
+		{path: filepath.Join("brain", ".obsidian-notes"), want: false},
+	}
+
+	for _, tc := range cases {
+		if got := isHiddenStateSearchPath(tc.path); got != tc.want {
+			t.Fatalf("isHiddenStateSearchPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestSearchTextSchema(t *testing.T) {
 	schema := SearchText{}.Schema()
 	if !json.Valid(schema) {
