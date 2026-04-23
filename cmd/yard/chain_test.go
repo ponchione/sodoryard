@@ -177,11 +177,11 @@ func TestValidateYardChainFlagsAcceptsChainIDOnlyForResume(t *testing.T) {
 		t.Fatalf("validateYardChainFlags() error = %v, want nil", err)
 	}
 }
-
 func TestValidateYardChainStatusTransition(t *testing.T) {
 	if err := validateYardChainStatusTransition("paused", "running", "chain-1"); err != nil {
 		t.Fatalf("resume paused chain error = %v, want nil", err)
 	}
+
 	if err := validateYardChainStatusTransition("pause_requested", "running", "chain-1"); err == nil {
 		t.Fatal("expected pause_requested chain resume transition to fail")
 	}
@@ -194,6 +194,46 @@ func TestValidateYardChainStatusTransition(t *testing.T) {
 	if err := validateYardChainStatusTransition("pause_requested", "cancelled", "chain-1"); err != nil {
 		t.Fatalf("cancel pause_requested chain error = %v, want nil", err)
 	}
+}
+
+func TestPopulateYardChainFlagsFromExistingUsesStoredResumeInputs(t *testing.T) {
+	t.Run("hydrates missing task and specs from stored chain", func(t *testing.T) {
+		flags, err := populateYardChainFlagsFromExisting(yardChainFlags{ChainID: "chain-1"}, &chain.Chain{
+			ID:          "chain-1",
+			SourceSpecs: []string{"specs/a.md", "specs/b.md"},
+			SourceTask:  "stored task",
+		})
+		if err != nil {
+			t.Fatalf("populateYardChainFlagsFromExisting returned error: %v", err)
+		}
+		if flags.Specs != "specs/a.md,specs/b.md" {
+			t.Fatalf("Specs = %q, want stored comma-joined specs", flags.Specs)
+		}
+		if flags.Task != "stored task" {
+			t.Fatalf("Task = %q, want stored task", flags.Task)
+		}
+	})
+
+	t.Run("keeps explicit user inputs over stored values", func(t *testing.T) {
+		flags, err := populateYardChainFlagsFromExisting(yardChainFlags{
+			ChainID: "chain-1",
+			Specs:   "specs/override.md",
+			Task:    "explicit task",
+		}, &chain.Chain{
+			ID:          "chain-1",
+			SourceSpecs: []string{"specs/a.md", "specs/b.md"},
+			SourceTask:  "stored task",
+		})
+		if err != nil {
+			t.Fatalf("populateYardChainFlagsFromExisting returned error: %v", err)
+		}
+		if flags.Specs != "specs/override.md" {
+			t.Fatalf("Specs = %q, want explicit specs", flags.Specs)
+		}
+		if flags.Task != "explicit task" {
+			t.Fatalf("Task = %q, want explicit task", flags.Task)
+		}
+	})
 }
 
 func TestPrepareYardExistingChainForExecutionRejectsPauseRequestedResume(t *testing.T) {
