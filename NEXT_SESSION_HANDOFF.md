@@ -29,21 +29,28 @@ Current repo truth
   - rendering helpers are split into `cmd/yard/chain_render.go`.
   - watch/follow helpers are split into `cmd/yard/chain_watch.go`.
   - `cmd/yard/chain.go` no longer owns the event rendering and watch-loop internals.
-- P1.1B is now landed:
+- P1.1B is landed:
   - chain control/status-transition helpers are split into `cmd/yard/chain_control.go`.
   - `cmd/yard/chain.go` no longer owns the control/status helper implementations.
+- P1.1C is landed:
+  - the remaining read-only `yard chain` command surface is split into `cmd/yard/chain_readonly.go`.
+  - `cmd/yard/chain.go` no longer owns the `status`, `logs`, or `receipt` command constructors.
+- P1.1D is now landed:
+  - the remaining pure flag/spec/config-override helpers are split into `cmd/yard/chain_inputs.go`.
+  - `cmd/yard/chain.go` no longer owns `validateYardChainFlags(...)`, `yardChainSpecFromFlags(...)`, `yardParseSpecs(...)`, or `applyYardChainOverrides(...)`.
 
 What landed in the most recent session
-- Added the second `cmd/yard/chain.go` responsibility split:
-  - `cmd/yard/chain_control.go`
-- Moved the coherent command-control helper cluster out of `cmd/yard/chain.go`:
-  - `signalYardActiveChainProcess(...)`
-  - `validateYardChainStatusTransition(...)`
-  - `yardSetChainStatus(...)`
-  - `yardControlStatusMessage(...)`
-- Added a focused sqlite-backed control-path regression:
-  - `cmd/yard/chain_control_sqlite_test.go` (`TestYardSetChainStatusPauseRequestedPrintsRequestedMessage`)
-- Kept `yardRunChain(...)`, render/watch behavior, and the read-only chain commands unchanged.
+- Added the fourth `cmd/yard/chain.go` responsibility split:
+  - `cmd/yard/chain_inputs.go`
+- Moved the pure input/spec/config helpers out of `cmd/yard/chain.go`:
+  - `validateYardChainFlags(...)`
+  - `yardChainSpecFromFlags(...)`
+  - `yardParseSpecs(...)`
+  - `applyYardChainOverrides(...)`
+- Added a focused helper-contract regression pin in `cmd/yard/chain_test.go`:
+  - `TestYardParseSpecsTrimsWhitespaceAndDropsEmptyEntries`
+- Kept `yardRunChain(...)`, start/resume wiring, execution-state helpers, and all flag semantics unchanged.
+- Ran `gofmt` on the touched Go files.
 - Refreshed this handoff after validation.
 
 Behavior intentionally preserved
@@ -61,62 +68,55 @@ Behavior intentionally preserved
   - pausing a running chain still persists `pause_requested`
   - cancelling a running chain still persists `cancel_requested`
   - user-facing control messages still say `pause requested` / `cancel requested` for those requested-state transitions
+- Read-only chain command behavior is unchanged:
+  - `yard chain status` still prints the same list/detail output
+  - `yard chain logs` still uses the existing render/watch helpers and the same `--follow` / `--verbosity` behavior
+  - `yard chain receipt` still defaults to `receipts/orchestrator/<chain-id>.md` and still resolves step-specific receipt paths by matching `SequenceNum`
+- Pure helper behavior is unchanged:
+  - `validateYardChainFlags(...)` still accepts `--chain-id`-only resume flows and still rejects the same invalid numeric inputs
+  - `yardChainSpecFromFlags(...)` still forwards `MaxResolverLoops` into the persisted chain spec
+  - `yardParseSpecs(...)` still trims whitespace and drops empty comma-separated entries
+  - `applyYardChainOverrides(...)` still applies `--project` / `--brain` before config validation
 
 Re-scout conclusion for the next live slice
-- P1.1A and P1.1B are complete; do not reopen render/watch or control/status splits unless a regression appears.
-- `cmd/yard/chain.go` is now narrower because both render/watch logic and control/status helpers moved out to dedicated files.
-- The next best live simplification item is still inside P1.1.
-- The most likely next bounded follow-up is a P1.1C split of the remaining read-only command surface in `cmd/yard/chain.go`, especially:
-  - `newYardChainStatusCmd(...)`
-  - `newYardChainLogsCmd(...)`
-  - `newYardChainReceiptCmd(...)`
-  - any tiny read-only helpers that make those commands clearer without touching runtime behavior
-- Do not widen back into `internal/tool/file_read.go` by default; that remains a lower-confidence continuation than further `cmd/yard/chain.go` responsibility cleanup.
+- P1.1A, P1.1B, P1.1C, and P1.1D are complete; do not reopen render/watch, control/status, read-only, or pure-helper splits unless a regression appears.
+- `cmd/yard/chain.go` is now materially smaller (`430` lines after the latest split) and mostly contains:
+  - start/resume command wiring
+  - `yardRunChain(...)`
+  - execution-state helpers used by the runtime-heavy start/resume flow
+- Do not force another `cmd/yard/chain.go` extraction just because the file still has room to shrink. The remaining code is now mostly runtime-heavy and the obvious low-risk seams are gone.
+- If the user wants another narrow simplification slice, start with a fresh re-scout and prefer an explicit stop decision unless a new seam is clearly as bounded as the already-landed splits.
+- Do not widen back into `internal/tool/file_read.go` by default; that remains a lower-confidence continuation than either stopping this track or re-scouting a different simplification area.
 
-Why the next slice moved again
-- `cmd/yard/chain.go` still mixes command wiring with several distinct responsibilities, but the two easiest seams are now already extracted:
+Why the next slice should be re-scouted first
+- The easy `cmd/yard/chain.go` seams are now already extracted:
   - render/watch
   - control/status transitions
+  - read-only command surface
+  - pure flag/spec/config helpers
 - The current split files now exist:
   - `cmd/yard/chain.go`
   - `cmd/yard/chain_render.go`
   - `cmd/yard/chain_watch.go`
   - `cmd/yard/chain_control.go`
+  - `cmd/yard/chain_readonly.go`
+  - `cmd/yard/chain_inputs.go`
   - `cmd/yard/chain_test.go`
   - `cmd/yard/chain_control_sqlite_test.go`
-- That makes the next narrow opportunity a read-only command-surface split, not another extraction from the just-landed helper files.
-
-Recommended next slice
-- Start with a narrow P1.1C split of the remaining read-only `cmd/yard/chain.go` responsibilities.
-- Preferred first cut:
-  - extract the status/logs/receipt command helpers into one dedicated file first
-  - keep together any tiny helper logic they share for loading chain/step data or selecting receipt paths
-  - keep `yardRunChain(...)` behavior unchanged
-  - avoid redesigning chain execution semantics or changing output formats
-- Why this is the best next cut:
-  - it leaves the already-extracted command-control surface alone
-  - it keeps the remaining `cmd/yard/chain.go` work bounded to read-only commands
-  - it continues the responsibility split without touching the runtime-heavy start/resume flow yet
-- Before editing, re-read:
-  - `cmd/yard/chain.go`
-  - `cmd/yard/chain_render.go`
-  - `cmd/yard/chain_watch.go`
-  - `cmd/yard/chain_control.go`
-  - `cmd/yard/chain_test.go`
-  - `cmd/yard/chain_control_sqlite_test.go`
-- Add one focused failing test first for the exact read-only seam you want to preserve.
+- What remains in `cmd/yard/chain.go` is more coupled to live execution flow, so the next step should be justified by a fresh inspection rather than assumed from the old plan.
 
 Files currently changed in the worktree
 - `NEXT_SESSION_HANDOFF.md`
 - `cmd/yard/chain.go`
-- `cmd/yard/chain_control_sqlite_test.go`
-- `cmd/yard/chain_control.go` (new)
+- `cmd/yard/chain_test.go`
+- `cmd/yard/chain_readonly.go` (new)
+- `cmd/yard/chain_inputs.go` (new)
 
 Validation run in the most recent session
-- New focused control-path regression with the repo-required CGO/LanceDB settings:
-  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./cmd/yard -run TestYardSetChainStatusPauseRequestedPrintsRequestedMessage -v` ✅
-- Focused control/helper regressions after implementation:
-  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./cmd/yard -run 'TestYardSetChainStatusPauseRequestedPrintsRequestedMessage|TestValidateYardChainStatusTransition|TestPrepareYardExistingChainForExecutionRejectsPauseRequestedResume|TestPrepareYardExistingChainForExecutionStopsDuplicateRunningResume|TestHandleYardChainRunInterruptionClosesStaleActiveExecutionForPausedChain|TestSignalYardActiveChainProcessIgnoresStalePID|TestSignalYardActiveChainProcessUsesLatestRegisteredOrchestratorPID|TestFinalizeYardRequestedChainStatusLogsTerminalCancelEvent|TestCloseErroredYardChainExecutionMarksFailedAndClearsActiveExecution' -v` ✅
+- Focused helper-contract regression:
+  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./cmd/yard -run TestYardParseSpecsTrimsWhitespaceAndDropsEmptyEntries -v` ✅
+- Focused `./cmd/yard` validation after extraction:
+  - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./cmd/yard -run 'TestYardParseSpecsTrimsWhitespaceAndDropsEmptyEntries|TestYardChainSpecFromFlagsUsesMaxResolverLoops|TestApplyYardChainOverrides|TestValidateYardChainFlagsRejectsInvalidNumericFlags|TestValidateYardChainFlagsAcceptsZeroResolverLoops|TestValidateYardChainFlagsAcceptsChainIDOnlyForResume|TestYardChainStartExposesMaxResolverLoopsFlag' -v` ✅
 - Full command package:
   - `CGO_ENABLED=1 CGO_LDFLAGS="-L$PWD/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread" LD_LIBRARY_PATH="$PWD/lib/linux_amd64" rtk go test -tags sqlite_fts5 ./cmd/yard -v` ✅
 - Project validation:
@@ -125,15 +125,14 @@ Validation run in the most recent session
 
 Notes from validation
 - `rtk make build` still reports existing npm audit warnings in `web/` (`2 moderate severity vulnerabilities`), but the build completed successfully and this slice did not touch frontend deps.
-- The focused new control-path regression already passed on the pre-extraction behavior; it now serves as the pin proving the extracted control/status surface stayed behaviorally identical.
+- The new regression was intentionally pure-helper scoped (`yardParseSpecs(...)`) so the extraction stayed narrow and behavior-preserving.
 
 Recommended workflow for the next agent
-1. Accept P1.1B as landed; do not reopen the control/status split by default.
-2. Re-read `cmd/yard/chain.go`, `cmd/yard/chain_control.go`, `cmd/yard/chain_render.go`, and `cmd/yard/chain_watch.go` together.
-3. Choose one narrow remaining P1.1C seam inside the read-only command surface.
-4. Add a focused failing test first.
-5. Make a behavior-preserving extraction only.
-6. Rerun focused `./cmd/yard` tests, then `rtk make test`, then `rtk make build`.
+1. Accept P1.1D as landed; do not reopen the pure-helper split by default.
+2. Re-read `cmd/yard/chain.go` and the extracted companion files together.
+3. Decide whether the remaining `cmd/yard/chain.go` runtime-heavy content still has one clearly bounded behavior-preserving seam.
+4. If no such seam is obvious, explicitly stop this micro-extraction track instead of forcing another split.
+5. If a seam is genuinely clear, add a focused failing test first, make the narrow extraction only, then rerun focused `./cmd/yard` tests, `rtk make test`, and `rtk make build`.
 
 Do not change
 - Do not redesign the file tool schemas.

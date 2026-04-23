@@ -103,6 +103,19 @@ func TestYardBuildChainTaskIncludesOnlyExistingReceiptPaths(t *testing.T) {
 	}
 }
 
+func TestYardReceiptPathForStepUsesMatchingStepReceipt(t *testing.T) {
+	path, ok := yardReceiptPathForStep("chain-1", "2", []chain.Step{
+		{SequenceNum: 1, ReceiptPath: "receipts/planner/chain-1-step-001.md"},
+		{SequenceNum: 2, ReceiptPath: "receipts/coder/chain-1-step-002.md"},
+	})
+	if !ok {
+		t.Fatal("yardReceiptPathForStep() ok = false, want true")
+	}
+	if path != "receipts/coder/chain-1-step-002.md" {
+		t.Fatalf("yardReceiptPathForStep() path = %q, want coder receipt", path)
+	}
+}
+
 func TestApplyYardChainOverrides(t *testing.T) {
 	cfg := &appconfig.Config{ProjectRoot: "/old/project"}
 	flags := yardChainFlags{ProjectRoot: "/new/project", Brain: "/new/brain"}
@@ -114,6 +127,19 @@ func TestApplyYardChainOverrides(t *testing.T) {
 	}
 	if cfg.Brain.VaultPath != "/new/brain" {
 		t.Fatalf("Brain.VaultPath = %q, want /new/brain", cfg.Brain.VaultPath)
+	}
+}
+
+func TestYardParseSpecsTrimsWhitespaceAndDropsEmptyEntries(t *testing.T) {
+	got := yardParseSpecs(" specs/a.md, , specs/b.md ,, ")
+	want := []string{"specs/a.md", "specs/b.md"}
+	if len(got) != len(want) {
+		t.Fatalf("len(yardParseSpecs()) = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("yardParseSpecs()[%d] = %q, want %q (full=%v)", i, got[i], want[i], got)
+		}
 	}
 }
 
