@@ -52,6 +52,32 @@ func TestFileEditSuccess(t *testing.T) {
 	if strings.Contains(string(data), "\"hello\"") {
 		t.Fatal("old string still present in file")
 	}
+
+	details := decodeToolResultDetails(t, result.Details)
+	if details["kind"] != "file_mutation" || details["operation"] != "edit" {
+		t.Fatalf("details kind/operation = %#v/%#v", details["kind"], details["operation"])
+	}
+	if details["path"] != "main.go" {
+		t.Fatalf("path = %#v, want main.go", details["path"])
+	}
+	if details["created"] != false || details["changed"] != true {
+		t.Fatalf("created/changed = %#v/%#v, want false/true", details["created"], details["changed"])
+	}
+	if details["diff_format"] != "unified" || details["diff_truncated"] != false {
+		t.Fatalf("diff details = %#v/%#v", details["diff_format"], details["diff_truncated"])
+	}
+	if got := detailInt(t, details, "first_changed_line"); got != 2 {
+		t.Fatalf("first_changed_line = %d, want 2", got)
+	}
+	if got := detailInt(t, details, "bytes_before"); got != len(content) {
+		t.Fatalf("bytes_before = %d, want %d", got, len(content))
+	}
+	if got := detailInt(t, details, "bytes_after"); got != len(string(data)) {
+		t.Fatalf("bytes_after = %d, want %d", got, len(string(data)))
+	}
+	if got := detailInt(t, details, "diff_line_count"); got <= 0 {
+		t.Fatalf("diff_line_count = %d, want > 0", got)
+	}
 }
 
 func TestFileEditZeroMatches(t *testing.T) {

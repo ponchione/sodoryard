@@ -76,6 +76,7 @@ export interface ToolCallEndEvent {
   type: "tool_call_end";
   tool_call_id: string;
   result?: string;
+  details?: Record<string, unknown>;
   duration?: number; // nanoseconds (Go time.Duration)
   success?: boolean;
   time: string;

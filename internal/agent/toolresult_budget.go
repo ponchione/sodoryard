@@ -10,13 +10,13 @@ import (
 )
 
 type AggregateToolResultBudgetReport struct {
-	OriginalChars      int
-	FinalChars         int
-	MaxChars           int
-	ReplacedResults    int
-	PersistedResults   int
+	OriginalChars       int
+	FinalChars          int
+	MaxChars            int
+	ReplacedResults     int
+	PersistedResults    int
 	InlineShrunkResults int
-	CharsSaved         int
+	CharsSaved          int
 }
 
 func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, results []provider.ToolResult, toolCalls []provider.ToolCall, maxChars int) ([]provider.ToolResult, AggregateToolResultBudgetReport) {
@@ -80,6 +80,7 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 		}
 		shrunk := current.Content
 		usedPersistence := false
+		persistedPath := ""
 		if candidate.toolName != "file_read" && store != nil {
 			if ref, err := store.PersistToolResult(ctx, current.ToolUseID, candidate.toolName, current.Content); err == nil {
 				persistedBudget := preferredPersistedToolResultBudget(candidate.toolName, targetLen, len(current.Content))
@@ -87,6 +88,7 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 				if len(persisted) < len(current.Content) {
 					shrunk = persisted
 					usedPersistence = true
+					persistedPath = ref
 				}
 			}
 		}
@@ -104,6 +106,14 @@ func applyAggregateToolResultBudget(ctx context.Context, store ToolResultStore, 
 		}
 		totalChars -= len(current.Content) - len(shrunk)
 		budgeted[candidate.index].Content = shrunk
+		detailFields := map[string]any{
+			"returned_size": len(shrunk),
+			"truncated":     true,
+		}
+		if persistedPath != "" {
+			detailFields["persisted_path"] = persistedPath
+		}
+		budgeted[candidate.index].Details = provider.MergeToolResultDetails(current.Details, detailFields)
 	}
 
 	report.FinalChars = totalChars

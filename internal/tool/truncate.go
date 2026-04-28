@@ -10,14 +10,14 @@ const defaultMaxOutputTokens = 50000
 // truncateResult checks if a tool result's content exceeds the token limit
 // and truncates it with a helpful notice if so.
 // Token estimation uses chars/4 as a rough heuristic.
-func truncateResult(result *ToolResult, maxTokens int, toolName string) {
+func truncateResult(result *ToolResult, maxTokens int, toolName string) bool {
 	if maxTokens <= 0 {
 		maxTokens = defaultMaxOutputTokens
 	}
 	maxChars := maxTokens * 4
 
 	if len(result.Content) <= maxChars {
-		return
+		return false
 	}
 
 	// Count total lines for the notice.
@@ -32,6 +32,7 @@ func truncateResult(result *ToolResult, maxTokens int, toolName string) {
 
 	notice := truncationNotice(toolName, shownLines, totalLines)
 	result.Content = truncated + "\n" + notice
+	return true
 }
 
 // truncationNotice returns a contextually appropriate truncation message

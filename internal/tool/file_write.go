@@ -170,15 +170,38 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 		return &ToolResult{
 			Success: true,
 			Content: fmt.Sprintf("[new file created] %s (%d bytes)", params.Path, len(params.Content)),
+			Details: newFileMutationDetails(map[string]any{
+				"operation":       "write",
+				"path":            params.Path,
+				"created":         true,
+				"changed":         true,
+				"diff_format":     "unified",
+				"diff_line_count": 0,
+				"diff_truncated":  false,
+				"bytes_before":    0,
+				"bytes_after":     len(params.Content),
+			}),
 		}, nil
 	}
 
 	// Generate diff for overwrites.
 	diff := unifiedDiff("a/"+params.Path, "b/"+params.Path, oldContent, params.Content, 3)
+	details := map[string]any{
+		"operation":       "write",
+		"path":            params.Path,
+		"created":         false,
+		"changed":         diff != "",
+		"diff_format":     "unified",
+		"diff_line_count": detailLineCount(diff),
+		"diff_truncated":  false,
+		"bytes_before":    len(oldContent),
+		"bytes_after":     len(params.Content),
+	}
 	if diff == "" {
 		return &ToolResult{
 			Success: true,
 			Content: fmt.Sprintf("File written: %s (no changes detected)", params.Path),
+			Details: newFileMutationDetails(details),
 		}, nil
 	}
 
@@ -186,14 +209,17 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 	diffLines := strings.Split(diff, "\n")
 	if len(diffLines) > diffTruncateLines {
 		truncated := strings.Join(diffLines[:diffTruncateLines], "\n")
+		details["diff_truncated"] = true
 		return &ToolResult{
 			Success: true,
 			Content: fmt.Sprintf("%s\n[diff truncated — showing %d of %d lines]", truncated, diffTruncateLines, len(diffLines)),
+			Details: newFileMutationDetails(details),
 		}, nil
 	}
 
 	return &ToolResult{
 		Success: true,
 		Content: diff,
+		Details: newFileMutationDetails(details),
 	}, nil
 }

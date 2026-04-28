@@ -31,6 +31,7 @@ export interface ToolCallBlock {
   args?: Record<string, unknown>;
   output: string;
   result?: string;
+  details?: Record<string, unknown>;
   duration?: number; // nanoseconds
   success?: boolean;
   done: boolean;
@@ -93,7 +94,7 @@ type Action =
   | { type: "thinking_end" }
   | { type: "tool_call_start"; toolCallId: string; toolName: string; args?: Record<string, unknown> }
   | { type: "tool_call_output"; toolCallId: string; output: string }
-  | { type: "tool_call_end"; toolCallId: string; result?: string; duration?: number; success?: boolean }
+  | { type: "tool_call_end"; toolCallId: string; result?: string; details?: Record<string, unknown>; duration?: number; success?: boolean }
   | { type: "status"; state: AgentState }
   | { type: "turn_complete"; usage: TurnUsage }
   | { type: "turn_cancelled" }
@@ -285,6 +286,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           (block) => ({
             ...block,
             result: action.result,
+            details: action.details,
             duration: action.duration,
             success: action.success,
             done: true,
@@ -430,6 +432,7 @@ export function useConversation(conversationId?: string) {
           type: "tool_call_end",
           toolCallId: data.tool_call_id,
           result: data.result,
+          details: data.details,
           duration: data.duration,
           success: data.success,
         });

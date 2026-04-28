@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 // ExecutorConfig carries executor-level configuration.
@@ -137,7 +139,13 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 					limit = ol.OutputLimit()
 				}
 			}
-			truncateResult(&results[i], limit, calls[i].Name)
+			truncated := truncateResult(&results[i], limit, calls[i].Name)
+			results[i].Details = provider.MergeToolResultDetails(results[i].Details, map[string]any{
+				"original_size":   results[i].OutputSize,
+				"normalized_size": results[i].NormalizedSize,
+				"returned_size":   len(results[i].Content),
+				"truncated":       truncated,
+			})
 		}
 	}
 

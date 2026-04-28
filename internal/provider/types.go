@@ -28,9 +28,10 @@ type ToolCall struct {
 
 // ToolResult is the response to a ToolCall.
 type ToolResult struct {
-	ToolUseID string `json:"tool_use_id"`
-	Content   string `json:"content"`
-	IsError   bool   `json:"is_error,omitempty"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   string          `json:"content"`
+	IsError   bool            `json:"is_error,omitempty"`
+	Details   json.RawMessage `json:"details,omitempty"`
 }
 
 // ProviderError is a structured error type for provider failures. It carries

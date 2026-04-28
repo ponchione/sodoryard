@@ -31,7 +31,7 @@ func (l *AgentLoop) finalizeExecutedToolResults(inflight *inflightTurn, validInd
 			})
 		}
 		l.emit(ToolCallOutputEvent{ToolCallID: record.Call.ID, Output: toolResult.Content, Time: l.now()})
-		l.emit(ToolCallEndEvent{ToolCallID: record.Call.ID, Result: toolResult.Content, Duration: record.Duration, Success: !toolResult.IsError, Time: l.now()})
+		l.emit(ToolCallEndEvent{ToolCallID: record.Call.ID, Result: toolResult.Content, Details: toolResult.Details, Duration: record.Duration, Success: !toolResult.IsError, Time: l.now()})
 	}
 	return toolResults
 }

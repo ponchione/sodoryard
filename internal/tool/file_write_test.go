@@ -32,6 +32,26 @@ func TestFileWriteNewFile(t *testing.T) {
 	if string(data) != "hello world\n" {
 		t.Fatalf("file content = %q, want 'hello world\\n'", data)
 	}
+
+	details := decodeToolResultDetails(t, result.Details)
+	if details["kind"] != "file_mutation" || details["operation"] != "write" {
+		t.Fatalf("details kind/operation = %#v/%#v", details["kind"], details["operation"])
+	}
+	if details["path"] != "new.txt" {
+		t.Fatalf("path = %#v, want new.txt", details["path"])
+	}
+	if details["created"] != true || details["changed"] != true {
+		t.Fatalf("created/changed = %#v/%#v, want true/true", details["created"], details["changed"])
+	}
+	if got := detailInt(t, details, "bytes_before"); got != 0 {
+		t.Fatalf("bytes_before = %d, want 0", got)
+	}
+	if got := detailInt(t, details, "bytes_after"); got != len("hello world\n") {
+		t.Fatalf("bytes_after = %d, want %d", got, len("hello world\n"))
+	}
+	if got := detailInt(t, details, "diff_line_count"); got != 0 {
+		t.Fatalf("diff_line_count = %d, want 0", got)
+	}
 }
 
 func TestFileWriteNestedDirectories(t *testing.T) {
@@ -96,6 +116,26 @@ func TestFileWriteOverwriteWithDiff(t *testing.T) {
 	if string(data) != newContent {
 		t.Fatalf("file not updated, got: %q", data)
 	}
+
+	details := decodeToolResultDetails(t, result.Details)
+	if details["kind"] != "file_mutation" || details["operation"] != "write" {
+		t.Fatalf("details kind/operation = %#v/%#v", details["kind"], details["operation"])
+	}
+	if details["path"] != "existing.txt" {
+		t.Fatalf("path = %#v, want existing.txt", details["path"])
+	}
+	if details["created"] != false || details["changed"] != true {
+		t.Fatalf("created/changed = %#v/%#v, want false/true", details["created"], details["changed"])
+	}
+	if got := detailInt(t, details, "bytes_before"); got != len(oldContent) {
+		t.Fatalf("bytes_before = %d, want %d", got, len(oldContent))
+	}
+	if got := detailInt(t, details, "bytes_after"); got != len(newContent) {
+		t.Fatalf("bytes_after = %d, want %d", got, len(newContent))
+	}
+	if got := detailInt(t, details, "diff_line_count"); got <= 0 {
+		t.Fatalf("diff_line_count = %d, want > 0", got)
+	}
 }
 
 func TestFileWriteDiffTruncation(t *testing.T) {
@@ -127,6 +167,10 @@ func TestFileWriteDiffTruncation(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "diff truncated") {
 		t.Fatalf("expected truncation notice, got:\n%s", result.Content)
+	}
+	details := decodeToolResultDetails(t, result.Details)
+	if details["diff_truncated"] != true {
+		t.Fatalf("diff_truncated = %#v, want true", details["diff_truncated"])
 	}
 }
 

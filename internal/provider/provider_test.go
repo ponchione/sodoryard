@@ -3,6 +3,7 @@ package provider_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,6 +160,38 @@ func TestNewToolResultMessage(t *testing.T) {
 	}
 	if text != "file contents here" {
 		t.Fatalf("expected content %q, got %q", "file contents here", text)
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	if strings.Contains(string(raw), "details") {
+		t.Fatalf("tool result message should not serialize details: %s", raw)
+	}
+}
+
+func TestNewToolResultDetailsCapsLargePayloads(t *testing.T) {
+	raw := provider.NewToolResultDetails("shell", map[string]any{
+		"summary":       "large result",
+		"returned_size": 10,
+		"command":       strings.Repeat("x", provider.ToolResultDetailsMaxSize*2),
+	})
+	if len(raw) > provider.ToolResultDetailsMaxSize {
+		t.Fatalf("details size = %d, want <= %d", len(raw), provider.ToolResultDetailsMaxSize)
+	}
+
+	var details map[string]any
+	if err := json.Unmarshal(raw, &details); err != nil {
+		t.Fatalf("unmarshal details: %v", err)
+	}
+	if details["kind"] != "shell" || details["summary"] != "large result" {
+		t.Fatalf("common envelope not preserved: %#v", details)
+	}
+	if details["details_truncated"] != true {
+		t.Fatalf("details_truncated = %#v, want true", details["details_truncated"])
+	}
+	if _, ok := details["command"]; ok {
+		t.Fatalf("tool-specific command should be dropped from capped details: %#v", details)
 	}
 }
 

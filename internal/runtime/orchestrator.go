@@ -69,7 +69,7 @@ func (e *RegistryToolExecutor) Execute(ctx context.Context, call provider.ToolCa
 		return nil, err
 	}
 	result.CallID = call.ID
-	return &provider.ToolResult{ToolUseID: call.ID, Content: result.Content, IsError: !result.Success}, nil
+	return &provider.ToolResult{ToolUseID: call.ID, Content: result.Content, IsError: !result.Success, Details: result.Details}, nil
 }
 
 // BuildOrchestratorRuntime constructs and returns a fully initialised

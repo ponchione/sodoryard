@@ -437,6 +437,48 @@ func TestExecutorPerToolTruncationOverride(t *testing.T) {
 	}
 }
 
+func TestExecutorEnrichesDetailsWithSizeAndTruncationFields(t *testing.T) {
+	reg := NewRegistry()
+	detailTool := newMockTool("detail_tool", Pure)
+	content := strings.Repeat("line\n", 100)
+	detailTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		return &ToolResult{
+			Success: true,
+			Content: content,
+			Details: json.RawMessage(`{"version":1,"kind":"test","summary":"large result"}`),
+		}, nil
+	}
+	reg.Register(detailTool)
+
+	exec := NewExecutor(reg, ExecutorConfig{MaxOutputTokens: 5}, nil)
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-1", Name: "detail_tool", Arguments: json.RawMessage(`{}`)},
+	})
+
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !strings.Contains(results[0].Content, "truncated") {
+		t.Fatalf("result was not truncated: %q", results[0].Content)
+	}
+	details := decodeToolResultDetails(t, results[0].Details)
+	if details["kind"] != "test" || details["summary"] != "large result" {
+		t.Fatalf("details envelope not preserved: %#v", details)
+	}
+	if got := detailInt(t, details, "original_size"); got != len(content) {
+		t.Fatalf("original_size = %d, want %d", got, len(content))
+	}
+	if got := detailInt(t, details, "normalized_size"); got != len(content) {
+		t.Fatalf("normalized_size = %d, want %d", got, len(content))
+	}
+	if got := detailInt(t, details, "returned_size"); got != len(results[0].Content) {
+		t.Fatalf("returned_size = %d, want %d", got, len(results[0].Content))
+	}
+	if details["truncated"] != true {
+		t.Fatalf("truncated = %#v, want true", details["truncated"])
+	}
+}
+
 func TestExecutorOutputLimiterInterfaceCheck(t *testing.T) {
 	// Verify the type assertion works correctly.
 	limited := &mockToolWithOutputLimit{

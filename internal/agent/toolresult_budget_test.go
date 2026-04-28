@@ -2,6 +2,7 @@ package agent
 
 import (
 	stdctx "context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestApplyAggregateToolResultBudgetReportsPersistenceAndSavings(t *testing.T
 	budgeted, report := applyAggregateToolResultBudget(
 		stdctx.Background(),
 		store,
-		[]provider.ToolResult{{ToolUseID: "tc-1", Content: fullOutput}},
+		[]provider.ToolResult{{ToolUseID: "tc-1", Content: fullOutput, Details: json.RawMessage(`{"version":1,"kind":"search","original_size":760,"normalized_size":760}`)}},
 		[]provider.ToolCall{{ID: "tc-1", Name: "search_text"}},
 		120,
 	)
@@ -97,6 +98,19 @@ func TestApplyAggregateToolResultBudgetReportsPersistenceAndSavings(t *testing.T
 	}
 	if report.CharsSaved <= 0 {
 		t.Fatalf("report.CharsSaved = %d, want > 0", report.CharsSaved)
+	}
+	details := decodeAgentToolResultDetails(t, budgeted[0].Details)
+	if details["kind"] != "search" {
+		t.Fatalf("details kind = %#v, want search", details["kind"])
+	}
+	if details["truncated"] != true {
+		t.Fatalf("details truncated = %#v, want true", details["truncated"])
+	}
+	if details["persisted_path"] != "/tmp/persisted/search_text-tc-1.txt" {
+		t.Fatalf("persisted_path = %#v", details["persisted_path"])
+	}
+	if got := int(details["returned_size"].(float64)); got != len(budgeted[0].Content) {
+		t.Fatalf("returned_size = %d, want %d", got, len(budgeted[0].Content))
 	}
 }
 
@@ -218,4 +232,13 @@ func TestToolOutputManagerApplyAggregateBudgetPrioritizesShellThenOtherPersistab
 	if strings.Contains(managed.Results[3].Content, "[persisted_tool_result]") {
 		t.Fatalf("file_read should not be persisted ahead of other tool classes, got: %q", managed.Results[3].Content)
 	}
+}
+
+func decodeAgentToolResultDetails(t *testing.T, raw json.RawMessage) map[string]any {
+	t.Helper()
+	var details map[string]any
+	if err := json.Unmarshal(raw, &details); err != nil {
+		t.Fatalf("unmarshal details: %v", err)
+	}
+	return details
 }

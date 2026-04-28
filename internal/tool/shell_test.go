@@ -45,6 +45,44 @@ func TestShellNonZeroExitCode(t *testing.T) {
 	}
 }
 
+func TestShellDetails(t *testing.T) {
+	s := &Shell{config: ShellConfig{}, rtkAvailable: false}
+	result, err := s.Execute(context.Background(), t.TempDir(),
+		json.RawMessage(`{"command":"printf out; printf err >&2; exit 7"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success=true for non-zero exit, got: %s", result.Content)
+	}
+
+	details := decodeToolResultDetails(t, result.Details)
+	if details["kind"] != "shell" {
+		t.Fatalf("kind = %#v, want shell", details["kind"])
+	}
+	if details["command"] != "printf out; printf err >&2; exit 7" {
+		t.Fatalf("command = %#v", details["command"])
+	}
+	if details["working_dir"] != "." {
+		t.Fatalf("working_dir = %#v, want .", details["working_dir"])
+	}
+	if got := detailInt(t, details, "exit_code"); got != 7 {
+		t.Fatalf("exit_code = %d, want 7", got)
+	}
+	if got := detailInt(t, details, "stdout_bytes"); got != 3 {
+		t.Fatalf("stdout_bytes = %d, want 3", got)
+	}
+	if got := detailInt(t, details, "stderr_bytes"); got != 3 {
+		t.Fatalf("stderr_bytes = %d, want 3", got)
+	}
+	if got := detailInt(t, details, "output_bytes"); got != len(result.Content) {
+		t.Fatalf("output_bytes = %d, want %d", got, len(result.Content))
+	}
+	if details["timed_out"] != false || details["cancelled"] != false {
+		t.Fatalf("timeout/cancel details = %#v/%#v, want false/false", details["timed_out"], details["cancelled"])
+	}
+}
+
 func TestShellTimeout(t *testing.T) {
 	s := NewShell(ShellConfig{})
 	result, err := s.Execute(context.Background(), t.TempDir(),

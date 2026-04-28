@@ -99,12 +99,13 @@ func (e ToolCallOutputEvent) Timestamp() time.Time { return e.Time }
 
 // ToolCallEndEvent records the final result of a tool call.
 type ToolCallEndEvent struct {
-	Type       string        `json:"type"`
-	ToolCallID string        `json:"tool_call_id"`
-	Result     string        `json:"result,omitempty"`
-	Duration   time.Duration `json:"duration,omitempty"`
-	Success    bool          `json:"success,omitempty"`
-	Time       time.Time     `json:"time"`
+	Type       string          `json:"type"`
+	ToolCallID string          `json:"tool_call_id"`
+	Result     string          `json:"result,omitempty"`
+	Details    json.RawMessage `json:"details,omitempty"`
+	Duration   time.Duration   `json:"duration,omitempty"`
+	Success    bool            `json:"success,omitempty"`
+	Time       time.Time       `json:"time"`
 }
 
 func (e ToolCallEndEvent) EventType() string    { return resolveEventType(e.Type, eventTypeToolCallEnd) }

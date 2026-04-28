@@ -2,6 +2,7 @@ package agent
 
 import (
 	stdctx "context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestFinalizeExecutedToolResultsRecordsMessagesAndEventsInOrder(t *testing.T
 	executed := []toolExecutionRecord{
 		{
 			Call:     provider.ToolCall{ID: "tool-1", Name: "read_file"},
-			Result:   provider.ToolResult{ToolUseID: "tool-1", Content: "file contents"},
+			Result:   provider.ToolResult{ToolUseID: "tool-1", Content: "file contents", Details: json.RawMessage(`{"version":1,"kind":"file_read"}`)},
 			Duration: 20 * time.Millisecond,
 		},
 		{
@@ -82,6 +83,9 @@ func TestFinalizeExecutedToolResultsRecordsMessagesAndEventsInOrder(t *testing.T
 	toolResults := loop.finalizeExecutedToolResults(inflight, []int{0, 1}, executed)
 	if len(toolResults) != 2 {
 		t.Fatalf("len(toolResults) = %d, want 2", len(toolResults))
+	}
+	if string(toolResults[0].Details) != `{"version":1,"kind":"file_read"}` {
+		t.Fatalf("toolResults[0].Details = %s, want copied details", toolResults[0].Details)
 	}
 	if len(inflight.ToolMessages) != 2 {
 		t.Fatalf("len(inflight.ToolMessages) = %d, want 2", len(inflight.ToolMessages))
@@ -103,7 +107,7 @@ func TestFinalizeExecutedToolResultsRecordsMessagesAndEventsInOrder(t *testing.T
 	if out, ok := events[0].(ToolCallOutputEvent); !ok || out.ToolCallID != "tool-1" {
 		t.Fatalf("events[0] = %#v, want ToolCallOutputEvent for tool-1", events[0])
 	}
-	if end, ok := events[1].(ToolCallEndEvent); !ok || end.ToolCallID != "tool-1" || !end.Success {
+	if end, ok := events[1].(ToolCallEndEvent); !ok || end.ToolCallID != "tool-1" || !end.Success || string(end.Details) != `{"version":1,"kind":"file_read"}` {
 		t.Fatalf("events[1] = %#v, want successful ToolCallEndEvent for tool-1", events[1])
 	}
 	if errEvt, ok := events[2].(ErrorEvent); !ok || errEvt.ErrorCode != ErrorCodeToolExecution {

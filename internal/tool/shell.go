@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 	"unicode"
+
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 const (
@@ -207,13 +209,30 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 	}
 
 	// Format output.
-	content := formatShellOutput(exitCode, stdout.String(), stderr.String(), timedOut, cancelled, timeout)
+	stdoutText := stdout.String()
+	stderrText := stderr.String()
+	content := formatShellOutput(exitCode, stdoutText, stderrText, timedOut, cancelled, timeout)
+	workingDir := params.WorkingDir
+	if workingDir == "" {
+		workingDir = "."
+	}
 
 	// Non-zero exit codes are NOT failures from the tool's perspective.
 	// Only infrastructure issues (can't start process) are failures.
 	return &ToolResult{
 		Success: true,
 		Content: content,
+		Details: provider.NewToolResultDetails("shell", map[string]any{
+			"command":      params.Command,
+			"working_dir":  workingDir,
+			"exit_code":    exitCode,
+			"timed_out":    timedOut,
+			"cancelled":    cancelled,
+			"timeout_ms":   int64(timeout / time.Millisecond),
+			"stdout_bytes": len(stdoutText),
+			"stderr_bytes": len(stderrText),
+			"output_bytes": len(content),
+		}),
 	}, nil
 }
 

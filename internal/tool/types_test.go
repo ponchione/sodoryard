@@ -49,6 +49,7 @@ func TestToolResultToProvider(t *testing.T) {
 		Content:    "file contents",
 		Success:    true,
 		DurationMs: 42,
+		Details:    json.RawMessage(`{"version":1,"kind":"test"}`),
 	}
 	pr := tr.ToProvider()
 	if pr.ToolUseID != "toolu_123" {
@@ -59,6 +60,9 @@ func TestToolResultToProvider(t *testing.T) {
 	}
 	if pr.IsError {
 		t.Fatal("IsError = true, want false for successful result")
+	}
+	if string(pr.Details) != `{"version":1,"kind":"test"}` {
+		t.Fatalf("Details = %s, want copied details", pr.Details)
 	}
 
 	// Failure case.
