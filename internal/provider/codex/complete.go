@@ -23,14 +23,15 @@ type responsesResponse struct {
 
 // responsesOutputItem represents one item in the output array.
 type responsesOutputItem struct {
-	Type             string                   `json:"type"` // "message", "function_call", "reasoning"
-	ID               string                   `json:"id"`
-	Role             string                   `json:"role,omitempty"`              // "assistant" for type="message"
-	Content          []responsesOutputContent `json:"content,omitempty"`           // for type="message"
-	CallID           string                   `json:"call_id,omitempty"`           // for type="function_call"
-	Name             string                   `json:"name,omitempty"`              // for type="function_call"
-	Arguments        string                   `json:"arguments,omitempty"`         // for type="function_call" (JSON string)
-	EncryptedContent string                   `json:"encrypted_content,omitempty"` // for type="reasoning"
+	Type             string                           `json:"type"` // "message", "function_call", "reasoning"
+	ID               string                           `json:"id"`
+	Role             string                           `json:"role,omitempty"`              // "assistant" for type="message"
+	Content          []responsesOutputContent         `json:"content,omitempty"`           // for type="message"
+	CallID           string                           `json:"call_id,omitempty"`           // for type="function_call"
+	Name             string                           `json:"name,omitempty"`              // for type="function_call"
+	Arguments        string                           `json:"arguments,omitempty"`         // for type="function_call" (JSON string)
+	EncryptedContent string                           `json:"encrypted_content,omitempty"` // for type="reasoning"
+	Summary          []provider.ReasoningSummaryBlock `json:"summary,omitempty"`           // for type="reasoning"
 }
 
 // responsesOutputContent represents content within a message output item.
@@ -235,10 +236,9 @@ func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usa
 	var text strings.Builder
 	var usage provider.Usage
 	stopReason := provider.StopReasonEndTurn
-	var toolName string
-	var toolCallID string
-	var toolArgs strings.Builder
-	var blocks []provider.ContentBlock
+	toolState := &streamState{}
+	var reasoningBlocks []provider.ContentBlock
+	var toolBlocks []provider.ContentBlock
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -263,9 +263,14 @@ func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usa
 				return nil, provider.Usage{}, "", err
 			}
 			if added.Item.Type == "function_call" {
-				toolCallID = added.Item.CallID
-				toolName = added.Item.Name
-				toolArgs.Reset()
+				itemID := sseToolCallItemID(added.Item)
+				call := toolState.getToolCall(itemID)
+				call.callID = added.Item.CallID
+				if call.callID == "" {
+					call.callID = itemID
+				}
+				call.name = added.Item.Name
+				call.args.Reset()
 				stopReason = provider.StopReasonToolUse
 			}
 		case "response.function_call_arguments.delta":
@@ -273,22 +278,33 @@ func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usa
 			if err := json.Unmarshal([]byte(data), &delta); err != nil {
 				return nil, provider.Usage{}, "", err
 			}
-			toolArgs.WriteString(delta.Delta)
+			toolState.getToolCall(delta.ItemID).args.WriteString(delta.Delta)
 		case "response.output_item.done":
 			var done sseOutputItemDone
 			if err := json.Unmarshal([]byte(data), &done); err != nil {
 				return nil, provider.Usage{}, "", err
 			}
 			if done.Item.Type == "function_call" {
-				blocks = append(blocks, provider.ContentBlock{
+				itemID := sseToolCallItemID(done.Item)
+				call := toolState.lookupToolCall(itemID)
+				callID := done.Item.CallID
+				if callID == "" && call != nil {
+					callID = call.callID
+				}
+				if callID == "" {
+					callID = itemID
+				}
+				name := done.Item.Name
+				if name == "" && call != nil {
+					name = call.name
+				}
+				toolBlocks = append(toolBlocks, provider.ContentBlock{
 					Type:  "tool_use",
-					ID:    toolCallID,
-					Name:  toolName,
-					Input: json.RawMessage(toolArgs.String()),
+					ID:    callID,
+					Name:  name,
+					Input: json.RawMessage(sseToolCallArguments(done.Item.Arguments, call)),
 				})
-				toolCallID = ""
-				toolName = ""
-				toolArgs.Reset()
+				toolState.deleteToolCall(itemID)
 			}
 		case "response.completed":
 			var completed sseCompleted
@@ -301,14 +317,22 @@ func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usa
 				CacheReadTokens:     completed.Response.Usage.InputTokensDetails.CachedTokens,
 				CacheCreationTokens: 0,
 			}
+			for _, item := range completed.Response.Output {
+				if block, ok := codexReasoningBlockFromSSEItem(item); ok {
+					reasoningBlocks = append(reasoningBlocks, block)
+				}
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, provider.Usage{}, "", err
 	}
+	blocks := make([]provider.ContentBlock, 0, len(reasoningBlocks)+1+len(toolBlocks))
+	blocks = append(blocks, reasoningBlocks...)
 	if text.Len() > 0 {
-		blocks = append([]provider.ContentBlock{{Type: "text", Text: text.String()}}, blocks...)
+		blocks = append(blocks, provider.ContentBlock{Type: "text", Text: text.String()})
 	}
+	blocks = append(blocks, toolBlocks...)
 	return blocks, usage, stopReason, nil
 }
 
@@ -336,7 +360,9 @@ func parseOutputItems(items []responsesOutputItem) ([]provider.ContentBlock, pro
 				Input: json.RawMessage(item.Arguments),
 			})
 		case "reasoning":
-			blocks = append(blocks, provider.NewThinkingBlock(item.EncryptedContent))
+			if block, ok := codexReasoningBlockFromOutputItem(item); ok {
+				blocks = append(blocks, block)
+			}
 		default:
 			// Unknown output item type; skip with warning
 			// (In production, this would be logged)
@@ -349,4 +375,11 @@ func parseOutputItems(items []responsesOutputItem) ([]provider.ContentBlock, pro
 	}
 
 	return blocks, stopReason
+}
+
+func codexReasoningBlockFromOutputItem(item responsesOutputItem) (provider.ContentBlock, bool) {
+	if item.Type != "reasoning" || strings.TrimSpace(item.EncryptedContent) == "" {
+		return provider.ContentBlock{}, false
+	}
+	return provider.NewCodexReasoningBlock(item.ID, item.EncryptedContent, item.Summary), true
 }

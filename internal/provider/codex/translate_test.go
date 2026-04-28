@@ -214,6 +214,12 @@ func TestBuildResponsesRequest_ForcesGPT55AndXHighReasoning(t *testing.T) {
 	if rr.Reasoning.Effort != "xhigh" {
 		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
 	}
+	if rr.Reasoning.Summary != "auto" {
+		t.Errorf("expected summary %q, got %q", "auto", rr.Reasoning.Summary)
+	}
+	if len(rr.Include) != 1 || rr.Include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("Include = %#v, want encrypted reasoning include", rr.Include)
+	}
 }
 
 func TestBuildResponsesRequest_ForcesGPT55EvenWhenRequestedModelDiffers(t *testing.T) {
@@ -228,6 +234,61 @@ func TestBuildResponsesRequest_ForcesGPT55EvenWhenRequestedModelDiffers(t *testi
 	}
 	if rr.Reasoning.Effort != "xhigh" {
 		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
+	}
+}
+
+func TestBuildResponsesRequest_ReplaysCodexReasoningBeforeAssistantText(t *testing.T) {
+	blocks := []provider.ContentBlock{
+		provider.NewCodexReasoningBlock("rs_1", "encrypted-reasoning", []provider.ReasoningSummaryBlock{{Type: "summary_text", Text: "summary"}}),
+		provider.NewTextBlock("Final answer."),
+	}
+	raw, _ := json.Marshal(blocks)
+	req := &provider.Request{
+		Messages: []provider.Message{
+			{Role: provider.RoleAssistant, Content: raw},
+		},
+	}
+
+	rr := buildResponsesRequest("o3", req, false)
+
+	if len(rr.Input) != 2 {
+		t.Fatalf("Input count = %d, want 2", len(rr.Input))
+	}
+	if rr.Input[0].Type != "reasoning" {
+		t.Fatalf("first input type = %q, want reasoning", rr.Input[0].Type)
+	}
+	if rr.Input[0].ID != "rs_1" || rr.Input[0].EncryptedContent != "encrypted-reasoning" {
+		t.Fatalf("reasoning input = %+v", rr.Input[0])
+	}
+	if len(rr.Input[0].Summary) != 1 || rr.Input[0].Summary[0].Text != "summary" {
+		t.Fatalf("reasoning summary = %#v", rr.Input[0].Summary)
+	}
+	if rr.Input[1].Role != "assistant" || rr.Input[1].Content != "Final answer." {
+		t.Fatalf("assistant input = %+v", rr.Input[1])
+	}
+}
+
+func TestBuildResponsesRequest_ReasoningOnlyAssistantAddsFollowingEmptyMessage(t *testing.T) {
+	blocks := []provider.ContentBlock{
+		provider.NewCodexReasoningBlock("rs_1", "encrypted-reasoning", nil),
+	}
+	raw, _ := json.Marshal(blocks)
+	req := &provider.Request{
+		Messages: []provider.Message{
+			{Role: provider.RoleAssistant, Content: raw},
+		},
+	}
+
+	rr := buildResponsesRequest("o3", req, false)
+
+	if len(rr.Input) != 2 {
+		t.Fatalf("Input count = %d, want reasoning item plus empty assistant message", len(rr.Input))
+	}
+	if rr.Input[0].Type != "reasoning" {
+		t.Fatalf("first input type = %q, want reasoning", rr.Input[0].Type)
+	}
+	if rr.Input[1].Role != "assistant" || rr.Input[1].Content != "" {
+		t.Fatalf("following input = %+v, want empty assistant message", rr.Input[1])
 	}
 }
 

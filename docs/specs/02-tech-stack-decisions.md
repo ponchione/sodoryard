@@ -141,16 +141,16 @@ Each decision records what was chosen, what alternatives were considered, and wh
 
 ## Frontier LLM Access: Subscription Credential Reuse
 
-**Decision:** Access Claude and Codex via OAuth credential reuse from existing CLI tool subscriptions. No per-token API costs.
+**Decision:** Access Claude via OAuth credential reuse from Claude Code and Codex via Yard-managed OpenAI device-code auth. No per-token API costs.
 
 **Rationale:**
-- This is how the developer currently works — Claude Pro/Max subscription via Claude Code, Codex subscription via the Codex CLI.
+- This is how the developer currently works — Claude Pro/Max subscription via Claude Code, Codex subscription through Yard's `yard auth login codex` flow.
 - Hermes Agent (MIT licensed) has proven this pattern works and documented the credential discovery paths.
 - Reimplemented in Go (see [[03-provider-architecture]] for details).
 
 **Credential sources:**
 - Anthropic/Claude: `~/.claude/.credentials.json` (OAuth tokens from Claude Code)
-- OpenAI/Codex: one-time import from `~/.codex/auth.json` into Sodoryard's private store at `~/.sirtopham/auth.json`; refreshes and runtime use the Sodoryard-owned store thereafter
+- OpenAI/Codex: `~/.sirtopham/auth.json`; `CODEX_HOME/auth.json` or `~/.codex/auth.json` is a one-time bootstrap import source only
 
 **Alternatives considered:**
 - *Direct API keys with per-token billing:* Works but costs money unnecessarily when subscriptions already provide access.

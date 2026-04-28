@@ -44,6 +44,27 @@ func overrideCodexRefreshEndpoint(t *testing.T, clientID, tokenURL string) {
 	})
 }
 
+func overrideCodexDeviceEndpoints(t *testing.T, clientID, issuer, tokenURL string) {
+	t.Helper()
+	origClientID := codexOAuthClientID
+	origIssuer := codexOAuthIssuer
+	origTokenURL := codexOAuthTokenURL
+	origSleeper := codexAuthSleeper
+	origMaxWait := codexDeviceAuthMaxWait
+	codexOAuthClientID = clientID
+	codexOAuthIssuer = issuer
+	codexOAuthTokenURL = tokenURL
+	codexAuthSleeper = func(context.Context, time.Duration) error { return nil }
+	codexDeviceAuthMaxWait = time.Second
+	t.Cleanup(func() {
+		codexOAuthClientID = origClientID
+		codexOAuthIssuer = origIssuer
+		codexOAuthTokenURL = origTokenURL
+		codexAuthSleeper = origSleeper
+		codexDeviceAuthMaxWait = origMaxWait
+	})
+}
+
 func writeAuthFile(t *testing.T, dir, content string) {
 	t.Helper()
 	codexDir := filepath.Join(dir, ".codex")
@@ -114,6 +135,43 @@ func TestReadAuthFile_NestedTokensJWTExpiry(t *testing.T) {
 	}
 	if !expiry.Equal(expected) {
 		t.Fatalf("expected expiry %v, got %v", expected, expiry)
+	}
+}
+
+func TestReadAuthFile_ImportsSharedStoreFromCODEXHOME(t *testing.T) {
+	tmpDir := t.TempDir()
+	overrideHomeDir(t, tmpDir)
+	codexHome := filepath.Join(tmpDir, "custom-codex-home")
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("MkdirAll CODEX_HOME: %v", err)
+	}
+	token := testJWT(t, time.Now().Add(2*time.Hour).UTC())
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"`+token+`","refresh_token":"refresh_token"}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile CODEX_HOME auth: %v", err)
+	}
+
+	p := &CodexProvider{}
+	status, err := p.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() error: %v", err)
+	}
+	if status.Source != "codex_cli_store" || status.SourcePath != filepath.Join(codexHome, "auth.json") {
+		t.Fatalf("AuthStatus() = %+v, want CODEX_HOME source", status)
+	}
+	gotToken, _, err := p.readAuthFile()
+	if err != nil {
+		t.Fatalf("readAuthFile() error: %v", err)
+	}
+	if gotToken != token {
+		t.Fatalf("token = %q, want CODEX_HOME token", gotToken)
+	}
+	state, err := readCodexStoreState(sirtophamAuthStorePath(tmpDir))
+	if err != nil {
+		t.Fatalf("readCodexStoreState() error: %v", err)
+	}
+	if state.token != token {
+		t.Fatalf("private store token = %q, want CODEX_HOME token", state.token)
 	}
 }
 
@@ -271,7 +329,8 @@ func TestGetAccessToken_ExpiredTokenTriggersDirectRefreshWithoutShellingOut(t *t
 	mockBin := createMockScript(t, tmpDir, "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
 
 	refreshedToken := testJWT(t, time.Now().Add(1*time.Hour).UTC())
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("ParseForm: %v", err)
 		}
@@ -572,5 +631,102 @@ func TestRefreshToken_MissingRefreshTokenReturnsActionableError(t *testing.T) {
 	}
 	if !strings.Contains(pe.Message, "refresh_token") {
 		t.Fatalf("expected actionable missing refresh token message, got %q", pe.Message)
+	}
+}
+
+func TestLoginCodexDeviceCodeStoresPrivateAuthState(t *testing.T) {
+	tmpDir := t.TempDir()
+	overrideHomeDir(t, tmpDir)
+	accessToken := testJWT(t, time.Now().Add(2*time.Hour).UTC())
+
+	var sawUserCodeRequest bool
+	var sawPollRequest bool
+	var sawTokenExchange bool
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			sawUserCodeRequest = true
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode usercode request: %v", err)
+			}
+			if payload["client_id"] != "test-client-id" {
+				t.Fatalf("client_id = %q", payload["client_id"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"user_code":"ABCD-EFGH","device_auth_id":"device-1","interval":1}`))
+		case "/api/accounts/deviceauth/token":
+			sawPollRequest = true
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode token poll request: %v", err)
+			}
+			if payload["device_auth_id"] != "device-1" || payload["user_code"] != "ABCD-EFGH" {
+				t.Fatalf("unexpected poll payload: %#v", payload)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"authorization_code":"auth-code","code_verifier":"verifier-1"}`))
+		case "/oauth/token":
+			sawTokenExchange = true
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("ParseForm: %v", err)
+			}
+			if got := r.Form.Get("grant_type"); got != "authorization_code" {
+				t.Fatalf("grant_type = %q", got)
+			}
+			if got := r.Form.Get("code"); got != "auth-code" {
+				t.Fatalf("code = %q", got)
+			}
+			if got := r.Form.Get("redirect_uri"); got != server.URL+"/deviceauth/callback" {
+				t.Fatalf("redirect_uri = %q", got)
+			}
+			if got := r.Form.Get("client_id"); got != "test-client-id" {
+				t.Fatalf("client_id = %q", got)
+			}
+			if got := r.Form.Get("code_verifier"); got != "verifier-1" {
+				t.Fatalf("code_verifier = %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"` + accessToken + `","refresh_token":"refresh-token"}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	overrideCodexDeviceEndpoints(t, "test-client-id", server.URL, server.URL+"/oauth/token")
+
+	var out strings.Builder
+	if err := loginCodexDeviceCode(context.Background(), &out, server.Client()); err != nil {
+		t.Fatalf("loginCodexDeviceCode() error: %v", err)
+	}
+	if !sawUserCodeRequest || !sawPollRequest || !sawTokenExchange {
+		t.Fatalf("flow requests = usercode:%v poll:%v token:%v", sawUserCodeRequest, sawPollRequest, sawTokenExchange)
+	}
+	if !strings.Contains(out.String(), server.URL+"/codex/device") || !strings.Contains(out.String(), "ABCD-EFGH") {
+		t.Fatalf("output did not include verification URL and code: %q", out.String())
+	}
+
+	state, err := readCodexStoreState(sirtophamAuthStorePath(tmpDir))
+	if err != nil {
+		t.Fatalf("readCodexStoreState() error: %v", err)
+	}
+	if state.auth.AuthMode != "chatgpt" {
+		t.Fatalf("AuthMode = %q, want chatgpt", state.auth.AuthMode)
+	}
+	if state.auth.Tokens.AccessToken != accessToken || state.auth.AccessToken != accessToken {
+		t.Fatalf("access token not persisted in both token fields: %+v", state.auth)
+	}
+	if state.auth.Tokens.RefreshToken != "refresh-token" || state.auth.RefreshToken != "refresh-token" {
+		t.Fatalf("refresh token not persisted in both token fields: %+v", state.auth)
+	}
+	if state.auth.LastRefresh == "" {
+		t.Fatalf("LastRefresh empty")
+	}
+	if state.auth.ExpiresAt == "" {
+		t.Fatalf("ExpiresAt empty")
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, ".codex", "auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected device login not to write shared Codex auth file, stat err=%v", err)
 	}
 }

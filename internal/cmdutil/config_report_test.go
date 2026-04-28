@@ -23,7 +23,7 @@ func TestRunConfigPrintsResolvedSummary(t *testing.T) {
 		"config: valid",
 		"config_path: " + configPath,
 		"default_provider: codex",
-		"default_model: gpt-5.4-mini",
+		"default_model: gpt-5.5",
 		"brain_enabled: true",
 		"local_services_enabled: true",
 		"local_services_mode: auto",

@@ -93,22 +93,23 @@ Content-Type: application/json
 
 ---
 
-## Provider 2: OpenAI Codex (via CLI Credential Delegation)
+## Provider 2: OpenAI Codex (Yard-Owned OAuth)
 
 ### How It Works
 
-The developer has a Codex subscription and uses the Codex CLI. Unlike the Anthropic path, sodoryard delegates credential management to the Codex CLI binary rather than managing tokens directly.
+The developer has a Codex subscription. Sodoryard manages its own Codex OAuth session in the private compatibility auth store at `~/.sirtopham/auth.json`; the Codex CLI auth file is only a bootstrap import source.
 
 ### Credential Flow
 
 Hermes's approach (adapted to Sodoryard's local runtime contract):
-1. Check if the `codex` CLI is installed.
-2. If `~/.sirtopham/auth.json` is missing Codex state, import from `~/.codex/auth.json` once.
-3. Read access/refresh tokens from `~/.sirtopham/auth.json` for runtime use.
-4. Refresh directly against the Codex OAuth token endpoint when needed, persisting only to `~/.sirtopham/auth.json`.
-5. Make direct API calls to the ChatGPT Codex-compatible backend using that token.
+1. Prefer Codex state in `~/.sirtopham/auth.json`.
+2. If that store is missing Codex state, import from `CODEX_HOME/auth.json` or `~/.codex/auth.json` once.
+3. Support fresh login with `yard auth login codex`, using OpenAI's device-code flow.
+4. Read access/refresh tokens from `~/.sirtopham/auth.json` for runtime use.
+5. Refresh directly against the Codex OAuth token endpoint when needed, persisting only to `~/.sirtopham/auth.json`.
+6. Make direct API calls to the ChatGPT Codex-compatible backend using that token.
 
-**Why delegate to the CLI?** OpenAI's OAuth flow for Codex is more complex than Anthropic's, and the Codex CLI handles device-code auth, token storage, and refresh. Reimplementing this would be fragile and would break whenever OpenAI changes their auth flow. Delegating to the CLI is the pragmatic choice.
+**Why keep a private store?** It lets Sodoryard refresh and use Codex credentials without mutating the Codex CLI or editor auth state. Importing shared Codex credentials remains a bootstrap convenience only.
 
 ### API Call Format
 
@@ -127,9 +128,9 @@ Content-Type: application/json
 
 ### Codex-Specific Concerns
 
-- **CLI dependency:** The `codex` binary must be installed. sodoryard should check for this at startup and provide a clear error if missing.
-- **Refresh latency:** Shelling out to `codex refresh` adds latency before each call. May want to cache the token and only refresh when near expiry, checking the expiry timestamp in auth.json.
-- **Model selection:** Codex exposes multiple models (GPT-5 variants). The user should be able to select which model to use. Auto-detection from the Codex API is possible.
+- **Runtime auth dependency:** Codex auth must be self-contained in `~/.sirtopham/auth.json`; the Codex CLI auth file is only an optional bootstrap import source.
+- **Refresh latency:** Refresh directly against the Codex OAuth token endpoint only when the cached/private-store token is near expiry.
+- **Model selection:** Runtime Codex requests are pinned to `gpt-5.5`; config and UI should report that same effective model.
 
 ---
 
@@ -224,7 +225,7 @@ Each provider must handle:
 - **Rate limiting (429):** Retry with exponential backoff. Surface to user if retries exhausted. Consider falling back to the configured fallback provider.
 - **Server error (500/502/503):** Retry with backoff (3 attempts max). Fall back if retries exhausted.
 - **Network error:** Same as server error.
-- **Token refresh failure:** Surface the error with specific remediation ("Run `claude login`" or "Run `codex auth`").
+- **Token refresh failure:** Surface the error with specific remediation ("Run `claude login`" or "Run `yard auth login codex`").
 - **Malformed response:** Log the raw response, return a structured error. Do not crash.
 
 ---
@@ -254,7 +255,7 @@ Every provider call records to the `sub_calls` SQLite table:
 
 1. **Anthropic provider** — Primary inference path, highest quality, most complex (OAuth, content blocks, streaming SSE).
 2. **OpenAI-compatible provider** — Simplest to implement, enables local models immediately.
-3. **Codex provider** — Requires Codex CLI dependency, Responses API adapter. Implement after the other two are working.
+3. **Codex provider** — Yard-owned OAuth credentials, Responses API adapter. Implement after the other two are working.
 
 ---
 

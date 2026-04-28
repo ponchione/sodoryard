@@ -36,11 +36,11 @@ func writeRunSessionConfig(t *testing.T, projectRoot string, roleYAML string) st
 		"routing:",
 		"  default:",
 		"    provider: codex",
-		"    model: gpt-5.4-mini",
+		"    model: gpt-5.5",
 		"providers:",
 		"  codex:",
 		"    type: codex",
-		"    model: gpt-5.4-mini",
+		"    model: gpt-5.5",
 		"agent_roles:",
 		roleYAML,
 	}, "\n") + "\n"

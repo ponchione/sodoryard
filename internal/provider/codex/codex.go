@@ -1,2 +1,2 @@
-// Package codex implements the Codex CLI LLM provider.
+// Package codex implements the OpenAI Codex Responses API provider.
 package codex

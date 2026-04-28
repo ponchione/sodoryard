@@ -17,8 +17,8 @@ import (
 )
 
 // newHTTPTestProvider creates a CodexProvider with injected state, bypassing
-// the real codex CLI check and credential flow. Suitable for httptest-based
-// tests that do not require the codex binary.
+// the real credential flow. Suitable for httptest-based tests that do not
+// require live Codex auth.
 func newHTTPTestProvider(t *testing.T, serverURL string) *CodexProvider {
 	t.Helper()
 	return &CodexProvider{
@@ -189,12 +189,12 @@ func TestHTTPTest_CompleteToolCallResponse(t *testing.T) {
 		t.Fatalf("expected 3 content blocks, got %d", len(resp.Content))
 	}
 
-	// Block 0: thinking
-	if resp.Content[0].Type != "thinking" {
-		t.Errorf("block 0: expected type %q, got %q", "thinking", resp.Content[0].Type)
+	// Block 0: encrypted Codex reasoning
+	if resp.Content[0].Type != "codex_reasoning" {
+		t.Errorf("block 0: expected type %q, got %q", "codex_reasoning", resp.Content[0].Type)
 	}
-	if resp.Content[0].Thinking != "encrypted-thinking-data" {
-		t.Errorf("block 0: expected thinking %q, got %q", "encrypted-thinking-data", resp.Content[0].Thinking)
+	if resp.Content[0].EncryptedContent != "encrypted-thinking-data" {
+		t.Errorf("block 0: expected encrypted reasoning %q, got %q", "encrypted-thinking-data", resp.Content[0].EncryptedContent)
 	}
 
 	// Block 1: text

@@ -54,8 +54,8 @@ FROM debian:trixie-slim AS runtime
 
 # ca-certificates: needed for HTTPS calls to provider APIs (codex,
 # anthropic). tini: PID 1 init for clean signal handling.
-# nodejs + npm: needed for the codex CLI (@openai/codex) which the
-# codex provider shells out to for auth token management.
+# nodejs + npm: retained for project commands that expect Node tooling;
+# Codex auth/runtime do not shell out to the Codex CLI.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \

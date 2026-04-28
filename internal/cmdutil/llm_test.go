@@ -61,11 +61,11 @@ func writeLLMConfig(t *testing.T, localServicesYAML string) string {
 		"routing:",
 		"  default:",
 		"    provider: codex",
-		"    model: gpt-5.4-mini",
+		"    model: gpt-5.5",
 		"providers:",
 		"  codex:",
 		"    type: codex",
-		"    model: gpt-5.4-mini",
+		"    model: gpt-5.5",
 		"local_services:",
 		localServicesYAML,
 	}, "\n") + "\n"

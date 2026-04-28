@@ -10,7 +10,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/provider"
 )
 
-const maxSSEScannerTokenSize = 1024 * 1024
+const maxSSEScannerTokenSize = 16 * 1024 * 1024
 
 func sendStreamEvent(ctx context.Context, ch chan<- provider.StreamEvent, event provider.StreamEvent) bool {
 	select {
@@ -29,9 +29,39 @@ func sendStreamEvent(ctx context.Context, ch chan<- provider.StreamEvent, event 
 
 // streamState tracks in-progress output items during SSE parsing.
 type streamState struct {
-	currentToolCallID   string
-	currentToolCallName string
-	toolCallArgs        strings.Builder
+	toolCalls map[string]*streamToolCallState
+}
+
+type streamToolCallState struct {
+	callID string
+	name   string
+	args   strings.Builder
+}
+
+func (s *streamState) getToolCall(itemID string) *streamToolCallState {
+	if s.toolCalls == nil {
+		s.toolCalls = make(map[string]*streamToolCallState)
+	}
+	call := s.toolCalls[itemID]
+	if call == nil {
+		call = &streamToolCallState{}
+		s.toolCalls[itemID] = call
+	}
+	return call
+}
+
+func (s *streamState) lookupToolCall(itemID string) *streamToolCallState {
+	if s == nil || s.toolCalls == nil {
+		return nil
+	}
+	return s.toolCalls[itemID]
+}
+
+func (s *streamState) deleteToolCall(itemID string) {
+	if s == nil || s.toolCalls == nil {
+		return
+	}
+	delete(s.toolCalls, itemID)
 }
 
 // SSE event data payload types.
@@ -58,12 +88,13 @@ type sseOutputItemDone struct {
 }
 
 type sseOutputItemData struct {
-	Type             string `json:"type"`
-	ID               string `json:"id"`
-	CallID           string `json:"call_id,omitempty"`
-	Name             string `json:"name,omitempty"`
-	Arguments        string `json:"arguments,omitempty"`
-	EncryptedContent string `json:"encrypted_content,omitempty"`
+	Type             string                           `json:"type"`
+	ID               string                           `json:"id"`
+	CallID           string                           `json:"call_id,omitempty"`
+	Name             string                           `json:"name,omitempty"`
+	Arguments        string                           `json:"arguments,omitempty"`
+	EncryptedContent string                           `json:"encrypted_content,omitempty"`
+	Summary          []provider.ReasoningSummaryBlock `json:"summary,omitempty"`
 }
 
 type sseFuncArgDelta struct {
@@ -202,12 +233,17 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 			})
 		}
 		if added.Item.Type == "function_call" {
-			state.currentToolCallID = added.Item.CallID
-			state.currentToolCallName = added.Item.Name
-			state.toolCallArgs.Reset()
+			itemID := sseToolCallItemID(added.Item)
+			call := state.getToolCall(itemID)
+			call.callID = added.Item.CallID
+			if call.callID == "" {
+				call.callID = itemID
+			}
+			call.name = added.Item.Name
+			call.args.Reset()
 			return sendStreamEvent(ctx, ch, provider.ToolCallStart{
-				ID:   added.Item.CallID,
-				Name: added.Item.Name,
+				ID:   call.callID,
+				Name: call.name,
 			})
 		}
 		return true
@@ -221,13 +257,18 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
 			})
 		}
+		call := state.getToolCall(delta.ItemID)
+		eventID := call.callID
+		if eventID == "" {
+			eventID = delta.ItemID
+		}
 		if !sendStreamEvent(ctx, ch, provider.ToolCallDelta{
-			ID:    state.currentToolCallID,
+			ID:    eventID,
 			Delta: delta.Delta,
 		}) {
 			return false
 		}
-		state.toolCallArgs.WriteString(delta.Delta)
+		call.args.WriteString(delta.Delta)
 		return true
 
 	case "response.output_item.done":
@@ -240,13 +281,22 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 			})
 		}
 		if done.Item.Type == "function_call" {
+			itemID := sseToolCallItemID(done.Item)
+			call := state.lookupToolCall(itemID)
+			callID := done.Item.CallID
+			if callID == "" && call != nil {
+				callID = call.callID
+			}
+			if callID == "" {
+				callID = itemID
+			}
 			if !sendStreamEvent(ctx, ch, provider.ToolCallEnd{
-				ID:    done.Item.CallID,
-				Input: json.RawMessage(state.toolCallArgs.String()),
+				ID:    callID,
+				Input: json.RawMessage(sseToolCallArguments(done.Item.Arguments, call)),
 			}) {
 				return false
 			}
-			state.toolCallArgs.Reset()
+			state.deleteToolCall(itemID)
 		}
 		return true
 
@@ -280,6 +330,14 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 			CacheCreationTokens: 0,
 		}
 
+		for _, item := range completed.Response.Output {
+			if block, ok := codexReasoningBlockFromSSEItem(item); ok {
+				if !sendStreamEvent(ctx, ch, provider.CodexReasoning{Block: block}) {
+					return false
+				}
+			}
+		}
+
 		return sendStreamEvent(ctx, ch, provider.StreamDone{
 			StopReason: stopReason,
 			Usage:      usage,
@@ -293,4 +351,28 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 	default:
 		return true
 	}
+}
+
+func sseToolCallItemID(item sseOutputItemData) string {
+	if item.ID != "" {
+		return item.ID
+	}
+	return item.CallID
+}
+
+func sseToolCallArguments(doneArguments string, call *streamToolCallState) string {
+	if doneArguments != "" {
+		return doneArguments
+	}
+	if call == nil {
+		return ""
+	}
+	return call.args.String()
+}
+
+func codexReasoningBlockFromSSEItem(item sseOutputItemData) (provider.ContentBlock, bool) {
+	if item.Type != "reasoning" || strings.TrimSpace(item.EncryptedContent) == "" {
+		return provider.ContentBlock{}, false
+	}
+	return provider.NewCodexReasoningBlock(item.ID, item.EncryptedContent, item.Summary), true
 }

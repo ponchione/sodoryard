@@ -20,7 +20,7 @@ Three things are wrong with the current `cmd/tidmouth/init.go` that this spec re
 
 1. **It's branded wrong.** Operators bootstrap projects with `tidmouth init`, then everything else they touch is named `yard.*`. The internal binary name leaks into the only operator entry point that nothing else mentions.
 2. **It lies about the railway shape.** The current init creates `.brain/notes/` and `.brain/.obsidian/` and stops there. The 8 railway brain section directories (`specs/`, `architecture/`, `epics/`, `tasks/`, `plans/`, `receipts/`, `logs/`, `conventions/`) are not created. The seeded `yard.yaml` does not contain any `agent_roles`, so a freshly initialized project cannot run the internal engine contract or `yard chain start` against itself without the operator hand-writing 13 role blocks first.
-3. **It has a parallel source of truth.** `cmd/tidmouth/init.go:generateConfigYAML()` is a 100-line string-builder that ignores `templates/init/yard.yaml.example` entirely. The two have already drifted: the inline generator uses `anthropic`/Claude as the default provider with no agent_roles section, the template file uses `codex`/`gpt-5.4-mini` with two roles seeded. Whichever wins, neither actually matches the railway's needs.
+3. **It has a parallel source of truth.** `cmd/tidmouth/init.go:generateConfigYAML()` is a 100-line string-builder that ignores `templates/init/yard.yaml.example` entirely. The two have already drifted: the inline generator uses `anthropic`/Claude as the default provider with no agent_roles section, the template file uses `codex` with only two roles seeded. Whichever wins, neither actually matches the railway's needs.
 
 Phase 5b makes one thing the source of truth (`templates/init/`), one binary the entry point (`yard`), and one invocation the bootstrap (`yard init`).
 
@@ -117,7 +117,7 @@ Every other `{{PLACEHOLDER}}` token is left as-is for the operator to substitute
 
 Current shipped implementation note: the repo keeps `agents/` as the editable source prompt set and copies those files into an embedded asset directory at build time. A sync test guards against drift between the repo-root prompts and the embedded defaults.
 
-### 3.5 Default provider — codex / gpt-5.4-mini
+### 3.5 Default provider — codex / gpt-5.5
 
 The seeded `yard.yaml` defaults to:
 
@@ -125,17 +125,17 @@ The seeded `yard.yaml` defaults to:
 routing:
   default:
     provider: codex
-    model: gpt-5.4-mini
+    model: gpt-5.5
 
 providers:
   codex:
     type: codex
-    model: gpt-5.4-mini
+    model: gpt-5.5
 ```
 
 **Why:** codex is the path that worked on the maintainer's host when this spec was written (verified by the Phase 3 `phase3-smoke-1` smoke chain on 2026-04-11), uses the existing local Codex auth store, and requires no environment variable setup at the operator level. Anthropic was the previous default in `cmd/tidmouth/init.go` but currently failed its `Ping()` startup check on the same host with `Claude credentials file missing accessToken field`.
 
-`gpt-5.4-mini` is a deliberate placeholder, not a long-term recommendation. Operators (including the maintainer) will swap the model field after init based on what they want to dogfood with. The model field is already pluggable via `routing.default.model` and `providers.codex.model`, so this is a one-line edit, not a structural change.
+`gpt-5.5` matches the runtime-pinned Codex daily-driver model so generated config, `/api/config`, and the actual request payload report the same model.
 
 **Out of scope:** `yard init --provider <name>` flag, multi-provider seeding, or any first-run wizard. The operator edits `yard.yaml` after init if they want a different provider.
 
@@ -276,7 +276,7 @@ Next steps:
 - A header comment describing what the file is and how to substitute the placeholders
 - `project_root: {{PROJECT_ROOT}}`
 - `log_level: info`, `log_format: text`
-- `routing.default` block — codex / gpt-5.4-mini
+- `routing.default` block — codex / gpt-5.5
 - `providers.codex` block
 - `index.include` / `index.exclude` blocks with a generic-but-reasonable file pattern set
 - `brain.enabled: true`, `vault_path: .brain`, `log_brain_queries: true`

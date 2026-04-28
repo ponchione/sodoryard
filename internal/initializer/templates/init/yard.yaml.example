@@ -30,12 +30,12 @@ server:
 routing:
   default:
     provider: codex
-    model: gpt-5.4
+    model: gpt-5.5
 
 providers:
   codex:
     type: codex
-    model: gpt-5.4
+    model: gpt-5.5
 
 index:
   include:

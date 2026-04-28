@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/ponchione/sodoryard/internal/cmdutil"
 	"github.com/ponchione/sodoryard/internal/localservices"
+	"github.com/ponchione/sodoryard/internal/provider/codex"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/spf13/cobra"
 )
@@ -12,8 +15,24 @@ func newYardAuthCmd(configPath *string) *cobra.Command {
 		Use:   "auth",
 		Short: "Inspect provider authentication state",
 	}
+	authCmd.AddCommand(newYardAuthLoginCmd())
 	authCmd.AddCommand(newYardAuthStatusCmd(configPath))
 	return authCmd
+}
+
+func newYardAuthLoginCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "login PROVIDER",
+		Short: "Login to a provider and store credentials in Yard's private auth store",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if args[0] != "codex" {
+				return fmt.Errorf("unsupported auth provider %q", args[0])
+			}
+			return codex.LoginCodexDeviceCode(cmd.Context(), cmd.OutOrStdout())
+		},
+	}
+	return cmd
 }
 
 func newYardDoctorCmd(configPath *string) *cobra.Command {

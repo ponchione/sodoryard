@@ -45,6 +45,7 @@ yard [--config yard.yaml]
  |-- run                           Single headless agent session
  |-- index                         Code index build/rebuild
  |-- auth
+ |   |-- login codex                Provider login
  |   +-- status                    Provider auth detail
  |-- doctor                        Auth diagnostics with connectivity check
  |-- config                        Show/validate configuration
@@ -116,7 +117,7 @@ A budget manager allocates tokens across these sources based on priority and the
 The provider router supports multiple LLM backends with automatic fallback:
 
 - **Anthropic** — Claude models with native credential management and token refresh
-- **Codex** — OpenAI Codex CLI integration with OAuth-based auth
+- **Codex** — OpenAI Codex subscription integration with Yard-owned OAuth auth
 - **OpenAI-compatible** — any API following the OpenAI chat completions spec (local models via Ollama, vLLM, etc.)
 
 Each provider is configured in `yard.yaml` with routing rules that map surfaces (default, fallback) to specific provider/model pairs. The router tracks per-call token usage in SQLite for cost visibility.

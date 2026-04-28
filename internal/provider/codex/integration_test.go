@@ -18,7 +18,7 @@ import (
 )
 
 // newTestProvider creates a CodexProvider with injected state, bypassing
-// the real codex CLI check.
+// the real credential flow.
 func newTestProvider(t *testing.T, serverURL string) *CodexProvider {
 	t.Helper()
 	return &CodexProvider{
@@ -44,8 +44,8 @@ func TestIntegration_CompleteTextResponse(t *testing.T) {
 		if err := json.Unmarshal(body, &reqBody); err != nil {
 			t.Fatalf("failed to parse request body: %v", err)
 		}
-		if reqBody["model"] != "o3" {
-			t.Errorf("expected model %q, got %v", "o3", reqBody["model"])
+		if reqBody["model"] != "gpt-5.5" {
+			t.Errorf("expected model %q, got %v", "gpt-5.5", reqBody["model"])
 		}
 		if reqBody["stream"] != false {
 			t.Errorf("expected stream false, got %v", reqBody["stream"])
@@ -164,12 +164,12 @@ func TestIntegration_CompleteToolCallResponse(t *testing.T) {
 		t.Fatalf("expected 3 content blocks, got %d", len(resp.Content))
 	}
 
-	// Block 0: thinking
-	if resp.Content[0].Type != "thinking" {
-		t.Errorf("block 0: expected type %q, got %q", "thinking", resp.Content[0].Type)
+	// Block 0: encrypted Codex reasoning
+	if resp.Content[0].Type != "codex_reasoning" {
+		t.Errorf("block 0: expected type %q, got %q", "codex_reasoning", resp.Content[0].Type)
 	}
-	if resp.Content[0].Thinking != "base64encrypteddata" {
-		t.Errorf("block 0: expected thinking %q, got %q", "base64encrypteddata", resp.Content[0].Thinking)
+	if resp.Content[0].EncryptedContent != "base64encrypteddata" || resp.Content[0].ReasoningID != "rs_1" {
+		t.Errorf("block 0: expected encrypted reasoning id/data, got %+v", resp.Content[0])
 	}
 
 	// Block 1: text
@@ -234,7 +234,7 @@ func TestIntegration_Complete401Error(t *testing.T) {
 		t.Errorf("expected message containing %q, got %q", "Codex authentication failed", pe.Message)
 	}
 	if pe.Retriable {
-		t.Error("expected Retriable=false")
+		t.Error("expected Retriable=false for auth errors")
 	}
 }
 
@@ -320,8 +320,8 @@ func TestIntegration_Complete500RetryExhaustion(t *testing.T) {
 	if !strings.Contains(pe.Message, "server error after 3 attempts") {
 		t.Errorf("expected message containing %q, got %q", "server error after 3 attempts", pe.Message)
 	}
-	if pe.Retriable {
-		t.Error("expected Retriable=false")
+	if !pe.Retriable {
+		t.Error("expected Retriable=true after retry exhaustion so router can fallback")
 	}
 
 	if atomic.LoadInt32(&requestCount) != 3 {
@@ -440,6 +440,16 @@ func TestIntegration_CompleteRequestBodyValidation(t *testing.T) {
 	}
 	if reasoning["effort"] != "xhigh" {
 		t.Errorf("expected effort %q, got %v", "xhigh", reasoning["effort"])
+	}
+	if reasoning["summary"] != "auto" {
+		t.Errorf("expected summary %q, got %v", "auto", reasoning["summary"])
+	}
+	include, ok := body["include"].([]interface{})
+	if !ok {
+		t.Fatalf("expected include array, got %T", body["include"])
+	}
+	if len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Errorf("expected encrypted reasoning include, got %#v", include)
 	}
 }
 

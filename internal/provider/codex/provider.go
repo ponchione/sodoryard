@@ -3,7 +3,6 @@ package codex
 import (
 	"context"
 	"net/http"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -12,14 +11,14 @@ import (
 )
 
 // CodexProvider implements the unified Provider interface for OpenAI's
-// Responses API, using credentials delegated to the codex CLI binary.
+// Responses API using Yard-owned Codex OAuth credentials.
 type CodexProvider struct {
 	httpClient   *http.Client
 	baseURL      string       // default: "https://chatgpt.com/backend-api/codex"
 	mu           sync.RWMutex // guards cachedToken and tokenExpiry
 	cachedToken  string
 	tokenExpiry  time.Time
-	codexBinPath string // resolved path from exec.LookPath
+	codexBinPath string // optional path used only by model discovery helpers/tests
 }
 
 // ProviderOption is a functional option for configuring CodexProvider.
@@ -41,23 +40,12 @@ func WithBaseURL(url string) ProviderOption {
 }
 
 // NewCodexProvider creates a new CodexProvider after verifying that the codex
-// CLI binary is available on PATH.
+// provider can reach the configured Responses endpoint at call time.
 func NewCodexProvider(opts ...ProviderOption) (*CodexProvider, error) {
 	p := &CodexProvider{
 		baseURL:    "https://chatgpt.com/backend-api/codex",
 		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
-
-	binPath, err := exec.LookPath("codex")
-	if err != nil {
-		return nil, &provider.ProviderError{
-			Provider:   "codex",
-			StatusCode: 0,
-			Message:    "Codex CLI not found on PATH. Install from https://openai.com/codex and run `codex auth`.",
-			Retriable:  false,
-		}
-	}
-	p.codexBinPath = binPath
 
 	for _, opt := range opts {
 		opt(p)

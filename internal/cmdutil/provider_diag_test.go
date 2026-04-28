@@ -58,7 +58,7 @@ func TestRunProviderDiagnosticsJSONIncludesLocalServicesForDoctor(t *testing.T) 
 			authStatus: &provider.AuthStatus{
 				Provider:       name,
 				Mode:           "oauth",
-				Source:         "codex auth",
+				Source:         "sirtopham_store",
 				HasAccessToken: true,
 				ExpiresAt:      time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 			},
@@ -74,8 +74,8 @@ func TestRunProviderDiagnosticsJSONIncludesLocalServicesForDoctor(t *testing.T) 
 	}
 
 	var payload struct {
-		Providers     []ProviderAuthReport        `json:"providers"`
-		LocalServices localservices.StackStatus   `json:"local_services"`
+		Providers     []ProviderAuthReport      `json:"providers"`
+		LocalServices localservices.StackStatus `json:"local_services"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal returned error: %v\noutput=%s", err, out.String())
@@ -84,7 +84,7 @@ func TestRunProviderDiagnosticsJSONIncludesLocalServicesForDoctor(t *testing.T) 
 		t.Fatalf("providers len = %d, want 1", len(payload.Providers))
 	}
 	if payload.Providers[0].Name != "codex" || payload.Providers[0].Auth == nil || payload.Providers[0].Auth.Mode != "oauth" {
-		t.Fatalf("provider payload = %#v, want codex auth report", payload.Providers[0])
+		t.Fatalf("provider payload = %#v, want codex status report", payload.Providers[0])
 	}
 	if payload.LocalServices.Mode != "auto" {
 		t.Fatalf("local_services.mode = %q, want auto", payload.LocalServices.Mode)
@@ -120,24 +120,24 @@ func TestCollectProviderAuthReportsCapturesBuildAndPingFailures(t *testing.T) {
 		t.Fatalf("codex report = %#v", reports[1])
 	}
 	if reports[1].Auth == nil || reports[1].Auth.Detail != "ping failed" {
-		t.Fatalf("codex auth = %#v, want ping detail fallback", reports[1].Auth)
+		t.Fatalf("codex status = %#v, want ping detail fallback", reports[1].Auth)
 	}
 }
 
 func TestPrintProviderAuthReportsRendersReadableText(t *testing.T) {
 	var out bytes.Buffer
 	reports := []ProviderAuthReport{{
-		Name:    "codex",
-		Type:    "codex",
-		Healthy: false,
+		Name:      "codex",
+		Type:      "codex",
+		Healthy:   false,
 		PingError: "token expired",
 		Auth: &provider.AuthStatus{
 			Mode:            "oauth",
-			Source:          "codex auth",
+			Source:          "sirtopham_store",
 			HasAccessToken:  true,
 			HasRefreshToken: false,
 			Detail:          "expired",
-			Remediation:     "run codex refresh",
+			Remediation:     "run yard auth login codex",
 		},
 	}}
 
@@ -148,7 +148,7 @@ func TestPrintProviderAuthReportsRendersReadableText(t *testing.T) {
 		"  ping_error: token expired",
 		"  auth_mode: oauth",
 		"  has_access_token: true",
-		"  remediation: run codex refresh",
+		"  remediation: run yard auth login codex",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q in %q", want, got)

@@ -25,19 +25,23 @@ type responsesRequest struct {
 	Stream       bool                `json:"stream"`
 	Store        bool                `json:"store"`
 	Reasoning    *responsesReasoning `json:"reasoning,omitempty"`
+	Include      []string            `json:"include,omitempty"`
 }
 
 // responsesInput represents one item in the input array.
 // ChatGPT Codex accepts both message items and top-level function call/result
 // items in the same array.
 type responsesInput struct {
-	Type      string      `json:"type,omitempty"`
-	Role      string      `json:"role,omitempty"`
-	Content   interface{} `json:"content,omitempty"`
-	CallID    string      `json:"call_id,omitempty"`
-	Name      string      `json:"name,omitempty"`
-	Arguments string      `json:"arguments,omitempty"`
-	Output    string      `json:"output,omitempty"`
+	Type             string                           `json:"type,omitempty"`
+	ID               string                           `json:"id,omitempty"`
+	Role             string                           `json:"role,omitempty"`
+	Content          interface{}                      `json:"content,omitempty"`
+	CallID           string                           `json:"call_id,omitempty"`
+	Name             string                           `json:"name,omitempty"`
+	Arguments        string                           `json:"arguments,omitempty"`
+	Output           string                           `json:"output,omitempty"`
+	EncryptedContent string                           `json:"encrypted_content,omitempty"`
+	Summary          []provider.ReasoningSummaryBlock `json:"summary,omitempty"`
 }
 
 // responsesTool represents a tool definition in the tools array.
@@ -50,7 +54,8 @@ type responsesTool struct {
 
 // responsesReasoning controls reasoning behavior.
 type responsesReasoning struct {
-	Effort string `json:"effort"` // "high", "medium", "low"
+	Effort  string `json:"effort"` // "high", "medium", "low"
+	Summary string `json:"summary,omitempty"`
 }
 
 // buildResponsesRequest translates a unified Request into the Responses API
@@ -99,12 +104,22 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 			}
 
 			var textParts []string
+			var reasoningItems []responsesInput
 			var toolCalls []responsesInput
 			for _, block := range blocks {
 				switch block.Type {
 				case "text":
 					if block.Text != "" {
 						textParts = append(textParts, block.Text)
+					}
+				case "codex_reasoning":
+					if block.EncryptedContent != "" {
+						reasoningItems = append(reasoningItems, responsesInput{
+							Type:             "reasoning",
+							ID:               block.ReasoningID,
+							EncryptedContent: block.EncryptedContent,
+							Summary:          block.Summary,
+						})
 					}
 				case "tool_use":
 					toolCalls = append(toolCalls, responsesInput{
@@ -117,10 +132,16 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 					// Skip: Responses API uses encrypted reasoning, not plaintext thinking
 				}
 			}
+			rr.Input = append(rr.Input, reasoningItems...)
 			if len(textParts) > 0 {
 				rr.Input = append(rr.Input, responsesInput{
 					Role:    "assistant",
 					Content: strings.Join(textParts, "\n"),
+				})
+			} else if len(reasoningItems) > 0 {
+				rr.Input = append(rr.Input, responsesInput{
+					Role:    "assistant",
+					Content: "",
 				})
 			}
 			rr.Input = append(rr.Input, toolCalls...)
@@ -150,8 +171,10 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 
 	// Reasoning configuration is currently pinned for the forced Codex daily-driver model.
 	rr.Reasoning = &responsesReasoning{
-		Effort: forcedCodexReasoningEffort,
+		Effort:  forcedCodexReasoningEffort,
+		Summary: "auto",
 	}
+	rr.Include = []string{"reasoning.encrypted_content"}
 
 	return rr
 }

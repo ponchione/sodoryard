@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,6 +42,20 @@ type codexRefreshResponse struct {
 	Message      string `json:"message,omitempty"`
 }
 
+type codexDeviceCodeResponse struct {
+	UserCode     string `json:"user_code"`
+	DeviceAuthID string `json:"device_auth_id"`
+	Interval     int    `json:"interval"`
+}
+
+type codexDeviceTokenResponse struct {
+	AuthorizationCode string `json:"authorization_code"`
+	CodeVerifier      string `json:"code_verifier"`
+	Error             string `json:"error,omitempty"`
+	Description       string `json:"error_description,omitempty"`
+	Message           string `json:"message,omitempty"`
+}
+
 type codexAuthState struct {
 	path           string
 	sourcePath     string
@@ -65,10 +80,38 @@ var stdinIsTerminal = func() bool {
 }
 
 var codexOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+var codexOAuthIssuer = "https://auth.openai.com"
 var codexOAuthTokenURL = "https://auth.openai.com/oauth/token"
+var codexDeviceAuthMaxWait = 15 * time.Minute
+var codexAuthSleeper = func(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 func codexAuthRemediation() string {
-	return "Run `codex auth` to refresh Codex login. Yard imports from ~/.codex/auth.json only when the compatibility store at ~/.sirtopham/auth.json is absent; once imported, that private store is authoritative."
+	return "Run `yard auth login codex` to refresh Codex login. Yard imports from CODEX_HOME/auth.json or ~/.codex/auth.json only when the compatibility store at ~/.sirtopham/auth.json is absent; once imported, that private store is authoritative."
+}
+
+func codexDeviceUserCodeURL() string {
+	return strings.TrimRight(codexOAuthIssuer, "/") + "/api/accounts/deviceauth/usercode"
+}
+
+func codexDeviceTokenURL() string {
+	return strings.TrimRight(codexOAuthIssuer, "/") + "/api/accounts/deviceauth/token"
+}
+
+func codexDeviceVerificationURL() string {
+	return strings.TrimRight(codexOAuthIssuer, "/") + "/codex/device"
+}
+
+func codexDeviceRedirectURI() string {
+	return strings.TrimRight(codexOAuthIssuer, "/") + "/deviceauth/callback"
 }
 
 // getAccessToken obtains a valid access token, refreshing Yard's private Codex
@@ -207,6 +250,166 @@ func codexTokenExpiry(auth codexAuthFile, token string) (time.Time, bool, error)
 		return expiry, true, nil
 	}
 	return time.Time{}, false, nil
+}
+
+// LoginCodexDeviceCode runs OpenAI's Codex device-code OAuth flow and persists
+// the resulting tokens only to Yard's private auth store.
+func LoginCodexDeviceCode(ctx context.Context, out io.Writer) error {
+	return loginCodexDeviceCode(ctx, out, &http.Client{Timeout: 15 * time.Second})
+}
+
+func loginCodexDeviceCode(ctx context.Context, out io.Writer, client *http.Client) error {
+	if out == nil {
+		out = io.Discard
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+
+	home, err := homeDir()
+	if err != nil {
+		return fmt.Errorf("codex: cannot determine home directory: %w", err)
+	}
+	storePath := sirtophamAuthStorePath(home)
+
+	var device codexDeviceCodeResponse
+	status, err := postCodexJSON(ctx, client, codexDeviceUserCodeURL(), map[string]string{
+		"client_id": codexOAuthClientID,
+	}, &device)
+	if err != nil {
+		return fmt.Errorf("codex device code request failed: %w", err)
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("codex device code request returned status %d", status)
+	}
+	if strings.TrimSpace(device.UserCode) == "" || strings.TrimSpace(device.DeviceAuthID) == "" {
+		return fmt.Errorf("codex device code response missing required fields")
+	}
+
+	_, _ = fmt.Fprintln(out, "To continue, open this URL in your browser:")
+	_, _ = fmt.Fprintf(out, "  %s\n\n", codexDeviceVerificationURL())
+	_, _ = fmt.Fprintln(out, "Enter this code:")
+	_, _ = fmt.Fprintf(out, "  %s\n\n", device.UserCode)
+	_, _ = fmt.Fprintln(out, "Waiting for sign-in... (press Ctrl+C to cancel)")
+
+	pollInterval := time.Duration(device.Interval) * time.Second
+	if pollInterval < 3*time.Second {
+		pollInterval = 3 * time.Second
+	}
+	deadline := time.Now().Add(codexDeviceAuthMaxWait)
+	var codeResp codexDeviceTokenResponse
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("codex device login timed out after %s", codexDeviceAuthMaxWait)
+		}
+		if err := codexAuthSleeper(ctx, pollInterval); err != nil {
+			return err
+		}
+
+		status, err = postCodexJSON(ctx, client, codexDeviceTokenURL(), map[string]string{
+			"device_auth_id": device.DeviceAuthID,
+			"user_code":      device.UserCode,
+		}, &codeResp)
+		if err != nil {
+			return fmt.Errorf("codex device auth polling failed: %w", err)
+		}
+		if status == http.StatusOK {
+			break
+		}
+		if status == http.StatusForbidden || status == http.StatusNotFound {
+			continue
+		}
+		return fmt.Errorf("codex device auth polling returned status %d", status)
+	}
+	if strings.TrimSpace(codeResp.AuthorizationCode) == "" || strings.TrimSpace(codeResp.CodeVerifier) == "" {
+		return fmt.Errorf("codex device auth response missing authorization_code or code_verifier")
+	}
+
+	var tokenResp codexRefreshResponse
+	status, err = postCodexForm(ctx, client, codexOAuthTokenURL, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {codeResp.AuthorizationCode},
+		"redirect_uri":  {codexDeviceRedirectURI()},
+		"client_id":     {codexOAuthClientID},
+		"code_verifier": {codeResp.CodeVerifier},
+	}, &tokenResp)
+	if err != nil {
+		return fmt.Errorf("codex token exchange failed: %w", err)
+	}
+	if status != http.StatusOK {
+		if tokenResp.Description != "" {
+			return fmt.Errorf("codex token exchange failed: %s", tokenResp.Description)
+		}
+		if tokenResp.Message != "" {
+			return fmt.Errorf("codex token exchange failed: %s", tokenResp.Message)
+		}
+		return fmt.Errorf("codex token exchange returned status %d", status)
+	}
+	if strings.TrimSpace(tokenResp.AccessToken) == "" {
+		return fmt.Errorf("codex token exchange did not return an access_token")
+	}
+
+	auth := codexAuthFile{
+		AuthMode:     "chatgpt",
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		LastRefresh:  time.Now().UTC().Format(time.RFC3339),
+		Tokens: codexAuthTokens{
+			AccessToken:  tokenResp.AccessToken,
+			RefreshToken: tokenResp.RefreshToken,
+		},
+	}
+	if expiry, err := jwtExpiry(tokenResp.AccessToken); err == nil {
+		auth.ExpiresAt = expiry.Format(time.RFC3339)
+	}
+	if err := writeCodexStore(storePath, auth); err != nil {
+		return fmt.Errorf("codex: failed to persist auth state to %s: %w", storePath, err)
+	}
+
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Login successful.")
+	_, _ = fmt.Fprintf(out, "Auth state: %s\n", storePath)
+	return nil
+}
+
+func postCodexJSON(ctx context.Context, client *http.Client, endpoint string, payload any, dst any) (int, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if dst != nil {
+		_ = json.NewDecoder(resp.Body).Decode(dst)
+	}
+	return resp.StatusCode, nil
+}
+
+func postCodexForm(ctx context.Context, client *http.Client, endpoint string, form url.Values, dst any) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if dst != nil {
+		_ = json.NewDecoder(resp.Body).Decode(dst)
+	}
+	return resp.StatusCode, nil
 }
 
 // readAuthFile reads and parses Yard's Codex auth store, importing the

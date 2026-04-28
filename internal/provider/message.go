@@ -32,18 +32,29 @@ type Message struct {
 }
 
 // ContentBlock represents a typed block within an assistant message.
-// Type is one of "text", "thinking", or "tool_use".
+// Type is one of "text", "thinking", "tool_use", or "codex_reasoning".
 //
 // For "text": only Text is populated.
 // For "thinking": only Thinking is populated.
 // For "tool_use": ID, Name, and Input are populated.
+// For "codex_reasoning": ReasoningID, EncryptedContent, and optional Summary
+// are populated.
 type ContentBlock struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text,omitempty"`
-	Thinking string          `json:"thinking,omitempty"`
-	ID       string          `json:"id,omitempty"`
-	Name     string          `json:"name,omitempty"`
-	Input    json.RawMessage `json:"input,omitempty"`
+	Type             string                  `json:"type"`
+	Text             string                  `json:"text,omitempty"`
+	Thinking         string                  `json:"thinking,omitempty"`
+	ID               string                  `json:"id,omitempty"`
+	Name             string                  `json:"name,omitempty"`
+	Input            json.RawMessage         `json:"input,omitempty"`
+	ReasoningID      string                  `json:"reasoning_id,omitempty"`
+	EncryptedContent string                  `json:"encrypted_content,omitempty"`
+	Summary          []ReasoningSummaryBlock `json:"summary,omitempty"`
+}
+
+// ReasoningSummaryBlock represents a Responses API reasoning summary item.
+type ReasoningSummaryBlock struct {
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // NewTextBlock creates a ContentBlock of type "text".
@@ -59,6 +70,16 @@ func NewThinkingBlock(thinking string) ContentBlock {
 // NewToolUseBlock creates a ContentBlock of type "tool_use".
 func NewToolUseBlock(id, name string, input json.RawMessage) ContentBlock {
 	return ContentBlock{Type: "tool_use", ID: id, Name: name, Input: input}
+}
+
+// NewCodexReasoningBlock creates a Codex encrypted reasoning block.
+func NewCodexReasoningBlock(id, encryptedContent string, summary []ReasoningSummaryBlock) ContentBlock {
+	return ContentBlock{
+		Type:             "codex_reasoning",
+		ReasoningID:      id,
+		EncryptedContent: encryptedContent,
+		Summary:          summary,
+	}
 }
 
 // NewUserMessage creates a user message with the given text content.

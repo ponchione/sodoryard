@@ -204,10 +204,27 @@ export function ConversationPage() {
     }
   }, [convId, loadHistory, ctxReport]);
 
+  const runtimeProvider = config?.default_provider ?? "";
+  const runtimeModel = config?.default_model ?? "";
+
   const selectableProviders = useMemo(() => {
     const dedupeModels = <T extends { id: string }>(models: T[]): T[] => (
       models.filter((model, index, all) => all.findIndex((candidate) => candidate.id === model.id) === index)
     );
+
+    if (runtimeProvider && runtimeModel) {
+      const provider = providers.find((item) => item.name === runtimeProvider);
+      const model = provider?.models.find((item) => item.id === runtimeModel) ?? {
+        id: runtimeModel,
+        name: runtimeModel,
+        context_window: 0,
+        supports_tools: false,
+        supports_thinking: false,
+      };
+      if (provider) {
+        return [{ ...provider, models: [model] }];
+      }
+    }
 
     return providers
       .map((provider) => {
@@ -230,7 +247,7 @@ export function ConversationPage() {
         return null;
       })
       .filter((provider): provider is NonNullable<typeof provider> => provider !== null);
-  }, [providers, selectedModel, selectedProvider]);
+  }, [providers, runtimeModel, runtimeProvider, selectedModel, selectedProvider]);
 
   const selectedProviderModels = useMemo(
     () => selectableProviders.find((provider) => provider.name === selectedProvider)?.models ?? [],
@@ -238,10 +255,10 @@ export function ConversationPage() {
   );
 
   useEffect(() => {
-    const fallbackProvider = config?.default_provider ?? "";
-    const fallbackModel = config?.default_model ?? "";
-    const nextProvider = conversationMeta?.provider ?? fallbackProvider;
-    const nextModel = conversationMeta?.model ?? fallbackModel;
+    const fallbackProvider = runtimeProvider;
+    const fallbackModel = runtimeModel;
+    const nextProvider = fallbackProvider || conversationMeta?.provider || "";
+    const nextModel = fallbackModel || conversationMeta?.model || "";
 
     if (!nextProvider || !nextModel) {
       return;
@@ -249,7 +266,7 @@ export function ConversationPage() {
 
     setSelectedProvider(nextProvider);
     setSelectedModel(nextModel);
-  }, [conversationMeta?.model, conversationMeta?.provider, config?.default_model, config?.default_provider]);
+  }, [conversationMeta?.model, conversationMeta?.provider, runtimeModel, runtimeProvider]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -286,9 +303,13 @@ export function ConversationPage() {
   );
 
   const handleModelOverrideChange = (provider: string, model: string) => {
-    setSelectedProvider(provider);
-    setSelectedModel(model);
-    setModelOverride(provider, model);
+    const nextProvider = runtimeProvider || provider;
+    const nextModel = runtimeModel || model;
+    setSelectedProvider(nextProvider);
+    setSelectedModel(nextModel);
+    if (!runtimeProvider || !runtimeModel) {
+      setModelOverride(nextProvider, nextModel);
+    }
   };
 
   // Send initial message once when navigating from home with text.
@@ -357,6 +378,7 @@ export function ConversationPage() {
                   }}
                   className="h-7 rounded border border-border bg-input px-2 text-xs text-foreground"
                   aria-label="Conversation provider"
+                  disabled={selectableProviders.length <= 1}
                 >
                   {selectableProviders.map((provider) => (
                     <option key={provider.name} value={provider.name}>
@@ -369,7 +391,7 @@ export function ConversationPage() {
                   onChange={(e) => handleModelOverrideChange(selectedProvider, e.target.value)}
                   className="h-7 max-w-56 rounded border border-border bg-input px-2 text-xs text-foreground"
                   aria-label="Conversation model"
-                  disabled={selectedProviderModels.length === 0}
+                  disabled={selectedProviderModels.length <= 1}
                 >
                   {selectedProviderModels.map((model) => (
                     <option key={model.id} value={model.id}>

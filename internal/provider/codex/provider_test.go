@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -91,19 +90,18 @@ func TestUsesChatGPTCodexEndpoint(t *testing.T) {
 	}
 }
 
-func TestNewCodexProvider_CodexNotOnPath(t *testing.T) {
-	// Save original PATH and set to empty temp dir
+func TestNewCodexProvider_DoesNotRequireCodexCLIOnPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", tmpDir)
 	defer os.Setenv("PATH", origPath)
 
-	_, err := NewCodexProvider()
-	if err == nil {
-		t.Fatal("expected error when codex is not on PATH")
+	p, err := NewCodexProvider()
+	if err != nil {
+		t.Fatalf("NewCodexProvider() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "Codex CLI not found on PATH") {
-		t.Errorf("expected error containing %q, got %q", "Codex CLI not found on PATH", err.Error())
+	if p == nil {
+		t.Fatal("NewCodexProvider() returned nil provider")
 	}
 }
 

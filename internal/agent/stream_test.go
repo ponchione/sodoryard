@@ -98,6 +98,35 @@ func TestConsumeStreamWithThinking(t *testing.T) {
 	}
 }
 
+func TestConsumeStreamPersistsCodexReasoningWithoutUsingThinkingReplay(t *testing.T) {
+	ch := makeStreamCh(
+		provider.ThinkingDelta{Thinking: "visible"},
+		provider.CodexReasoning{Block: provider.NewCodexReasoningBlock("rs_1", "encrypted", nil)},
+		provider.TokenDelta{Text: "Answer"},
+		provider.StreamDone{
+			StopReason: provider.StopReasonEndTurn,
+			Usage:      provider.Usage{InputTokens: 20, OutputTokens: 10},
+		},
+	)
+
+	result, err := consumeStream(stdctx.Background(), ch, noopEmit, testNow)
+	if err != nil {
+		t.Fatalf("consumeStream error: %v", err)
+	}
+	if len(result.ContentBlocks) != 3 {
+		t.Fatalf("ContentBlocks count = %d, want codex_reasoning, thinking, text", len(result.ContentBlocks))
+	}
+	if result.ContentBlocks[0].Type != "codex_reasoning" || result.ContentBlocks[0].EncryptedContent != "encrypted" {
+		t.Fatalf("ContentBlocks[0] = %+v", result.ContentBlocks[0])
+	}
+	if result.ContentBlocks[1].Type != "thinking" || result.ContentBlocks[1].Thinking != "visible" {
+		t.Fatalf("ContentBlocks[1] = %+v", result.ContentBlocks[1])
+	}
+	if result.ContentBlocks[2].Type != "text" || result.ContentBlocks[2].Text != "Answer" {
+		t.Fatalf("ContentBlocks[2] = %+v", result.ContentBlocks[2])
+	}
+}
+
 func TestConsumeStreamWithToolUse(t *testing.T) {
 	input := json.RawMessage(`{"path":"main.go"}`)
 	ch := makeStreamCh(

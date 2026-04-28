@@ -1077,7 +1077,7 @@ func TestAuthStatuses_ReturnsProviderStatusesAndErrors(t *testing.T) {
 	}
 	bad := &mockPingProvider{
 		mockProvider: mockProvider{name: "codex", models: []provider.Model{{ID: "gpt-5.1-codex-mini"}}},
-		authErr:      provider.NewAuthProviderError("codex", provider.AuthMissingCredentials, 0, "missing Codex auth", "Run `codex auth`.", nil),
+		authErr:      provider.NewAuthProviderError("codex", provider.AuthMissingCredentials, 0, "missing Codex auth", "Run `yard auth login codex`.", nil),
 	}
 	_ = r.RegisterProvider(good)
 	_ = r.RegisterProvider(bad)
@@ -1092,7 +1092,7 @@ func TestAuthStatuses_ReturnsProviderStatusesAndErrors(t *testing.T) {
 	if statuses["codex"] == nil || !contains(statuses["codex"].Detail, "missing Codex auth") {
 		t.Fatalf("unexpected codex status: %+v", statuses["codex"])
 	}
-	if !contains(statuses["codex"].Remediation, "codex auth") {
+	if !contains(statuses["codex"].Remediation, "yard auth login codex") {
 		t.Fatalf("expected remediation in codex status, got %+v", statuses["codex"])
 	}
 }

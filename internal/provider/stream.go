@@ -23,6 +23,15 @@ type ThinkingDelta struct {
 
 func (ThinkingDelta) streamEvent() {}
 
+// CodexReasoning carries a completed encrypted Codex reasoning block from the
+// final Responses API output. It is persisted for replay, not displayed as
+// visible thinking.
+type CodexReasoning struct {
+	Block ContentBlock
+}
+
+func (CodexReasoning) streamEvent() {}
+
 // ToolCallStart signals the beginning of a tool call.
 type ToolCallStart struct {
 	ID   string

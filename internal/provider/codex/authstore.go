@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -25,6 +26,9 @@ func sirtophamAuthStorePath(home string) string {
 }
 
 func codexCLIAuthPath(home string) string {
+	if codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME")); codexHome != "" {
+		return filepath.Join(codexHome, "auth.json")
+	}
 	return filepath.Join(home, ".codex", "auth.json")
 }
 

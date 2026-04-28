@@ -87,6 +87,11 @@ func consumeStream(
 				thinkingBuilder.WriteString(e.Thinking)
 				emit(ThinkingDeltaEvent{Delta: e.Thinking})
 
+			case provider.CodexReasoning:
+				if e.Block.Type == "codex_reasoning" && e.Block.EncryptedContent != "" {
+					result.ContentBlocks = append(result.ContentBlocks, e.Block)
+				}
+
 			case provider.ToolCallStart:
 				// End any open thinking block before tool dispatch.
 				if inThinking {
@@ -173,6 +178,11 @@ func consumeStream(
 // for storing as the assistant message content in the database.
 func buildContentBlocks(thinkingContent, textContent string, existing []provider.ContentBlock) []provider.ContentBlock {
 	finalBlocks := make([]provider.ContentBlock, 0, len(existing)+2)
+	for _, cb := range existing {
+		if cb.Type == "codex_reasoning" && cb.EncryptedContent != "" {
+			finalBlocks = append(finalBlocks, cb)
+		}
+	}
 	if thinkingContent != "" {
 		finalBlocks = append(finalBlocks, provider.NewThinkingBlock(thinkingContent))
 	}
