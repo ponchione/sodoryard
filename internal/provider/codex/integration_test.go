@@ -385,8 +385,8 @@ func TestIntegration_CompleteRequestBodyValidation(t *testing.T) {
 		t.Fatalf("failed to parse captured body: %v", err)
 	}
 
-	if body["model"] != "gpt-5.4" {
-		t.Errorf("expected model %q, got %v", "gpt-5.4", body["model"])
+	if body["model"] != "gpt-5.5" {
+		t.Errorf("expected model %q, got %v", "gpt-5.5", body["model"])
 	}
 	if body["stream"] != false {
 		t.Errorf("expected stream false, got %v", body["stream"])

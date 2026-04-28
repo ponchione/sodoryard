@@ -201,30 +201,30 @@ func TestBuildResponsesRequest_ToolDefinitions(t *testing.T) {
 	}
 }
 
-func TestBuildResponsesRequest_ForcesGPT54AndXHighReasoning(t *testing.T) {
+func TestBuildResponsesRequest_ForcesGPT55AndXHighReasoning(t *testing.T) {
 	req := &provider.Request{}
 	rr := buildResponsesRequest("o3", req, false)
 
-	if rr.Model != "gpt-5.4" {
-		t.Fatalf("expected model %q, got %q", "gpt-5.4", rr.Model)
+	if rr.Model != "gpt-5.5" {
+		t.Fatalf("expected model %q, got %q", "gpt-5.5", rr.Model)
 	}
 	if rr.Reasoning == nil {
-		t.Fatal("expected reasoning config for forced gpt-5.4 model")
+		t.Fatal("expected reasoning config for forced gpt-5.5 model")
 	}
 	if rr.Reasoning.Effort != "xhigh" {
 		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
 	}
 }
 
-func TestBuildResponsesRequest_ForcesGPT54EvenWhenRequestedModelDiffers(t *testing.T) {
+func TestBuildResponsesRequest_ForcesGPT55EvenWhenRequestedModelDiffers(t *testing.T) {
 	req := &provider.Request{}
 	rr := buildResponsesRequest("gpt-4.1", req, false)
 
-	if rr.Model != "gpt-5.4" {
-		t.Fatalf("expected model %q, got %q", "gpt-5.4", rr.Model)
+	if rr.Model != "gpt-5.5" {
+		t.Fatalf("expected model %q, got %q", "gpt-5.5", rr.Model)
 	}
 	if rr.Reasoning == nil {
-		t.Fatal("expected reasoning config for forced gpt-5.4 model")
+		t.Fatal("expected reasoning config for forced gpt-5.5 model")
 	}
 	if rr.Reasoning.Effort != "xhigh" {
 		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
@@ -265,8 +265,8 @@ func TestBuildResponsesRequest_JSONOutput(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	if raw["model"] != "gpt-5.4" {
-		t.Errorf("expected model %q, got %v", "gpt-5.4", raw["model"])
+	if raw["model"] != "gpt-5.5" {
+		t.Errorf("expected model %q, got %v", "gpt-5.5", raw["model"])
 	}
 	if raw["instructions"] != "You are helpful." {
 		t.Errorf("expected instructions %q, got %v", "You are helpful.", raw["instructions"])

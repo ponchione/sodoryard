@@ -17,7 +17,7 @@ type RuntimeDefaults struct {
 
 const (
 	forcedRuntimeDefaultProvider = "codex"
-	forcedRuntimeDefaultModel    = "gpt-5.4"
+	forcedRuntimeDefaultModel    = "gpt-5.5"
 )
 
 func normalizeRuntimeDefaultOverride(_ string, _ string) (provider string, model string) {

@@ -58,8 +58,8 @@ func TestHTTPTest_CompleteTextResponse(t *testing.T) {
 		if err := json.Unmarshal(body, &reqBody); err != nil {
 			t.Fatalf("failed to parse request body: %v", err)
 		}
-		if reqBody["model"] != "gpt-5.4" {
-			t.Errorf("expected model %q, got %v", "gpt-5.4", reqBody["model"])
+		if reqBody["model"] != "gpt-5.5" {
+			t.Errorf("expected model %q, got %v", "gpt-5.5", reqBody["model"])
 		}
 		if reqBody["stream"] != false {
 			t.Errorf("expected stream false, got %v", reqBody["stream"])
@@ -477,8 +477,8 @@ func TestHTTPTest_CompleteRequestBodyValidation(t *testing.T) {
 		t.Fatalf("failed to parse captured body: %v", err)
 	}
 
-	if body["model"] != "gpt-5.4" {
-		t.Errorf("expected model %q, got %v", "gpt-5.4", body["model"])
+	if body["model"] != "gpt-5.5" {
+		t.Errorf("expected model %q, got %v", "gpt-5.5", body["model"])
 	}
 	if body["stream"] != false {
 		t.Errorf("expected stream false, got %v", body["stream"])

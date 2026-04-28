@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	forcedCodexModel           = "gpt-5.4"
+	forcedCodexModel           = "gpt-5.5"
 	forcedCodexReasoningEffort = "xhigh"
 )
 

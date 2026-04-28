@@ -61,8 +61,8 @@ func TestGetConfigIncludesToolOutputLimitAndStoreRoot(t *testing.T) {
 	if body.DefaultProvider != "codex" {
 		t.Fatalf("default_provider = %q, want %q", body.DefaultProvider, "codex")
 	}
-	if body.DefaultModel != "gpt-5.4" {
-		t.Fatalf("default_model = %q, want %q", body.DefaultModel, "gpt-5.4")
+	if body.DefaultModel != "gpt-5.5" {
+		t.Fatalf("default_model = %q, want %q", body.DefaultModel, "gpt-5.5")
 	}
 	if body.FallbackProvider != cfg.Routing.Fallback.Provider {
 		t.Fatalf("fallback_provider = %q, want %q", body.FallbackProvider, cfg.Routing.Fallback.Provider)
@@ -114,22 +114,22 @@ func (s *stubRuntimeInspector) ProviderHealthMap() map[string]*router.ProviderHe
 	return s.health
 }
 
-func TestPutConfigRejectsRuntimeDefaultOverrideAwayFromForcedCodexGPT54(t *testing.T) {
+func TestPutConfigRejectsRuntimeDefaultOverrideAwayFromForcedCodexGPT55(t *testing.T) {
 	cfg := &config.Config{
 		ProjectRoot: t.TempDir(),
-		Routing:     config.RoutingConfig{Default: config.RouteConfig{Provider: "codex", Model: "gpt-5.4"}},
+		Routing:     config.RoutingConfig{Default: config.RouteConfig{Provider: "codex", Model: "gpt-5.5"}},
 		Providers: map[string]config.ProviderConfig{
-			"codex": {Type: "codex", Model: "gpt-5.4"},
+			"codex": {Type: "codex", Model: "gpt-5.5"},
 			"local": {Type: "openai-compatible", Model: "other-model"},
 		},
 	}
-	runtime := &stubRuntimeInspector{models: []provider.Model{{ID: "gpt-5.4", Provider: "codex"}, {ID: "other-model", Provider: "local"}}}
+	runtime := &stubRuntimeInspector{models: []provider.Model{{ID: "gpt-5.5", Provider: "codex"}, {ID: "other-model", Provider: "local"}}}
 	defaults := server.NewRuntimeDefaults(cfg)
-	
+
 	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
 	server.NewConfigHandler(srv, cfg, runtime, defaults, newTestLogger())
 	_, base := startServer(t, srv)
-	
+
 	body := []byte(`{"default_provider":"local","default_model":"other-model"}`)
 	req, err := http.NewRequest(http.MethodPut, base+"/api/config", bytes.NewReader(body))
 	if err != nil {
@@ -154,8 +154,8 @@ func TestPutConfigRejectsRuntimeDefaultOverrideAwayFromForcedCodexGPT54(t *testi
 		t.Fatalf("error = %q, want locked message", errBody.Error)
 	}
 	provider, model := defaults.Get()
-	if provider != "codex" || model != "gpt-5.4" {
-		t.Fatalf("runtime defaults = (%q, %q), want (%q, %q)", provider, model, "codex", "gpt-5.4")
+	if provider != "codex" || model != "gpt-5.5" {
+		t.Fatalf("runtime defaults = (%q, %q), want (%q, %q)", provider, model, "codex", "gpt-5.5")
 	}
 }
 

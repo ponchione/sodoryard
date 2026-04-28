@@ -74,9 +74,9 @@ func (p *CodexProvider) Name() string {
 // Compile-time assertion that CodexProvider satisfies provider.Provider.
 var _ provider.Provider = (*CodexProvider)(nil)
 
-// Models returns the current static visible model list for the Codex provider.
-// Keep this in sync with the ChatGPT-backed Codex runtime's machine-readable
-// `codex app-server` JSON-RPC `model/list` surface.
+// Models returns the static visible model list for the Codex provider. Runtime
+// requests are still pinned by codexRequestModel because ChatGPT Codex model
+// availability changes independently of this UI/config surface.
 func (p *CodexProvider) Models(ctx context.Context) ([]provider.Model, error) {
 	_ = ctx
 	return visibleModels(), nil
