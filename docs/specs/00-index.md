@@ -28,6 +28,7 @@
 | 16  | [[16-yard-init]]                     | ✅ Draft | `yard init` project bootstrap and seeded role config                   |
 | 17  | [[17-yard-containerization]]         | ✅ Draft | Container packaging and no-legacy `yard` container UX                 |
 | 18  | [[18-unified-yard-cli]]              | ✅ Draft | Unified operator CLI and retained internal `tidmouth` contract        |
+| 19  | [[19-tool-result-details]]           | ✅ Draft | Structured tool-result metadata for UI and analytics, content unchanged |
 ## Status Legend
 
 - ✅ **Draft** — Substantive content based on completed discussions. Ready for review and refinement.
