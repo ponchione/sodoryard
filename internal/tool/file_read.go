@@ -116,37 +116,9 @@ func (f FileRead) Execute(ctx context.Context, projectRoot string, input json.Ra
 		}, nil
 	}
 
-	kind := readKindFull
-	lineStart := 1
-	requestedLineEnd := math.MaxInt
-	if params.LineStart != nil {
-		lineStart = *params.LineStart
-		kind = readKindPartial
-	}
-	if params.LineEnd != nil {
-		requestedLineEnd = *params.LineEnd
-		kind = readKindPartial
-	}
-
-	if lineStart < 1 {
-		lineStart = 1
-	}
-	if requestedLineEnd < 1 {
-		requestedLineEnd = 1
-	}
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	totalLines := 0
-	selectedLines := make([]string, 0)
-	for scanner.Scan() {
-		totalLines++
-		if totalLines >= lineStart && totalLines <= requestedLineEnd {
-			selectedLines = append(selectedLines, scanner.Text())
-		}
-	}
-	if err := scanner.Err(); err != nil {
+	lineStart, requestedLineEnd, kind := normalizeFileReadRange(params)
+	totalLines, selectedLines, err := scanFileReadLines(file, lineStart, requestedLineEnd)
+	if err != nil {
 		return &ToolResult{
 			Success: false,
 			Content: fmt.Sprintf("Error reading file: %v", err),
@@ -175,6 +147,58 @@ func (f FileRead) Execute(ctx context.Context, projectRoot string, input json.Ra
 		selectedLines = selectedLines[:maxSelected]
 	}
 
+	if lineStart == 1 && lineEnd == totalLines {
+		kind = readKindFull
+	}
+	if kind == readKindFull {
+		if result := f.storeFullReadSnapshot(ctx, absPath); result != nil {
+			return result, nil
+		}
+	}
+
+	return &ToolResult{
+		Success: true,
+		Content: formatFileReadContent(params.Path, lineStart, lineEnd, totalLines, selectedLines),
+	}, nil
+}
+
+func normalizeFileReadRange(params fileReadInput) (int, int, readKind) {
+	kind := readKindFull
+	lineStart := 1
+	lineEnd := math.MaxInt
+	if params.LineStart != nil {
+		lineStart = *params.LineStart
+		kind = readKindPartial
+	}
+	if params.LineEnd != nil {
+		lineEnd = *params.LineEnd
+		kind = readKindPartial
+	}
+	if lineStart < 1 {
+		lineStart = 1
+	}
+	if lineEnd < 1 {
+		lineEnd = 1
+	}
+	return lineStart, lineEnd, kind
+}
+
+func scanFileReadLines(r io.Reader, lineStart, lineEnd int) (int, []string, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	totalLines := 0
+	selectedLines := make([]string, 0)
+	for scanner.Scan() {
+		totalLines++
+		if totalLines >= lineStart && totalLines <= lineEnd {
+			selectedLines = append(selectedLines, scanner.Text())
+		}
+	}
+	return totalLines, selectedLines, scanner.Err()
+}
+
+func formatFileReadContent(path string, lineStart, lineEnd, totalLines int, selectedLines []string) string {
 	width := int(math.Log10(float64(lineEnd))) + 1
 	if width < 1 {
 		width = 1
@@ -182,40 +206,35 @@ func (f FileRead) Execute(ctx context.Context, projectRoot string, input json.Ra
 
 	var sb strings.Builder
 	if lineStart == 1 && lineEnd == totalLines {
-		sb.WriteString(fmt.Sprintf("File: %s (%d lines)\n", params.Path, totalLines))
+		sb.WriteString(fmt.Sprintf("File: %s (%d lines)\n", path, totalLines))
 	} else {
-		sb.WriteString(fmt.Sprintf("File: %s (lines %d-%d of %d)\n", params.Path, lineStart, lineEnd, totalLines))
+		sb.WriteString(fmt.Sprintf("File: %s (lines %d-%d of %d)\n", path, lineStart, lineEnd, totalLines))
 	}
 
 	for i, line := range selectedLines {
 		lineNum := lineStart + i
 		sb.WriteString(fmt.Sprintf("%*d\t%s\n", width, lineNum, line))
 	}
+	return sb.String()
+}
 
-	if lineStart == 1 && lineEnd == totalLines {
-		kind = readKindFull
+func (f FileRead) storeFullReadSnapshot(ctx context.Context, absPath string) *ToolResult {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return nil
 	}
-	if kind == readKindFull {
-		info, err := os.Stat(absPath)
-		if err == nil {
-			data, readErr := os.ReadFile(absPath)
-			if readErr != nil {
-				return &ToolResult{
-					Success: false,
-					Content: fmt.Sprintf("Error reading file for snapshot: %v", readErr),
-					Error:   readErr.Error(),
-				}, nil
-			}
-			store := f.store
-			if store == nil {
-				store = defaultReadStateStore
-			}
-			_ = store.Put(ctx, snapshotForFile(ctx, absPath, data, info, kind, time.Now()))
+	data, readErr := os.ReadFile(absPath)
+	if readErr != nil {
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Error reading file for snapshot: %v", readErr),
+			Error:   readErr.Error(),
 		}
 	}
-
-	return &ToolResult{
-		Success: true,
-		Content: sb.String(),
-	}, nil
+	store := f.store
+	if store == nil {
+		store = defaultReadStateStore
+	}
+	_ = store.Put(ctx, snapshotForFile(ctx, absPath, data, info, readKindFull, time.Now()))
+	return nil
 }

@@ -96,19 +96,11 @@ func (s *Shell) Schema() json.RawMessage {
 func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
 	var params shellInput
 	if err := json.Unmarshal(input, &params); err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Invalid input: %v", err),
-			Error:   err.Error(),
-		}, nil
+		return invalidInputResult(err), nil
 	}
 
 	if params.Command == "" {
-		return &ToolResult{
-			Success: false,
-			Content: "command is required",
-			Error:   "empty command",
-		}, nil
+		return requiredFieldResult("command"), nil
 	}
 
 	// Denylist check.
@@ -125,13 +117,9 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 	// Resolve working directory.
 	workDir := projectRoot
 	if params.WorkingDir != "" {
-		resolved, err := resolvePath(projectRoot, params.WorkingDir)
-		if err != nil {
-			return &ToolResult{
-				Success: false,
-				Content: err.Error(),
-				Error:   err.Error(),
-			}, nil
+		resolved, result := resolvePathResult(projectRoot, params.WorkingDir)
+		if result != nil {
+			return result, nil
 		}
 		workDir = resolved
 	}
@@ -145,73 +133,13 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 		timeout = time.Duration(*params.TimeoutSeconds) * time.Second
 	}
 
-	// Create command with timeout context.
-	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	execCommand := applyRTKPrefix(params.Command, s.rtkAvailable)
-	cmd := exec.Command("sh", "-c", execCommand)
-	cmd.Dir = workDir
-
-	// Set process group for cleanup.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Start()
-	if err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Failed to start command: %v", err),
-			Error:   err.Error(),
-		}, nil
+	run, result := runShellProcess(ctx, execCommand, workDir, timeout)
+	if result != nil {
+		return result, nil
 	}
 
-	// Wait for completion.
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
-
-	var waitErr error
-	select {
-	case waitErr = <-waitDone:
-		// Process finished normally.
-	case <-cmdCtx.Done():
-		// Timeout or parent cancellation — kill process group.
-		if cmd.Process != nil {
-			pgid, pgErr := syscall.Getpgid(cmd.Process.Pid)
-			if pgErr == nil {
-				syscall.Kill(-pgid, syscall.SIGTERM)
-			}
-			// Give grace period then SIGKILL.
-			timer := time.NewTimer(killGracePeriod)
-			select {
-			case waitErr = <-waitDone:
-				timer.Stop()
-			case <-timer.C:
-				if pgErr == nil {
-					syscall.Kill(-pgid, syscall.SIGKILL)
-				}
-				waitErr = <-waitDone
-			}
-		}
-	}
-
-	exitCode := 0
-	timedOut := cmdCtx.Err() == context.DeadlineExceeded
-	cancelled := ctx.Err() == context.Canceled
-
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		}
-	}
-
-	// Format output.
-	stdoutText := stdout.String()
-	stderrText := stderr.String()
-	content := formatShellOutput(exitCode, stdoutText, stderrText, timedOut, cancelled, timeout)
+	content := formatShellOutput(run.exitCode, run.stdout, run.stderr, run.timedOut, run.cancelled, timeout)
 	workingDir := params.WorkingDir
 	if workingDir == "" {
 		workingDir = "."
@@ -225,15 +153,86 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 		Details: provider.NewToolResultDetails("shell", map[string]any{
 			"command":      params.Command,
 			"working_dir":  workingDir,
-			"exit_code":    exitCode,
-			"timed_out":    timedOut,
-			"cancelled":    cancelled,
+			"exit_code":    run.exitCode,
+			"timed_out":    run.timedOut,
+			"cancelled":    run.cancelled,
 			"timeout_ms":   int64(timeout / time.Millisecond),
-			"stdout_bytes": len(stdoutText),
-			"stderr_bytes": len(stderrText),
+			"stdout_bytes": len(run.stdout),
+			"stderr_bytes": len(run.stderr),
 			"output_bytes": len(content),
 		}),
 	}, nil
+}
+
+type shellRunResult struct {
+	exitCode  int
+	stdout    string
+	stderr    string
+	timedOut  bool
+	cancelled bool
+}
+
+func runShellProcess(ctx context.Context, command, workDir string, timeout time.Duration) (shellRunResult, *ToolResult) {
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Dir = workDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return shellRunResult{}, failureResult(fmt.Sprintf("Failed to start command: %v", err), err.Error())
+	}
+
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- cmd.Wait() }()
+
+	var waitErr error
+	select {
+	case waitErr = <-waitDone:
+	case <-cmdCtx.Done():
+		waitErr = terminateShellProcessGroup(cmd, waitDone)
+	}
+
+	exitCode := 0
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+
+	return shellRunResult{
+		exitCode:  exitCode,
+		stdout:    stdout.String(),
+		stderr:    stderr.String(),
+		timedOut:  cmdCtx.Err() == context.DeadlineExceeded,
+		cancelled: ctx.Err() == context.Canceled,
+	}, nil
+}
+
+func terminateShellProcessGroup(cmd *exec.Cmd, waitDone <-chan error) error {
+	if cmd.Process == nil {
+		return <-waitDone
+	}
+	pgid, pgErr := syscall.Getpgid(cmd.Process.Pid)
+	if pgErr == nil {
+		syscall.Kill(-pgid, syscall.SIGTERM)
+	}
+	timer := time.NewTimer(killGracePeriod)
+	defer timer.Stop()
+	select {
+	case waitErr := <-waitDone:
+		return waitErr
+	case <-timer.C:
+		if pgErr == nil {
+			syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+		return <-waitDone
+	}
 }
 
 func formatShellOutput(exitCode int, stdout, stderr string, timedOut, cancelled bool, timeout time.Duration) string {

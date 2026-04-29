@@ -150,34 +150,6 @@ func yardRunChain(ctx context.Context, configPath string, flags yardChainFlags, 
 	return err
 }
 
-func yardBuildChainTask(flags yardChainFlags, chainID string, receiptPaths []string) string {
-	history := "No existing receipt paths were found for this chain yet."
-	if len(receiptPaths) > 0 {
-		history = fmt.Sprintf("Relevant existing receipt paths to read first: %s.", strings.Join(receiptPaths, ", "))
-	}
-	if strings.TrimSpace(flags.Specs) != "" {
-		return fmt.Sprintf("You are managing a chain execution. Source specs: %s. Chain ID: %s. Read the specs from the brain. %s Continue orchestrating from the current point.", strings.Join(yardParseSpecs(flags.Specs), ", "), chainID, history)
-	}
-	return fmt.Sprintf("You are managing a chain execution. Task: %s. Chain ID: %s. %s Continue orchestrating from the current point.", strings.TrimSpace(flags.Task), chainID, history)
-}
-
-func existingReceiptPaths(steps []chain.Step) []string {
-	paths := make([]string, 0, len(steps))
-	seen := make(map[string]struct{}, len(steps))
-	for _, step := range steps {
-		path := strings.TrimSpace(step.ReceiptPath)
-		if path == "" {
-			continue
-		}
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		seen[path] = struct{}{}
-		paths = append(paths, path)
-	}
-	return paths
-}
-
 func newYardChainCancelCmd(configPath *string) *cobra.Command {
 	return &cobra.Command{Use: "cancel <chain-id>", Short: "Cancel a chain", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		return yardSetChainStatus(cmd, *configPath, args[0], "cancelled", chain.EventChainCancelled, "cancelled")

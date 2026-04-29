@@ -186,22 +186,7 @@ func (p *OpenAIProvider) backoff(ctx context.Context, attempt int) bool {
 	jitter := time.Duration(rand.Int63n(500_000_000))      // 0 to 500ms
 	totalDelay := delay + jitter
 
-	timer := time.NewTimer(totalDelay)
-	defer func() {
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-	}()
-
-	select {
-	case <-timer.C:
-		return true
-	case <-ctx.Done():
-		return false
-	}
+	return provider.SleepWithContext(ctx, totalDelay)
 }
 
 // isConnectionError returns true if the error indicates a connection failure

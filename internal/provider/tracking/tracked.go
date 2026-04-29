@@ -93,32 +93,16 @@ func (tp *TrackedProvider) Complete(ctx context.Context, req *provider.Request) 
 
 		// If a partial response is available, extract usage from it.
 		if resp != nil {
-			params.TokensIn = resp.Usage.InputTokens
-			params.TokensOut = resp.Usage.OutputTokens
-			params.CacheReadTokens = resp.Usage.CacheReadTokens
-			params.CacheCreationTokens = resp.Usage.CacheCreationTokens
+			applyUsage(&params, resp.Usage)
 		}
 	} else {
 		// Successful call.
 		params.Success = 1
 		params.Model = resp.Model
-		params.TokensIn = resp.Usage.InputTokens
-		params.TokensOut = resp.Usage.OutputTokens
-		params.CacheReadTokens = resp.Usage.CacheReadTokens
-		params.CacheCreationTokens = resp.Usage.CacheCreationTokens
+		applyUsage(&params, resp.Usage)
 	}
 
-	if storeErr := tp.store.InsertSubCall(ctx, params); storeErr != nil {
-		tp.logger.Error("failed to record sub-call",
-			"err", storeErr,
-			"provider", params.Provider,
-			"model", params.Model,
-			"purpose", params.Purpose,
-			"tokens_in", params.TokensIn,
-			"tokens_out", params.TokensOut,
-			"latency_ms", params.LatencyMs,
-		)
-	}
+	tp.recordSubCall(ctx, params, "failed to record sub-call")
 
 	return resp, err
 }
@@ -139,17 +123,7 @@ func (tp *TrackedProvider) Stream(ctx context.Context, req *provider.Request) (<
 		errMsg := err.Error()
 		params.ErrorMessage = &errMsg
 
-		if storeErr := tp.store.InsertSubCall(ctx, params); storeErr != nil {
-			tp.logger.Error("failed to record sub-call for stream setup error",
-				"err", storeErr,
-				"provider", params.Provider,
-				"model", params.Model,
-				"purpose", params.Purpose,
-				"tokens_in", params.TokensIn,
-				"tokens_out", params.TokensOut,
-				"latency_ms", params.LatencyMs,
-			)
-		}
+		tp.recordSubCall(ctx, params, "failed to record sub-call for stream setup error")
 
 		return nil, err
 	}
@@ -193,10 +167,7 @@ func (tp *TrackedProvider) Stream(ctx context.Context, req *provider.Request) (<
 		latencyMs := time.Since(start).Milliseconds()
 		params := tp.buildParams(req, latencyMs)
 		params.Model = req.Model
-		params.TokensIn = finalUsage.InputTokens
-		params.TokensOut = finalUsage.OutputTokens
-		params.CacheReadTokens = finalUsage.CacheReadTokens
-		params.CacheCreationTokens = finalUsage.CacheCreationTokens
+		applyUsage(&params, finalUsage)
 
 		if success {
 			params.Success = 1
@@ -210,24 +181,35 @@ func (tp *TrackedProvider) Stream(ctx context.Context, req *provider.Request) (<
 		}
 
 		// Use context.Background() because the request ctx may be cancelled.
-		if storeErr := tp.store.InsertSubCall(context.Background(), params); storeErr != nil {
-			tp.logger.Error("failed to record sub-call for stream",
-				"err", storeErr,
-				"provider", params.Provider,
-				"model", params.Model,
-				"purpose", params.Purpose,
-				"tokens_in", params.TokensIn,
-				"tokens_out", params.TokensOut,
-				"cache_read_tokens", params.CacheReadTokens,
-				"cache_creation_tokens", params.CacheCreationTokens,
-				"latency_ms", params.LatencyMs,
-			)
-		}
+		tp.recordSubCall(context.Background(), params, "failed to record sub-call for stream")
 
 		close(out)
 	}()
 
 	return out, nil
+}
+
+func applyUsage(params *InsertSubCallParams, usage provider.Usage) {
+	params.TokensIn = usage.InputTokens
+	params.TokensOut = usage.OutputTokens
+	params.CacheReadTokens = usage.CacheReadTokens
+	params.CacheCreationTokens = usage.CacheCreationTokens
+}
+
+func (tp *TrackedProvider) recordSubCall(ctx context.Context, params InsertSubCallParams, message string) {
+	if storeErr := tp.store.InsertSubCall(ctx, params); storeErr != nil {
+		tp.logger.Error(message,
+			"err", storeErr,
+			"provider", params.Provider,
+			"model", params.Model,
+			"purpose", params.Purpose,
+			"tokens_in", params.TokensIn,
+			"tokens_out", params.TokensOut,
+			"cache_read_tokens", params.CacheReadTokens,
+			"cache_creation_tokens", params.CacheCreationTokens,
+			"latency_ms", params.LatencyMs,
+		)
+	}
 }
 
 // buildParams creates a base InsertSubCallParams with common fields populated

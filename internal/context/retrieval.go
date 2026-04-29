@@ -169,96 +169,68 @@ func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds
 	)
 
 	var wg sync.WaitGroup
-
-	if shouldRunSemanticSearch(needs, queries) && o.searcher != nil {
+	runPath := func(label string, enabled bool, fn func(stdctx.Context) error) {
+		if !enabled {
+			return
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			pathCtx, cancel := o.pathContext(ctx)
 			defer cancel()
-			hits, err := o.retrieveSemanticSearch(pathCtx, queries, cfg)
-			if err != nil {
-				slog.Warn("context retrieval semantic search failed", "error", err)
-				return
+			if err := fn(pathCtx); err != nil {
+				slog.Warn("context retrieval "+label+" failed", "error", err)
 			}
+		}()
+	}
+
+	runPath("semantic search", shouldRunSemanticSearch(needs, queries) && o.searcher != nil, func(pathCtx stdctx.Context) error {
+		hits, err := o.retrieveSemanticSearch(pathCtx, queries, cfg)
+		if err == nil {
 			ragHits = hits
-		}()
-	}
+		}
+		return err
+	})
 
-	if len(needs.ExplicitFiles) > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pathCtx, cancel := o.pathContext(ctx)
-			defer cancel()
-			results, err := o.retrieveExplicitFiles(pathCtx, needs.ExplicitFiles, cfg)
-			if err != nil {
-				slog.Warn("context retrieval explicit files failed", "error", err)
-				return
-			}
+	runPath("explicit files", len(needs.ExplicitFiles) > 0, func(pathCtx stdctx.Context) error {
+		results, err := o.retrieveExplicitFiles(pathCtx, needs.ExplicitFiles, cfg)
+		if err == nil {
 			fileResults = results
-		}()
-	}
+		}
+		return err
+	})
 
-	if len(needs.ExplicitSymbols) > 0 && o.graph != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pathCtx, cancel := o.pathContext(ctx)
-			defer cancel()
-			hits, err := o.retrieveStructuralGraph(pathCtx, needs.ExplicitSymbols, cfg)
-			if err != nil {
-				slog.Warn("context retrieval structural graph failed", "error", err)
-				return
-			}
+	runPath("structural graph", len(needs.ExplicitSymbols) > 0 && o.graph != nil, func(pathCtx stdctx.Context) error {
+		hits, err := o.retrieveStructuralGraph(pathCtx, needs.ExplicitSymbols, cfg)
+		if err == nil {
 			graphHits = hits
-		}()
-	}
+		}
+		return err
+	})
 
-	if len(queries) > 0 && o.brain != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pathCtx, cancel := o.pathContext(ctx)
-			defer cancel()
-			hits, err := o.retrieveBrainSearch(pathCtx, queries, cfg)
-			if err != nil {
-				slog.Warn("context retrieval brain search failed", "error", err)
-				return
-			}
+	runPath("brain search", len(queries) > 0 && o.brain != nil, func(pathCtx stdctx.Context) error {
+		hits, err := o.retrieveBrainSearch(pathCtx, queries, cfg)
+		if err == nil {
 			brainHits = hits
-		}()
-	}
+		}
+		return err
+	})
 
-	if needs.IncludeConventions {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pathCtx, cancel := o.pathContext(ctx)
-			defer cancel()
-			text, err := o.retrieveConventions(pathCtx)
-			if err != nil {
-				slog.Warn("context retrieval conventions failed", "error", err)
-				return
-			}
+	runPath("conventions", needs.IncludeConventions, func(pathCtx stdctx.Context) error {
+		text, err := o.retrieveConventions(pathCtx)
+		if err == nil {
 			conventionText = text
-		}()
-	}
+		}
+		return err
+	})
 
-	if needs.IncludeGitContext {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pathCtx, cancel := o.pathContext(ctx)
-			defer cancel()
-			text, err := o.retrieveGitContext(pathCtx, needs.GitContextDepth)
-			if err != nil {
-				slog.Warn("context retrieval git context failed", "error", err)
-				return
-			}
+	runPath("git context", needs.IncludeGitContext, func(pathCtx stdctx.Context) error {
+		text, err := o.retrieveGitContext(pathCtx, needs.GitContextDepth)
+		if err == nil {
 			gitContext = text
-		}()
-	}
+		}
+		return err
+	})
 
 	wg.Wait()
 

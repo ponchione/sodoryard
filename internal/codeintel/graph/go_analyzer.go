@@ -137,34 +137,48 @@ func (a *GoAnalyzer) Analyze() (*AnalysisResult, error) {
 	}, nil
 }
 
+type goModuleFile struct {
+	absPath string
+	pkg     *packages.Package
+	astFile *ast.File
+	relFile string
+}
+
+func (a *GoAnalyzer) forEachModuleFile(fn func(goModuleFile)) {
+	for absPath, pkg := range a.pkgsByFile {
+		if !a.isInModule(pkg.PkgPath) {
+			continue
+		}
+		astFile := a.findASTFile(pkg, absPath)
+		if astFile == nil {
+			continue
+		}
+		fn(goModuleFile{
+			absPath: absPath,
+			pkg:     pkg,
+			astFile: astFile,
+			relFile: a.relPath(absPath),
+		})
+	}
+}
+
 // extractSymbols walks all files in the module and extracts symbols.
 func (a *GoAnalyzer) extractSymbols() []Symbol {
 	var symbols []Symbol
 	seen := make(map[string]bool)
 
-	for absPath, pkg := range a.pkgsByFile {
-		if !a.isInModule(pkg.PkgPath) {
-			continue
-		}
-
-		astFile := a.findASTFile(pkg, absPath)
-		if astFile == nil {
-			continue
-		}
-
-		relFile := a.relPath(absPath)
-
-		for _, decl := range astFile.Decls {
+	a.forEachModuleFile(func(file goModuleFile) {
+		for _, decl := range file.astFile.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				sym := a.extractFuncSymbol(d, pkg, relFile)
+				sym := a.extractFuncSymbol(d, file.pkg, file.relFile)
 				if sym != nil && !seen[sym.ID] {
 					seen[sym.ID] = true
 					symbols = append(symbols, *sym)
 				}
 			case *ast.GenDecl:
 				if d.Tok == token.TYPE {
-					for _, sym := range a.extractTypeSymbols(d, pkg, relFile) {
+					for _, sym := range a.extractTypeSymbols(d, file.pkg, file.relFile) {
 						if !seen[sym.ID] {
 							seen[sym.ID] = true
 							symbols = append(symbols, sym)
@@ -173,7 +187,7 @@ func (a *GoAnalyzer) extractSymbols() []Symbol {
 				}
 			}
 		}
-	}
+	})
 
 	return symbols
 }
@@ -319,18 +333,9 @@ func (a *GoAnalyzer) extractEdges(_ []Symbol) ([]Edge, []BoundarySymbol) {
 	seenEmbeds := make(map[string]bool)
 	seenImplements := make(map[string]bool)
 
-	for absPath, pkg := range a.pkgsByFile {
-		if !a.isInModule(pkg.PkgPath) {
-			continue
-		}
-
-		astFile := a.findASTFile(pkg, absPath)
-		if astFile == nil {
-			continue
-		}
-
+	a.forEachModuleFile(func(file goModuleFile) {
 		// Per-file: embeds and implements edges (type-level, not function-level).
-		embedEdges := a.extractEmbedEdges(astFile, pkg)
+		embedEdges := a.extractEmbedEdges(file.astFile, file.pkg)
 		for _, e := range embedEdges {
 			key := e.SourceID + "->" + e.TargetID
 			if !seenEmbeds[key] {
@@ -339,7 +344,7 @@ func (a *GoAnalyzer) extractEdges(_ []Symbol) ([]Edge, []BoundarySymbol) {
 			}
 		}
 
-		implEdges := a.extractImplementsEdges(astFile, pkg)
+		implEdges := a.extractImplementsEdges(file.astFile, file.pkg)
 		for _, e := range implEdges {
 			key := e.SourceID + "->" + e.TargetID
 			if !seenImplements[key] {
@@ -349,30 +354,30 @@ func (a *GoAnalyzer) extractEdges(_ []Symbol) ([]Edge, []BoundarySymbol) {
 		}
 
 		// Per-function: call edges and import edges.
-		for _, decl := range astFile.Decls {
+		for _, decl := range file.astFile.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
 			if !ok || fd.Body == nil {
 				continue
 			}
 
-			sourceID := a.funcDeclSymbolID(fd, pkg)
+			sourceID := a.funcDeclSymbolID(fd, file.pkg)
 			if sourceID == "" {
 				continue
 			}
 
-			callEdges, bounds := a.extractCallEdges(fd.Body, pkg, sourceID)
+			callEdges, bounds := a.extractCallEdges(fd.Body, file.pkg, sourceID)
 			edges = append(edges, callEdges...)
 			for _, b := range bounds {
 				boundaryMap[b.ID] = b
 			}
 
-			importEdges, importBounds := a.extractImportEdges(astFile, pkg, sourceID)
+			importEdges, importBounds := a.extractImportEdges(file.astFile, file.pkg, sourceID)
 			edges = append(edges, importEdges...)
 			for _, b := range importBounds {
 				boundaryMap[b.ID] = b
 			}
 		}
-	}
+	})
 
 	var boundaries []BoundarySymbol
 	for _, b := range boundaryMap {

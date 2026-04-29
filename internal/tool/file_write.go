@@ -93,73 +93,21 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 
 	if requiresFreshRead {
 		var result *ToolResult
-		mutationState, result = loadMutableFileState(ctx, projectRoot, store, absPath, params.Path, "file_write")
+		mutationState, result = loadFreshMutableFileState(ctx, projectRoot, store, absPath, params.Path, "file_write")
 		if result != nil {
-			return result, nil
-		}
-		if result = verifyMutableFileSnapshotFresh(ctx, store, projectRoot, mutationState, params.Path, "file_write"); result != nil {
 			return result, nil
 		}
 		oldContent = string(mutationState.data)
 	}
 
-	// Write atomically: write to temp file in same dir, then rename.
-	tmpFile, err := os.CreateTemp(dir, ".yard-write-*")
-	if err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Failed to create temp file: %v", err),
-			Error:   err.Error(),
-		}, nil
-	}
-	tmpPath := tmpFile.Name()
-
-	if _, err := tmpFile.WriteString(params.Content); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Failed to write file: %v", err),
-			Error:   err.Error(),
-		}, nil
-	}
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Failed to close temp file: %v", err),
-			Error:   err.Error(),
-		}, nil
-	}
-
-	// Preserve permissions if overwriting.
-	if !isNew {
-		if info, err := os.Stat(absPath); err == nil {
-			if err := os.Chmod(tmpPath, info.Mode()); err != nil {
-				os.Remove(tmpPath)
-				return &ToolResult{
-					Success: false,
-					Content: fmt.Sprintf("Failed to preserve file permissions: %v", err),
-					Error:   err.Error(),
-				}, nil
-			}
+	beforeRename := func() *ToolResult {
+		if !requiresFreshRead {
+			return nil
 		}
+		return verifyMutableFileSnapshotFresh(ctx, store, projectRoot, mutationState, params.Path, "file_write")
 	}
-
-	if requiresFreshRead {
-		if result := verifyMutableFileSnapshotFresh(ctx, store, projectRoot, mutationState, params.Path, "file_write"); result != nil {
-			os.Remove(tmpPath)
-			return result, nil
-		}
-	}
-
-	if err := os.Rename(tmpPath, absPath); err != nil {
-		os.Remove(tmpPath)
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Failed to write file: %v", err),
-			Error:   err.Error(),
-		}, nil
+	if result := writeStringAtomically(absPath, params.Content, !isNew, beforeRename); result != nil {
+		return result, nil
 	}
 	if !isNew {
 		clearMutableFileSnapshot(ctx, store, mutationState.scopeKey, mutationState.absPath)
@@ -174,18 +122,61 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 		}, nil
 	}
 
-	// Generate diff for overwrites.
-	diff := unifiedDiff("a/"+params.Path, "b/"+params.Path, oldContent, params.Content, 3)
-	details := fileMutationDetailFields("write", params.Path, false, diff != "", diff, len(oldContent), len(params.Content))
+	return fileWriteOverwriteResult(params.Path, oldContent, params.Content), nil
+}
+
+func writeStringAtomically(absPath, content string, preservePermissions bool, beforeRename func() *ToolResult) *ToolResult {
+	dir := filepath.Dir(absPath)
+	tmpFile, err := os.CreateTemp(dir, ".yard-write-*")
+	if err != nil {
+		return failureResult(fmt.Sprintf("Failed to create temp file: %v", err), err.Error())
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return failureResult(fmt.Sprintf("Failed to write file: %v", err), err.Error())
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return failureResult(fmt.Sprintf("Failed to close temp file: %v", err), err.Error())
+	}
+
+	if preservePermissions {
+		if info, err := os.Stat(absPath); err == nil {
+			if err := os.Chmod(tmpPath, info.Mode()); err != nil {
+				os.Remove(tmpPath)
+				return failureResult(fmt.Sprintf("Failed to preserve file permissions: %v", err), err.Error())
+			}
+		}
+	}
+
+	if beforeRename != nil {
+		if result := beforeRename(); result != nil {
+			os.Remove(tmpPath)
+			return result
+		}
+	}
+
+	if err := os.Rename(tmpPath, absPath); err != nil {
+		os.Remove(tmpPath)
+		return failureResult(fmt.Sprintf("Failed to write file: %v", err), err.Error())
+	}
+	return nil
+}
+
+func fileWriteOverwriteResult(path, oldContent, newContent string) *ToolResult {
+	diff := unifiedDiff("a/"+path, "b/"+path, oldContent, newContent, 3)
+	details := fileMutationDetailFields("write", path, false, diff != "", diff, len(oldContent), len(newContent))
 	if diff == "" {
 		return &ToolResult{
 			Success: true,
-			Content: fmt.Sprintf("File written: %s (no changes detected)", params.Path),
+			Content: fmt.Sprintf("File written: %s (no changes detected)", path),
 			Details: newFileMutationDetails(details),
-		}, nil
+		}
 	}
 
-	// Truncate diff if too long.
 	diffLines := strings.Split(diff, "\n")
 	if len(diffLines) > diffTruncateLines {
 		truncated := strings.Join(diffLines[:diffTruncateLines], "\n")
@@ -194,12 +185,12 @@ func (f FileWrite) Execute(ctx context.Context, projectRoot string, input json.R
 			Success: true,
 			Content: fmt.Sprintf("%s\n[diff truncated — showing %d of %d lines]", truncated, diffTruncateLines, len(diffLines)),
 			Details: newFileMutationDetails(details),
-		}, nil
+		}
 	}
 
 	return &ToolResult{
 		Success: true,
 		Content: diff,
 		Details: newFileMutationDetails(details),
-	}, nil
+	}
 }

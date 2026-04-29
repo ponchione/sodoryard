@@ -58,14 +58,6 @@ type responsesOutputDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
-// retryableStatuses are HTTP status codes that trigger retry logic.
-var retryableStatuses = map[int]bool{
-	429: true,
-	500: true,
-	502: true,
-	503: true,
-}
-
 // Complete sends a non-streaming request to the Responses API and returns
 // the unified response.
 func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
@@ -168,7 +160,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 		}
 
 		// Retryable errors
-		if retryableStatuses[resp.StatusCode] {
+		if provider.IsRetryableHTTPStatus(resp.StatusCode) {
 			continue
 		}
 
@@ -195,12 +187,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 
 		contentBlocks, stopReason := parseOutputItems(apiResp.Output)
 
-		usage := provider.Usage{
-			InputTokens:         apiResp.Usage.InputTokens,
-			OutputTokens:        apiResp.Usage.OutputTokens,
-			CacheReadTokens:     apiResp.Usage.InputTokensDetails.CachedTokens,
-			CacheCreationTokens: 0,
-		}
+		usage := usageFromResponsesUsage(apiResp.Usage)
 
 		return &provider.Response{
 			Content:    contentBlocks,
@@ -308,12 +295,7 @@ func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usa
 			if err := json.Unmarshal(data, &completed); err != nil {
 				return nil, provider.Usage{}, "", err
 			}
-			usage = provider.Usage{
-				InputTokens:         completed.Response.Usage.InputTokens,
-				OutputTokens:        completed.Response.Usage.OutputTokens,
-				CacheReadTokens:     completed.Response.Usage.InputTokensDetails.CachedTokens,
-				CacheCreationTokens: 0,
-			}
+			usage = usageFromResponsesUsage(completed.Response.Usage)
 			for _, item := range completed.Response.Output {
 				if block, ok := codexReasoningBlockFromSSEItem(item); ok {
 					reasoningBlocks = append(reasoningBlocks, block)
@@ -372,8 +354,21 @@ func parseOutputItems(items []responsesOutputItem) ([]provider.ContentBlock, pro
 }
 
 func codexReasoningBlockFromOutputItem(item responsesOutputItem) (provider.ContentBlock, bool) {
-	if item.Type != "reasoning" || strings.TrimSpace(item.EncryptedContent) == "" {
+	return codexReasoningBlock(item.Type, item.ID, item.EncryptedContent, item.Summary)
+}
+
+func usageFromResponsesUsage(usage responsesUsage) provider.Usage {
+	return provider.Usage{
+		InputTokens:         usage.InputTokens,
+		OutputTokens:        usage.OutputTokens,
+		CacheReadTokens:     usage.InputTokensDetails.CachedTokens,
+		CacheCreationTokens: 0,
+	}
+}
+
+func codexReasoningBlock(itemType, id, encryptedContent string, summary []provider.ReasoningSummaryBlock) (provider.ContentBlock, bool) {
+	if itemType != "reasoning" || strings.TrimSpace(encryptedContent) == "" {
 		return provider.ContentBlock{}, false
 	}
-	return provider.NewCodexReasoningBlock(item.ID, item.EncryptedContent, item.Summary), true
+	return provider.NewCodexReasoningBlock(id, encryptedContent, summary), true
 }

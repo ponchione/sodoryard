@@ -15,8 +15,8 @@ func TestSendStreamEventSendsWhenChannelReady(t *testing.T) {
 	ch := make(chan provider.StreamEvent, 1)
 	event := provider.TokenDelta{Text: "hello"}
 
-	if ok := sendStreamEvent(ctx, ch, event); !ok {
-		t.Fatal("expected sendStreamEvent to succeed")
+	if ok := provider.SendStreamEvent(ctx, ch, event); !ok {
+		t.Fatal("expected SendStreamEvent to succeed")
 	}
 
 	got := <-ch
@@ -249,7 +249,7 @@ func TestSendStreamEventReturnsWhenContextCancelledAndChannelBlocked(t *testing.
 
 	done := make(chan bool, 1)
 	go func() {
-		done <- sendStreamEvent(ctx, ch, provider.StreamError{Fatal: true, Message: "stream cancelled"})
+		done <- provider.SendStreamEvent(ctx, ch, provider.StreamError{Fatal: true, Message: "stream cancelled"})
 	}()
 
 	cancel()
@@ -257,9 +257,9 @@ func TestSendStreamEventReturnsWhenContextCancelledAndChannelBlocked(t *testing.
 	select {
 	case ok := <-done:
 		if ok {
-			t.Fatal("expected sendStreamEvent to report failure after cancellation")
+			t.Fatal("expected SendStreamEvent to report failure after cancellation")
 		}
 	case <-time.After(250 * time.Millisecond):
-		t.Fatal("sendStreamEvent blocked after context cancellation")
+		t.Fatal("SendStreamEvent blocked after context cancellation")
 	}
 }

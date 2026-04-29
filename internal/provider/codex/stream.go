@@ -12,21 +12,6 @@ import (
 
 const maxSSEScannerTokenSize = 16 * 1024 * 1024
 
-func sendStreamEvent(ctx context.Context, ch chan<- provider.StreamEvent, event provider.StreamEvent) bool {
-	select {
-	case ch <- event:
-		return true
-	default:
-	}
-
-	select {
-	case ch <- event:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
 // streamState tracks in-progress output items during SSE parsing.
 type streamState struct {
 	toolCalls map[string]*streamToolCallState
@@ -156,7 +141,7 @@ func (p *CodexProvider) Stream(ctx context.Context, req *provider.Request) (<-ch
 		for {
 			event, ok, err := reader.Next(ctx)
 			if err != nil {
-				sendStreamEvent(ctx, ch, provider.StreamError{
+				provider.SendStreamEvent(ctx, ch, provider.StreamError{
 					Err:     err,
 					Fatal:   true,
 					Message: fmt.Sprintf("stream read error: %v", err),
@@ -182,29 +167,29 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 	case "response.output_text.delta":
 		var delta sseTextDelta
 		if err := json.Unmarshal(data, &delta); err != nil {
-			return sendStreamEvent(ctx, ch, provider.StreamError{
+			return provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   false,
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
 			})
 		}
-		return sendStreamEvent(ctx, ch, provider.TokenDelta{Text: delta.Delta})
+		return provider.SendStreamEvent(ctx, ch, provider.TokenDelta{Text: delta.Delta})
 
 	case "response.reasoning.delta":
 		var delta sseReasoningDelta
 		if err := json.Unmarshal(data, &delta); err != nil {
-			return sendStreamEvent(ctx, ch, provider.StreamError{
+			return provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   false,
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
 			})
 		}
-		return sendStreamEvent(ctx, ch, provider.ThinkingDelta{Thinking: delta.Delta})
+		return provider.SendStreamEvent(ctx, ch, provider.ThinkingDelta{Thinking: delta.Delta})
 
 	case "response.output_item.added":
 		var added sseOutputItemAdded
 		if err := json.Unmarshal(data, &added); err != nil {
-			return sendStreamEvent(ctx, ch, provider.StreamError{
+			return provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   false,
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
@@ -219,7 +204,7 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 			}
 			call.name = added.Item.Name
 			call.args.Reset()
-			return sendStreamEvent(ctx, ch, provider.ToolCallStart{
+			return provider.SendStreamEvent(ctx, ch, provider.ToolCallStart{
 				ID:   call.callID,
 				Name: call.name,
 			})
@@ -229,7 +214,7 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 	case "response.function_call_arguments.delta":
 		var delta sseFuncArgDelta
 		if err := json.Unmarshal(data, &delta); err != nil {
-			return sendStreamEvent(ctx, ch, provider.StreamError{
+			return provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   false,
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
@@ -240,7 +225,7 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 		if eventID == "" {
 			eventID = delta.ItemID
 		}
-		if !sendStreamEvent(ctx, ch, provider.ToolCallDelta{
+		if !provider.SendStreamEvent(ctx, ch, provider.ToolCallDelta{
 			ID:    eventID,
 			Delta: delta.Delta,
 		}) {
@@ -252,7 +237,7 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 	case "response.output_item.done":
 		var done sseOutputItemDone
 		if err := json.Unmarshal(data, &done); err != nil {
-			return sendStreamEvent(ctx, ch, provider.StreamError{
+			return provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   false,
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
@@ -268,7 +253,7 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 			if callID == "" {
 				callID = itemID
 			}
-			if !sendStreamEvent(ctx, ch, provider.ToolCallEnd{
+			if !provider.SendStreamEvent(ctx, ch, provider.ToolCallEnd{
 				ID:    callID,
 				Input: json.RawMessage(sseToolCallArguments(done.Item.Arguments, call)),
 			}) {
@@ -281,42 +266,25 @@ func (p *CodexProvider) handleSSEEvent(ctx context.Context, eventType string, da
 	case "response.completed":
 		var completed sseCompleted
 		if err := json.Unmarshal(data, &completed); err != nil {
-			return sendStreamEvent(ctx, ch, provider.StreamError{
+			return provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   false,
 				Message: fmt.Sprintf("failed to parse stream event: %v", err),
 			})
 		}
 
-		hasToolCall := false
-		for _, item := range completed.Response.Output {
-			if item.Type == "function_call" {
-				hasToolCall = true
-				break
-			}
-		}
-
-		stopReason := provider.StopReasonEndTurn
-		if hasToolCall {
-			stopReason = provider.StopReasonToolUse
-		}
-
-		usage := provider.Usage{
-			InputTokens:         completed.Response.Usage.InputTokens,
-			OutputTokens:        completed.Response.Usage.OutputTokens,
-			CacheReadTokens:     completed.Response.Usage.InputTokensDetails.CachedTokens,
-			CacheCreationTokens: 0,
-		}
+		stopReason := sseOutputStopReason(completed.Response.Output)
+		usage := usageFromResponsesUsage(completed.Response.Usage)
 
 		for _, item := range completed.Response.Output {
 			if block, ok := codexReasoningBlockFromSSEItem(item); ok {
-				if !sendStreamEvent(ctx, ch, provider.CodexReasoning{Block: block}) {
+				if !provider.SendStreamEvent(ctx, ch, provider.CodexReasoning{Block: block}) {
 					return false
 				}
 			}
 		}
 
-		return sendStreamEvent(ctx, ch, provider.StreamDone{
+		return provider.SendStreamEvent(ctx, ch, provider.StreamDone{
 			StopReason: stopReason,
 			Usage:      usage,
 		})
@@ -349,8 +317,14 @@ func sseToolCallArguments(doneArguments string, call *streamToolCallState) strin
 }
 
 func codexReasoningBlockFromSSEItem(item sseOutputItemData) (provider.ContentBlock, bool) {
-	if item.Type != "reasoning" || strings.TrimSpace(item.EncryptedContent) == "" {
-		return provider.ContentBlock{}, false
+	return codexReasoningBlock(item.Type, item.ID, item.EncryptedContent, item.Summary)
+}
+
+func sseOutputStopReason(items []sseOutputItemData) provider.StopReason {
+	for _, item := range items {
+		if item.Type == "function_call" {
+			return provider.StopReasonToolUse
+		}
 	}
-	return provider.NewCodexReasoningBlock(item.ID, item.EncryptedContent, item.Summary), true
+	return provider.StopReasonEndTurn
 }

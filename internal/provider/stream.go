@@ -1,6 +1,9 @@
 package provider
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 // StreamEvent is the sealed interface for all streaming event types. The
 // unexported marker method prevents types outside this package from satisfying
@@ -81,3 +84,18 @@ type StreamDone struct {
 }
 
 func (StreamDone) streamEvent() {}
+
+func SendStreamEvent(ctx context.Context, ch chan<- StreamEvent, event StreamEvent) bool {
+	select {
+	case ch <- event:
+		return true
+	default:
+	}
+
+	select {
+	case ch <- event:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}

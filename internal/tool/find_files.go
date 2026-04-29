@@ -87,8 +87,7 @@ func (FindFiles) Execute(ctx context.Context, projectRoot string, input json.Raw
 
 		if d.IsDir() {
 			name := d.Name()
-			// Skip excluded dirs.
-			if _, excluded := defaultDirExcludes[name]; excluded {
+			if isDefaultExcludedDir(name) {
 				return filepath.SkipDir
 			}
 			// Skip hidden dirs (but not the walk root itself).

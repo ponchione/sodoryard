@@ -164,19 +164,7 @@ func (p *AnthropicProvider) backoff(ctx context.Context, baseDelay time.Duration
 	totalDelay := delay + jitter
 
 	if p.sleep == nil {
-		return sleepWithContext(ctx, totalDelay)
+		return provider.SleepWithContext(ctx, totalDelay)
 	}
 	return p.sleep(ctx, totalDelay)
-}
-
-func sleepWithContext(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return true
-	case <-ctx.Done():
-		return false
-	}
 }

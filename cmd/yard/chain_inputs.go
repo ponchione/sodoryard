@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
@@ -25,10 +24,6 @@ func validateYardChainFlags(flags yardChainFlags) error {
 		return fmt.Errorf("--token-budget must be > 0")
 	}
 	return nil
-}
-
-func yardChainSpecFromFlags(chainID string, flags yardChainFlags) chain.ChainSpec {
-	return chain.ChainSpec{ChainID: chainID, SourceSpecs: yardParseSpecs(flags.Specs), SourceTask: strings.TrimSpace(flags.Task), MaxSteps: flags.MaxSteps, MaxResolverLoops: flags.MaxResolverLoops, MaxDuration: flags.MaxDuration, TokenBudget: flags.TokenBudget}
 }
 
 func applyYardChainOverrides(cfg *appconfig.Config, flags yardChainFlags) {

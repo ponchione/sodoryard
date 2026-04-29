@@ -8,6 +8,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/tool"
+	"github.com/ponchione/sodoryard/internal/toolgroup"
 )
 
 type fakeSemanticSearcher struct{}
@@ -26,6 +27,17 @@ func (f fakeCustomTool) Execute(context.Context, string, json.RawMessage) (*tool
 }
 func (f fakeCustomTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"name":"` + f.name + `","description":"fake","input_schema":{"type":"object","properties":{}}}`)
+}
+
+func TestKnownToolGroupsHaveRegistrars(t *testing.T) {
+	for _, name := range toolgroup.Names() {
+		if _, ok := toolGroupRegistrars[name]; !ok {
+			t.Fatalf("tool group %q is known to config but has no role registrar", name)
+		}
+	}
+	if len(toolGroupRegistrars) != len(toolgroup.Names()) {
+		t.Fatalf("registrar count = %d, known group count = %d", len(toolGroupRegistrars), len(toolgroup.Names()))
+	}
 }
 
 func TestBuildRegistryIncludesOnlyRequestedToolGroups(t *testing.T) {

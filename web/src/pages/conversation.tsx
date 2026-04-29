@@ -1,9 +1,7 @@
-import { useState, useRef, useEffect, useMemo, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   useConversation,
-  type ChatMessage,
-  type ContentBlock,
   type TurnUsage,
 } from "@/hooks/use-conversation";
 import { useContextReport } from "@/hooks/use-context-report";
@@ -12,34 +10,15 @@ import { api } from "@/lib/api";
 import { messageViewsToChat } from "@/lib/history";
 import type { Conversation, MessageView } from "@/types/api";
 import type { AppConfig, ContextReport, ConversationMetrics } from "@/types/metrics";
-import { Button } from "@/components/ui/button";
-import { ThinkingBlock } from "@/components/chat/thinking-block";
-import { ToolCallCard } from "@/components/chat/tool-call-card";
-import { TurnUsageBadge } from "@/components/chat/turn-usage-badge";
-import { MarkdownContent } from "@/components/chat/markdown-content";
 import { ContextInspector } from "@/components/inspector/context-inspector";
 import { ConversationMetricsPanel } from "@/components/chat/conversation-metrics";
-import { getDisplayBlocks } from "@/lib/tool-transcript";
+import { ConversationComposer } from "@/components/chat/conversation-composer";
+import { ConversationMessageList } from "@/components/chat/conversation-message-list";
+import { ConversationTopBar } from "@/components/chat/conversation-top-bar";
 
 const conversationPageSessionState = {
   inspectorOpen: false,
 };
-
-function agentStateLabel(state: string): string {
-  switch (state) {
-    case "assembling_context":
-      return "Assembling context…";
-    case "waiting_for_llm":
-      return "Waiting for model…";
-    case "executing_tools":
-      return "Running tools…";
-    case "compressing":
-      return "Compressing history…";
-    case "idle":
-    default:
-      return "Processing…";
-  }
-}
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
@@ -339,352 +318,60 @@ export function ConversationPage() {
     sendMessage(text, messageOverride);
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  // Find the last assistant message index to attach usage badge.
-  const lastAssistantIdx = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant") return i;
-    }
-    return -1;
-  })();
-
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Main chat column */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar with toggle buttons */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-1.5 gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="text-xs text-muted-foreground shrink-0">
-              {connectionStatus !== "connected"
-                ? connectionStatus === "connecting" ? "Connecting…" : "Disconnected — reconnecting…"
-                : conversationId ? `${conversationId.slice(0, 8)}…` : "New conversation"}
-            </div>
-            {config && selectedProvider && (
-              <div className="flex items-center gap-2 min-w-0">
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => {
-                    const provider = e.target.value;
-                    const providerModels = selectableProviders.find((item) => item.name === provider)?.models ?? [];
-                    const nextModel = providerModels[0]?.id ?? selectedModel;
-                    handleModelOverrideChange(provider, nextModel);
-                  }}
-                  className="h-7 rounded border border-border bg-input px-2 text-xs text-foreground"
-                  aria-label="Conversation provider"
-                  disabled={selectableProviders.length <= 1}
-                >
-                  {selectableProviders.map((provider) => (
-                    <option key={provider.name} value={provider.name}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => handleModelOverrideChange(selectedProvider, e.target.value)}
-                  className="h-7 max-w-56 rounded border border-border bg-input px-2 text-xs text-foreground"
-                  aria-label="Conversation model"
-                  disabled={selectedProviderModels.length <= 1}
-                >
-                  {selectedProviderModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.id}
-                    </option>
-                  ))}
-                </select>
-                {isConversationOverrideActive && (
-                  <span className="shrink-0 bg-primary/15 px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-primary">
-                    override
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => setMetricsOpen(!metricsOpen)}
-              className={`p-1 text-xs ${metricsOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              title="Conversation metrics"
-            >
-              📊
-            </button>
-            <button
-              type="button"
-              onClick={() => setInspectorOpen(!inspectorOpen)}
-              className={`p-1 text-xs ${inspectorOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              title="Context inspector"
-            >
-              🔍
-            </button>
-          </div>
-        </div>
+        <ConversationTopBar
+          connectionStatus={connectionStatus}
+          conversationId={conversationId}
+          config={config}
+          selectedProvider={selectedProvider}
+          selectedModel={selectedModel}
+          selectableProviders={selectableProviders}
+          selectedProviderModels={selectedProviderModels}
+          overrideActive={isConversationOverrideActive}
+          metricsOpen={metricsOpen}
+          inspectorOpen={inspectorOpen}
+          onModelOverrideChange={handleModelOverrideChange}
+          onToggleMetrics={() => setMetricsOpen(!metricsOpen)}
+          onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
+        />
 
-      {/* Message area */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto max-w-3xl space-y-4">
-          {messages.length === 0 && !isStreaming && (
-            <p className="py-12 text-center text-muted-foreground">
-              Send a message to start
-            </p>
-          )}
+        <ConversationMessageList
+          messages={messages}
+          streamingText={streamingText}
+          isStreaming={isStreaming}
+          agentState={agentState}
+          error={error}
+          usage={displayLastTurnUsage}
+          messagesEndRef={messagesEndRef}
+        />
 
-          {messages.map((msg, i) => (
-            <div key={i}>
-              <MessageBubble
-                message={msg}
-                streaming={isStreaming && i === messages.length - 1 && msg.role === "assistant"}
+        {metricsOpen && convId && (
+          <div className="border-t border-border px-4 py-2 max-h-60 overflow-y-auto">
+            <div className="mx-auto max-w-3xl">
+              <ConversationMetricsPanel
+                conversationId={convId}
+                refreshKey={lastTurnUsage?.turnNumber}
               />
-              {/* Usage badge after last assistant message when turn is done */}
-              {i === lastAssistantIdx && !isStreaming && displayLastTurnUsage && (
-                <div className="flex justify-start mt-0.5">
-                  <div className="max-w-[85%]">
-                    <TurnUsageBadge usage={displayLastTurnUsage} />
-                  </div>
-                </div>
-              )}
             </div>
-          ))}
-
-          {/* Agent status while streaming with no content yet */}
-          {isStreaming &&
-            !streamingText &&
-            agentState &&
-            (messages.length === 0 ||
-              messages[messages.length - 1].role !== "assistant" ||
-              messages[messages.length - 1].blocks.length === 0) && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="inline-block h-2 w-2 bg-primary pulse-glow" />
-                {agentStateLabel(agentState)}
-              </div>
-            )}
-
-          {/* Error banner */}
-          {error && (
-            <div
-              data-augmented-ui="tl-clip border"
-              className="border-0 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-              style={{
-                "--aug-tl": "8px",
-                "--aug-border-all": "1px",
-                "--aug-border-bg": "#ff1744",
-              } as React.CSSProperties}
-            >
-              {error}
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {/* Metrics panel (below messages, above input) */}
-      {metricsOpen && convId && (
-        <div className="border-t border-border px-4 py-2 max-h-60 overflow-y-auto">
-          <div className="mx-auto max-w-3xl">
-            <ConversationMetricsPanel
-              conversationId={convId}
-              refreshKey={lastTurnUsage?.turnNumber}
-            />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Input area */}
-      <div className="border-t border-border p-4">
-        <div className="mx-auto flex max-w-3xl gap-2">
-          <div
-            data-augmented-ui="tl-clip br-clip border"
-            className="flex flex-1"
-            style={{
-              "--aug-tl": "10px",
-              "--aug-br": "10px",
-              "--aug-border-all": "1px",
-              "--aug-border-bg": "#00e5ff60",
-            } as React.CSSProperties}
-          >
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
-              className="flex-1 resize-none border-0 bg-input px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
-              rows={1}
-              disabled={isStreaming}
-              autoFocus
-            />
-          </div>
-          {isStreaming ? (
-            <Button
-              variant="destructive"
-              onClick={cancel}
-              data-augmented-ui="tl-clip br-clip border"
-              className="border-0 bg-destructive/20 text-destructive hover:bg-destructive/30"
-              style={{
-                "--aug-tl": "6px",
-                "--aug-br": "6px",
-                "--aug-border-all": "1px",
-                "--aug-border-bg": "#ff1744",
-              } as React.CSSProperties}
-            >
-              Cancel
-            </Button>
-          ) : (
-            <Button
-              onClick={handleSend}
-              disabled={!input.trim()}
-              data-augmented-ui="tl-clip br-clip border"
-              className="border-0 bg-primary text-primary-foreground hover:bg-primary/80"
-              style={{
-                "--aug-tl": "6px",
-                "--aug-br": "6px",
-                "--aug-border-all": "1px",
-                "--aug-border-bg": "#00e5ff",
-              } as React.CSSProperties}
-            >
-              Send
-            </Button>
-          )}
-        </div>
+        <ConversationComposer
+          input={input}
+          isStreaming={isStreaming}
+          onInputChange={setInput}
+          onSend={handleSend}
+          onCancel={cancel}
+        />
       </div>
-      </div>{/* end main chat column */}
 
       {/* Context Inspector panel (right side) */}
       {inspectorOpen && (
         <ContextInspector ctx={ctxReport} onClose={() => setInspectorOpen(false)} />
       )}
-    </div>
-  );
-}
-
-// ── Block renderer ───────────────────────────────────────────────────
-
-function BlockRenderer({ block, streaming }: { block: ContentBlock; streaming: boolean }) {
-  switch (block.kind) {
-    case "thinking":
-      return <ThinkingBlock block={block} />;
-    case "tool_call":
-      return <ToolCallCard block={block} />;
-    case "text":
-      return (
-        <div>
-          <MarkdownContent content={block.text} />
-          {streaming && (
-            <span className="ml-0.5 inline-block h-4 w-1.5 bg-primary pulse-glow" />
-          )}
-        </div>
-      );
-  }
-}
-
-// ── Message bubble ───────────────────────────────────────────────────
-
-function MessageBubble({
-  message,
-  streaming = false,
-}: {
-  message: ChatMessage;
-  streaming?: boolean;
-}) {
-  const isUser = message.role === "user";
-  const isSystem = message.role === "system";
-  const isCompressed = message.isCompressed || message.isSummary;
-  const displayBlocks = getDisplayBlocks(message.blocks);
-
-  // System messages — amber dashed border.
-  if (isSystem) {
-    return (
-      <div className="flex justify-center">
-        <div className="max-w-[85%] border border-dashed border-[#ffab00]/40 bg-muted/30 px-4 py-2 text-xs text-muted-foreground italic">
-          {isCompressed && (
-            <span className="mr-1.5 inline-block bg-muted-foreground/20 px-1 py-0.5 text-[10px] font-medium not-italic">
-              compressed
-            </span>
-          )}
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-
-  // User messages — augmented with br-clip, cyan border.
-  if (!isUser && displayBlocks.length === 0) {
-    return null;
-  }
-
-  if (isUser) {
-    return (
-      <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-        <div
-          data-augmented-ui={isUser ? "br-clip border" : undefined}
-          className={`max-w-[85%] whitespace-pre-wrap px-4 py-2.5 text-sm ${
-            isUser
-              ? "bg-primary/10 text-foreground"
-              : isCompressed
-                ? "bg-muted/50 text-muted-foreground italic border border-dashed border-[#ffab00]/40"
-                : "bg-muted text-foreground"
-          }`}
-          style={
-            isUser
-              ? ({
-                  "--aug-br": "12px",
-                  "--aug-border-all": "1px",
-                  "--aug-border-bg": "#00e5ff60",
-                } as React.CSSProperties)
-              : undefined
-          }
-        >
-          {isCompressed && (
-            <span className="mr-1.5 inline-block bg-muted-foreground/20 px-1 py-0.5 text-[10px] font-medium not-italic">
-              compressed
-            </span>
-          )}
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-
-  // Assistant messages with blocks — augmented with tl-clip, green border.
-  return (
-    <div className="flex justify-start">
-      <div
-        data-augmented-ui="tl-clip border"
-        className={`max-w-[85%] px-4 py-2.5 text-sm ${
-          isCompressed
-            ? "bg-muted/50 text-muted-foreground border border-dashed border-[#ffab00]/40"
-            : "bg-muted text-foreground"
-        }`}
-        style={{
-          "--aug-tl": "12px",
-          "--aug-border-all": "1px",
-          "--aug-border-bg": "#00e67640",
-        } as React.CSSProperties}
-      >
-        {isCompressed && (
-          <span className="mb-1.5 inline-block bg-muted-foreground/20 px-1 py-0.5 text-[10px] font-medium">
-            compressed
-          </span>
-        )}
-        {displayBlocks.map((block, i) => {
-          const isLastBlock = i === displayBlocks.length - 1;
-          return (
-            <div key={i} data-augmented-ui-reset>
-              <BlockRenderer
-                block={block}
-                streaming={streaming && isLastBlock}
-              />
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

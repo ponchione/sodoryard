@@ -56,11 +56,7 @@ func (FileEdit) Schema() json.RawMessage {
 func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.RawMessage) (*ToolResult, error) {
 	var params fileEditInput
 	if err := json.Unmarshal(input, &params); err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Invalid input: %v", err),
-			Error:   err.Error(),
-		}, nil
+		return invalidInputResult(err), nil
 	}
 
 	if params.OldStr == "" {
@@ -71,21 +67,14 @@ func (f FileEdit) Execute(ctx context.Context, projectRoot string, input json.Ra
 		}, nil
 	}
 
-	absPath, err := resolvePath(projectRoot, params.Path)
-	if err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: err.Error(),
-			Error:   err.Error(),
-		}, nil
-	}
-
-	store := mutableFileStore(f.store)
-	state, result := loadMutableFileState(ctx, projectRoot, store, absPath, params.Path, "file_edit")
+	absPath, result := resolvePathResult(projectRoot, params.Path)
 	if result != nil {
 		return result, nil
 	}
-	if result := verifyMutableFileSnapshotFresh(ctx, store, projectRoot, state, params.Path, "file_edit"); result != nil {
+
+	store := mutableFileStore(f.store)
+	state, result := loadFreshMutableFileState(ctx, projectRoot, store, absPath, params.Path, "file_edit")
+	if result != nil {
 		return result, nil
 	}
 

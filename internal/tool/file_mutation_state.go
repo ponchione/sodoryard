@@ -66,6 +66,17 @@ func loadMutableFileState(ctx context.Context, projectRoot string, store readSta
 	}, nil
 }
 
+func loadFreshMutableFileState(ctx context.Context, projectRoot string, store readStateStore, absPath, displayPath, toolName string) (mutableFileState, *ToolResult) {
+	state, result := loadMutableFileState(ctx, projectRoot, store, absPath, displayPath, toolName)
+	if result != nil {
+		return mutableFileState{}, result
+	}
+	if result := verifyMutableFileSnapshotFresh(ctx, store, projectRoot, state, displayPath, toolName); result != nil {
+		return mutableFileState{}, result
+	}
+	return state, nil
+}
+
 func verifyMutableFileSnapshotFresh(ctx context.Context, store readStateStore, projectRoot string, state mutableFileState, displayPath, toolName string) *ToolResult {
 	store = mutableFileStore(store)
 	info, err := os.Stat(state.absPath)

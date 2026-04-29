@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/embeddedprompts"
+	"github.com/ponchione/sodoryard/internal/toolgroup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,6 +22,11 @@ const (
 	localServicesModeManual     = "manual"
 	localServicesModeAuto       = "auto"
 	localServicesProviderDocker = "docker-compose"
+	defaultLocalServicesCompose = "./ops/llm/docker-compose.yml"
+	defaultLocalServicesProject = "./ops/llm"
+	defaultLocalServicesNetwork = "llm-net"
+	defaultLocalStartupTimeout  = 180
+	defaultLocalHealthInterval  = 2
 )
 
 // Canonical on-disk names for the yard state directory and its contents.
@@ -33,25 +39,7 @@ const (
 	ConfigFilename = "yard.yaml"
 )
 
-var allowedProviderTypes = map[string]struct{}{
-	"anthropic":         {},
-	"codex":             {},
-	"openai-compatible": {},
-}
-
-var allowedAgentRoleToolGroups = map[string]struct{}{
-	"brain":     {},
-	"file":      {},
-	"file:read": {},
-	"git":       {},
-	"shell":     {},
-	"search":    {},
-	"directory": {},
-	"test":      {},
-	"sqlc":      {},
-}
-
-const allowedAgentRoleToolGroupsMessage = "brain, file, file:read, git, shell, search, directory, test, or sqlc"
+var allowedProviderTypes = []string{"anthropic", "codex", "openai-compatible"}
 
 type Config struct {
 	ProjectRoot string `yaml:"project_root"`
@@ -356,12 +344,12 @@ func Default() *Config {
 			Enabled:                    true,
 			Mode:                       localServicesModeManual,
 			Provider:                   localServicesProviderDocker,
-			ComposeFile:                "./ops/llm/docker-compose.yml",
-			ProjectDir:                 "./ops/llm",
-			RequiredNetworks:           []string{"llm-net"},
+			ComposeFile:                defaultLocalServicesCompose,
+			ProjectDir:                 defaultLocalServicesProject,
+			RequiredNetworks:           []string{defaultLocalServicesNetwork},
 			AutoCreateNetworks:         true,
-			StartupTimeoutSeconds:      180,
-			HealthcheckIntervalSeconds: 2,
+			StartupTimeoutSeconds:      defaultLocalStartupTimeout,
+			HealthcheckIntervalSeconds: defaultLocalHealthInterval,
 			Services:                   defaultManagedServices(),
 		},
 	}
@@ -555,14 +543,7 @@ func (c *Config) BrainVaultPath() string {
 	if vp == "" {
 		vp = ".brain"
 	}
-	if filepath.IsAbs(vp) {
-		return vp
-	}
-	root := c.ProjectRoot
-	if root == "" {
-		root = "."
-	}
-	return filepath.Join(root, vp)
+	return projectRelativePath(c.ProjectRoot, vp)
 }
 
 func (c *Config) ResolveAgentRoleSystemPromptPath(path string) string {
@@ -634,19 +615,19 @@ func (c *Config) normalizeLocalServices() {
 		c.LocalServices.Provider = localServicesProviderDocker
 	}
 	if c.LocalServices.ComposeFile == "" {
-		c.LocalServices.ComposeFile = "./ops/llm/docker-compose.yml"
+		c.LocalServices.ComposeFile = defaultLocalServicesCompose
 	}
 	if c.LocalServices.ProjectDir == "" {
-		c.LocalServices.ProjectDir = "./ops/llm"
+		c.LocalServices.ProjectDir = defaultLocalServicesProject
 	}
 	if c.LocalServices.StartupTimeoutSeconds == 0 {
-		c.LocalServices.StartupTimeoutSeconds = 180
+		c.LocalServices.StartupTimeoutSeconds = defaultLocalStartupTimeout
 	}
 	if c.LocalServices.HealthcheckIntervalSeconds == 0 {
-		c.LocalServices.HealthcheckIntervalSeconds = 2
+		c.LocalServices.HealthcheckIntervalSeconds = defaultLocalHealthInterval
 	}
 	if len(c.LocalServices.RequiredNetworks) == 0 {
-		c.LocalServices.RequiredNetworks = []string{"llm-net"}
+		c.LocalServices.RequiredNetworks = []string{defaultLocalServicesNetwork}
 	}
 	defaults := defaultManagedServices()
 	if c.LocalServices.Services == nil {
@@ -677,22 +658,14 @@ func (c *Config) resolveLocalServicePaths() error {
 		return nil
 	}
 	if strings.TrimSpace(c.LocalServices.ComposeFile) != "" {
-		composePath := c.LocalServices.ComposeFile
-		if !filepath.IsAbs(composePath) {
-			composePath = filepath.Join(c.ProjectRoot, composePath)
-		}
-		resolved, err := expandPath(composePath)
+		resolved, err := resolveProjectRelativePath(c.ProjectRoot, c.LocalServices.ComposeFile)
 		if err != nil {
 			return fmt.Errorf("invalid field local_services.compose_file=%q: %w", c.LocalServices.ComposeFile, err)
 		}
 		c.LocalServices.ComposeFile = resolved
 	}
 	if strings.TrimSpace(c.LocalServices.ProjectDir) != "" {
-		projectDir := c.LocalServices.ProjectDir
-		if !filepath.IsAbs(projectDir) {
-			projectDir = filepath.Join(c.ProjectRoot, projectDir)
-		}
-		resolved, err := expandPath(projectDir)
+		resolved, err := resolveProjectRelativePath(c.ProjectRoot, c.LocalServices.ProjectDir)
 		if err != nil {
 			return fmt.Errorf("invalid field local_services.project_dir=%q: %w", c.LocalServices.ProjectDir, err)
 		}
@@ -717,22 +690,39 @@ func appendMissingStrings(existing []string, values ...string) []string {
 	return out
 }
 
-func (c *Config) validateLogLevel() error {
-	switch strings.ToLower(strings.TrimSpace(c.LogLevel)) {
-	case "debug", "info", "warn", "error":
-		return nil
-	default:
-		return fmt.Errorf("invalid field log_level=%q (expected debug, info, warn, or error)", c.LogLevel)
+func validateEnumValue(field, raw, expected string, allowed ...string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	for _, value := range allowed {
+		if normalized == value {
+			return normalized, nil
+		}
 	}
+	return "", fmt.Errorf("invalid field %s=%q (expected %s)", field, raw, expected)
+}
+
+func projectRelativePath(projectRoot, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	root := projectRoot
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	return filepath.Join(root, path)
+}
+
+func resolveProjectRelativePath(projectRoot, path string) (string, error) {
+	return expandPath(projectRelativePath(projectRoot, path))
+}
+
+func (c *Config) validateLogLevel() error {
+	_, err := validateEnumValue("log_level", c.LogLevel, "debug, info, warn, or error", "debug", "info", "warn", "error")
+	return err
 }
 
 func (c *Config) validateLogFormat() error {
-	switch strings.ToLower(strings.TrimSpace(c.LogFormat)) {
-	case "json", "text":
-		return nil
-	default:
-		return fmt.Errorf("invalid field log_format=%q (expected json or text)", c.LogFormat)
-	}
+	_, err := validateEnumValue("log_format", c.LogFormat, "json or text", "json", "text")
+	return err
 }
 
 func (c *Config) validatePort() error {
@@ -772,12 +762,7 @@ func (c *Config) validatePaths() error {
 		return nil
 	}
 
-	// Resolve vault path: if relative, join with project root.
-	vaultPath := c.Brain.VaultPath
-	if !filepath.IsAbs(vaultPath) {
-		vaultPath = filepath.Join(c.ProjectRoot, vaultPath)
-	}
-	vaultPath, err = expandPath(vaultPath)
+	vaultPath, err := resolveProjectRelativePath(c.ProjectRoot, c.Brain.VaultPath)
 	if err != nil {
 		return fmt.Errorf("invalid field brain.vault_path=%q: %w", c.Brain.VaultPath, err)
 	}
@@ -817,8 +802,7 @@ func (c *Config) validateRouting() error {
 
 func (c *Config) validateProviders() error {
 	for name, provider := range c.Providers {
-		providerType := strings.ToLower(strings.TrimSpace(provider.Type))
-		if _, ok := allowedProviderTypes[providerType]; !ok {
+		if _, err := validateEnumValue("providers."+name+".type", provider.Type, "anthropic, codex, or openai-compatible", allowedProviderTypes...); err != nil {
 			return fmt.Errorf("invalid field providers.%s.type=%q (expected anthropic, codex, or openai-compatible)", name, provider.Type)
 		}
 	}
@@ -842,13 +826,11 @@ func (c *Config) validateLocalServices() error {
 	if !c.LocalServices.Enabled {
 		return nil
 	}
-	mode := strings.ToLower(strings.TrimSpace(c.LocalServices.Mode))
-	switch mode {
-	case localServicesModeOff, localServicesModeManual, localServicesModeAuto:
-		c.LocalServices.Mode = mode
-	default:
-		return fmt.Errorf("invalid field local_services.mode=%q (expected off, manual, or auto)", c.LocalServices.Mode)
+	mode, err := validateEnumValue("local_services.mode", c.LocalServices.Mode, "off, manual, or auto", localServicesModeOff, localServicesModeManual, localServicesModeAuto)
+	if err != nil {
+		return err
 	}
+	c.LocalServices.Mode = mode
 	providerName := strings.ToLower(strings.TrimSpace(c.LocalServices.Provider))
 	if providerName == "" {
 		return errors.New("invalid field local_services.provider=\"\" (must not be empty)")
@@ -935,8 +917,8 @@ func (c *Config) validateAgentRoles() error {
 			}
 		}
 		for _, group := range role.Tools {
-			if _, ok := allowedAgentRoleToolGroups[strings.TrimSpace(group)]; !ok {
-				return fmt.Errorf("invalid field agent_roles.%s.tools (unsupported tool group %q; expected %s)", name, group, allowedAgentRoleToolGroupsMessage)
+			if !toolgroup.IsKnown(strings.TrimSpace(group)) {
+				return fmt.Errorf("invalid field agent_roles.%s.tools (unsupported tool group %q; expected %s)", name, group, toolgroup.Message())
 			}
 		}
 		if role.MaxTurns <= 0 && role.MaxTurns != 0 {

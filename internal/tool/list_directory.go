@@ -19,24 +19,11 @@ type listDirectoryInput struct {
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
 }
 
-// defaultDirExcludes is the set of directory names always skipped during
-// directory listing (and will be shared with the find_files tool).
-var defaultDirExcludes = map[string]struct{}{
-	".git":        {},
-	".yard":       {},
-	".brain":      {},
-	".obsidian":   {},
-	"vendor":      {},
-	"node_modules": {},
-	".venv":       {},
-	"__pycache__": {},
-	".idea":       {},
-	".vscode":     {},
+func (ListDirectory) Name() string { return "list_directory" }
+func (ListDirectory) Description() string {
+	return "List directory contents as a tree with configurable depth"
 }
-
-func (ListDirectory) Name() string        { return "list_directory" }
-func (ListDirectory) Description() string { return "List directory contents as a tree with configurable depth" }
-func (ListDirectory) ToolPurity() Purity  { return Pure }
+func (ListDirectory) ToolPurity() Purity { return Pure }
 
 func (ListDirectory) Schema() json.RawMessage {
 	return json.RawMessage(`{
@@ -55,7 +42,7 @@ func (ListDirectory) Schema() json.RawMessage {
 				},
 				"include_hidden": {
 					"type": "boolean",
-					"description": "Show hidden files/directories (names starting with '.'); default false. Always skips defaultDirExcludes regardless."
+					"description": "Show hidden files/directories (names starting with '.'); default false. Always skips standard excluded directories regardless."
 				}
 			}
 		}
@@ -152,15 +139,14 @@ func walkDir(sb *strings.Builder, absDir string, currentDepth, maxDepth int, inc
 	for _, e := range entries {
 		name := e.Name()
 
-		// Always exclude defaultDirExcludes.
 		if e.IsDir() {
-			if _, excluded := defaultDirExcludes[name]; excluded {
+			if isDefaultExcludedDir(name) {
 				continue
 			}
 		}
 
 		// Skip hidden entries unless include_hidden is set.
-		// (defaultDirExcludes are already handled above for dirs;
+		// (standard excluded dirs are already handled above for dirs;
 		//  hidden files starting with '.' are controlled by include_hidden.)
 		if strings.HasPrefix(name, ".") && !includeHidden {
 			continue

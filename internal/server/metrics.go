@@ -207,26 +207,8 @@ type contextSignalStreamEntry struct {
 }
 
 func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Request) {
-	convID := r.PathValue("id")
-	turnStr := r.PathValue("turn")
-
-	turn, err := strconv.ParseInt(turnStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "turn must be a number")
-		return
-	}
-
-	report, err := h.queries.GetContextReportByTurn(r.Context(), appdb.GetContextReportByTurnParams{
-		ConversationID: convID,
-		TurnNumber:     turn,
-	})
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "context report not found")
-			return
-		}
-		h.logger.Error("get context report", "error", err, "id", convID, "turn", turn)
-		writeError(w, http.StatusInternalServerError, "failed to get context report")
+	report, ok := h.contextReportForRequest(w, r, "get context report", "failed to get context report")
+	if !ok {
 		return
 	}
 
@@ -249,7 +231,7 @@ func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Requ
 	if tokenBudget, usageErr := h.buildTokenBudgetReport(r, report); usageErr == nil {
 		resp.TokenBudget = tokenBudget
 	} else {
-		h.logger.Warn("get turn token budget", "error", usageErr, "id", convID, "turn", turn)
+		h.logger.Warn("get turn token budget", "error", usageErr, "id", report.ConversationID, "turn", report.TurnNumber)
 	}
 
 	// JSON columns — pass through as raw JSON.
@@ -266,32 +248,14 @@ func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *MetricsHandler) handleContextSignalStream(w http.ResponseWriter, r *http.Request) {
-	convID := r.PathValue("id")
-	turnStr := r.PathValue("turn")
-
-	turn, err := strconv.ParseInt(turnStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "turn must be a number")
-		return
-	}
-
-	row, err := h.queries.GetContextReportByTurn(r.Context(), appdb.GetContextReportByTurnParams{
-		ConversationID: convID,
-		TurnNumber:     turn,
-	})
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "context report not found")
-			return
-		}
-		h.logger.Error("get context signal stream", "error", err, "id", convID, "turn", turn)
-		writeError(w, http.StatusInternalServerError, "failed to get context signal stream")
+	row, ok := h.contextReportForRequest(w, r, "get context signal stream", "failed to get context signal stream")
+	if !ok {
 		return
 	}
 
 	needs, err := decodeContextNeeds(row.NeedsJson, row.SignalsJson)
 	if err != nil {
-		h.logger.Error("decode context signal stream", "error", err, "id", convID, "turn", turn)
+		h.logger.Error("decode context signal stream", "error", err, "id", row.ConversationID, "turn", row.TurnNumber)
 		writeError(w, http.StatusInternalServerError, "failed to decode context signal stream")
 		return
 	}
@@ -301,6 +265,30 @@ func (h *MetricsHandler) handleContextSignalStream(w http.ResponseWriter, r *htt
 		TurnNumber:     row.TurnNumber,
 		Stream:         buildContextSignalStream(needs),
 	})
+}
+
+func (h *MetricsHandler) contextReportForRequest(w http.ResponseWriter, r *http.Request, logMessage, clientError string) (appdb.ContextReport, bool) {
+	convID := r.PathValue("id")
+	turn, err := strconv.ParseInt(r.PathValue("turn"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "turn must be a number")
+		return appdb.ContextReport{}, false
+	}
+
+	report, err := h.queries.GetContextReportByTurn(r.Context(), appdb.GetContextReportByTurnParams{
+		ConversationID: convID,
+		TurnNumber:     turn,
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "context report not found")
+			return appdb.ContextReport{}, false
+		}
+		h.logger.Error(logMessage, "error", err, "id", convID, "turn", turn)
+		writeError(w, http.StatusInternalServerError, clientError)
+		return appdb.ContextReport{}, false
+	}
+	return report, true
 }
 
 func (h *MetricsHandler) buildTokenBudgetReport(r *http.Request, report appdb.ContextReport) (*contextpkg.TokenBudgetReport, error) {

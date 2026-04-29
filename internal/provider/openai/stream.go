@@ -104,7 +104,7 @@ func (p *OpenAIProvider) processStream(ctx context.Context, resp *http.Response,
 	for {
 		event, ok, err := reader.Next(ctx)
 		if err != nil {
-			sendEvent(ctx, ch, provider.StreamError{
+			provider.SendStreamEvent(ctx, ch, provider.StreamError{
 				Err:     err,
 				Fatal:   true,
 				Message: fmt.Sprintf("OpenAI-compatible provider '%s': stream read error: %s", p.name, err),
@@ -125,7 +125,7 @@ func (p *OpenAIProvider) processStream(ctx context.Context, resp *http.Response,
 func (p *OpenAIProvider) handleStreamPayload(ctx context.Context, payload string, accumulated map[int]*accumulatedToolCall, ch chan<- provider.StreamEvent) {
 	var chunk streamChunk
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-		sendEvent(ctx, ch, provider.StreamError{
+		provider.SendStreamEvent(ctx, ch, provider.StreamError{
 			Err:     err,
 			Fatal:   false,
 			Message: fmt.Sprintf("OpenAI-compatible provider '%s': failed to parse stream chunk: %s", p.name, err),
@@ -135,7 +135,7 @@ func (p *OpenAIProvider) handleStreamPayload(ctx context.Context, payload string
 
 	if len(chunk.Choices) == 0 {
 		if chunk.Usage != nil {
-			sendEvent(ctx, ch, provider.StreamUsage{
+			provider.SendStreamEvent(ctx, ch, provider.StreamUsage{
 				Usage: provider.Usage{
 					InputTokens:         chunk.Usage.PromptTokens,
 					OutputTokens:        chunk.Usage.CompletionTokens,
@@ -149,7 +149,7 @@ func (p *OpenAIProvider) handleStreamPayload(ctx context.Context, payload string
 
 	choice := chunk.Choices[0]
 	if choice.Delta.Content != "" {
-		sendEvent(ctx, ch, provider.TokenDelta{Text: choice.Delta.Content})
+		provider.SendStreamEvent(ctx, ch, provider.TokenDelta{Text: choice.Delta.Content})
 	}
 
 	for _, tc := range choice.Delta.ToolCalls {
@@ -173,11 +173,11 @@ func (p *OpenAIProvider) handleStreamPayload(ctx context.Context, payload string
 		if reason == "tool_calls" {
 			emitToolCalls(ctx, ch, accumulated)
 		}
-		sendEvent(ctx, ch, provider.StreamDone{StopReason: mapFinishReason(reason)})
+		provider.SendStreamEvent(ctx, ch, provider.StreamDone{StopReason: mapFinishReason(reason)})
 	}
 
 	if chunk.Usage != nil {
-		sendEvent(ctx, ch, provider.StreamUsage{
+		provider.SendStreamEvent(ctx, ch, provider.StreamUsage{
 			Usage: provider.Usage{
 				InputTokens:         chunk.Usage.PromptTokens,
 				OutputTokens:        chunk.Usage.CompletionTokens,
@@ -200,21 +200,13 @@ func emitToolCalls(ctx context.Context, ch chan<- provider.StreamEvent, accumula
 
 	for _, idx := range indices {
 		acc := accumulated[idx]
-		sendEvent(ctx, ch, provider.ToolCallStart{
+		provider.SendStreamEvent(ctx, ch, provider.ToolCallStart{
 			ID:   acc.ID,
 			Name: acc.Name,
 		})
-		sendEvent(ctx, ch, provider.ToolCallEnd{
+		provider.SendStreamEvent(ctx, ch, provider.ToolCallEnd{
 			ID:    acc.ID,
 			Input: json.RawMessage(acc.Arguments.String()),
 		})
-	}
-}
-
-// sendEvent attempts to send an event on the channel, respecting context cancellation.
-func sendEvent(ctx context.Context, ch chan<- provider.StreamEvent, event provider.StreamEvent) {
-	select {
-	case ch <- event:
-	case <-ctx.Done():
 	}
 }

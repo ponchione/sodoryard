@@ -22,9 +22,6 @@ type searchTextInput struct {
 	MaxResults   *int   `json:"max_results,omitempty"`
 }
 
-// Default exclude patterns for project search.
-var defaultExcludes = []string{".git", ".yard", ".brain", ".obsidian", "vendor", "node_modules", ".venv", "__pycache__", ".idea", ".vscode"}
-
 func (SearchText) Name() string { return "search_text" }
 func (SearchText) Description() string {
 	return "Search for text patterns across project files using ripgrep"
@@ -99,8 +96,8 @@ func (SearchText) Execute(ctx context.Context, projectRoot string, input json.Ra
 	if params.FileGlob != "" {
 		args = append(args, "--glob", params.FileGlob)
 	}
-	for _, excl := range defaultExcludes {
-		args = append(args, "--glob", fmt.Sprintf("!%s/", excl))
+	for _, glob := range defaultExcludedDirGlobs() {
+		args = append(args, "--glob", glob)
 	}
 	args = append(args, "--", params.Pattern)
 

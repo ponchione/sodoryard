@@ -47,7 +47,7 @@ func NewAnthropicProvider(creds *CredentialManager, opts ...ProviderOption) *Ant
 		creds:      creds,
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
 		baseURL:    "https://api.anthropic.com",
-		sleep:      sleepWithContext,
+		sleep:      provider.SleepWithContext,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -62,7 +62,7 @@ func newAnthropicProviderInternal(creds credentialSource, opts ...ProviderOption
 		creds:      creds,
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
 		baseURL:    "https://api.anthropic.com",
-		sleep:      sleepWithContext,
+		sleep:      provider.SleepWithContext,
 	}
 	for _, opt := range opts {
 		opt(p)

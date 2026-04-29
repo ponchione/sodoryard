@@ -53,6 +53,212 @@ func TestBuildTaskIncludesReceiptHistory(t *testing.T) {
 	}
 }
 
+func TestChainSpecFromOptionsUsesMaxResolverLoops(t *testing.T) {
+	spec := chainSpecFromOptions("chain-1", Options{
+		SourceSpecs:      []string{"specs/a.md"},
+		MaxSteps:         7,
+		MaxResolverLoops: 9,
+		MaxDuration:      time.Hour,
+		TokenBudget:      123,
+	})
+	if spec.MaxResolverLoops != 9 {
+		t.Fatalf("MaxResolverLoops = %d, want 9", spec.MaxResolverLoops)
+	}
+}
+
+func TestBuildTaskIncludesNoHistoryFallback(t *testing.T) {
+	msg := buildTask(Options{SourceSpecs: []string{"specs/a.md", "specs/b.md"}}, "chain-1", nil)
+	if !containsAll(msg, "specs/a.md", "specs/b.md", "chain-1", "No existing receipt paths were found for this chain yet.") {
+		t.Fatalf("message = %q, want specs, chain id, and no-history fallback", msg)
+	}
+	if strings.Contains(msg, "receipts/state") {
+		t.Fatalf("message = %q, unexpected generic receipts/state wording", msg)
+	}
+}
+
+func TestBuildTaskIncludesOnlyExistingReceiptPaths(t *testing.T) {
+	msg := buildTask(Options{SourceTask: "fix auth"}, "chain-1", []string{"receipts/planner/chain-1-step-001.md", "receipts/coder/chain-1-step-002.md"})
+	if !strings.Contains(msg, "Relevant existing receipt paths to read first: receipts/planner/chain-1-step-001.md, receipts/coder/chain-1-step-002.md") {
+		t.Fatalf("message = %q, want existing receipt paths", msg)
+	}
+	if strings.Contains(msg, "No existing receipt paths were found") {
+		t.Fatalf("message = %q, unexpected no-history fallback", msg)
+	}
+}
+
+func TestPopulateOptionsFromExistingUsesStoredResumeInputs(t *testing.T) {
+	t.Run("hydrates missing task and specs from stored chain", func(t *testing.T) {
+		opts, err := populateOptionsFromExisting(Options{ChainID: "chain-1"}, &chain.Chain{
+			ID:          "chain-1",
+			SourceSpecs: []string{"specs/a.md", "specs/b.md"},
+			SourceTask:  "stored task",
+		})
+		if err != nil {
+			t.Fatalf("populateOptionsFromExisting returned error: %v", err)
+		}
+		if got := strings.Join(opts.SourceSpecs, ","); got != "specs/a.md,specs/b.md" {
+			t.Fatalf("SourceSpecs = %q, want stored specs", got)
+		}
+		if opts.SourceTask != "stored task" {
+			t.Fatalf("SourceTask = %q, want stored task", opts.SourceTask)
+		}
+	})
+
+	t.Run("keeps explicit user inputs over stored values", func(t *testing.T) {
+		opts, err := populateOptionsFromExisting(Options{
+			ChainID:     "chain-1",
+			SourceSpecs: []string{"specs/override.md"},
+			SourceTask:  "explicit task",
+		}, &chain.Chain{
+			ID:          "chain-1",
+			SourceSpecs: []string{"specs/a.md", "specs/b.md"},
+			SourceTask:  "stored task",
+		})
+		if err != nil {
+			t.Fatalf("populateOptionsFromExisting returned error: %v", err)
+		}
+		if got := strings.Join(opts.SourceSpecs, ","); got != "specs/override.md" {
+			t.Fatalf("SourceSpecs = %q, want explicit specs", got)
+		}
+		if opts.SourceTask != "explicit task" {
+			t.Fatalf("SourceTask = %q, want explicit task", opts.SourceTask)
+		}
+	})
+}
+
+func TestPrepareExistingChainForExecutionRejectsPauseRequestedResume(t *testing.T) {
+	err := prepareExistingChainForExecution(context.Background(), nil, &chain.Chain{ID: "chain-1", Status: "pause_requested"})
+	if err == nil || !strings.Contains(err.Error(), "cannot be resumed until paused") {
+		t.Fatalf("error = %v, want pause_requested resume rejection", err)
+	}
+}
+
+func TestPrepareExistingChainForExecutionStopsDuplicateRunningResume(t *testing.T) {
+	err := prepareExistingChainForExecution(context.Background(), nil, &chain.Chain{ID: "chain-1", Status: "running"})
+	if err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("error = %v, want already running rejection", err)
+	}
+}
+
+func TestHandleInterruptionClosesStaleActiveExecutionForPausedChain(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newChainrunTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 1111, "execution_id": "exec-1", "active_execution": true}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	if err := store.SetChainStatus(ctx, chainID, "paused"); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	var out strings.Builder
+
+	handled, err := handleInterruption(ctx, store, chainID, agent.ErrTurnCancelled, func(message string) {
+		out.WriteString(message)
+	})
+	if err != nil {
+		t.Fatalf("handleInterruption returned error: %v", err)
+	}
+	if !handled {
+		t.Fatal("handleInterruption handled = false, want true")
+	}
+	if !strings.Contains(out.String(), "chain "+chainID+" paused") {
+		t.Fatalf("output = %q, want paused message", out.String())
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if len(events) != 2 || events[1].EventType != chain.EventChainPaused {
+		t.Fatalf("events = %+v, want start + one %s event", events, chain.EventChainPaused)
+	}
+	if !strings.Contains(events[1].EventData, `"execution_id":"exec-1"`) {
+		t.Fatalf("EventData = %s, want execution_id exec-1", events[1].EventData)
+	}
+	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false", exec, ok)
+	}
+}
+
+func TestFinalizeRequestedChainStatusLogsTerminalCancelEvent(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newChainrunTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 1111, "execution_id": "exec-1", "active_execution": true}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	if err := store.SetChainStatus(ctx, chainID, "cancel_requested"); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+
+	if err := finalizeRequestedChainStatus(ctx, store, chainID); err != nil {
+		t.Fatalf("finalizeRequestedChainStatus returned error: %v", err)
+	}
+
+	ch, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if ch.Status != "cancelled" {
+		t.Fatalf("status = %q, want cancelled", ch.Status)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if len(events) != 2 || events[1].EventType != chain.EventChainCancelled {
+		t.Fatalf("events = %+v, want start + one %s event", events, chain.EventChainCancelled)
+	}
+	if !strings.Contains(events[1].EventData, `"execution_id":"exec-1"`) {
+		t.Fatalf("EventData = %s, want execution_id exec-1", events[1].EventData)
+	}
+}
+
+func TestCloseErroredExecutionMarksFailedAndClearsActiveExecution(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newChainrunTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 1111, "execution_id": "exec-1", "active_execution": true}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+
+	if err := closeErroredExecution(ctx, store, chainID, "boom"); err != nil {
+		t.Fatalf("closeErroredExecution returned error: %v", err)
+	}
+
+	ch, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if ch.Status != "failed" {
+		t.Fatalf("status = %q, want failed", ch.Status)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if len(events) != 2 || events[1].EventType != chain.EventChainCompleted {
+		t.Fatalf("events = %+v, want start + one %s event", events, chain.EventChainCompleted)
+	}
+	if !strings.Contains(events[1].EventData, `"execution_id":"exec-1"`) {
+		t.Fatalf("EventData = %s, want execution_id exec-1", events[1].EventData)
+	}
+	if !strings.Contains(events[1].EventData, `"status":"failed"`) {
+		t.Fatalf("EventData = %s, want failed status", events[1].EventData)
+	}
+	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false", exec, ok)
+	}
+}
+
 func TestStartReturnsCancelExitCodeForHandledInterruption(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
