@@ -11,6 +11,11 @@ import (
 	"github.com/ponchione/sodoryard/internal/conversation"
 )
 
+const (
+	defaultMessagePageLimit = 200
+	maxMessagePageLimit     = 500
+)
+
 // ConversationService is the interface the conversation handlers need.
 // Satisfied by *conversation.Manager.
 type ConversationService interface {
@@ -21,6 +26,7 @@ type ConversationService interface {
 	SetRuntimeDefaults(ctx context.Context, conversationID string, provider, model *string) error
 	NextTurnNumber(ctx context.Context, conversationID string) (int, error)
 	GetMessages(ctx context.Context, conversationID string) ([]conversation.MessageView, error)
+	GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]conversation.MessageView, error)
 	Search(ctx context.Context, query string) ([]conversation.SearchResult, error)
 }
 
@@ -125,7 +131,18 @@ func (h *ConversationHandler) handleDelete(w http.ResponseWriter, r *http.Reques
 
 func (h *ConversationHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	msgs, err := h.service.GetMessages(r.Context(), id)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = defaultMessagePageLimit
+	} else if limit > maxMessagePageLimit {
+		limit = maxMessagePageLimit
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	msgs, err := h.service.GetMessagePage(r.Context(), id, limit, offset)
 	if err != nil {
 		h.logger.Error("get messages", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "failed to get messages")

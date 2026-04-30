@@ -6,6 +6,7 @@ package conversation
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -271,6 +272,51 @@ func TestManagerNextTurnNumberUsesAggregate(t *testing.T) {
 	if next != 4 {
 		t.Fatalf("populated conversation next turn = %d, want 4", next)
 	}
+}
+
+func TestManagerGetMessagePageReturnsLatestPageChronologically(t *testing.T) {
+	ctx := context.Background()
+	database := newTestDB(t)
+	projectID := seedProject(t, database)
+	mgr := newTestManager(t, database)
+
+	conv, err := mgr.Create(ctx, projectID)
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	for turn := 1; turn <= 5; turn++ {
+		if err := mgr.PersistUserMessage(ctx, conv.ID, turn, fmt.Sprintf("message %d", turn)); err != nil {
+			t.Fatalf("PersistUserMessage turn %d error: %v", turn, err)
+		}
+	}
+
+	latest, err := mgr.GetMessagePage(ctx, conv.ID, 2, 0)
+	if err != nil {
+		t.Fatalf("GetMessagePage latest error: %v", err)
+	}
+	if got := messageContents(latest); strings.Join(got, ",") != "message 4,message 5" {
+		t.Fatalf("latest page = %v, want [message 4 message 5]", got)
+	}
+
+	older, err := mgr.GetMessagePage(ctx, conv.ID, 2, 2)
+	if err != nil {
+		t.Fatalf("GetMessagePage older error: %v", err)
+	}
+	if got := messageContents(older); strings.Join(got, ",") != "message 2,message 3" {
+		t.Fatalf("older page = %v, want [message 2 message 3]", got)
+	}
+}
+
+func messageContents(messages []MessageView) []string {
+	out := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Content == nil {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, *msg.Content)
+	}
+	return out
 }
 
 func TestManagerSetTitle(t *testing.T) {

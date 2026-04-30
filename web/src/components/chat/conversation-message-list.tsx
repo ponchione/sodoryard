@@ -3,6 +3,8 @@ import { MessageBubble } from "@/components/chat/message-bubble";
 import { TurnUsageBadge } from "@/components/chat/turn-usage-badge";
 import type { ChatMessage, TurnUsage } from "@/hooks/use-conversation";
 
+const MAX_RENDERED_MESSAGES = 200;
+
 function agentStateLabel(state: string): string {
   switch (state) {
     case "assembling_context":
@@ -36,9 +38,14 @@ export function ConversationMessageList({
   usage: TurnUsage | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
 }) {
+  const renderedMessages =
+    messages.length > MAX_RENDERED_MESSAGES
+      ? messages.slice(messages.length - MAX_RENDERED_MESSAGES)
+      : messages;
+  const renderedOffset = messages.length - renderedMessages.length;
   const lastAssistantIdx = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant") return i;
+    for (let i = renderedMessages.length - 1; i >= 0; i--) {
+      if (renderedMessages[i].role === "assistant") return i;
     }
     return -1;
   })();
@@ -52,21 +59,24 @@ export function ConversationMessageList({
           </p>
         )}
 
-        {messages.map((msg, i) => (
-          <div key={i}>
-            <MessageBubble
-              message={msg}
-              streaming={isStreaming && i === messages.length - 1 && msg.role === "assistant"}
-            />
-            {i === lastAssistantIdx && !isStreaming && usage && (
-              <div className="flex justify-start mt-0.5">
-                <div className="max-w-[85%]">
-                  <TurnUsageBadge usage={usage} />
+        {renderedMessages.map((msg, i) => {
+          const messageIndex = renderedOffset + i;
+          return (
+            <div key={messageIndex}>
+              <MessageBubble
+                message={msg}
+                streaming={isStreaming && messageIndex === messages.length - 1 && msg.role === "assistant"}
+              />
+              {i === lastAssistantIdx && !isStreaming && usage && (
+                <div className="flex justify-start mt-0.5">
+                  <div className="max-w-[85%]">
+                    <TurnUsageBadge usage={usage} />
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
 
         {isStreaming &&
           !streamingText &&

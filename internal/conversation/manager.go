@@ -291,28 +291,97 @@ func (m *Manager) GetMessages(ctx context.Context, conversationID string) ([]Mes
 
 	messages := make([]MessageView, 0, len(rows))
 	for _, row := range rows {
-		mv := MessageView{
-			ID:           row.ID,
-			Role:         row.Role,
-			TurnNumber:   row.TurnNumber,
-			Iteration:    row.Iteration,
-			Sequence:     row.Sequence,
-			IsCompressed: row.IsCompressed != 0,
-			IsSummary:    row.IsSummary != 0,
-			CreatedAt:    row.CreatedAt,
-		}
-		if row.Content.Valid {
-			mv.Content = &row.Content.String
-		}
-		if row.ToolUseID.Valid {
-			mv.ToolUseID = &row.ToolUseID.String
-		}
-		if row.ToolName.Valid {
-			mv.ToolName = &row.ToolName.String
-		}
-		messages = append(messages, mv)
+		messages = append(messages, messageViewFromValues(
+			row.ID,
+			row.Role,
+			row.Content,
+			row.ToolUseID,
+			row.ToolName,
+			row.TurnNumber,
+			row.Iteration,
+			row.Sequence,
+			row.IsCompressed,
+			row.IsSummary,
+			row.CreatedAt,
+		))
 	}
 	return messages, nil
+}
+
+// GetMessagePage returns a bounded page from the newest messages, preserving
+// chronological order within the returned page.
+func (m *Manager) GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]MessageView, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := m.queries.ListMessagePage(ctx, db.ListMessagePageParams{
+		ConversationID: conversationID,
+		Limit:          int64(limit),
+		Offset:         int64(offset),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("conversation manager: get message page: %w", err)
+	}
+
+	messages := make([]MessageView, 0, len(rows))
+	for _, row := range rows {
+		messages = append(messages, messageViewFromValues(
+			row.ID,
+			row.Role,
+			row.Content,
+			row.ToolUseID,
+			row.ToolName,
+			row.TurnNumber,
+			row.Iteration,
+			row.Sequence,
+			row.IsCompressed,
+			row.IsSummary,
+			row.CreatedAt,
+		))
+	}
+	return messages, nil
+}
+
+func messageViewFromValues(
+	id int64,
+	role string,
+	content sql.NullString,
+	toolUseID sql.NullString,
+	toolName sql.NullString,
+	turnNumber int64,
+	iteration int64,
+	sequence float64,
+	isCompressed int64,
+	isSummary int64,
+	createdAt string,
+) MessageView {
+	mv := MessageView{
+		ID:           id,
+		Role:         role,
+		TurnNumber:   turnNumber,
+		Iteration:    iteration,
+		Sequence:     sequence,
+		IsCompressed: isCompressed != 0,
+		IsSummary:    isSummary != 0,
+		CreatedAt:    createdAt,
+	}
+	if content.Valid {
+		mv.Content = &content.String
+	}
+	if toolUseID.Valid {
+		mv.ToolUseID = &toolUseID.String
+	}
+	if toolName.Valid {
+		mv.ToolName = &toolName.String
+	}
+	return mv
 }
 
 // SearchResult represents a conversation matching a search query.

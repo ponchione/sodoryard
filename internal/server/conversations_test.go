@@ -33,6 +33,9 @@ type mockConversationService struct {
 	lastSetID         string
 	lastSetProvider   *string
 	lastSetModel      *string
+	lastMessagesID    string
+	lastMessageLimit  int
+	lastMessageOffset int
 
 	getErr    error
 	listErr   error
@@ -125,6 +128,16 @@ func (m *mockConversationService) NextTurnNumber(_ context.Context, conversation
 
 func (m *mockConversationService) GetMessages(_ context.Context, conversationID string) ([]conversation.MessageView, error) {
 	m.getMessagesN++
+	if m.msgErr != nil {
+		return nil, m.msgErr
+	}
+	return m.messages, nil
+}
+
+func (m *mockConversationService) GetMessagePage(_ context.Context, conversationID string, limit, offset int) ([]conversation.MessageView, error) {
+	m.lastMessagesID = conversationID
+	m.lastMessageLimit = limit
+	m.lastMessageOffset = offset
 	if m.msgErr != nil {
 		return nil, m.msgErr
 	}
@@ -324,10 +337,61 @@ func TestGetMessages(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
+	if mock.lastMessagesID != "conv-1" {
+		t.Fatalf("message page conversation = %q, want conv-1", mock.lastMessagesID)
+	}
+	if mock.lastMessageLimit != 200 {
+		t.Fatalf("default message limit = %d, want 200", mock.lastMessageLimit)
+	}
+	if mock.lastMessageOffset != 0 {
+		t.Fatalf("default message offset = %d, want 0", mock.lastMessageOffset)
+	}
 
 	// Second message should be compressed.
 	if msgs[1]["is_compressed"] != true {
 		t.Fatalf("expected is_compressed=true on second message")
+	}
+}
+
+func TestGetMessagesUsesBoundedPagination(t *testing.T) {
+	mock := &mockConversationService{}
+	base := setupConversationTests(t, mock)
+
+	resp, err := http.Get(base + "/api/conversations/conv-1/messages?limit=25&offset=50")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if mock.lastMessageLimit != 25 {
+		t.Fatalf("message limit = %d, want 25", mock.lastMessageLimit)
+	}
+	if mock.lastMessageOffset != 50 {
+		t.Fatalf("message offset = %d, want 50", mock.lastMessageOffset)
+	}
+}
+
+func TestGetMessagesCapsPagination(t *testing.T) {
+	mock := &mockConversationService{}
+	base := setupConversationTests(t, mock)
+
+	resp, err := http.Get(base + "/api/conversations/conv-1/messages?limit=999&offset=-20")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if mock.lastMessageLimit != 500 {
+		t.Fatalf("message limit = %d, want 500", mock.lastMessageLimit)
+	}
+	if mock.lastMessageOffset != 0 {
+		t.Fatalf("message offset = %d, want 0", mock.lastMessageOffset)
 	}
 }
 

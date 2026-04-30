@@ -19,6 +19,8 @@ const conversationPageSessionState = {
   inspectorOpen: false,
 };
 
+const HISTORY_MESSAGE_LIMIT = 200;
+
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -136,7 +138,7 @@ export function ConversationPage() {
     if (convId && !historyLoaded.current) {
       historyLoaded.current = true;
       api
-        .get<MessageView[]>(`/api/conversations/${convId}/messages`)
+        .get<MessageView[]>(`/api/conversations/${convId}/messages?limit=${HISTORY_MESSAGE_LIMIT}`)
         .then((views) => {
           const chatMessages = messageViewsToChat(views);
           loadHistory(chatMessages);

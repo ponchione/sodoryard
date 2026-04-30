@@ -119,6 +119,19 @@ FROM messages
 WHERE conversation_id = ?
 ORDER BY sequence;
 
+-- name: ListMessagePage :many
+SELECT id, role, content, tool_use_id, tool_name, turn_number, iteration, sequence,
+       is_compressed, is_summary, created_at
+FROM (
+    SELECT id, role, content, tool_use_id, tool_name, turn_number, iteration, sequence,
+           is_compressed, is_summary, created_at
+    FROM messages
+    WHERE conversation_id = ?
+    ORDER BY sequence DESC
+    LIMIT ? OFFSET ?
+)
+ORDER BY sequence;
+
 -- name: InsertConversation :exec
 INSERT INTO conversations (id, project_id, title, model, provider, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?);
