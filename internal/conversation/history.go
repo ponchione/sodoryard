@@ -149,12 +149,11 @@ func (m *HistoryManager) PersistIteration(ctx context.Context, conversationID st
 	timestamp := m.now().UTC().Format(time.RFC3339)
 	var assistantMessageID int64
 
+	sequence, err := nextSequence(ctx, q, conversationID)
+	if err != nil {
+		return fmt.Errorf("conversation history: persist iteration: determine next sequence: %w", err)
+	}
 	for _, msg := range messages {
-		sequence, err := nextSequence(ctx, q, conversationID)
-		if err != nil {
-			return fmt.Errorf("conversation history: persist iteration: determine next sequence: %w", err)
-		}
-
 		params := db.InsertIterationMessageParams{
 			ConversationID: conversationID,
 			Role:           msg.Role,
@@ -184,6 +183,7 @@ func (m *HistoryManager) PersistIteration(ctx context.Context, conversationID st
 				return fmt.Errorf("conversation history: persist iteration: lookup assistant message id: %w", err)
 			}
 		}
+		sequence += 1.0
 	}
 
 	if assistantMessageID != 0 {
