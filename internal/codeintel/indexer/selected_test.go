@@ -8,14 +8,13 @@ import (
 
 func TestIndexFilesUsesKnownFileHash(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
+	writeTestFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
 
 	result, err := IndexFiles(
 		context.Background(),
 		IndexConfig{
 			ProjectName:     "test",
 			ProjectRoot:     dir,
-			Include:         []string{"**/*.go"},
 			KnownFileHashes: map[string]string{"main.go": "known-hash"},
 		},
 		&mockParser{},

@@ -1,9 +1,6 @@
 package indexer
 
 import (
-	"context"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,15 +11,7 @@ import (
 type IndexConfig struct {
 	ProjectName     string
 	ProjectRoot     string
-	DataDir         string
-	Include         []string
-	Exclude         []string
 	KnownFileHashes map[string]string
-}
-
-// IndexOpts configures optional behavior for IndexRepo.
-type IndexOpts struct {
-	Force bool
 }
 
 // parsedFile holds the results of parsing a single file during pass 1.
@@ -39,146 +28,6 @@ type parsedFile struct {
 type chunkRef struct {
 	fileIdx  int
 	chunkIdx int
-}
-
-// IndexRepo walks the project directory and indexes all matching files using a
-// three-pass pipeline:
-//  1. Walk + parse: collect all chunks with forward call metadata
-//  2. Reverse call graph: populate CalledBy on target chunks
-//  3. Describe + embed + store: enrich with descriptions and embeddings, then upsert
-func IndexRepo(
-	ctx context.Context,
-	cfg IndexConfig,
-	parser codeintel.Parser,
-	store codeintel.Store,
-	embedder codeintel.Embedder,
-	describer codeintel.Describer,
-	opts IndexOpts,
-) error {
-	root := cfg.ProjectRoot
-	if root == "" {
-		root = "."
-	}
-
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-
-	hashFile := filepath.Join(cfg.DataDir, "rag_file_hashes.json")
-	fileHashes, err := loadFileHashes(hashFile)
-	if err != nil {
-		slog.Warn("could not load file hashes, re-indexing all", "error", err)
-		fileHashes = make(map[string]string)
-	}
-
-	if opts.Force {
-		slog.Info("force flag set, re-indexing all files")
-		fileHashes = map[string]string{"__schema_version": codeintel.SchemaVersion}
-	}
-
-	if fileHashes["__schema_version"] != codeintel.SchemaVersion {
-		slog.Info("schema version changed, forcing full re-index",
-			"old", fileHashes["__schema_version"],
-			"new", codeintel.SchemaVersion,
-		)
-		fileHashes = map[string]string{"__schema_version": codeintel.SchemaVersion}
-	}
-
-	parsed, filesVisited, walkErr := walkAndParse(absRoot, cfg, parser, fileHashes)
-	if walkErr != nil {
-		return walkErr
-	}
-
-	buildReverseCallGraph(parsed)
-
-	filesIndexed, totalChunks := describeEmbedStore(ctx, parsed, store, embedder, describer, fileHashes)
-
-	slog.Info("indexing complete",
-		"files_visited", filesVisited,
-		"files_indexed", filesIndexed,
-		"total_chunks", totalChunks,
-	)
-
-	if saveErr := saveFileHashes(hashFile, fileHashes); saveErr != nil {
-		slog.Warn("could not save file hashes", "error", saveErr)
-	}
-
-	return nil
-}
-
-// walkAndParse walks the project directory and parses all matching files (Pass 1).
-func walkAndParse(
-	absRoot string,
-	cfg IndexConfig,
-	parser codeintel.Parser,
-	fileHashes map[string]string,
-) ([]parsedFile, int, error) {
-	var filesVisited int
-	var parsed []parsedFile
-
-	err := filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(absRoot, path)
-		if err != nil {
-			return err
-		}
-		relPath = filepath.ToSlash(relPath)
-		filesVisited++
-
-		if len(cfg.Include) > 0 && !matchesAnyGlob(cfg.Include, relPath) {
-			return nil
-		}
-		if matchesAnyGlob(cfg.Exclude, relPath) {
-			return nil
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			slog.Warn("failed to read file", "path", relPath, "err", err)
-			return nil
-		}
-
-		fHash := codeintel.ContentHash(string(content))
-		if fileHashes[relPath] == fHash {
-			return nil
-		}
-
-		lang := langFromExt(filepath.Ext(relPath))
-
-		rawChunks, err := parser.Parse(path, content)
-		if err != nil {
-			slog.Warn("parse failed", "path", relPath, "err", err)
-			return nil
-		}
-		if len(rawChunks) == 0 {
-			return nil
-		}
-
-		chunks := make([]codeintel.Chunk, len(rawChunks))
-		for i, raw := range rawChunks {
-			chunks[i] = newChunk(raw, cfg.ProjectName, relPath, lang, "")
-		}
-
-		parsed = append(parsed, parsedFile{
-			relPath:  relPath,
-			absPath:  path,
-			language: lang,
-			content:  content,
-			fileHash: fHash,
-			chunks:   chunks,
-		})
-
-		return nil
-	})
-
-	return parsed, filesVisited, err
 }
 
 // buildReverseCallGraph populates CalledBy on target chunks (Pass 2).
@@ -257,22 +106,4 @@ func buildReverseCallGraph(parsed []parsedFile) {
 			}
 		}
 	}
-}
-
-// describeEmbedStore enriches chunks and upserts them (Pass 3).
-func describeEmbedStore(
-	ctx context.Context,
-	parsed []parsedFile,
-	store codeintel.Store,
-	embedder codeintel.Embedder,
-	describer codeintel.Describer,
-	fileHashes map[string]string,
-) (int, int) {
-	result := describeEmbedStoreFiles(ctx, parsed, store, embedder, describer, describeEmbedOptions{
-		LogMessage: "indexed file",
-		OnSuccess: func(pf *parsedFile) {
-			fileHashes[pf.relPath] = pf.fileHash
-		},
-	})
-	return result.filesIndexed, result.totalChunks
 }

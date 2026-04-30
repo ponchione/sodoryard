@@ -187,8 +187,6 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 		indexResult, err := indexer.IndexFiles(ctx, indexer.IndexConfig{
 			ProjectName:     cfg.ProjectName(),
 			ProjectRoot:     projectRoot,
-			Include:         cfg.Index.Include,
-			Exclude:         cfg.Index.Exclude,
 			KnownFileHashes: currentFiles,
 		}, parser, store, deps.newEmbedder(cfg.Embedding), describer, changedFiles)
 		if err != nil {
