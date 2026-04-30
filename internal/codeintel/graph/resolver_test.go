@@ -54,6 +54,49 @@ func TestResolver_DetectsPython(t *testing.T) {
 	}
 }
 
+func TestResolver_AppliesIndexRulesToPythonGraph(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".brain", "ignored.py"), "def ignored():\n    return 'nope'\n")
+
+	cfg := DefaultAnalyzerConfig()
+	cfg.Go.Enabled = false
+	cfg.TypeScript.Enabled = false
+
+	resolver := NewResolverWithIndexRules(dir, &cfg, []string{"**/*.py"}, []string{"**/.brain/**"})
+	result, err := resolver.Analyze()
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(result.Symbols) != 0 {
+		t.Fatalf("symbols = %d, want 0 for excluded Python file", len(result.Symbols))
+	}
+}
+
+func TestFilterAnalysisResultDropsExcludedSymbolsAndEdges(t *testing.T) {
+	input := &AnalysisResult{
+		Symbols: []Symbol{
+			{ID: "keep", FilePath: "src/keep.ts"},
+			{ID: "drop", FilePath: "dist/drop.ts"},
+		},
+		Edges: []Edge{
+			{SourceID: "keep", TargetID: "drop"},
+			{SourceID: "keep", TargetID: "external"},
+			{SourceID: "drop", TargetID: "keep"},
+		},
+		BoundarySymbols: []BoundarySymbol{{ID: "external"}},
+	}
+
+	got := filterAnalysisResult(input, func(relPath string) bool {
+		return relPath != "dist/drop.ts"
+	})
+	if len(got.Symbols) != 1 || got.Symbols[0].ID != "keep" {
+		t.Fatalf("symbols = %#v, want only keep", got.Symbols)
+	}
+	if len(got.Edges) != 1 || got.Edges[0].TargetID != "external" {
+		t.Fatalf("edges = %#v, want only edge to external boundary", got.Edges)
+	}
+}
+
 func TestResolver_EmptyProject(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultAnalyzerConfig()

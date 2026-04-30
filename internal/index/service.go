@@ -185,10 +185,11 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 			describer = deps.newDescriber(cfg)
 		}
 		indexResult, err := indexer.IndexFiles(ctx, indexer.IndexConfig{
-			ProjectName: cfg.ProjectName(),
-			ProjectRoot: projectRoot,
-			Include:     cfg.Index.Include,
-			Exclude:     cfg.Index.Exclude,
+			ProjectName:     cfg.ProjectName(),
+			ProjectRoot:     projectRoot,
+			Include:         cfg.Index.Include,
+			Exclude:         cfg.Index.Exclude,
+			KnownFileHashes: currentFiles,
 		}, parser, store, deps.newEmbedder(cfg.Embedding), describer, changedFiles)
 		if err != nil {
 			return nil, fmt.Errorf("index: run indexer: %w", err)
@@ -387,7 +388,7 @@ func rebuildGraphIndex(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	analyzerCfg := codegraph.DefaultAnalyzerConfig()
-	resolver := codegraph.NewResolver(cfg.ProjectRoot, &analyzerCfg)
+	resolver := codegraph.NewResolverWithIndexRules(cfg.ProjectRoot, &analyzerCfg, cfg.Index.Include, cfg.Index.Exclude)
 	result, err := resolver.Analyze()
 	if err != nil {
 		return err

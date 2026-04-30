@@ -22,6 +22,7 @@ type GoAnalyzer struct {
 	allIfaces  []goload.InterfaceInfo
 	modulePath string
 	rootDir    string
+	fileFilter func(string) bool
 }
 
 // NewGoAnalyzer loads all Go packages under rootDir and builds lookup indexes.
@@ -54,6 +55,11 @@ func NewGoAnalyzer(rootDir string) (*GoAnalyzer, error) {
 		modulePath: modulePath,
 		rootDir:    absRoot,
 	}, nil
+}
+
+// SetFileFilter restricts graph extraction to relative paths accepted by fn.
+func (a *GoAnalyzer) SetFileFilter(fn func(string) bool) {
+	a.fileFilter = fn
 }
 
 // readModulePath reads the module path from go.mod.
@@ -153,11 +159,15 @@ func (a *GoAnalyzer) forEachModuleFile(fn func(goModuleFile)) {
 		if astFile == nil {
 			continue
 		}
+		relFile := a.relPath(absPath)
+		if a.fileFilter != nil && !a.fileFilter(relFile) {
+			continue
+		}
 		fn(goModuleFile{
 			absPath: absPath,
 			pkg:     pkg,
 			astFile: astFile,
-			relFile: a.relPath(absPath),
+			relFile: relFile,
 		})
 	}
 }

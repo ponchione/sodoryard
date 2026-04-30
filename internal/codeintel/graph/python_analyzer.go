@@ -15,6 +15,7 @@ import (
 // PythonAnalyzer extracts symbols and edges from Python files using tree-sitter.
 type PythonAnalyzer struct {
 	projectRoot string
+	fileFilter  func(string) bool
 }
 
 // NewPythonAnalyzer creates a new Python analyzer.
@@ -22,6 +23,11 @@ func NewPythonAnalyzer(projectRoot string) *PythonAnalyzer {
 	return &PythonAnalyzer{
 		projectRoot: projectRoot,
 	}
+}
+
+// SetFileFilter restricts graph extraction to relative paths accepted by fn.
+func (a *PythonAnalyzer) SetFileFilter(fn func(string) bool) {
+	a.fileFilter = fn
 }
 
 // parsedPyFile holds parsed symbols and imports for a single Python file.
@@ -79,6 +85,9 @@ func (a *PythonAnalyzer) walkPythonFiles() ([]string, error) {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		if a.fileFilter != nil && !a.fileFilter(rel) {
+			return nil
+		}
 
 		files = append(files, rel)
 		return nil

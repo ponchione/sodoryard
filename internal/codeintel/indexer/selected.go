@@ -79,7 +79,10 @@ func IndexFiles(
 			continue
 		}
 
-		fileHash := codeintel.ContentHash(string(content))
+		fileHash, ok := cfg.KnownFileHashes[relPath]
+		if !ok {
+			fileHash = codeintel.ContentHash(string(content))
+		}
 		result.Files = append(result.Files, FileIndexResult{
 			Path:     relPath,
 			FileHash: fileHash,

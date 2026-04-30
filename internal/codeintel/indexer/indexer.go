@@ -12,11 +12,12 @@ import (
 
 // IndexConfig holds configuration for the indexing pipeline.
 type IndexConfig struct {
-	ProjectName string
-	ProjectRoot string
-	DataDir     string
-	Include     []string
-	Exclude     []string
+	ProjectName     string
+	ProjectRoot     string
+	DataDir         string
+	Include         []string
+	Exclude         []string
+	KnownFileHashes map[string]string
 }
 
 // IndexOpts configures optional behavior for IndexRepo.

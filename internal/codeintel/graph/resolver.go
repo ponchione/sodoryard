@@ -5,19 +5,31 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ponchione/sodoryard/internal/pathglob"
 )
 
 // Resolver orchestrates language detection and dispatches to analyzers.
 type Resolver struct {
 	projectRoot string
 	cfg         *AnalyzerConfig
+	include     []string
+	exclude     []string
 }
 
 // NewResolver creates a new language resolver.
 func NewResolver(projectRoot string, cfg *AnalyzerConfig) *Resolver {
+	return NewResolverWithIndexRules(projectRoot, cfg, nil, nil)
+}
+
+// NewResolverWithIndexRules creates a resolver that applies the configured
+// index include/exclude globs to graph language detection and analyzers.
+func NewResolverWithIndexRules(projectRoot string, cfg *AnalyzerConfig, include []string, exclude []string) *Resolver {
 	return &Resolver{
 		projectRoot: projectRoot,
 		cfg:         cfg,
+		include:     append([]string(nil), include...),
+		exclude:     append([]string(nil), exclude...),
 	}
 }
 
@@ -50,14 +62,17 @@ func (r *Resolver) detectLanguages() detectedLanguages {
 			return nil
 		}
 		if d.IsDir() {
-			base := d.Name()
-			if base == "venv" || base == ".venv" || base == "node_modules" ||
-				base == "__pycache__" || base == ".git" {
+			if r.skipDir(path, d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".py") {
+		rel, err := filepath.Rel(r.projectRoot, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if strings.HasSuffix(path, ".py") && r.includesPath(rel) {
 			dl.hasPython = true
 			return filepath.SkipAll
 		}
@@ -65,6 +80,30 @@ func (r *Resolver) detectLanguages() detectedLanguages {
 	})
 
 	return dl
+}
+
+func (r *Resolver) skipDir(path string, base string) bool {
+	if base == "venv" || base == ".venv" || base == "node_modules" ||
+		base == "__pycache__" || base == ".git" {
+		return true
+	}
+	rel, err := filepath.Rel(r.projectRoot, path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "." || rel == "" {
+		return false
+	}
+	return pathglob.MatchAny(r.exclude, rel+"/__dir__")
+}
+
+func (r *Resolver) includesPath(relPath string) bool {
+	relPath = filepath.ToSlash(filepath.Clean(relPath))
+	if len(r.include) > 0 && !pathglob.MatchAny(r.include, relPath) {
+		return false
+	}
+	return !pathglob.MatchAny(r.exclude, relPath)
 }
 
 // Analyze detects languages and dispatches to appropriate analyzers.
@@ -84,6 +123,7 @@ func (r *Resolver) Analyze() (*AnalysisResult, error) {
 		if err != nil {
 			slog.Warn("Go analyzer init failed, skipping", "error", err)
 		} else {
+			analyzer.SetFileFilter(r.includesPath)
 			goResult, err := analyzer.Analyze()
 			if err != nil {
 				slog.Warn("Go analysis failed", "error", err)
@@ -103,7 +143,7 @@ func (r *Resolver) Analyze() (*AnalysisResult, error) {
 			if err != nil {
 				slog.Warn("TypeScript analysis failed", "error", err)
 			} else {
-				result.Merge(tsResult)
+				result.Merge(filterAnalysisResult(tsResult, r.includesPath))
 			}
 		}
 	}
@@ -111,6 +151,7 @@ func (r *Resolver) Analyze() (*AnalysisResult, error) {
 	if dl.hasPython && r.cfg.Python.Enabled {
 		slog.Info("running Python analyzer")
 		analyzer := NewPythonAnalyzer(r.projectRoot)
+		analyzer.SetFileFilter(r.includesPath)
 		pyResult, err := analyzer.Analyze()
 		if err != nil {
 			slog.Warn("Python analysis failed", "error", err)
@@ -126,4 +167,41 @@ func (r *Resolver) Analyze() (*AnalysisResult, error) {
 	)
 
 	return result, nil
+}
+
+func filterAnalysisResult(input *AnalysisResult, includePath func(string) bool) *AnalysisResult {
+	if input == nil || includePath == nil {
+		return input
+	}
+	output := &AnalysisResult{
+		Symbols:         make([]Symbol, 0, len(input.Symbols)),
+		Edges:           make([]Edge, 0, len(input.Edges)),
+		BoundarySymbols: append([]BoundarySymbol(nil), input.BoundarySymbols...),
+	}
+	allowedSymbols := make(map[string]struct{}, len(input.Symbols))
+	for _, symbol := range input.Symbols {
+		if symbol.FilePath != "" && !includePath(symbol.FilePath) {
+			continue
+		}
+		output.Symbols = append(output.Symbols, symbol)
+		allowedSymbols[symbol.ID] = struct{}{}
+	}
+
+	boundarySymbols := make(map[string]struct{}, len(input.BoundarySymbols))
+	for _, boundary := range input.BoundarySymbols {
+		boundarySymbols[boundary.ID] = struct{}{}
+	}
+	for _, edge := range input.Edges {
+		if _, ok := allowedSymbols[edge.SourceID]; !ok {
+			continue
+		}
+		if _, ok := allowedSymbols[edge.TargetID]; ok {
+			output.Edges = append(output.Edges, edge)
+			continue
+		}
+		if _, ok := boundarySymbols[edge.TargetID]; ok {
+			output.Edges = append(output.Edges, edge)
+		}
+	}
+	return output
 }
