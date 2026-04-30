@@ -7,8 +7,7 @@ import (
 	"strings"
 
 	"github.com/ponchione/sodoryard/internal/codeintel"
-
-	_ "modernc.org/sqlite"
+	appdb "github.com/ponchione/sodoryard/internal/db"
 )
 
 const graphDDL = `
@@ -72,7 +71,7 @@ type Store struct {
 
 // NewStore opens or creates a graph database at the given DSN.
 func NewStore(dsn string) (*Store, error) {
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open(appdb.DriverName, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open graph db: %w", err)
 	}
