@@ -35,6 +35,8 @@ type WebSocketHandler struct {
 	defaults  *RuntimeDefaults
 	devMode   bool
 	logger    *slog.Logger
+
+	activeTurn atomic.Bool
 }
 
 // NewWebSocketHandler creates a handler and registers the WS route.
@@ -185,10 +187,16 @@ func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFu
 				h.writeErrorMessage(ctx, conn, "a turn is already in progress", true, "turn_in_progress")
 				continue
 			}
+			if !h.activeTurn.CompareAndSwap(false, true) {
+				turnActive.Store(false)
+				h.writeErrorMessage(ctx, conn, "a turn is already in progress", true, "turn_in_progress")
+				continue
+			}
 
 			turnWg.Add(1)
 			go func() {
 				defer turnWg.Done()
+				defer h.activeTurn.Store(false)
 				defer turnActive.Store(false)
 				h.handleMessage(ctx, conn, sink, msg)
 			}()
@@ -201,7 +209,11 @@ func (h *WebSocketHandler) readLoop(ctx context.Context, cancel context.CancelFu
 			)
 
 		case "cancel":
-			h.agent.Cancel()
+			if turnActive.Load() {
+				h.agent.Cancel()
+				continue
+			}
+			h.writeErrorMessage(ctx, conn, "no active turn to cancel", true, "no_active_turn")
 
 		default:
 			h.logger.Warn("unknown client message type", "type", msg.Type)

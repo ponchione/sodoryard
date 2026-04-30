@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -841,6 +842,146 @@ func TestWebSocketOneTurnAtATime(t *testing.T) {
 	close(blockCh)
 
 	conn.Close(websocket.StatusNormalClosure, "test done")
+}
+
+func TestWebSocketRejectsTurnWhileAnotherConnectionActive(t *testing.T) {
+	turnStarted := make(chan struct{})
+	blockCh := make(chan struct{})
+	var runCount atomic.Int32
+	var startedOnce sync.Once
+	agentMock := &mockAgentService{
+		runTurnFn: func(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+			runCount.Add(1)
+			startedOnce.Do(func() { close(turnStarted) })
+			select {
+			case <-blockCh:
+				return &agent.TurnResult{}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	}
+	base, _ := setupWSTest(t, agentMock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	conn1, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial conn1 failed: %v", err)
+	}
+	defer conn1.CloseNow()
+	conn2, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial conn2 failed: %v", err)
+	}
+	defer conn2.CloseNow()
+
+	msg1 := map[string]string{"type": "message", "conversation_id": "conv-1", "content": "first"}
+	data, _ := json.Marshal(msg1)
+	if err := conn1.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write first message failed: %v", err)
+	}
+
+	select {
+	case <-turnStarted:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for first turn")
+	}
+
+	msg2 := map[string]string{"type": "message", "conversation_id": "conv-123", "content": "second"}
+	data, _ = json.Marshal(msg2)
+	if err := conn2.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write second message failed: %v", err)
+	}
+
+	_, respData, err := conn2.Read(ctx)
+	if err != nil {
+		t.Fatalf("read second response failed: %v", err)
+	}
+	var resp struct {
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Type != "error" {
+		t.Fatalf("expected error response, got %v", resp.Type)
+	}
+	if got := resp.Data["error_code"]; got != "turn_in_progress" {
+		t.Fatalf("error_code = %v, want %q", got, "turn_in_progress")
+	}
+	if got := runCount.Load(); got != 1 {
+		t.Fatalf("RunTurn count = %d, want 1", got)
+	}
+
+	close(blockCh)
+}
+
+func TestWebSocketCancelOnlyAffectsOwningConnection(t *testing.T) {
+	turnStarted := make(chan struct{})
+	blockCh := make(chan struct{})
+	agentMock := &mockAgentService{
+		runTurnFn: func(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+			close(turnStarted)
+			select {
+			case <-blockCh:
+				return &agent.TurnResult{}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	}
+	base, _ := setupWSTest(t, agentMock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	ownerConn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial owner failed: %v", err)
+	}
+	defer ownerConn.CloseNow()
+	otherConn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial other failed: %v", err)
+	}
+	defer otherConn.CloseNow()
+
+	msg := map[string]string{"type": "message", "conversation_id": "conv-1", "content": "first"}
+	data, _ := json.Marshal(msg)
+	if err := ownerConn.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write owner message failed: %v", err)
+	}
+
+	select {
+	case <-turnStarted:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for owner turn")
+	}
+
+	cancelMsg := map[string]string{"type": "cancel"}
+	data, _ = json.Marshal(cancelMsg)
+	if err := otherConn.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write other cancel failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := agentMock.getCancelCount(); got != 0 {
+		t.Fatalf("cancel count after non-owner cancel = %d, want 0", got)
+	}
+
+	if err := ownerConn.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write owner cancel failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := agentMock.getCancelCount(); got != 1 {
+		t.Fatalf("cancel count after owner cancel = %d, want 1", got)
+	}
+
+	close(blockCh)
 }
 
 func TestWebSocketInvalidJSONUsesMessageErrorPayload(t *testing.T) {
