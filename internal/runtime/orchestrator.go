@@ -89,8 +89,8 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 	}
 
 	// Only register providers the YAML explicitly listed. This avoids
-	// registering Default() providers (anthropic, openrouter) that the
-	// operator's config never asked for (TECH-DEBT R6).
+	// registering Default() providers that the operator's config never asked
+	// for (TECH-DEBT R6).
 	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
 		ProviderNames: cfg.ProviderNamesForSurfaces(),
 	})

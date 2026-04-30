@@ -257,23 +257,15 @@ func Default() *Config {
 		},
 		Routing: RoutingConfig{
 			Default: RouteConfig{
-				Provider: "anthropic",
-				Model:    "claude-sonnet-4-6-20250514",
+				Provider: "codex",
+				Model:    "gpt-5.5",
 			},
 		},
 		Providers: map[string]ProviderConfig{
-			"anthropic": {
-				Type:          "anthropic",
-				Model:         "claude-sonnet-4-6-20250514",
-				APIKeyEnv:     "ANTHROPIC_API_KEY",
-				ContextLength: 200000,
-			},
-			"openrouter": {
-				Type:          "openai-compatible",
-				BaseURL:       "https://openrouter.ai/api/v1",
-				Model:         "anthropic/claude-sonnet-4",
-				APIKeyEnv:     "OPENROUTER_API_KEY",
-				ContextLength: 200000,
+			"codex": {
+				Type:          "codex",
+				Model:         "gpt-5.5",
+				ContextLength: 400000,
 			},
 		},
 		Index: IndexConfig{
@@ -420,22 +412,26 @@ func (c *Config) ApplyEnvOverrides() {
 		return
 	}
 
-	if value, ok := os.LookupEnv("SIRTOPHAM_LOG_LEVEL"); ok {
+	if value, ok := os.LookupEnv("SODORYARD_LOG_LEVEL"); ok {
+		c.LogLevel = value
+	} else if value, ok := os.LookupEnv("SIRTOPHAM_LOG_LEVEL"); ok {
 		c.LogLevel = value
 	}
 
 	if value, ok := os.LookupEnv("ANTHROPIC_API_KEY"); ok {
-		provider := c.Providers["anthropic"]
-		provider.APIKey = value
-		provider.APIKeyEnv = "ANTHROPIC_API_KEY"
-		c.Providers["anthropic"] = provider
+		if provider, configured := c.Providers["anthropic"]; configured {
+			provider.APIKey = value
+			provider.APIKeyEnv = "ANTHROPIC_API_KEY"
+			c.Providers["anthropic"] = provider
+		}
 	}
 
 	if value, ok := os.LookupEnv("OPENROUTER_API_KEY"); ok {
-		provider := c.Providers["openrouter"]
-		provider.APIKey = value
-		provider.APIKeyEnv = "OPENROUTER_API_KEY"
-		c.Providers["openrouter"] = provider
+		if provider, configured := c.Providers["openrouter"]; configured {
+			provider.APIKey = value
+			provider.APIKeyEnv = "OPENROUTER_API_KEY"
+			c.Providers["openrouter"] = provider
+		}
 	}
 }
 
@@ -484,14 +480,14 @@ func DefaultProjectName(projectRoot string) string {
 		if wd, err := os.Getwd(); err == nil && wd != "" {
 			root = wd
 		} else {
-			return "sirtopham"
+			return "sodoryard"
 		}
 	}
 	base := filepath.Base(filepath.Clean(root))
 	base = strings.TrimSpace(base)
 	base = strings.TrimPrefix(base, ".")
 	if base == "" || base == "." || base == string(filepath.Separator) {
-		return "sirtopham"
+		return "sodoryard"
 	}
 	return base
 }

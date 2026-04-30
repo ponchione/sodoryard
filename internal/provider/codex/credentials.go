@@ -540,7 +540,7 @@ func (p *CodexProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, e
 	if err != nil {
 		return nil, err
 	}
-	source := "sirtopham_store"
+	source := "yard_store"
 	storePath := state.path
 	detail := ""
 	if state.fromSharedCLI {

@@ -30,7 +30,7 @@ export interface UseWebSocketReturn {
 }
 
 /**
- * Manages a single WebSocket connection to the sirtopham backend.
+ * Manages a single WebSocket connection to the Sodoryard backend.
  *
  * Reconnects automatically on disconnect with exponential backoff.
  * The hook connects on mount and disconnects on unmount.

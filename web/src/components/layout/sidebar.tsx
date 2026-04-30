@@ -111,7 +111,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3">
           <span className="text-lg font-semibold uppercase tracking-widest text-primary text-glow-cyan">
-            sirtopham
+            Sodoryard
           </span>
           {/* Close button — mobile only */}
           <button

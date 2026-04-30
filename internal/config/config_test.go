@@ -55,8 +55,14 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Server.Host != defaultServerHost {
 		t.Fatalf("Server.Host = %q, want %q", cfg.Server.Host, defaultServerHost)
 	}
-	if cfg.Routing.Default.Provider != "anthropic" {
-		t.Fatalf("Routing.Default.Provider = %q, want anthropic", cfg.Routing.Default.Provider)
+	if cfg.Routing.Default.Provider != "codex" {
+		t.Fatalf("Routing.Default.Provider = %q, want codex", cfg.Routing.Default.Provider)
+	}
+	if cfg.Routing.Default.Model != "gpt-5.5" {
+		t.Fatalf("Routing.Default.Model = %q, want gpt-5.5", cfg.Routing.Default.Model)
+	}
+	if provider := cfg.Providers["codex"]; provider.Type != "codex" || provider.Model != "gpt-5.5" || provider.ContextLength != 400000 {
+		t.Fatalf("Providers[codex] = %#v, want codex/gpt-5.5/400000", provider)
 	}
 	if cfg.Agent.ShellTimeoutSeconds != 120 {
 		t.Fatalf("Agent.ShellTimeoutSeconds = %d, want 120", cfg.Agent.ShellTimeoutSeconds)
@@ -174,7 +180,13 @@ func TestLoadAllowsConfiguredFallback(t *testing.T) {
 		"    model: claude-sonnet-4-6-20250514\n" +
 		"  fallback:\n" +
 		"    provider: openrouter\n" +
-		"    model: anthropic/claude-sonnet-4\n"
+		"    model: anthropic/claude-sonnet-4\n" +
+		"providers:\n" +
+		"  anthropic:\n" +
+		"    type: anthropic\n" +
+		"  openrouter:\n" +
+		"    type: openai-compatible\n" +
+		"    base_url: https://openrouter.ai/api/v1\n"
 
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
@@ -360,17 +372,17 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		},
 		{
 			name:       "fallback provider without model",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: anthropic\n    model: claude-sonnet-4-6\n  fallback:\n    provider: openrouter\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    provider: openrouter\n",
 			wantSubstr: "routing.fallback.model",
 		},
 		{
 			name:       "fallback model without provider",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: anthropic\n    model: claude-sonnet-4-6\n  fallback:\n    model: anthropic/claude-sonnet-4\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    model: anthropic/claude-sonnet-4\n",
 			wantSubstr: "routing.fallback.provider",
 		},
 		{
 			name:       "fallback provider must be configured",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: anthropic\n    model: claude-sonnet-4-6\n  fallback:\n    provider: missing\n    model: foo\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    provider: missing\n    model: foo\n",
 			wantSubstr: "routing.fallback.provider",
 		},
 		{
@@ -480,7 +492,8 @@ func TestLoadAppliesEnvironmentVariableOverrides(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	t.Setenv("SIRTOPHAM_LOG_LEVEL", "error")
+	t.Setenv("SODORYARD_LOG_LEVEL", "error")
+	t.Setenv("SIRTOPHAM_LOG_LEVEL", "debug")
 	t.Setenv("ANTHROPIC_API_KEY", "env-anthropic")
 	t.Setenv("OPENROUTER_API_KEY", "env-openrouter")
 
@@ -497,6 +510,40 @@ func TestLoadAppliesEnvironmentVariableOverrides(t *testing.T) {
 	}
 	if got := cfg.Providers["openrouter"].APIKey; got != "env-openrouter" {
 		t.Fatalf("openrouter API key = %q, want env-openrouter", got)
+	}
+}
+
+func TestLoadSupportsLegacyLogLevelEnvironmentVariable(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	t.Setenv("SIRTOPHAM_LOG_LEVEL", "warn")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.LogLevel != "warn" {
+		t.Fatalf("LogLevel = %q, want warn", cfg.LogLevel)
+	}
+}
+
+func TestApplyEnvOverridesDoesNotCreateUnconfiguredAPIKeyProviders(t *testing.T) {
+	cfg := Default()
+	t.Setenv("ANTHROPIC_API_KEY", "env-anthropic")
+	t.Setenv("OPENROUTER_API_KEY", "env-openrouter")
+
+	cfg.ApplyEnvOverrides()
+
+	if _, ok := cfg.Providers["anthropic"]; ok {
+		t.Fatalf("anthropic provider was created by env override: %#v", cfg.Providers["anthropic"])
+	}
+	if _, ok := cfg.Providers["openrouter"]; ok {
+		t.Fatalf("openrouter provider was created by env override: %#v", cfg.Providers["openrouter"])
 	}
 }
 

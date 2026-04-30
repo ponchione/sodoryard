@@ -17,7 +17,7 @@ var (
 // New returns a UUIDv7 string.
 //
 // This implementation is intentionally hand-rolled instead of using a library
-// so sirtopham can guarantee lexicographic ordering even for IDs generated
+// so Sodoryard can guarantee lexicographic ordering even for IDs generated
 // within the same millisecond.
 func New() string {
 	timestamp := uint64(time.Now().UnixMilli())

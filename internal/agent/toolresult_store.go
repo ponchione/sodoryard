@@ -18,7 +18,7 @@ type FileToolResultStore struct {
 
 func NewFileToolResultStore(rootDir string) *FileToolResultStore {
 	if rootDir == "" {
-		rootDir = filepath.Join(os.TempDir(), "sirtopham-tool-results")
+		rootDir = filepath.Join(os.TempDir(), "sodoryard-tool-results")
 	}
 	return &FileToolResultStore{rootDir: rootDir}
 }

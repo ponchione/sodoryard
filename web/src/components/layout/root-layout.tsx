@@ -23,7 +23,7 @@ export function RootLayout() {
             <MenuIcon />
           </button>
           <span className="ml-2 text-sm font-semibold uppercase tracking-widest text-glow-cyan text-primary">
-            sirtopham
+            Sodoryard
           </span>
         </div>
 

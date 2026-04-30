@@ -628,8 +628,8 @@ func TestWebSocketUsesFallbackContextLimitForCodexWithoutConfiguredLength(t *tes
 		if req.Provider != "codex" {
 			t.Fatalf("Provider = %q, want codex", req.Provider)
 		}
-		if req.ModelContextLimit != 200000 {
-			t.Fatalf("ModelContextLimit = %d, want 200000", req.ModelContextLimit)
+		if req.ModelContextLimit != 400000 {
+			t.Fatalf("ModelContextLimit = %d, want 400000", req.ModelContextLimit)
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for RunTurn")

@@ -41,7 +41,7 @@ func Connect(ctx context.Context, vaultPath string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect brain MCP server: %w", err)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "sirtopham", Version: "v0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "sodoryard", Version: "v0.1.0"}, nil)
 	cs, err := client.Connect(ctx, t2, nil)
 	if err != nil {
 		ss.Close()

@@ -99,7 +99,7 @@ func discoverVisibleModels(ctx context.Context, codexBinPath string) ([]provider
 		ID:      1,
 		Method:  "initialize",
 		Params: map[string]any{
-			"clientInfo": map[string]any{"name": "sirtopham-model-discovery", "version": "0.0.0"},
+			"clientInfo": map[string]any{"name": "sodoryard-model-discovery", "version": "0.0.0"},
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("send initialize: %w", err)

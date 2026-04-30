@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -20,5 +21,14 @@ func TestNewAgentLoopUsesConfiguredToolResultStoreRoot(t *testing.T) {
 	}
 	if store.rootDir != root {
 		t.Fatalf("store.rootDir = %q, want %q", store.rootDir, root)
+	}
+}
+
+func TestNewFileToolResultStoreUsesSodoryardTempRootByDefault(t *testing.T) {
+	store := NewFileToolResultStore("")
+
+	want := filepath.Join(os.TempDir(), "sodoryard-tool-results")
+	if store.rootDir != want {
+		t.Fatalf("rootDir = %q, want %q", store.rootDir, want)
 	}
 }

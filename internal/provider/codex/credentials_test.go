@@ -195,7 +195,7 @@ func TestReadAuthFile_NonJWTWithoutExpiryStillLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuthStatus() error: %v", err)
 	}
-	if status.StorePath == "" || status.Source != "sirtopham_store" || !status.HasRefreshToken {
+	if status.StorePath == "" || status.Source != "yard_store" || !status.HasRefreshToken {
 		t.Fatalf("unexpected auth status: %+v", status)
 	}
 }
@@ -392,7 +392,7 @@ func TestGetAccessToken_PrivateStoreWinsWhenSharedStoreLooksNewer(t *testing.T) 
 	if err != nil {
 		t.Fatalf("AuthStatus() error: %v", err)
 	}
-	if status.Source != "sirtopham_store" || status.StorePath == "" {
+	if status.Source != "yard_store" || status.StorePath == "" {
 		t.Fatalf("expected private auth state after runtime use, got %+v", status)
 	}
 }
@@ -452,7 +452,7 @@ func TestAuthStatus_ReportsPrivateStoreAfterRuntimeImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuthStatus() error: %v", err)
 	}
-	if status.Source != "sirtopham_store" {
+	if status.Source != "yard_store" {
 		t.Fatalf("expected private-store source after runtime import, got %+v", status)
 	}
 	if status.StorePath == "" {

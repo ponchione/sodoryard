@@ -19,8 +19,10 @@ func ResolveModelContextLimit(cfg *Config, providerName string) (int, error) {
 		return providerCfg.ContextLength, nil
 	}
 	switch providerCfg.Type {
-	case "anthropic", "codex":
+	case "anthropic":
 		return 200000, nil
+	case "codex":
+		return 400000, nil
 	case "openai-compatible":
 		return 32768, nil
 	default:

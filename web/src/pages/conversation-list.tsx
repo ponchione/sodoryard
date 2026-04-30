@@ -23,7 +23,7 @@ export function ConversationListPage() {
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8">
       <div className="text-center">
         <h1 className="text-3xl font-bold uppercase tracking-[0.25em] text-primary text-glow-cyan">
-          sirtopham
+          Sodoryard
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           // AI coding assistant

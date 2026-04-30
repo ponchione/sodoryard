@@ -1,2 +1,2 @@
-// Package id generates stable external identifiers for sirtopham entities.
+// Package id generates stable external identifiers for Sodoryard entities.
 package id

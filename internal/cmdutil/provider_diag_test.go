@@ -58,7 +58,7 @@ func TestRunProviderDiagnosticsJSONIncludesLocalServicesForDoctor(t *testing.T) 
 			authStatus: &provider.AuthStatus{
 				Provider:       name,
 				Mode:           "oauth",
-				Source:         "sirtopham_store",
+				Source:         "yard_store",
 				HasAccessToken: true,
 				ExpiresAt:      time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 			},
@@ -133,7 +133,7 @@ func TestPrintProviderAuthReportsRendersReadableText(t *testing.T) {
 		PingError: "token expired",
 		Auth: &provider.AuthStatus{
 			Mode:            "oauth",
-			Source:          "sirtopham_store",
+			Source:          "yard_store",
 			HasAccessToken:  true,
 			HasRefreshToken: false,
 			Detail:          "expired",

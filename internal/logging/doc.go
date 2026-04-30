@@ -1,2 +1,2 @@
-// Package logging provides structured logging primitives for sirtopham.
+// Package logging provides structured logging primitives for Sodoryard.
 package logging

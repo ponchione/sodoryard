@@ -46,7 +46,7 @@ type listOutput struct {
 }
 
 func NewServer(vaultClient *vault.Client) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "sirtopham-brain", Version: "v0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "sodoryard-brain", Version: "v0.1.0"}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "vault_read", Description: "Read a markdown document from the vault"}, func(ctx context.Context, req *mcp.CallToolRequest, input readInput) (*mcp.CallToolResult, readOutput, error) {
 		content, err := vaultClient.ReadDocument(ctx, input.Path)
