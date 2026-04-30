@@ -21,9 +21,10 @@ build: cleanup-retired-binaries tidmouth yard
 cleanup-retired-binaries:
 	rm -f $(RETIRED_BINARIES)
 
-# ── Binaries ─────────────────────────────────────────────────────────
-# tidmouth: the headless engine harness. Embeds the React frontend via
-# webfs/go:embed until Knapford absorbs the web UI (Phase 6).
+# -- Binaries ---------------------------------------------------------
+# tidmouth: the retained internal headless engine harness used by chain
+# spawning. The frontend build/copy happens here so `make build` prepares
+# webfs/dist before building the operator-facing yard binary.
 tidmouth: frontend-build
 	rm -rf $(WEBFS_DIST) && cp -r $(WEB_DIR)/dist $(WEBFS_DIST)
 	mkdir -p $(BIN_DIR)
@@ -41,21 +42,21 @@ install-user-bin:
 test:
 	$(CGO_TEST_ENV) go test $(GOFLAGS_DB) ./...
 
-# ── Development ──────────────────────────────────────────────────────
+# -- Development ------------------------------------------------------
 # Two-terminal workflow:
 #   Terminal 1: make dev-backend
 #   Terminal 2: make dev-frontend
 # The Vite dev server proxies /api/* to the Go backend.
 
 dev-backend:
-	$(CGO_TEST_ENV) go run $(GOFLAGS_DB) ./cmd/tidmouth serve --dev
+	$(CGO_TEST_ENV) go run $(GOFLAGS_DB) ./cmd/yard serve --dev
 
 dev-frontend:
 	cd $(WEB_DIR) && npm run dev
 
 dev: dev-backend
 
-# ── Frontend ─────────────────────────────────────────────────────────
+# -- Frontend ---------------------------------------------------------
 frontend-deps:
 	cd $(WEB_DIR) && npm install
 
@@ -65,7 +66,7 @@ frontend-build: frontend-deps
 frontend-typecheck:
 	cd $(WEB_DIR) && npx tsc --noEmit
 
-# ── Clean ────────────────────────────────────────────────────────────
+# -- Clean ------------------------------------------------------------
 clean:
 	rm -rf $(BIN_DIR)
 	rm -rf $(WEB_DIR)/dist

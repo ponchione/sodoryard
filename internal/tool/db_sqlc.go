@@ -12,7 +12,7 @@ import (
 
 const sqlcTimeout = 60 * time.Second
 
-// DbSqlc implements the db_sqlc tool — runs sqlc generate/vet/diff with
+// DbSqlc implements the db_sqlc tool - runs sqlc generate/vet/diff with
 // structured error output.
 type DbSqlc struct{}
 
@@ -76,16 +76,6 @@ func (DbSqlc) Execute(ctx context.Context, projectRoot string, input json.RawMes
 		}, nil
 	}
 
-	// Look up sqlc binary.
-	sqlcPath, err := lookupCommandPath("sqlc")
-	if err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: "sqlc is required but not found in PATH",
-			Error:   "sqlc not found",
-		}, nil
-	}
-
 	// Resolve working directory.
 	workDir := projectRoot
 	if params.Path != "" {
@@ -109,6 +99,17 @@ func (DbSqlc) Execute(ctx context.Context, projectRoot string, input json.RawMes
 			Success: false,
 			Content: fmt.Sprintf("No sqlc configuration file found in %s. Create a sqlc.yaml, sqlc.yml, or sqlc.json before running sqlc.", workDir),
 			Error:   "missing_sqlc_config",
+		}, nil
+	}
+
+	// Look up sqlc binary after local validation so missing configs and unsafe
+	// paths still produce the most actionable error when sqlc is unavailable.
+	sqlcPath, err := lookupCommandPath("sqlc")
+	if err != nil {
+		return &ToolResult{
+			Success: false,
+			Content: "sqlc is required but not found in PATH",
+			Error:   "sqlc not found",
 		}, nil
 	}
 
@@ -154,14 +155,14 @@ func (DbSqlc) Execute(ctx context.Context, projectRoot string, input json.RawMes
 
 	case "diff":
 		if runErr == nil {
-			// Successful exit — check whether output is empty (in sync) or not.
+			// Successful exit - check whether output is empty (in sync) or not.
 			out := strings.TrimSpace(stdout.String())
 			if out == "" {
 				return &ToolResult{Success: true, Content: "sqlc diff: everything in sync"}, nil
 			}
 			return &ToolResult{Success: true, Content: "sqlc diff:\n" + out}, nil
 		}
-		// Non-zero exit from diff means differences were found — not a tool failure.
+		// Non-zero exit from diff means differences were found - not a tool failure.
 		return &ToolResult{
 			Success: true,
 			Content: "sqlc diff: out of sync\n" + combined,
@@ -171,4 +172,3 @@ func (DbSqlc) Execute(ctx context.Context, projectRoot string, input json.RawMes
 	// Unreachable.
 	return &ToolResult{Success: false, Content: "unknown action"}, nil
 }
-
