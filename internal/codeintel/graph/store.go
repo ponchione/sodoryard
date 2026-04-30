@@ -112,6 +112,10 @@ func (s *Store) Close() error {
 // BlastRadius implements codeintel.GraphStore. It resolves the target symbol,
 // then performs recursive CTE queries for upstream and downstream traversal.
 func (s *Store) BlastRadius(ctx context.Context, query codeintel.GraphQuery) (*codeintel.BlastRadiusResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	maxDepth := query.MaxDepth
 	if maxDepth <= 0 {
 		maxDepth = 3
@@ -121,22 +125,22 @@ func (s *Store) BlastRadius(ctx context.Context, query codeintel.GraphQuery) (*c
 		maxNodes = 30
 	}
 
-	target, err := s.resolveTarget(query.Symbol)
+	target, err := s.resolveTarget(ctx, query.Symbol)
 	if err != nil {
 		return nil, fmt.Errorf("resolve target %q: %w", query.Symbol, err)
 	}
 
-	upstream, err := s.blastUpstream(target.ID, maxDepth, maxNodes)
+	upstream, err := s.blastUpstream(ctx, target.ID, maxDepth, maxNodes)
 	if err != nil {
 		return nil, fmt.Errorf("upstream blast: %w", err)
 	}
 
-	downstream, err := s.blastDownstream(target.ID, maxDepth, maxNodes)
+	downstream, err := s.blastDownstream(ctx, target.ID, maxDepth, maxNodes)
 	if err != nil {
 		return nil, fmt.Errorf("downstream blast: %w", err)
 	}
 
-	ifaces, err := s.getInterfaces(target.ID)
+	ifaces, err := s.getInterfaces(ctx, target.ID)
 	if err != nil {
 		return nil, fmt.Errorf("interfaces: %w", err)
 	}
@@ -251,7 +255,11 @@ func (s *Store) InsertChunkMappings(symbolID string, chunkIDs []string) error {
 
 // GetSymbol retrieves a single symbol by ID.
 func (s *Store) GetSymbol(id string) (*Symbol, error) {
-	row := s.db.QueryRow(`SELECT id, name, kind, language, package, file_path,
+	return s.getSymbol(context.Background(), id)
+}
+
+func (s *Store) getSymbol(ctx context.Context, id string) (*Symbol, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, kind, language, package, file_path,
 		line_start, line_end, signature, exported, receiver
 		FROM symbols WHERE id = ?`, id)
 	return scanSymbol(row)
@@ -271,7 +279,11 @@ func (s *Store) GetSymbolsByFile(filePath string) ([]Symbol, error) {
 
 // GetSymbolsByName returns all symbols with the given name.
 func (s *Store) GetSymbolsByName(name string) ([]Symbol, error) {
-	rows, err := s.db.Query(`SELECT id, name, kind, language, package, file_path,
+	return s.getSymbolsByName(context.Background(), name)
+}
+
+func (s *Store) getSymbolsByName(ctx context.Context, name string) ([]Symbol, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, kind, language, package, file_path,
 		line_start, line_end, signature, exported, receiver
 		FROM symbols WHERE name = ? ORDER BY file_path, line_start`, name)
 	if err != nil {
@@ -364,8 +376,8 @@ func (s *Store) DropAndRecreate() error {
 
 // --- blast radius ---
 
-func (s *Store) resolveTarget(target string) (*Symbol, error) {
-	sym, err := s.GetSymbol(target)
+func (s *Store) resolveTarget(ctx context.Context, target string) (*Symbol, error) {
+	sym, err := s.getSymbol(ctx, target)
 	if err == nil {
 		return sym, nil
 	}
@@ -373,7 +385,7 @@ func (s *Store) resolveTarget(target string) (*Symbol, error) {
 		return nil, err
 	}
 
-	syms, err := s.GetSymbolsByName(target)
+	syms, err := s.getSymbolsByName(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +403,7 @@ type blastNode struct {
 	path     []string
 }
 
-func (s *Store) blastUpstream(targetID string, maxDepth, budget int) ([]blastNode, error) {
+func (s *Store) blastUpstream(ctx context.Context, targetID string, maxDepth, budget int) ([]blastNode, error) {
 	query := `
 		WITH RECURSIVE blast(symbol_id, depth, confidence, path, edge_type) AS (
 			SELECT e.source_id, 1, e.confidence, e.source_id, e.edge_type
@@ -419,7 +431,7 @@ func (s *Store) blastUpstream(targetID string, maxDepth, budget int) ([]blastNod
 		ORDER BY b.depth ASC, b.confidence DESC
 		LIMIT ?`
 
-	rows, err := s.db.Query(query, targetID, maxDepth, targetID, budget)
+	rows, err := s.db.QueryContext(ctx, query, targetID, maxDepth, targetID, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +440,7 @@ func (s *Store) blastUpstream(targetID string, maxDepth, budget int) ([]blastNod
 	return scanBlastNodes(rows)
 }
 
-func (s *Store) blastDownstream(targetID string, maxDepth, budget int) ([]blastNode, error) {
+func (s *Store) blastDownstream(ctx context.Context, targetID string, maxDepth, budget int) ([]blastNode, error) {
 	query := `
 		WITH RECURSIVE blast(symbol_id, depth, confidence, path, edge_type) AS (
 			SELECT e.target_id, 1, e.confidence, e.target_id, e.edge_type
@@ -459,7 +471,7 @@ func (s *Store) blastDownstream(targetID string, maxDepth, budget int) ([]blastN
 		ORDER BY b.depth ASC, b.confidence DESC
 		LIMIT ?`
 
-	rows, err := s.db.Query(query, targetID, maxDepth, targetID, budget)
+	rows, err := s.db.QueryContext(ctx, query, targetID, maxDepth, targetID, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -468,8 +480,8 @@ func (s *Store) blastDownstream(targetID string, maxDepth, budget int) ([]blastN
 	return scanBlastNodes(rows)
 }
 
-func (s *Store) getInterfaces(symbolID string) ([]blastNode, error) {
-	rows, err := s.db.Query(`
+func (s *Store) getInterfaces(ctx context.Context, symbolID string) ([]blastNode, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.id, s.name, s.kind, s.language, s.package, s.file_path,
 		       s.line_start, s.line_end, s.signature, s.exported, s.receiver
 		FROM edges e

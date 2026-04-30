@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -146,6 +147,23 @@ func TestBlastRadius_SymbolNotFound(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for nonexistent symbol")
+	}
+}
+
+func TestBlastRadiusHonorsCanceledContext(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.InsertSymbols([]Symbol{
+		{ID: "a", Name: "A", Kind: "function", Language: "go", FilePath: "a.go", LineStart: 1, LineEnd: 5},
+	}); err != nil {
+		t.Fatalf("InsertSymbols: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.BlastRadius(ctx, codeintel.GraphQuery{Symbol: "a"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("BlastRadius error = %v, want context.Canceled", err)
 	}
 }
 
