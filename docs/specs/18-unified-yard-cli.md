@@ -2,7 +2,7 @@
 
 **Phase:** 8 — CLI consolidation
 **Status:** approved design, ready for implementation planning
-**Date:** 2026-04-29
+**Date:** 2026-05-01
 
 ---
 
@@ -26,7 +26,6 @@ Consolidate all operator-facing commands under `yard`. One binary, one `--help`,
 yard [--config yard.yaml]
 ├── init                        # project bootstrap (exists)
 ├── serve                       # web UI + API server
-├── run                         # single headless agent session
 ├── index                       # code index build/rebuild
 ├── auth                        # provider auth group
 │   ├── login PROVIDER          # provider login flow; currently supports codex
@@ -34,7 +33,7 @@ yard [--config yard.yaml]
 ├── doctor                      # auth diagnostics
 ├── config                      # show/validate config
 ├── chain                       # chain operations group
-│   ├── start                   # start a new chain execution
+│   ├── start                   # start a chain execution; --role creates a one-step chain
 │   ├── status                  # show chain status
 │   ├── logs                    # show chain event log
 │   ├── receipt                 # show orchestrator or step receipt
@@ -67,7 +66,8 @@ yard [--config yard.yaml]
 | legacy chain pause command | `yard chain pause` | nests under the chain group |
 | legacy chain resume command | `yard chain resume` | nests under the chain group |
 | legacy serve command | `yard serve` | top-level, most-used command |
-| `tidmouth run` | `yard run` | top-level, headless single agent |
+| single-agent autonomous work | `yard chain start --role <role> --task <task>` | one-step chain; no separate public run model |
+| `tidmouth run` | internal only | retained subprocess contract for chain steps until that contract is redesigned |
 | `tidmouth index` | `yard index` | top-level, code indexing |
 | `tidmouth index brain` | `yard brain index` | brain group owns brain indexing |
 | `tidmouth brain-serve` | `yard brain serve` | brain group owns brain MCP |
@@ -81,7 +81,7 @@ yard [--config yard.yaml]
 
 ### 3.3 Flags and arguments
 
-Every retained operator-facing subcommand preserves its existing flags and arguments exactly. Compatibility-only install/substitution flows do not survive the no-legacy cleanup.
+Every retained operator-facing subcommand preserves its existing flags and arguments unless this spec explicitly narrows the public surface. Compatibility-only install/substitution flows do not survive the no-legacy cleanup. A standalone public `yard run` command does not survive either; autonomous single-agent work is expressed as `yard chain start --role <role> ...` and recorded as a one-step chain.
 
 Commands that currently take `configPath *string` as a constructor argument will receive it from the root persistent flag instead.
 
@@ -94,7 +94,7 @@ Commands that currently take `configPath *string` as a constructor argument will
 - `yard llm up`: ensures required services are healthy according to `local_services.mode`; `auto` may create networks and run `docker compose up -d`, while `manual` reports remediation.
 - `yard llm down`: runs compose down for the configured stack.
 - `yard llm logs`: accepts `--tail` for recent compose logs.
-- `yard chain start`: accepts `--watch` and `--verbosity normal|debug`; it prints the chain ID to stdout immediately and streams progress to stderr when watch is enabled.
+- `yard chain start`: accepts `--task`, `--specs`, optional `--role`, `--watch`, and `--verbosity normal|debug`; it prints the chain ID to stdout immediately and streams progress to stderr when watch is enabled. When `--role` is absent, it creates an orchestrator-managed chain. When `--role` is present, it creates a one-step chain and does not launch the orchestrator agent.
 - `yard chain logs`: supports following a running chain and uses the same verbosity model as `chain start`.
 - `yard chain status`: without a chain ID lists recent chains; with a chain ID shows chain and step detail.
 
@@ -142,7 +142,7 @@ These need to be callable from `cmd/yard/`. After the cleanup, only `yard` and t
 
 1. It eliminates code duplication between `cmd/yard/` and the retained internal wrappers
 2. It makes the runtime constructors testable in isolation
-3. It keeps the door open for the web UI to start chains by calling the same runtime builder from an HTTP handler
+3. It provides the integration point for the command center to start chains by calling the same runtime builder from an HTTP handler
 
 ### 4.3 Spawn subprocess path
 
@@ -150,15 +150,15 @@ The chain orchestrator spawns engine subprocesses via `internal/spawn/`. Today, 
 
 The no-legacy contract keeps this as an internal implementation detail only. The operator invokes `yard chain start`; the orchestrator may continue spawning `tidmouth run` until that internal contract is redesigned. `tidmouth` is therefore retained only as an internal engine binary, not as a supported public CLI.
 
-### 4.4 Future: UI-driven chains
+### 4.4 Command-center chain entry points
 
-The chain start logic must remain in `internal/` packages (not in cobra wiring) so that a future HTTP handler at `/api/chain/start` can invoke the same code path. The live implementation delegates `yard chain start` to `internal/chainrun.Start`, whose shape is:
+The chain start logic must remain in `internal/` packages (not in cobra wiring) so that command-center HTTP handlers can invoke the same code path as `yard chain start`. The live implementation delegates `yard chain start` to `internal/chainrun.Start`, whose shape is:
 
 ```go
 func Start(ctx context.Context, cfg *config.Config, opts chainrun.Options, deps chainrun.Deps) (*chainrun.Result, error)
 ```
 
-The Cobra command owns CLI-only work: loading flags, printing the chain ID, and streaming watch output. Chain creation, resume handling, active-execution registration, orchestrator loop setup, control-state finalization, and chain exit-code mapping live in the internal chain runner.
+The Cobra command owns CLI-only work: loading flags, printing the chain ID, and streaming watch output. Chain creation, resume handling, active-execution registration, orchestrator loop setup, control-state finalization, and chain exit-code mapping live in the internal chain runner. Browser routes and payloads are specified in [[20-command-center-ui]].
 
 ## 5. What changes
 
@@ -172,12 +172,11 @@ internal/runtime/
 
 cmd/yard/
 ├── serve.go                # delegates to internal/runtime + internal/server
-├── run.go                  # delegates to internal/runtime + agent loop
 ├── index.go                # delegates to internal/runtime + indexer
 ├── auth.go                 # auth + auth status subcommands
 ├── doctor.go               # auth diagnostics
 ├── config_cmd.go           # show/validate config (config.go is taken by Go convention)
-├── chain.go                # chain group: start, status, logs, receipt, cancel, pause, resume
+├── chain.go                # chain group: start, one-step start, status, logs, receipt, cancel, pause, resume
 ├── brain.go                # brain group: index, serve
 └── llm.go                  # llm group: status, up, down, logs
 ```
@@ -189,12 +188,12 @@ cmd/yard/
 ```
 cmd/yard/main.go            # register all new subcommands, add --config persistent flag
 cmd/tidmouth/runtime.go     # thin wrapper calling internal/runtime/engine.go
+internal/chainrun/          # shared chain starter handles orchestrated and one-step chains
 Makefile                    # builds the retained artifact set after CLI cleanup
 ```
 
 ### 5.3 Unchanged
 
-- All `internal/` packages (except the new `internal/runtime/`)
 - Web frontend
 - Docker infrastructure
 - Templates, agent prompts, specs
@@ -206,36 +205,37 @@ The no-legacy target state does not preserve duplicated public command trees in 
 - The runtime/business-logic split between CLI wiring and `internal/` packages
 - The current internal spawn subprocess mechanism until a separate redesign replaces it (`tidmouth run` stays internal)
 - The web frontend
-- Any retained operator-facing command's flags or behavior
-- The chain execution flow
+- Any retained operator-facing command's flags or behavior, except removal of standalone public run
+- The orchestrator-managed chain execution flow
 - Brain read/write paths
 - Database schema
 - Docker infrastructure
 
 ## 7. Acceptance criteria
 
-1. `yard --help` shows all supported operator command groups (init, serve, run, index, auth, doctor, config, chain, brain, llm)
+1. `yard --help` shows all supported operator command groups (init, serve, index, auth, doctor, config, chain, brain, llm) and does not advertise a standalone `run` command
 2. `yard serve` starts the supported web UI/API server flow
 3. `yard chain start --task "..." --config yard.yaml` runs the supported chain flow through the unified CLI
-4. `yard brain index` indexes the brain identically to `tidmouth index brain`
-5. `yard index` indexes code identically to `tidmouth index`
-6. `yard llm status/up/down/logs` exposes the supported local-service management flow from the unified CLI
-7. `yard auth status` exposes provider auth state from the unified CLI
-8. `yard auth login codex` starts the supported Codex login flow from the unified CLI
-9. `make build` and `make all` build the supported artifact set for the no-legacy target state; compatibility-only binaries are not acceptance requirements
-10. `make test` green
-11. No acceptance criterion requires `sodoryard` to remain as a working public binary
-12. A chain started via `yard chain start` successfully spawns engine subprocesses (proving the internal spawn path still works)
-13. `internal/runtime/` package exists with extracted runtime builders callable from `cmd/yard/` and any retained minimal internal engine wrapper
+4. `yard chain start --role coder --task "..." --config yard.yaml` creates a one-step chain with a normal chain record, one step record, event log, receipt path, status output, and logs output
+5. `yard brain index` indexes the brain identically to `tidmouth index brain`
+6. `yard index` indexes code identically to `tidmouth index`
+7. `yard llm status/up/down/logs` exposes the supported local-service management flow from the unified CLI
+8. `yard auth status` exposes provider auth state from the unified CLI
+9. `yard auth login codex` starts the supported Codex login flow from the unified CLI
+10. `make build` and `make all` build the supported artifact set for the no-legacy target state; compatibility-only binaries are not acceptance requirements
+11. `make test` green
+12. No acceptance criterion requires `sodoryard` to remain as a working public binary
+13. A chain started via `yard chain start` successfully spawns engine subprocesses (proving the internal spawn path still works)
+14. `internal/runtime/` package exists with extracted runtime builders callable from `cmd/yard/` and any retained minimal internal engine wrapper
 
 ## 8. Out of scope
 
 - Renaming the retained internal `tidmouth` engine binary
 - Changing the spawn subprocess binary name in the same slice as public CLI cleanup
-- Adding new commands that don't exist today
-- UI-driven chain execution (future Phase 6 work, but §4.4 keeps the door open)
+- Adding new top-level commands that don't exist today
+- Building the command-center routes themselves; this CLI spec only preserves the shared internal entry points used by [[20-command-center-ui]]
 - Deprecation warnings or compatibility aliases for removed legacy surfaces
-- Changing any retained operator-facing command's flags or behavior
+- Changing retained operator-facing command behavior beyond the explicit chain-only run consolidation in this spec
 
 ## 9. Tag
 

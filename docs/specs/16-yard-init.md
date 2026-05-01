@@ -30,7 +30,7 @@ Each decision below is the locked outcome of a brainstorm round. The reasoning i
 
 ### 3.1 CLI surface — new `cmd/yard` binary, not a Tidmouth subcommand
 
-`cmd/yard/main.go` is a new fourth binary in the monorepo. Its only command in this phase is `yard init`. Future phases may add `yard run`, `yard chain`, `yard status`, `yard up`, etc.; this spec does not commit to any of them.
+`cmd/yard/main.go` is a new fourth binary in the monorepo. Its only command in this phase is `yard init`. Future phases may add `yard chain`, `yard status`, `yard up`, etc.; this spec does not commit to any of them.
 
 **Why:** Phase 5a (`v0.2.1-yard-paths`) locked `yard` as the operator-facing brand for the state dir, the config file, the env var, and the eventual docker-compose service name. Bootstrapping is the most operator-facing thing the railway does. Keeping it as `tidmouth init` makes the only operator entry point inconsistent with everything else the operator touches.
 
@@ -380,7 +380,7 @@ The smoke test in steps 6–8 is **end-to-end live**, not just unit tests. The P
 
 The following are explicitly **not** in Phase 5b. Each may become a future spec.
 
-- **Other `yard` subcommands.** `yard run`, `yard chain`, `yard status`, `yard up`, `yard validate`, etc. are deferred. The new binary ships with exactly one command.
+- **Other `yard` subcommands.** `yard chain start`, `yard status`, `yard up`, `yard validate`, etc. are deferred. The new binary ships with exactly one command.
 - **Auto-materializing built-in prompts onto disk.** Stock prompts are embedded and selected via `builtin:<role>` markers; `yard init` does not copy prompt files into the target project.
 - **First-run wizard / interactive prompts.** Init is fully non-interactive.
 - **`--force` / `--reset` flag.** Operators delete `.yard/` and `.brain/` themselves if they want to start over.

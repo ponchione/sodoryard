@@ -1,45 +1,57 @@
-# 13 — Headless Run Command
+# 13 — Internal Chain Step Engine
 
-**Status:** Draft v0.1 **Last Updated:** 2026-04-29 **Author:** Mitchell
+**Status:** Draft v0.1 **Last Updated:** 2026-05-01 **Author:** Mitchell
 
 ---
 
 ## Overview
 
-The `tidmouth run` subcommand executes a single agent session headlessly — no web UI, no HTTP server. It receives a task, runs the agent loop to completion, and exits. The primary consumer is the chain orchestrator, and under the no-legacy CLI contract it is treated as an internal engine entrypoint rather than a public operator command. Operators use `yard run`; orchestrator internals may continue to use `tidmouth run` until the spawn contract is redesigned.
+The retained `tidmouth run` subcommand is the current internal chain-step engine. It executes one agent session headlessly — no web UI, no HTTP server. It receives a task packet, runs the agent loop to completion, writes a receipt, and exits. The primary consumer is chain execution, and under the no-legacy CLI contract it is treated as an internal engine entrypoint rather than a public operator command.
 
-This is the internal interface contract between Tidmouth (the harness) and the chain orchestrator. The harness remains responsible for context assembly, tool dispatch, brain access, and LLM interaction. The orchestrator is responsible for deciding *what* to run and *what to do* with the result.
+Target direction: autonomous operator work should be represented as chains, including one-step chains for single-agent work. `yard run` should not remain a distinct execution model. If a convenience command survives temporarily, it should delegate to chain creation and produce a one-step chain. `tidmouth run` may remain as the internal step engine until the spawn contract is redesigned.
+
+This is the internal interface contract between Tidmouth (the harness) and chain step execution. The harness remains responsible for context assembly, tool dispatch, brain access, and LLM interaction. Chain runners are responsible for deciding *what* to run and *what to do* with the result.
 
 ---
 
 ## Core Concepts
 
-### Headless Session
+### Chain Step Session
 
-A headless session is identical to a web UI session in every way except input/output. The same agent loop, context assembly, tool executor, and brain wiring apply. The only differences:
+A chain step session is identical to a web UI agent session in runtime machinery but not in control flow. The same agent loop, context assembly, tool executor, and brain wiring apply. The differences:
 
-- Input comes from CLI flags and/or a task file, not WebSocket messages.
-- Output goes to stdout/stderr and a brain receipt document, not a streaming UI.
+- Input comes from a chain step task packet, not WebSocket messages.
+- Output goes to stdout/stderr, chain events, and a brain receipt document, not directly to a chat transcript.
 - The session runs to completion and exits. There is no multi-turn user interaction — the agent works autonomously until it decides the task is done or a safety limit is reached.
 
 ### Receipt
 
-Every headless run writes a receipt document to the brain vault at a known path. The receipt is the sole output contract. The orchestrator (or a human) reads the receipt to determine what happened and what should happen next. See **Receipt Format** below.
+Every chain step writes a receipt document to the brain vault at a known path. The receipt is the durable output contract. The chain runner, orchestrator, browser UI, or operator reads the receipt to determine what happened and what should happen next. See **Receipt Format** below.
 
 ### Agent Role
 
-A headless run is configured with a role that determines which tools are available. Roles are defined in the project config and map to tool groups. This enables the orchestrator to spawn a coder with full tool access, an auditor with read-only file and brain access, or an orchestrator agent with brain-only access plus custom tools.
+A chain step is configured with a role that determines which tools are available. Roles are defined in the project config and map to tool groups. This enables a chain to run a coder with full tool access, an auditor with read-only file and brain access, or an orchestrator agent with brain-only access plus custom tools.
 
-Custom tools are not globally available just because a role lists `custom_tools`. They require the caller constructing the role registry to provide concrete tool factories. Today, orchestrator-managed chain execution provides `spawn_agent` and `chain_complete`; an ordinary direct `yard run` / `tidmouth run` role build without that orchestrator factory fails fast with a clear "custom_tools are not implemented" configuration error. This prevents a direct headless session from advertising tools it cannot actually execute.
+Custom tools are not globally available just because a role lists `custom_tools`. They require the caller constructing the role registry to provide concrete tool factories. Today, orchestrator-managed chain execution provides `spawn_agent` and `chain_complete`; an ordinary internal step-engine invocation without that orchestrator factory fails fast with a clear "custom_tools are not implemented" configuration error. This prevents a non-orchestrator step from advertising tools it cannot actually execute.
 
 ---
 
 ## CLI Interface
 
+Current internal step-engine interface:
+
 ```
-yard run [flags]
 tidmouth run [flags]  # retained internal equivalent for chain spawning
 ```
+
+Target operator interface:
+
+```bash
+yard chain start --role <role> --task <task>
+yard chain start --role <role> --specs <paths>
+```
+
+The target operator-facing command creates a one-step chain. There is no separate autonomous `yard run` execution model in the desired command surface.
 
 ### Required Flags
 
@@ -58,7 +70,7 @@ tidmouth run [flags]  # retained internal equivalent for chain spawning
 | `--max-turns <int>` | 50 | Maximum turns before forced stop. |
 | `--max-tokens <int>` | 500000 | Total token budget across all turns. |
 | `--timeout <duration>` | 30m | Wall-clock timeout for the entire session. |
-| `--receipt-path <path>` | `receipts/{role}/{chain-id}.md` | Override the brain-relative receipt output path for a direct headless run. Orchestrator-managed runs typically pass a step-specific path like `receipts/{role}/{chain-id}-step-{NNN}.md`. |
+| `--receipt-path <path>` | supplied by chain runner | Brain-relative receipt output path. Chain-managed invocations pass `receipts/{role}/{chain-id}-step-{NNN}.md`; one-step chains pass `step-001`. Low-level engine tests may provide an explicit path, but there is no operator-facing direct-run default. |
 | `--quiet` | false | Suppress all stdout except the receipt path on completion. |
 | `--project-root <path>` | cwd | Override the project root for file tool operations. |
 
@@ -73,10 +85,15 @@ tidmouth run [flags]  # retained internal equivalent for chain spawning
 
 ### Stdout Contract
 
-On successful exit (code 0 or 2), the last line of stdout is the brain-relative path to the receipt document. This allows simple scripting:
+On successful internal step-engine exit (code 0 or 2), the last line of stdout is the brain-relative path to the receipt document. Chain runners use that receipt path to update the step and chain state.
 
 ```bash
-receipt=$(yard run --role coder --task "implement auth middleware" 2>/dev/null | tail -1)
+receipt=$(tidmouth run \
+  --role coder \
+  --task "implement auth middleware" \
+  --chain-id auth-2026-04-11 \
+  --receipt-path receipts/coder/auth-2026-04-11-step-001.md \
+  2>/dev/null | tail -1)
 ```
 
 In non-quiet mode, progress information (turn count, tool calls, token usage) streams to stderr.
@@ -181,13 +198,14 @@ Brain read operations (`brain_read`, `brain_search`) are never restricted — ev
 ### 1. Initialization
 
 ```
-yard run --role coder --task "implement JWT auth" --chain-id auth-2026-04-11
+yard chain start --role coder --task "implement JWT auth" --chain-id auth-2026-04-11
     │
+    ├─ Create one-step chain
     ├─ Load config, resolve brain vault path
     ├─ Validate role exists in agent_roles config
     ├─ Build tool registry for role (tool groups + brain path scoping)
     ├─ Initialize provider (same routing as serve mode)
-    ├─ Create conversation in DB (type: headless)
+    ├─ Create/link internal session transcript record for the chain step
     └─ Load system prompt from role config path
 ```
 
@@ -321,7 +339,7 @@ What the agent recommends the next agent (or human) should do.
 
 These are explicitly out of scope for the initial implementation but inform design decisions:
 
-- **`spawn_agent` custom tool** — Used by the orchestrator agent role. Implemented by the conductor/orchestrator layer, not by the ordinary direct run path. The public operator contract is `yard run`; the current internal chain-spawn contract still calls the retained `tidmouth run` engine entrypoint until that subprocess contract is redesigned.
+- **`spawn_agent` custom tool** — Used by the orchestrator agent role. Implemented by the conductor/orchestrator layer, not by ordinary direct step execution. The target public operator contract is chain-only, with single-agent work represented as one-step chains; the current internal chain-spawn contract still calls the retained `tidmouth run` engine entrypoint until that subprocess contract is redesigned.
 - **Multi-turn headless sessions** — Allowing the orchestrator to send follow-up messages mid-session. Not needed initially; agents should be self-directed within a single turn.
 - **Parallel agent execution** — Running multiple agents concurrently against the same brain. Requires brain-level write locking or conflict resolution. Deferred.
 - **Brain write hooks** — Triggering events when specific brain paths are written (e.g., auto-spawning the arbiter when `specs/` changes). Deferred.

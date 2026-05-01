@@ -1,6 +1,6 @@
 # Sodoryard
 
-A self-hosted AI coding harness with a unified operator CLI, headless agent runtime, multi-agent chain orchestration, RAG-powered context assembly, and a persistent project brain. Operators use one public CLI, `yard`, for project bootstrap, the web UI/API server, direct headless runs, indexing, auth diagnostics, local LLM services, and autonomous agent chains. The retained `tidmouth` binary is an internal engine subprocess used by chain execution.
+A self-hosted AI coding harness with a unified operator CLI, headless agent runtime, multi-agent chain orchestration, RAG-powered context assembly, and a persistent project brain. Operators use one public CLI, `yard`, for project bootstrap, the web UI/API server, indexing, auth diagnostics, local LLM services, and autonomous agent chains, including one-step chains for single-agent work. The retained `tidmouth` binary is an internal engine subprocess used by chain execution.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ A self-hosted AI coding harness with a unified operator CLI, headless agent runt
         +--------------+                    +-----------------+
 ```
 
-The **engine harness** runs individual agent sessions: web conversations started by `yard serve`, direct autonomous runs started by `yard run`, and internal `tidmouth run` subprocesses spawned by chains. Each session gets tools, context assembly, conversation persistence, and provider routing.
+The **engine harness** runs individual agent sessions: web conversations started by `yard serve` and internal `tidmouth run` subprocesses spawned by chains. Autonomous operator work is represented as chains, including one-step chains for single-agent work. Each session gets tools, context assembly, conversation persistence, and provider routing.
 
 The **chain orchestrator** composes multi-step pipelines. `yard chain start` creates a chain, runs an orchestrator agent, spawns engine subprocesses for planning/coding/auditing/resolution steps, and records receipts plus event logs in the project brain and SQLite state.
 
@@ -44,7 +44,6 @@ Both paths share `internal/runtime/` for provider construction, database setup, 
 yard [--config yard.yaml]
  |-- init                          Project bootstrap
  |-- serve                         Web UI + API server
- |-- run                           Single headless agent session
  |-- index                         Code index build/rebuild
  |-- auth
  |   |-- login codex                Provider login
@@ -78,7 +77,7 @@ A chain is a multi-agent pipeline. The orchestrator agent reads a task or spec, 
 
 Chains support pause/resume semantics and can be cancelled mid-execution. The `yard chain status` command shows progress; `yard chain receipt` retrieves the structured output from any step.
 
-The shipped role set is intentionally themed around the Railway Series / Thomas universe. Commands that accept an agent role can use either the **config key** or the associated persona name, so `yard run --role coder` and `yard run --role thomas` select the same role.
+The shipped role set is intentionally themed around the Railway Series / Thomas universe. Commands that accept an agent role can use either the **config key** or the associated persona name, so `yard chain start --role coder` and `yard chain start --role thomas` select the same role.
 
 | Config key | Persona | Purpose |
 |------------|---------|---------|
@@ -255,12 +254,12 @@ yard chain status
 yard chain receipt <chain-id>
 ```
 
-### Run a single agent
+### Run a one-step chain
 
 ```bash
-yard run --role coder --task "fix the null pointer in auth.go"
+yard chain start --role coder --task "fix the null pointer in auth.go"
 # Persona aliases work too:
-yard run --role thomas --task "fix the null pointer in auth.go"
+yard chain start --role thomas --task "fix the null pointer in auth.go"
 ```
 
 ### Docker

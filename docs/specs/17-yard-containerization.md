@@ -2,10 +2,10 @@
 
 **Status:** Revised for no-legacy cleanup planning
 **Owner:** Mitchell Ponchione
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-05-01
 **Roadmap phase:** 7 contract reset
 **Depends on:** `yard` as the only operator-facing CLI, current internal `tidmouth` spawn contract, existing `ops/llm/docker-compose.yml`
-**Defers:** any future internal-engine rename or a real Knapford service
+**Defers:** any future internal-engine rename or any separate Knapford service
 
 ---
 
@@ -18,7 +18,7 @@ The no-legacy container contract is:
 - there is no `yard install` compatibility flow
 - there is no operator-facing `sirtopham` CLI inside the container
 - `tidmouth` may still exist in the image, but only as an internal engine binary needed by chain spawning
-- `knapford` is out of scope until it becomes a real service with a real contract
+- no separate `knapford` service is part of the container contract; the command center is served by `yard serve`
 
 ## 2. Why this spec exists
 
@@ -41,7 +41,7 @@ The supported operator flow inside the container is:
 - `docker compose build yard`
 - `docker compose run --rm yard yard init`
 - `docker compose run --rm yard yard index`
-- `docker compose run --rm yard yard run --role <r> --task <t>`
+- `docker compose run --rm yard yard chain start --role <r> --task <t>`
 - `docker compose run --rm yard yard chain start --task <t>`
 - `docker compose run --rm yard yard brain index`
 - `docker compose run --rm yard yard serve`
@@ -72,13 +72,13 @@ No container workflow, compose example, acceptance criterion, or help text in th
 
 If an implementation still ships the binary temporarily during cleanup sequencing, that does not make it part of the supported container surface.
 
-### 3.5 `knapford` is removed from Phase 7 scope until it is real
+### 3.5 Command center lives in `yard serve`
 
-This spec no longer reserves a placeholder service slot for `knapford`.
+This spec no longer reserves a placeholder service slot for `knapford`. Command-center work is active product scope in [[20-command-center-ui]], but it is implemented inside the existing `yard serve` web/API server and embedded frontend.
 
 Why:
 - placeholder-only compose services are legacy surface area with no runtime value
-- a future real Knapford service can re-enter scope under its own spec with an actual HTTP/server contract
+- a separate Knapford service would need its own spec and runtime contract before it entered container scope
 - keeping a dead slot in compose would directly contradict the no-legacy mandate
 
 ### 3.6 Base image and runtime shape
@@ -177,7 +177,8 @@ networks:
 ```
 
 Notes:
-- a future real Knapford service can be added later under a different spec
+- command-center UI work remains inside `yard serve` and does not add a compose service
+- a separate Knapford service could be added later under a different spec if it ever becomes necessary
 - if the implementation temporarily ships extra binaries in the image, that does not enlarge the documented operator surface
 - `${PROJECT_DIR:-./}` remains a reasonable default for one-shot CLI use from the mounted project
 
@@ -196,16 +197,16 @@ PROJECT_DIR=$(pwd) docker compose -f /repo/root/docker-compose.yaml run --rm yar
 PROJECT_DIR=$(pwd) docker compose -f /repo/root/docker-compose.yaml run --rm yard yard index
 PROJECT_DIR=$(pwd) docker compose -f /repo/root/docker-compose.yaml run --rm yard yard brain index
 
-# Run a headless task
+# Run one agent step as a one-step chain
 PROJECT_DIR=$(pwd) docker compose -f /repo/root/docker-compose.yaml run --rm yard \
-  yard run --role thomas --task "do the thing"
+  yard chain start --role thomas --task "do the thing"
 
 # Run a chain
 PROJECT_DIR=$(pwd) docker compose -f /repo/root/docker-compose.yaml run --rm yard \
   yard chain start --task "do the thing"
 ```
 
-No documented operator workflow in this spec includes `yard install`, `tidmouth run`, or `sirtopham chain`.
+No documented operator workflow in this spec includes `yard install`, `yard run`, `tidmouth run`, or `sirtopham chain`.
 
 ## 8. Acceptance criteria
 
@@ -226,7 +227,7 @@ Phase 7 containerization matches the no-legacy contract when all of the followin
 
 - renaming the retained internal `tidmouth` engine binary
 - replacing the current subprocess spawn contract in the same slice
-- a real Knapford service
+- a separate Knapford service
 - placeholder Knapford compose entries
 - compatibility commands or migration aliases
 - pushing images to a registry

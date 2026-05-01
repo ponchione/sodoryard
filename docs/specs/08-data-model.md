@@ -433,6 +433,10 @@ CREATE INDEX idx_brain_links_target ON brain_links(project_id, target_path);
 
 The chain orchestrator owns additional `chains`, `steps`, and `events` tables in the same `.yard/yard.db` database. Their schema changes more frequently with orchestration behavior and is specified in [[15-chain-orchestrator]], including `steps.task_context`, JSON `events.event_data` payloads for `step_output` and process lifecycle events, and event timestamp indexes.
 
+### Command Center Tables
+
+The command center owns `launches`, `launch_presets`, and `background_operations` tables in the same `.yard/yard.db` database. A launch stores the operator-authored work packet and agent plan before browser-started work becomes a chain. Custom launch presets store reusable UI-managed templates; built-in presets are generated in code. Background operations track UI-started maintenance work such as code-index and brain-index rebuilds. The detailed schemas and lifecycles are specified in [[20-command-center-ui]]. CLI-started chains do not require launch records.
+
 ### index_state
 
 Per-file indexing status for the code intelligence layer's incremental updates.

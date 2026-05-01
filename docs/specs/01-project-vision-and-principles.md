@@ -1,7 +1,7 @@
 # 01 — Project Vision & Principles
 
 **Status:** Draft v0.1
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-05-01
 **Author:** Mitchell
 
 ---
@@ -48,9 +48,9 @@ Two papers inform the core architecture:
 
 6. **Tools are first-class.** The tool system is generic and extensible. Adding a new tool is: implement the interface, register it, done.
 
-7. **Web-first interface with a unified operator CLI.** The browser is the primary interactive interface. The `yard` CLI owns non-interactive and operational flows including init, serve, run, index, config, auth, doctor, brain, llm, and chain orchestration.
+7. **Web-first command center with a unified operator CLI.** The browser is the primary interactive and operational interface: chat, project readiness, chain monitoring/control, context inspection, and metrics live there. The `yard` CLI remains the scriptable/operator fallback for init, serve, index, config, auth, doctor, brain, llm, and chain orchestration. Autonomous single-agent work is a one-step chain, not a separate run surface.
 
-8. **Conversation as the unit of work.** Everything is organized around conversations — context assembly, metrics, persistence, cost tracking.
+8. **Conversations and chains as the units of work.** Interactive chat is conversation-shaped. Autonomous harness work is chain-shaped, including one-step chains. Context assembly, metrics, persistence, receipts, and cost tracking attach to the appropriate unit instead of inventing a third execution model.
 
 9. **Zero API cost for inference.** LLM access piggybacks on existing Claude and Codex subscriptions via OAuth credential reuse. No separate API billing.
 
@@ -84,16 +84,16 @@ Go-based pipeline orchestrator. Components being carried forward:
 
 **v0.5 — Daily driver:** Replace Hermes as the primary interactive coding agent. Conversations feel informed by the codebase. Context assembly noticeably reduces the need to manually paste code.
 
-**v1.0 — Resume piece:** A polished, self-contained AI coding agent with a compelling web UI, demonstrably superior context assembly backed by research, and clean Go architecture.
+**v1.0 — Resume piece:** A polished, self-contained AI coding agent with a compelling command-center UI, demonstrably superior context assembly backed by research, and clean Go architecture.
 
 ## Open Questions
 
 Tracked in individual architecture documents. High-level items still unresolved:
 - Context assembly trigger heuristics and quality tuning (see [[06-context-assembly]])
 - Skills/memory system design beyond the project brain (future — v0.5+)
-- Future UI-driven chain execution using the same internal chain start path as `yard chain start`
 
 Resolved since the original draft:
 - LanceDB is the selected vector store for current code and brain semantic indexes.
 - React/Vite/TypeScript is the selected frontend stack.
 - Brain access uses the project brain MCP/vault-backed runtime path.
+- UI-driven chain execution is now active command-center scope in [[20-command-center-ui]] and uses the same internal chain start path as `yard chain start`.

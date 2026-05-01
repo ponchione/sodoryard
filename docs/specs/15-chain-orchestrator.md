@@ -1,6 +1,6 @@
 # 15 — Chain Orchestrator (SirTopham)
 
-**Status:** Draft v0.1 **Last Updated:** 2026-04-29 **Author:** Mitchell
+**Status:** Draft v0.1 **Last Updated:** 2026-05-01 **Author:** Mitchell
 
 **Note:** Project names (SirTopham, Tidmouth, Knapford, engine aliases) are working titles subject to renaming. The architecture is name-agnostic.
 
@@ -13,8 +13,9 @@ The orchestrator is a Go binary that manages chain executions. A chain is an ord
 The orchestrator does not write code, read files, run shell commands, or interact with the codebase directly. It reads the brain and spawns engines. That is its entire job.
 
 This spec depends on:
-- [[13-headless-run]] — the headless engine command that the orchestrator spawns
+- [[13-headless-run]] — the internal chain-step engine that the orchestrator spawns
 - [[14-agent-roles-and-brain-conventions]] — role definitions and brain directory structure
+- [[20-command-center-ui]] — browser chain monitoring, controls, receipts, and event-log UI
 
 ---
 
@@ -24,18 +25,22 @@ This spec depends on:
 
 A chain is a complete execution of work — from reading specs through decomposition, planning, implementation, auditing, and resolution. A chain has an ID, a source (which specs triggered it), a sequence of steps, and an overall status. Chains are tracked in SQLite.
 
+A chain may contain exactly one step. One-step chains are the canonical representation for autonomous single-agent work, replacing any separate public run model. They use the same SQLite records, event log, receipt conventions, pause/cancel semantics, metrics, and browser detail surface as longer chains.
+
+Chains can be orchestrator-managed, manually rostered, or one-step. Orchestrator-managed chains run the Sir Topham role to decide sequencing dynamically. Manually rostered and one-step chains skip the orchestrator agent and execute their declared steps directly through the same step runner.
+
 ### Step
 
 A step is one agent invocation within a chain. Each step records: which engine role was spawned, what task it was given, its receipt path, verdict, token usage, and duration. Steps are ordered but the ordering is dynamic — the orchestrator decides the next step at runtime based on receipt verdicts and brain state.
 
 ### The Orchestrator Agent
 
-The orchestrator itself runs as a headless engine session. It uses the engine harness with a restricted tool set: brain access plus two custom tools (`spawn_agent` and `chain_complete`). Its system prompt instructs it to read the brain, decide what to do, and dispatch engines.
+The orchestrator itself runs as a chain-step engine session. It uses the engine harness with a restricted tool set: brain access plus two custom tools (`spawn_agent` and `chain_complete`). Its system prompt instructs it to read the brain, decide what to do, and dispatch engines.
 
 This means the orchestrator binary does three things:
 1. Sets up chain state tracking (SQLite)
 2. Registers the custom tools (`spawn_agent`, `chain_complete`)
-3. Starts a headless engine session with the orchestrator role
+3. Starts a chain-step engine session with the orchestrator role
 
 Everything else — the judgment, the sequencing, the decision-making — is the LLM agent inside that session.
 
@@ -53,6 +58,7 @@ yard chain start [flags]
 |---|---|---|
 | `--specs <paths>` | Yes (or `--task`) | Comma-separated brain-relative paths to spec docs that define the work |
 | `--task <string>` | Yes (or `--specs`) | Free-form task description (for chains that don't start from specs) |
+| `--role <name>` | No | Start a one-step chain for this role instead of an orchestrator-managed chain |
 | `--project <path>` | No (default: cwd) | Project root directory |
 | `--brain <path>` | No (default: config) | Brain vault path override |
 | `--chain-id <string>` | No (auto-generated) | Chain execution identifier |
@@ -61,6 +67,8 @@ yard chain start [flags]
 | `--max-duration <duration>` | No (default: 4h) | Wall-clock timeout for entire chain |
 | `--token-budget <int>` | No (default: 5000000) | Total token ceiling across all agents |
 | `--dry-run` | No | Orchestrator plans the chain but doesn't spawn any engines |
+
+When `--role` is present, `yard chain start` creates a chain with one step, passes the task/spec packet directly to that role, writes the normal step receipt, and marks the chain complete from the step verdict. It does not run the orchestrator agent and does not call `spawn_agent`.
 
 ### Inspecting Chains
 
@@ -94,14 +102,14 @@ yard chain cancel [chain-id]          # Cancel a running chain
 
 ### spawn_agent
 
-The orchestrator agent's primary tool. Spawns a headless engine session and blocks until it completes.
+The orchestrator agent's primary tool. Spawns a chain-step engine session and blocks until it completes.
 
 **Input Schema:**
 
 ```json
 {
   "name": "spawn_agent",
-  "description": "Spawn a headless engine agent with the given role and task. Blocks until the engine completes. Returns the engine's receipt content.",
+    "description": "Spawn a chain-step engine agent with the given role and task. Blocks until the engine completes. Returns the engine's receipt content.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -194,6 +202,11 @@ SQLite database at `.yard/yard.db`.
 ```sql
 CREATE TABLE IF NOT EXISTS chains (
     id                  TEXT PRIMARY KEY,
+    launch_id           TEXT,           -- optional command-center launch that created this chain
+    launch_mode         TEXT NOT NULL DEFAULT 'sir_topham_decides',
+                                        -- sir_topham_decides,
+                                        -- constrained_orchestration,
+                                        -- manual_roster, one_step_chain
     source_specs        TEXT,           -- JSON array of spec paths
     source_task         TEXT,           -- free-form task if not spec-driven
     status              TEXT NOT NULL DEFAULT 'running',
@@ -218,6 +231,9 @@ CREATE TABLE IF NOT EXISTS chains (
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_chains_launch ON chains(launch_id);
+CREATE INDEX IF NOT EXISTS idx_chains_launch_mode ON chains(launch_mode);
 ```
 
 ### steps table
@@ -333,7 +349,7 @@ yard chain start --specs specs/auth.md
 
 Safety limits are enforced at two levels:
 
-1. **Per-engine limits** — enforced by the headless engine command (Tidmouth). Max turns, max tokens, timeout per individual agent session. Defined in the role config.
+1. **Per-engine limits** — enforced by the internal chain-step engine (Tidmouth). Max turns, max tokens, timeout per individual agent session. Defined in the role config.
 
 2. **Chain-level limits** — enforced by the orchestrator binary (SirTopham). Max total steps, max total tokens, max duration, resolver loop cap. Checked before every `spawn_agent` call.
 
@@ -439,7 +455,7 @@ The prompt should NOT hardcode the chain flow as a rigid sequence. The orchestra
 
 ### SQLite
 
-All state is in SQLite. The events table provides a complete audit trail. Knapford reads this for the dashboard.
+All state is in SQLite. The events table provides a complete audit trail. The command center reads this state through HTTP handlers backed by `internal/chain.Store`; see [[20-command-center-ui]] for the browser route and API contract.
 
 ### Brain
 
@@ -513,5 +529,5 @@ Out of scope for initial implementation:
 - **Chain templates** — Predefined chain flows that skip the orchestrator's judgment for common patterns.
 - **Chain forking** — Splitting a chain into sub-chains for independent epics.
 - **Cost-aware routing** — Orchestrator considers token spend when choosing which optional agents to run.
-- **Human checkpoint tool** — A `request_human_input` tool that pauses the chain and waits for human guidance via Knapford.
+- **Human checkpoint tool** — A `request_human_input` tool that pauses the chain and waits for human guidance through the command center.
 - **Chain resumption** — Restarting a failed or cancelled chain from a specific step rather than from scratch.

@@ -8,7 +8,7 @@
 
 This spec defines the agent role system and brain directory conventions that enable multi-agent orchestration on top of the SirTopham harness. Each role configures which tools an agent can access, which brain paths it can write to, and what safety limits apply. The brain directory structure provides the shared state contract between agents — all coordination flows through the brain, not through message passing.
 
-This spec depends on the headless run command defined in [[13-headless-run]].
+This spec depends on the internal chain-step engine defined in [[13-headless-run]].
 
 ---
 
@@ -101,10 +101,7 @@ The brain is an Obsidian vault. A human can open it at any time, read every docu
 
 Receipt documents follow the shipped runtime conventions:
 ```
-# direct standalone headless run
-receipts/{role}/{chain-id}.md
-
-# orchestrator-managed step run
+# chain step receipt, including one-step chains
 receipts/{role}/{chain-id}-step-{NNN}.md
 
 # final orchestrator completion receipt
@@ -118,7 +115,7 @@ receipts/correctness-auditor/auth-2026-04-11-step-002.md
 receipts/orchestrator/auth-2026-04-11.md
 ```
 
-The direct-run path stays simple for one-off headless sessions. Orchestrated step runs use a monotonic step number because the orchestrator decides sequencing dynamically at runtime and does not have a durable task-slug contract when it spawns an engine.
+Step receipts use a monotonic step number because orchestrated chains decide sequencing dynamically at runtime and manual rosters can be edited before launch. There is no target operator-facing direct-run receipt path. A one-step chain still writes `step-001`, which keeps receipts, event logs, metrics, and browser detail links consistent across every autonomous launch.
 
 Task documents follow the pattern:
 ```
@@ -527,7 +524,7 @@ docs-arbiter:
 
 ```
 Human writes/updates specs in .brain/specs/
-Human triggers chain: conductor run --specs auth,billing
+Human triggers chain: yard chain start --specs specs/auth.md,specs/billing.md
 
 Orchestrator reads specs/
   │
@@ -650,7 +647,7 @@ Config validation and role-registry construction must accept the same group set.
 
 ### Per-Role Defaults
 
-Each role defines its own limits in the config. The headless `run` command enforces these, and CLI flags can tighten (but never loosen) them.
+Each role defines its own limits in the config. The internal chain-step engine enforces these, and chain launch options can tighten (but never loosen) them.
 
 ### Resolver Loop Cap
 

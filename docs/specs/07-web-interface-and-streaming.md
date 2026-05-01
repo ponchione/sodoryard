@@ -1,7 +1,7 @@
 # 07 — Web Interface & Streaming Protocol
 
 **Status:** Living spec — aligned with the current Layer 6 v0.1 contract
-**Last Updated:** 2026-04-29
+**Last Updated:** 2026-05-01
 **Author:** Mitchell
 
 ---
@@ -10,7 +10,7 @@
 
 sodoryard's primary interface is a locally-served web application. `yard serve` starts the supported HTTP server and opens the browser. The frontend communicates with the Go backend via REST (CRUD operations) and WebSocket (real-time streaming).
 
-This document covers the frontend stack, the backend HTTP/WebSocket server, the streaming message protocol, and the UI component architecture.
+This document covers the frontend stack, the backend HTTP/WebSocket server, the streaming message protocol, and the current UI component architecture. The browser product target is now the command center specified in [[20-command-center-ui]]: chat remains central, but the web app also becomes the operator surface for project readiness, chain execution, runtime control, and metrics.
 
 ---
 
@@ -164,6 +164,22 @@ WS     /api/ws                         WebSocket for streaming
 
 Notes:
 - `/api/project/tree` and `/api/project/file` are exposed backend/operator endpoints today, but a dedicated file-browser/code-viewer route is not part of the current shipped UI.
+- Command-center routes and chain controls are active product scope in [[20-command-center-ui]], not future placeholder work.
+
+### Command Center Build Target
+
+The command center grows the shipped web app into:
+
+- **Observatory:** project readiness, provider/model/auth state, index state, active work, recent work, runtime warnings
+- **Launch workbench:** document drop, work packet assembly, agent selection, Sir Topham delegation, run/chain start
+- **Docs:** document intake and brain/spec browsing
+- **Agents:** configured role roster, selection, availability, recent activity
+- **Chains:** list, inspect, pause/resume/cancel, event log, receipt viewer
+- **Project browser:** file tree and read-only file preview from existing project endpoints
+- **Metrics:** conversation, chain, provider/model, tool, and context quality summaries
+- **Operational navigation:** stable top-level routes for observatory, launch, docs, agents, chains, chat, project, metrics, and settings
+
+The command center is implemented inside `yard serve`; it is not a separate Knapford service or container.
 
 ### Compelling Visualizations (Web-Only)
 - Live streaming diffs as the agent edits files
@@ -180,6 +196,7 @@ Notes:
 - [[05-agent-loop]] — drives all streaming events
 - [[08-data-model]] — conversations, messages, metrics
 - [[03-provider-architecture]] — model selection, provider status
+- [[20-command-center-ui]] — active command-center product and route/API target
 
 ---
 
