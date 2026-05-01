@@ -38,6 +38,7 @@ var interruptYardChainPID = func(pid int) error {
 type yardChainFlags struct {
 	Specs            string
 	Task             string
+	Role             string
 	ChainID          string
 	Brain            string
 	MaxSteps         int
@@ -97,6 +98,7 @@ func newYardChainStartCmd(configPath *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&flags.Specs, "specs", "", "Comma-separated brain-relative paths to spec docs")
 	cmd.Flags().StringVar(&flags.Task, "task", "", "Free-form task description")
+	cmd.Flags().StringVar(&flags.Role, "role", "", "Run a one-step chain with the selected role instead of the orchestrator")
 	cmd.Flags().StringVar(&flags.ProjectRoot, "project", "", "Override project root")
 	cmd.Flags().StringVar(&flags.Brain, "brain", "", "Override brain vault path")
 	cmd.Flags().StringVar(&flags.ChainID, "chain-id", "", "Chain execution identifier")
@@ -124,6 +126,7 @@ func yardRunChain(ctx context.Context, configPath string, flags yardChainFlags, 
 
 	_, err = chainrun.Start(ctx, cfg, chainrun.Options{
 		ChainID:          flags.ChainID,
+		Role:             strings.TrimSpace(flags.Role),
 		SourceSpecs:      yardParseSpecs(flags.Specs),
 		SourceTask:       strings.TrimSpace(flags.Task),
 		MaxSteps:         flags.MaxSteps,
@@ -152,13 +155,13 @@ func yardRunChain(ctx context.Context, configPath string, flags yardChainFlags, 
 
 func newYardChainCancelCmd(configPath *string) *cobra.Command {
 	return &cobra.Command{Use: "cancel <chain-id>", Short: "Cancel a chain", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return yardSetChainStatus(cmd, *configPath, args[0], "cancelled", chain.EventChainCancelled, "cancelled")
+		return yardSetChainStatus(cmd, *configPath, args[0], "cancelled")
 	}}
 }
 
 func newYardChainPauseCmd(configPath *string) *cobra.Command {
 	return &cobra.Command{Use: "pause <chain-id>", Short: "Pause a chain", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return yardSetChainStatus(cmd, *configPath, args[0], "paused", chain.EventChainPaused, "paused")
+		return yardSetChainStatus(cmd, *configPath, args[0], "paused")
 	}}
 }
 

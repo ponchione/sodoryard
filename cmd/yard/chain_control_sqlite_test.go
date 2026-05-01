@@ -15,15 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
 
-func TestYardSetChainStatusPauseRequestedPrintsRequestedMessage(t *testing.T) {
+func TestYardChainPauseCommandPrintsRequestedMessage(t *testing.T) {
 	ctx := context.Background()
 	pingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -46,13 +44,14 @@ func TestYardSetChainStatusPauseRequestedPrintsRequestedMessage(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	cmd := &cobra.Command{}
+	cmd := newYardChainPauseCmd(&configPath)
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stdout)
 	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{chainID})
 
-	if err := yardSetChainStatus(cmd, configPath, chainID, "paused", chain.EventChainPaused, "paused"); err != nil {
-		t.Fatalf("yardSetChainStatus returned error: %v", err)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
 	}
 	if got := stdout.String(); got != "chain pause-requested pause requested\n" {
 		t.Fatalf("stdout = %q, want pause-requested message", got)
@@ -77,6 +76,51 @@ func TestYardSetChainStatusPauseRequestedPrintsRequestedMessage(t *testing.T) {
 	}
 	if !strings.Contains(events[0].EventData, `"status":"pause_requested"`) {
 		t.Fatalf("EventData = %s, want pause_requested status", events[0].EventData)
+	}
+}
+
+func TestYardChainCancelCommandPrintsRequestedMessage(t *testing.T) {
+	ctx := context.Background()
+	pingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer pingServer.Close()
+
+	configPath, cfg := writeYardChainControlConfig(t, pingServer.URL)
+	rt, err := rtpkg.BuildOrchestratorRuntime(ctx, cfg)
+	if err != nil {
+		t.Fatalf("BuildOrchestratorRuntime returned error: %v", err)
+	}
+	defer rt.Cleanup()
+
+	chainID, err := rt.ChainStore.StartChain(ctx, chain.ChainSpec{ChainID: "cancel-requested", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := rt.ChainStore.SetChainStatus(ctx, chainID, "running"); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	cmd := newYardChainCancelCmd(&configPath)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{chainID})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if got := stdout.String(); got != "chain cancel-requested cancel requested\n" {
+		t.Fatalf("stdout = %q, want cancel-requested message", got)
+	}
+
+	reloaded, err := rt.ChainStore.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if reloaded.Status != "cancel_requested" {
+		t.Fatalf("status = %q, want cancel_requested", reloaded.Status)
 	}
 }
 

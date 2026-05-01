@@ -1,33 +1,20 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/ponchione/sodoryard/internal/chain"
-	appconfig "github.com/ponchione/sodoryard/internal/config"
-	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
-
-func openYardChainRuntime(ctx context.Context, configPath string) (*rtpkg.OrchestratorRuntime, error) {
-	cfg, err := appconfig.Load(configPath)
-	if err != nil {
-		return nil, err
-	}
-	return buildYardChainRuntime(ctx, cfg)
-}
 
 func newYardChainStatusCmd(configPath *string) *cobra.Command {
 	return &cobra.Command{Use: "status [chain-id]", Short: "Show chain status", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		rt, err := openYardChainRuntime(cmd.Context(), *configPath)
+		svc, err := openYardReadOnlyOperator(cmd.Context(), *configPath)
 		if err != nil {
 			return err
 		}
-		defer rt.Cleanup()
+		defer svc.Close()
 		if len(args) == 0 {
-			chains, err := rt.ChainStore.ListChains(cmd.Context(), 20)
+			chains, err := svc.ListChains(cmd.Context(), 20)
 			if err != nil {
 				return err
 			}
@@ -36,16 +23,13 @@ func newYardChainStatusCmd(configPath *string) *cobra.Command {
 			}
 			return nil
 		}
-		ch, err := rt.ChainStore.GetChain(cmd.Context(), args[0])
+		detail, err := svc.GetChainDetail(cmd.Context(), args[0])
 		if err != nil {
 			return err
 		}
-		steps, err := rt.ChainStore.ListSteps(cmd.Context(), args[0])
-		if err != nil {
-			return err
-		}
+		ch := detail.Chain
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "chain=%s status=%s steps=%d tokens=%d duration=%d summary=%s\n", ch.ID, ch.Status, ch.TotalSteps, ch.TotalTokens, ch.TotalDurationSecs, ch.Summary)
-		for _, step := range steps {
+		for _, step := range detail.Steps {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "step=%d role=%s status=%s verdict=%s receipt=%s\n", step.SequenceNum, step.Role, step.Status, step.Verdict, step.ReceiptPath)
 		}
 		return nil
@@ -56,20 +40,20 @@ func newYardChainLogsCmd(configPath *string) *cobra.Command {
 	var follow bool
 	var verbosity string
 	cmd := &cobra.Command{Use: "logs <chain-id>", Short: "Show chain event log", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		rt, err := openYardChainRuntime(cmd.Context(), *configPath)
+		svc, err := openYardReadOnlyOperator(cmd.Context(), *configPath)
 		if err != nil {
 			return err
 		}
-		defer rt.Cleanup()
+		defer svc.Close()
 		if !follow {
-			events, err := rt.ChainStore.ListEvents(cmd.Context(), args[0])
+			events, err := svc.ListEvents(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			renderYardChainEvents(cmd.OutOrStdout(), events, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
 			return nil
 		}
-		return yardFollowChainEvents(cmd.Context(), cmd.OutOrStdout(), rt.ChainStore, args[0], 0, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
+		return yardFollowOperatorChainEvents(cmd.Context(), cmd.OutOrStdout(), svc, args[0], 0, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
 	}}
 	cmd.Flags().BoolVar(&follow, "follow", false, "Poll and print new events until the chain stops")
 	cmd.Flags().StringVar(&verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")
@@ -78,39 +62,20 @@ func newYardChainLogsCmd(configPath *string) *cobra.Command {
 
 func newYardChainReceiptCmd(configPath *string) *cobra.Command {
 	return &cobra.Command{Use: "receipt <chain-id> [step]", Short: "Show orchestrator or step receipt", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := appconfig.Load(*configPath)
+		svc, err := openYardReadOnlyOperator(cmd.Context(), *configPath)
 		if err != nil {
 			return err
 		}
-		rt, err := rtpkg.BuildOrchestratorRuntime(cmd.Context(), cfg)
-		if err != nil {
-			return err
-		}
-		defer rt.Cleanup()
-		path := fmt.Sprintf("receipts/orchestrator/%s.md", args[0])
+		defer svc.Close()
+		step := ""
 		if len(args) == 2 {
-			steps, err := rt.ChainStore.ListSteps(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			if stepPath, ok := yardReceiptPathForStep(args[0], args[1], steps); ok {
-				path = stepPath
-			}
+			step = args[1]
 		}
-		content, err := rt.BrainBackend.ReadDocument(cmd.Context(), path)
+		receipt, err := svc.ReadReceipt(cmd.Context(), args[0], step)
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), content)
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), receipt.Content)
 		return nil
 	}}
-}
-
-func yardReceiptPathForStep(chainID string, step string, steps []chain.Step) (string, bool) {
-	for _, candidate := range steps {
-		if fmt.Sprintf("%d", candidate.SequenceNum) == step {
-			return candidate.ReceiptPath, true
-		}
-	}
-	return fmt.Sprintf("receipts/orchestrator/%s.md", chainID), false
 }

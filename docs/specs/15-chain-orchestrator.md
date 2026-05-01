@@ -13,9 +13,10 @@ The orchestrator is a Go binary that manages chain executions. A chain is an ord
 The orchestrator does not write code, read files, run shell commands, or interact with the codebase directly. It reads the brain and spawns engines. That is its entire job.
 
 This spec depends on:
-- [[13-headless-run]] — the internal chain-step engine that the orchestrator spawns
-- [[14-agent-roles-and-brain-conventions]] — role definitions and brain directory structure
-- [[20-command-center-ui]] — browser chain monitoring, controls, receipts, and event-log UI
+- [[13_Headless_Run_Command]] — the internal chain-step engine that the orchestrator spawns
+- [[14_Agent_Roles_and_Brain_Conventions]] — role definitions and brain directory structure
+- [[20-operator-console-tui]] — primary operator chain monitoring, controls, receipts, and event-log UI
+- [[21-web-inspector]] — rich browser inspection for chain details, receipts, and metrics
 
 ---
 
@@ -25,7 +26,7 @@ This spec depends on:
 
 A chain is a complete execution of work — from reading specs through decomposition, planning, implementation, auditing, and resolution. A chain has an ID, a source (which specs triggered it), a sequence of steps, and an overall status. Chains are tracked in SQLite.
 
-A chain may contain exactly one step. One-step chains are the canonical representation for autonomous single-agent work, replacing any separate public run model. They use the same SQLite records, event log, receipt conventions, pause/cancel semantics, metrics, and browser detail surface as longer chains.
+A chain may contain exactly one step. One-step chains are the canonical representation for autonomous single-agent work, replacing any separate public run model. They use the same SQLite records, event log, receipt conventions, pause/cancel semantics, metrics, and operator inspection surfaces as longer chains.
 
 Chains can be orchestrator-managed, manually rostered, or one-step. Orchestrator-managed chains run the Sir Topham role to decide sequencing dynamically. Manually rostered and one-step chains skip the orchestrator agent and execute their declared steps directly through the same step runner.
 
@@ -202,7 +203,7 @@ SQLite database at `.yard/yard.db`.
 ```sql
 CREATE TABLE IF NOT EXISTS chains (
     id                  TEXT PRIMARY KEY,
-    launch_id           TEXT,           -- optional command-center launch that created this chain
+    launch_id           TEXT,           -- optional operator launch that created this chain
     launch_mode         TEXT NOT NULL DEFAULT 'sir_topham_decides',
                                         -- sir_topham_decides,
                                         -- constrained_orchestration,
@@ -462,7 +463,7 @@ The prompt should NOT hardcode the chain flow as a rigid sequence. The orchestra
 
 ### SQLite
 
-All state is in SQLite. The events table provides a complete audit trail. The command center reads this state through HTTP handlers backed by `internal/chain.Store`; see [[20-command-center-ui]] for the browser route and API contract.
+All state is in SQLite. The events table provides a complete audit trail. Operator surfaces read this state through shared internal services backed by `internal/chain.Store`; see [[20-operator-console-tui]] for the primary TUI contract and [[21-web-inspector]] for browser inspection routes.
 
 ### Brain
 
@@ -536,5 +537,5 @@ Out of scope for initial implementation:
 - **Chain templates** — Predefined chain flows that skip the orchestrator's judgment for common patterns.
 - **Chain forking** — Splitting a chain into sub-chains for independent epics.
 - **Cost-aware routing** — Orchestrator considers token spend when choosing which optional agents to run.
-- **Human checkpoint tool** — A `request_human_input` tool that pauses the chain and waits for human guidance through the command center.
+- **Human checkpoint tool** — A `request_human_input` tool that pauses the chain and waits for human guidance through the operator console.
 - **Chain resumption** — Restarting a failed or cancelled chain from a specific step rather than from scratch.

@@ -15,10 +15,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/operator"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
@@ -41,6 +43,63 @@ func (b *blockingYardChainTurnRunner) RunTurn(ctx context.Context, req agent.Run
 
 func (*blockingYardChainTurnRunner) Close() {}
 
+type yardChainTestBrainBackend struct {
+	docs map[string]string
+}
+
+func (b *yardChainTestBrainBackend) ReadDocument(ctx context.Context, path string) (string, error) {
+	content, ok := b.docs[path]
+	if !ok {
+		return "", fmt.Errorf("missing document %s", path)
+	}
+	return content, nil
+}
+
+func (b *yardChainTestBrainBackend) WriteDocument(ctx context.Context, path string, content string) error {
+	b.docs[path] = content
+	return nil
+}
+
+func (b *yardChainTestBrainBackend) PatchDocument(ctx context.Context, path string, operation string, content string) error {
+	return nil
+}
+
+func (b *yardChainTestBrainBackend) SearchKeyword(ctx context.Context, query string) ([]brain.SearchHit, error) {
+	return nil, nil
+}
+
+func (b *yardChainTestBrainBackend) ListDocuments(ctx context.Context, directory string) ([]string, error) {
+	return nil, nil
+}
+
+func withYardOperatorTestRuntime(t *testing.T, projectRoot string, store *chain.Store, backend brain.Backend) {
+	t.Helper()
+	originalBuildRuntime := buildYardChainRuntime
+	originalReadOnlyOperator := openYardReadOnlyOperator
+	buildYardChainRuntime = func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if cfg.ProjectRoot != projectRoot {
+			t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, projectRoot)
+		}
+		return &rtpkg.OrchestratorRuntime{
+			Config:       cfg,
+			ChainStore:   store,
+			BrainBackend: backend,
+			Cleanup:      func() {},
+		}, nil
+	}
+	openYardReadOnlyOperator = func(ctx context.Context, configPath string) (*operator.Service, error) {
+		return operator.Open(ctx, operator.Options{
+			ConfigPath:      configPath,
+			BuildRuntime:    buildYardChainRuntime,
+			ProcessSignaler: signalYardOperatorProcess,
+		})
+	}
+	t.Cleanup(func() {
+		buildYardChainRuntime = originalBuildRuntime
+		openYardReadOnlyOperator = originalReadOnlyOperator
+	})
+}
+
 func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	configPath := "yard.yaml"
 	cmd := newYardChainStartCmd(&configPath)
@@ -53,6 +112,9 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	}
 	if flag := cmd.Flags().Lookup("project"); flag == nil {
 		t.Fatal("expected project flag")
+	}
+	if flag := cmd.Flags().Lookup("role"); flag == nil {
+		t.Fatal("expected role flag")
 	}
 	if flag := cmd.Flags().Lookup("brain"); flag == nil {
 		t.Fatal("expected brain flag")
@@ -76,16 +138,113 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	}
 }
 
-func TestYardReceiptPathForStepUsesMatchingStepReceipt(t *testing.T) {
-	path, ok := yardReceiptPathForStep("chain-1", "2", []chain.Step{
-		{SequenceNum: 1, ReceiptPath: "receipts/planner/chain-1-step-001.md"},
-		{SequenceNum: 2, ReceiptPath: "receipts/coder/chain-1-step-002.md"},
-	})
-	if !ok {
-		t.Fatal("yardReceiptPathForStep() ok = false, want true")
+func TestYardChainReceiptCommandPrintsStepReceipt(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-receipt", SourceTask: "receipt"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
 	}
-	if path != "receipts/coder/chain-1-step-002.md" {
-		t.Fatalf("yardReceiptPathForStep() path = %q, want coder receipt", path)
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 2, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", ReceiptPath: "receipts/coder/chain-receipt-step-002.md"}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{
+		"receipts/orchestrator/chain-receipt.md":   "orchestrator receipt",
+		"receipts/coder/chain-receipt-step-002.md": "step receipt",
+	}})
+
+	var out bytes.Buffer
+	cmd := newYardChainReceiptCmd(&cfgPath)
+	cmd.SetContext(ctx)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID, "2"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out.String() != "step receipt" {
+		t.Fatalf("stdout = %q, want step receipt", out.String())
+	}
+}
+
+func TestYardChainStatusCommandPrintsExistingFormats(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-status", SourceTask: "status"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "accepted", ReceiptPath: "receipts/planner/chain-status-step-001.md", TokensUsed: 40}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 40}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	var listOut bytes.Buffer
+	listCmd := newYardChainStatusCmd(&cfgPath)
+	listCmd.SetContext(ctx)
+	listCmd.SetOut(&listOut)
+	if err := listCmd.Execute(); err != nil {
+		t.Fatalf("list Execute returned error: %v", err)
+	}
+	if listOut.String() != "chain-status\trunning\tsteps=1\ttokens=40\n" {
+		t.Fatalf("list stdout = %q, want existing list format", listOut.String())
+	}
+
+	var detailOut bytes.Buffer
+	detailCmd := newYardChainStatusCmd(&cfgPath)
+	detailCmd.SetContext(ctx)
+	detailCmd.SetOut(&detailOut)
+	detailCmd.SetArgs([]string{chainID})
+	want := "chain=chain-status status=running steps=1 tokens=40 duration=0 summary=\n" +
+		"step=1 role=planner status=completed verdict=accepted receipt=receipts/planner/chain-status-step-001.md\n"
+	if err := detailCmd.Execute(); err != nil {
+		t.Fatalf("detail Execute returned error: %v", err)
+	}
+	if detailOut.String() != want {
+		t.Fatalf("detail stdout = %q, want %q", detailOut.String(), want)
+	}
+}
+
+func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-logs", SourceTask: "logs"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventStepStarted, map[string]any{"role": "coder", "task": "fix logs", "receipt_path": "receipts/coder/chain-logs-step-001.md"}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	var out bytes.Buffer
+	cmd := newYardChainLogsCmd(&cfgPath)
+	cmd.SetContext(ctx)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	want := formatChainEvent(events[0], chainRenderOptions{Verbosity: chainVerbosityNormal})
+	if out.String() != want {
+		t.Fatalf("stdout = %q, want %q", out.String(), want)
 	}
 }
 
@@ -148,125 +307,6 @@ func TestValidateYardChainFlagsAcceptsChainIDOnlyForResume(t *testing.T) {
 	flags := yardChainFlags{ChainID: "chain-1", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1}
 	if err := validateYardChainFlags(flags); err != nil {
 		t.Fatalf("validateYardChainFlags() error = %v, want nil", err)
-	}
-}
-func TestValidateYardChainStatusTransition(t *testing.T) {
-	if err := validateYardChainStatusTransition("paused", "running", "chain-1"); err != nil {
-		t.Fatalf("resume paused chain error = %v, want nil", err)
-	}
-
-	if err := validateYardChainStatusTransition("pause_requested", "running", "chain-1"); err == nil {
-		t.Fatal("expected pause_requested chain resume transition to fail")
-	}
-	if err := validateYardChainStatusTransition("completed", "running", "chain-1"); err == nil {
-		t.Fatal("expected completed chain resume to fail")
-	}
-	if err := validateYardChainStatusTransition("running", "paused", "chain-1"); err != nil {
-		t.Fatalf("pause running chain error = %v, want nil", err)
-	}
-	if err := validateYardChainStatusTransition("pause_requested", "cancelled", "chain-1"); err != nil {
-		t.Fatalf("cancel pause_requested chain error = %v, want nil", err)
-	}
-}
-
-func TestSignalYardActiveChainProcessIgnoresStalePID(t *testing.T) {
-	ctx := context.Background()
-	store := chain.NewStore(newYardChainControlTestDB(t))
-	chainID, err := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	if err != nil {
-		t.Fatalf("StartChain returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 4242}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-
-	originalInterrupt := interruptYardChainPID
-	interruptYardChainPID = func(pid int) error {
-		if pid != 4242 {
-			t.Fatalf("interrupt pid = %d, want 4242", pid)
-		}
-		return errYardChainPIDNotRunning
-	}
-	defer func() { interruptYardChainPID = originalInterrupt }()
-
-	if err := signalYardActiveChainProcess(ctx, store, chainID); err != nil {
-		t.Fatalf("signalYardActiveChainProcess returned error: %v", err)
-	}
-}
-
-func TestSignalYardActiveChainProcessUsesLatestRegisteredOrchestratorPID(t *testing.T) {
-	ctx := context.Background()
-	store := chain.NewStore(newYardChainControlTestDB(t))
-	chainID, err := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	if err != nil {
-		t.Fatalf("StartChain returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 1111, "execution_id": "exec-1", "active_execution": true}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventStepStarted, map[string]any{"orchestrator_pid": 9999}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventChainResumed, map[string]any{"orchestrator_pid": 2222, "execution_id": "exec-2", "active_execution": true}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventChainPaused, map[string]any{"orchestrator_pid": 3333, "execution_id": "exec-2"}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventChainResumed, map[string]any{"orchestrator_pid": 4444, "execution_id": "exec-3", "active_execution": true}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-
-	originalInterrupt := interruptYardChainPID
-	called := 0
-	interruptYardChainPID = func(pid int) error {
-		called++
-		if pid != 4444 {
-			t.Fatalf("interrupt pid = %d, want 4444", pid)
-		}
-		return nil
-	}
-	defer func() { interruptYardChainPID = originalInterrupt }()
-
-	if err := signalYardActiveChainProcess(ctx, store, chainID); err != nil {
-		t.Fatalf("signalYardActiveChainProcess returned error: %v", err)
-	}
-	if called != 1 {
-		t.Fatalf("interrupt call count = %d, want 1", called)
-	}
-}
-
-func TestSignalYardActiveChainProcessSignalsEngineBeforeOrchestrator(t *testing.T) {
-	ctx := context.Background()
-	store := chain.NewStore(newYardChainControlTestDB(t))
-	chainID, err := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	if err != nil {
-		t.Fatalf("StartChain returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"orchestrator_pid": 1111, "execution_id": "exec-1", "active_execution": true}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "do work"})
-	if err != nil {
-		t.Fatalf("StartStep returned error: %v", err)
-	}
-	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepProcessStarted, map[string]any{"process_id": 2222, "active_process": true}); err != nil {
-		t.Fatalf("LogEvent returned error: %v", err)
-	}
-
-	originalInterrupt := interruptYardChainPID
-	var pids []int
-	interruptYardChainPID = func(pid int) error {
-		pids = append(pids, pid)
-		return nil
-	}
-	defer func() { interruptYardChainPID = originalInterrupt }()
-
-	if err := signalYardActiveChainProcess(ctx, store, chainID); err != nil {
-		t.Fatalf("signalYardActiveChainProcess returned error: %v", err)
-	}
-	if got, want := fmt.Sprint(pids), "[2222 1111]"; got != want {
-		t.Fatalf("interrupt pids = %s, want %s", got, want)
 	}
 }
 

@@ -297,7 +297,8 @@ For `yard index` or `yard brain index` inside the container, make sure the mount
 | Database | SQLite with FTS5 full-text search |
 | Vector store | LanceDB |
 | Code parsing | tree-sitter (Go, Python, TypeScript) |
-| Frontend | React, Vite, TypeScript, Tailwind CSS |
+| Target TUI (planned) | Bubble Tea, Bubbles, Lip Gloss |
+| Web inspector | React, Vite, TypeScript, Tailwind CSS |
 | Brain interface | Model Context Protocol (MCP) |
 | Container | Debian Trixie, multi-stage Docker build |
 | LLM providers | Anthropic, OpenAI-compatible, Codex |
@@ -309,7 +310,8 @@ Current repo state:
 - The unified `yard` CLI is the real operator-facing surface.
 - `tidmouth` remains only as the internal engine binary required by the current spawn contract.
 - Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
-- The remaining active docs are the README, current specs, and `NEXT_SESSION_HANDOFF.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
+- The active UI direction is now terminal-first: `yard tui` is the target daily-driver operator console, while `yard serve` remains the browser/API surface for rich inspection. This direction is specified in `docs/specs/20-operator-console-tui.md` and `docs/specs/21-web-inspector.md`; `yard tui` is not implemented yet.
+- The remaining active docs are the README, current specs, `NEXT_SESSION_HANDOFF.md`, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
 
 If you are resuming work cold, read in this order:
 1. `AGENTS.md`
@@ -318,11 +320,15 @@ If you are resuming work cold, read in this order:
 4. `docs/specs/13_Headless_Run_Command.md`
 5. `docs/specs/17-yard-containerization.md`
 6. `docs/specs/18-unified-yard-cli.md`
+7. `docs/specs/20-operator-console-tui.md`
+8. `docs/specs/21-web-inspector.md`
+9. `TUI_IMPLEMENTATION_PLAN.md`
 
 First thing to address next session:
 - prefer current-truth docs (`README.md`, specs, handoff) over historical planning artifacts
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
+- keep TUI-first docs clear about target behavior versus already-implemented commands
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:

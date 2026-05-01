@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/operator"
 )
 
 type yardChainWatchHandle struct {
@@ -91,7 +92,7 @@ func yardFollowChainEvents(ctx context.Context, out io.Writer, store *chain.Stor
 		if err != nil {
 			return err
 		}
-		if ch.Status != "running" && ch.Status != "pause_requested" && ch.Status != "cancel_requested" {
+		if !yardChainFollowStatusActive(ch.Status) {
 			return nil
 		}
 		select {
@@ -100,4 +101,41 @@ func yardFollowChainEvents(ctx context.Context, out io.Writer, store *chain.Stor
 		case <-time.After(1 * time.Second):
 		}
 	}
+}
+
+func yardStreamOperatorChainEvents(ctx context.Context, out io.Writer, svc *operator.Service, chainID string, afterID int64, opts chainRenderOptions) (int64, error) {
+	events, err := svc.ListEventsSince(ctx, chainID, afterID)
+	if err != nil {
+		return afterID, err
+	}
+	if lastID := renderYardChainEvents(out, events, opts); lastID != 0 {
+		afterID = lastID
+	}
+	return afterID, nil
+}
+
+func yardFollowOperatorChainEvents(ctx context.Context, out io.Writer, svc *operator.Service, chainID string, afterID int64, opts chainRenderOptions) error {
+	for {
+		nextAfterID, err := yardStreamOperatorChainEvents(ctx, out, svc, chainID, afterID, opts)
+		if err != nil {
+			return err
+		}
+		afterID = nextAfterID
+		detail, err := svc.GetChainDetail(ctx, chainID)
+		if err != nil {
+			return err
+		}
+		if !yardChainFollowStatusActive(detail.Chain.Status) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
+func yardChainFollowStatusActive(status string) bool {
+	return status == "running" || status == "pause_requested" || status == "cancel_requested"
 }

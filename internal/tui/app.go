@@ -1,0 +1,76 @@
+package tui
+
+import (
+	"context"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/operator"
+)
+
+type Operator interface {
+	RuntimeStatus(context.Context) (operator.RuntimeStatus, error)
+	ListAgentRoles(context.Context) ([]operator.AgentRoleSummary, error)
+	ListChains(context.Context, int) ([]operator.ChainSummary, error)
+	GetChainDetail(context.Context, string) (operator.ChainDetail, error)
+	ListEventsSince(context.Context, string, int64) ([]chain.Event, error)
+	ReadReceipt(context.Context, string, string) (operator.ReceiptView, error)
+	PauseChain(context.Context, string) (operator.ControlResult, error)
+	CancelChain(context.Context, string) (operator.ControlResult, error)
+	ValidateLaunch(context.Context, operator.LaunchRequest) (operator.LaunchPreview, error)
+	StartChain(context.Context, operator.LaunchRequest) (operator.StartResult, error)
+}
+
+type Options struct {
+	Context         context.Context
+	RefreshInterval time.Duration
+	FollowInterval  time.Duration
+	ChainLimit      int
+	ReceiptOpener   ReceiptOpener
+}
+
+func Run(ctx context.Context, svc Operator, opts Options) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	opts.Context = ctx
+	model := NewModel(svc, opts)
+	_, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	return err
+}
+
+func NewModel(svc Operator, opts Options) Model {
+	if opts.Context == nil {
+		opts.Context = context.Background()
+	}
+	if opts.RefreshInterval == 0 {
+		opts.RefreshInterval = 5 * time.Second
+	} else if opts.RefreshInterval < 0 {
+		opts.RefreshInterval = 0
+	}
+	if opts.FollowInterval == 0 {
+		opts.FollowInterval = time.Second
+	} else if opts.FollowInterval < 0 {
+		opts.FollowInterval = 0
+	}
+	if opts.ChainLimit <= 0 {
+		opts.ChainLimit = 20
+	}
+	if opts.ReceiptOpener == nil {
+		opts.ReceiptOpener = defaultReceiptOpener
+	}
+	return Model{
+		ctx:             opts.Context,
+		svc:             svc,
+		screen:          screenDashboard,
+		width:           100,
+		height:          30,
+		refreshInterval: opts.RefreshInterval,
+		followInterval:  opts.FollowInterval,
+		chainLimit:      opts.ChainLimit,
+		receiptOpener:   opts.ReceiptOpener,
+		styles:          newStyles(),
+	}
+}

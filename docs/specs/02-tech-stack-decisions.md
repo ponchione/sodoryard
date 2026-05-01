@@ -1,7 +1,7 @@
 # 02 — Tech Stack Decisions
 
 **Status:** Draft v0.1
-**Last Updated:** 2026-04-29
+**Last Updated:** 2026-05-01
 **Author:** Mitchell
 
 ---
@@ -159,23 +159,51 @@ Each decision records what was chosen, what alternatives were considered, and wh
 
 ---
 
-## Frontend: React + TypeScript + Vite (Tentative)
+## Operator Console TUI: Bubble Tea + Bubbles + Lip Gloss
 
-**Decision:** Tentatively React + TypeScript + Vite for the frontend, compiled and embedded in the Go binary via `embed.FS`.
+**Decision:** Use the Charm stack for the target daily-driver terminal UI:
 
-**Status:** ⚠️ TENTATIVE — Needs dedicated discussion.
+- Bubble Tea for the event loop and full-window terminal app architecture.
+- Bubbles for common components such as lists, tables, text inputs, text areas, spinners, progress bars, and viewports.
+- Lip Gloss for terminal styling and layout.
 
-**Current rationale:**
-- Rich component ecosystem (syntax highlighting, diff viewers, chart libraries).
-- TypeScript provides type safety for a non-trivial frontend.
-- Vite for fast dev builds.
-- Tailwind CSS + shadcn/ui for styling.
+**Status:** Selected target direction.
+
+**Rationale:**
+- The operator works in the terminal with Codex and normal development tools, so the daily-driver interface should live there.
+- The app is local, single-user, keyboard-heavy, and operational. Those constraints fit a TUI better than a full browser command center.
+- The implementation stays in Go and can call the same internal runtime builders, chain store, and status services as Cobra commands and HTTP handlers.
+- Bubble Tea's message/update/view model is a good fit for live chain events, background refreshes, key-driven navigation, and deterministic rendering tests.
+- Bubbles avoids hand-rolling basic controls for lists, tables, text inputs, text areas, spinners, progress bars, and scrollable panes.
+
+**Alternatives considered:**
+- *tview:* Provides a traditional widget toolkit and can build forms/tables quickly. Rejected for the target app because Yard needs a bespoke operational console with live event streams and composable state more than a conventional widget tree.
+- *tcell directly:* Powerful low-level terminal input/screen library. Rejected because it would force Yard to build too much framework code.
+- *Browser-only command center:* Richer visual layout, but adds frontend ceremony to workflows that are naturally terminal-native.
+
+See [[20-operator-console-tui]] for the product and implementation target.
+
+---
+
+## Web Inspector: React + TypeScript + Vite
+
+**Decision:** Retain React + TypeScript + Vite for the browser inspector served by `yard serve`, compiled and embedded in the Go binary via `embed.FS`.
+
+**Status:** Retained for rich inspection, no longer the primary operator surface.
+
+**Rationale:**
+- Rich component ecosystem for syntax highlighting, rendered markdown, diff viewers, file trees, and charts.
+- TypeScript provides type safety for the existing non-trivial frontend.
+- Vite keeps frontend development fast.
+- Tailwind CSS + shadcn/ui remain acceptable for the browser inspector.
 - `embed.FS` in Go means the compiled frontend ships inside the binary. No separate frontend server in production.
 
-**Open questions:**
-- Is React overkill for a single-user local app? Would Preact, Solid, or even HTMX + server-rendered templates serve better?
-- The frontend needs to handle WebSocket streaming, collapsible tool call blocks, syntax-highlighted code, file trees, and diff views. This argues for a capable framework.
-- Dedicated discussion needed (see [[07-web-interface-and-streaming]]).
+**Scope boundary:**
+- The web app should not duplicate the entire TUI as a second command center.
+- The web app owns views that are meaningfully better in a browser: rich context inspection, detailed tool-call rendering, side-by-side diffs, conversation transcript browsing, charts, and optional document intake.
+- The terminal console owns daily operations: readiness, launch, chain control, live event following, receipt browsing, and jump-to-editor workflows.
+
+See [[07-web-interface-and-streaming]] and [[21-web-inspector]].
 
 ---
 
@@ -208,13 +236,14 @@ This is a single-machine, single-developer tool. The hardware is known and fixed
 | Language | Go | ✅ Decided |
 | CGo | Accepted | ✅ Decided |
 | Database | SQLite | ✅ Decided |
-| Vector store | LanceDB | ⚠️ Pending evaluation |
+| Vector store | LanceDB | Implemented |
 | Code parsing | tree-sitter (CGo) | ✅ Decided |
 | Embeddings | nomic-embed-code (Docker) | ✅ Decided |
 | Local LLM | Docker container, configurable model | ✅ Decided |
 | Frontier LLM | Credential reuse (Claude + Codex subs) | ✅ Decided |
-| Frontend | React + TypeScript + Vite | ⚠️ Tentative |
-| Styling | Tailwind CSS + shadcn/ui | ⚠️ Tentative |
+| Operator TUI | Bubble Tea + Bubbles + Lip Gloss | Selected target |
+| Web inspector | React + TypeScript + Vite | Retained |
+| Web styling | Tailwind CSS + shadcn/ui | Retained |
 | Frontend embed | Go `embed.FS` | ✅ Decided |
 | Build | Makefile | ✅ Decided |
-| Streaming | WebSocket | ✅ Decided (protocol TBD) |
+| Streaming | WebSocket for web; internal event subscription/polling for TUI | Decided direction |

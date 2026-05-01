@@ -18,7 +18,7 @@ The no-legacy container contract is:
 - there is no `yard install` compatibility flow
 - there is no operator-facing `sirtopham` CLI inside the container
 - `tidmouth` may still exist in the image, but only as an internal engine binary needed by chain spawning
-- no separate `knapford` service is part of the container contract; the command center is served by `yard serve`
+- no separate `knapford` service is part of the container contract; the browser inspector is served by `yard serve`
 
 ## 2. Why this spec exists
 
@@ -72,9 +72,9 @@ No container workflow, compose example, acceptance criterion, or help text in th
 
 If an implementation still ships the binary temporarily during cleanup sequencing, that does not make it part of the supported container surface.
 
-### 3.5 Command center lives in `yard serve`
+### 3.5 Web inspector lives in `yard serve`
 
-This spec no longer reserves a placeholder service slot for `knapford`. Command-center work is active product scope in [[20-command-center-ui]], but it is implemented inside the existing `yard serve` web/API server and embedded frontend.
+This spec no longer reserves a placeholder service slot for `knapford`. Browser inspector work is active product scope in [[21-web-inspector]], but it is implemented inside the existing `yard serve` web/API server and embedded frontend. The primary interactive operator target is the TUI in [[20-operator-console-tui]], which should run inside the same `yard` binary.
 
 Why:
 - placeholder-only compose services are legacy surface area with no runtime value
@@ -177,7 +177,7 @@ networks:
 ```
 
 Notes:
-- command-center UI work remains inside `yard serve` and does not add a compose service
+- browser-inspector UI work remains inside `yard serve` and does not add a compose service
 - a separate Knapford service could be added later under a different spec if it ever becomes necessary
 - if the implementation temporarily ships extra binaries in the image, that does not enlarge the documented operator surface
 - `${PROJECT_DIR:-./}` remains a reasonable default for one-shot CLI use from the mounted project

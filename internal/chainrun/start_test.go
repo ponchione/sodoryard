@@ -16,6 +16,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
+	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -73,6 +74,13 @@ func TestBuildTaskIncludesNoHistoryFallback(t *testing.T) {
 	}
 	if strings.Contains(msg, "receipts/state") {
 		t.Fatalf("message = %q, unexpected generic receipts/state wording", msg)
+	}
+}
+
+func TestBuildOneStepTaskIncludesSpecsWhenProvided(t *testing.T) {
+	msg := buildOneStepTask(Options{SourceTask: "fix auth", SourceSpecs: []string{"specs/auth.md"}})
+	if !containsAll(msg, "fix auth", "Source specs: specs/auth.md") {
+		t.Fatalf("message = %q, want task and source specs", msg)
 	}
 }
 
@@ -259,6 +267,121 @@ func TestCloseErroredExecutionMarksFailedAndClearsActiveExecution(t *testing.T) 
 	}
 }
 
+func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"coder": {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	var gotInput spawnpkg.AgentStepInput
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return fakeStepRunner{run: func(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+				gotInput = in
+				stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: in.Task})
+				if err != nil {
+					t.Fatalf("StartStep returned error: %v", err)
+				}
+				if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/one-step-chain-step-001.md", TokensUsed: 10, TurnsUsed: 2, DurationSecs: 3}); err != nil {
+					t.Fatalf("CompleteStep returned error: %v", err)
+				}
+				if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 10, TotalDurationSecs: 3}); err != nil {
+					t.Fatalf("UpdateChainMetrics returned error: %v", err)
+				}
+				return spawnpkg.AgentStepResult{StepID: stepID, Sequence: 1, ReceiptPath: "receipts/coder/one-step-chain-step-001.md", Verdict: "completed", Status: "completed", TokensUsed: 10, TurnsUsed: 2, DurationSecs: 3, ExitCode: 0}, "receipt", nil
+			}}
+		},
+		NewChainID: func() string { return "one-step-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "implement one thing", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result status = %q, want completed", result.Status)
+	}
+	if gotInput.Role != "coder" || gotInput.Task != "implement one thing" {
+		t.Fatalf("step input = %+v, want coder task", gotInput)
+	}
+	steps, err := store.ListSteps(ctx, "one-step-chain")
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 1 || steps[0].Role != "coder" {
+		t.Fatalf("steps = %+v, want one coder step", steps)
+	}
+	stored, err := store.GetChain(ctx, "one-step-chain")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != "completed" || stored.TotalSteps != 1 || stored.TotalTokens != 10 {
+		t.Fatalf("stored chain = %+v, want completed with one-step metrics", stored)
+	}
+	events, err := store.ListEvents(ctx, "one-step-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false after terminal closure", exec, ok)
+	}
+}
+
+func TestStartOneStepMapsFixRequiredReceiptToPartialExit(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"coder": {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return fakeStepRunner{run: func(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+				stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: in.Task})
+				if err != nil {
+					t.Fatalf("StartStep returned error: %v", err)
+				}
+				if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "fix_required", ReceiptPath: "receipts/coder/partial-step-001.md"}); err != nil {
+					t.Fatalf("CompleteStep returned error: %v", err)
+				}
+				return spawnpkg.AgentStepResult{StepID: stepID, Sequence: 1, ReceiptPath: "receipts/coder/partial-step-001.md", Verdict: "fix_required", Status: "completed", ExitCode: 0}, "receipt", nil
+			}}
+		},
+		NewChainID: func() string { return "partial-one-step" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	_, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "audit", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps)
+	var exitErr ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("Start error = %T %[1]v, want ExitError", err)
+	}
+	if exitErr.ExitCode() != 2 {
+		t.Fatalf("ExitCode = %d, want 2 for partial one-step chain", exitErr.ExitCode())
+	}
+	stored, loadErr := store.GetChain(ctx, "partial-one-step")
+	if loadErr != nil {
+		t.Fatalf("GetChain returned error: %v", loadErr)
+	}
+	if stored.Status != "partial" {
+		t.Fatalf("status = %q, want partial", stored.Status)
+	}
+}
+
 func TestStartReturnsCancelExitCodeForHandledInterruption(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -405,6 +528,14 @@ func (f fakeTurnRunner) RunTurn(ctx context.Context, req agent.RunTurnRequest) (
 }
 
 func (f fakeTurnRunner) Close() {}
+
+type fakeStepRunner struct {
+	run func(context.Context, spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error)
+}
+
+func (f fakeStepRunner) RunStep(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+	return f.run(ctx, in)
+}
 
 func newChainrunTestDB(t *testing.T) *sql.DB {
 	t.Helper()

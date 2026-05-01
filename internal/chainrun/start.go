@@ -14,7 +14,9 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
+	"github.com/ponchione/sodoryard/internal/receipt"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
+	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -27,8 +29,21 @@ type WatchHandle interface {
 	Wait(timeout time.Duration) error
 }
 
+type Mode string
+
+const (
+	ModeOrchestrator Mode = "sir_topham_decides"
+	ModeOneStep      Mode = "one_step_chain"
+)
+
+type StepRunner interface {
+	RunStep(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error)
+}
+
 type Options struct {
 	ChainID          string
+	Mode             Mode
+	Role             string
 	SourceSpecs      []string
 	SourceTask       string
 	MaxSteps         int
@@ -52,6 +67,7 @@ type Deps struct {
 	BuildRuntime  func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error)
 	BuildRegistry func(*rtpkg.OrchestratorRuntime, appconfig.AgentRoleConfig, string) (*tool.Registry, error)
 	NewTurnRunner func(agent.AgentLoopDeps) TurnRunner
+	NewStepRunner func(*rtpkg.OrchestratorRuntime, string) StepRunner
 	NewChainID    func() string
 	ProcessID     func() int
 }
@@ -76,13 +92,24 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	if cfg == nil {
 		return nil, fmt.Errorf("chain start: config is required")
 	}
-	roleCfg, ok := cfg.AgentRoles["orchestrator"]
-	if !ok {
-		return nil, fmt.Errorf("agent role %q not found in config", "orchestrator")
-	}
-	systemPrompt, _, err := rtpkg.LoadRoleSystemPrompt("orchestrator", cfg.ProjectRoot, roleCfg.SystemPrompt)
+	mode, err := resolveMode(opts)
 	if err != nil {
 		return nil, err
+	}
+	var roleCfg appconfig.AgentRoleConfig
+	var systemPrompt string
+	if mode == ModeOrchestrator {
+		var ok bool
+		roleCfg, ok = cfg.AgentRoles["orchestrator"]
+		if !ok {
+			return nil, fmt.Errorf("agent role %q not found in config", "orchestrator")
+		}
+		systemPrompt, _, err = rtpkg.LoadRoleSystemPrompt("orchestrator", cfg.ProjectRoot, roleCfg.SystemPrompt)
+		if err != nil {
+			return nil, err
+		}
+	} else if _, _, err := cfg.ResolveAgentRole(opts.Role); err != nil {
+		return nil, fmt.Errorf("chain start: %w", err)
 	}
 	rt, err := deps.BuildRuntime(ctx, cfg)
 	if err != nil {
@@ -95,26 +122,9 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 		chainID = deps.NewChainID()
 	}
 
-	existing, err := resolveExistingChain(ctx, rt.ChainStore, chainID)
+	opts, isNew, resumed, err := prepareChainForExecution(ctx, rt.ChainStore, chainID, opts)
 	if err != nil {
 		return nil, err
-	}
-	isNew := existing == nil
-	resumed := false
-	if existing != nil {
-		opts, err = populateOptionsFromExisting(opts, existing)
-		if err != nil {
-			return nil, err
-		}
-		resumed = existing.Status == "paused"
-		if err := prepareExistingChainForExecution(ctx, rt.ChainStore, existing); err != nil {
-			return nil, err
-		}
-	} else {
-		if _, err := rt.ChainStore.StartChain(ctx, chainSpecFromOptions(chainID, opts)); err != nil {
-			return nil, err
-		}
-		_ = rt.ChainStore.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"specs": opts.SourceSpecs, "task": opts.SourceTask})
 	}
 
 	if opts.OnChainID != nil {
@@ -138,6 +148,18 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	}
 	executionRegistered = true
 
+	var watch WatchHandle
+	if opts.StartWatch != nil {
+		watch = opts.StartWatch(ctx, rt.ChainStore, chainID)
+	}
+
+	if mode == ModeOneStep {
+		return runOneStepMode(ctx, rt, opts, deps, chainID, watch)
+	}
+	return runOrchestratorMode(ctx, cfg, rt, opts, deps, chainID, roleCfg, systemPrompt, watch)
+}
+
+func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, roleCfg appconfig.AgentRoleConfig, systemPrompt string, watch WatchHandle) (*Result, error) {
 	registry, err := deps.BuildRegistry(rt, roleCfg, chainID)
 	if err != nil {
 		return nil, err
@@ -152,11 +174,6 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	}
 	loop := deps.NewTurnRunner(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), Config: rtpkg.BuildAgentLoopConfig(cfg, roleCfg.MaxTurns, systemPrompt), Logger: rt.Logger})
 	defer loop.Close()
-
-	var watch WatchHandle
-	if opts.StartWatch != nil {
-		watch = opts.StartWatch(ctx, rt.ChainStore, chainID)
-	}
 
 	steps, err := rt.ChainStore.ListSteps(ctx, chainID)
 	if err != nil {
@@ -201,6 +218,40 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	return &Result{ChainID: chainID, Status: stored.Status}, nil
 }
 
+func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
+	runner := deps.NewStepRunner(rt, chainID)
+	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false})
+	if err != nil {
+		if errors.Is(err, tool.ErrChainComplete) {
+			return finishControlledChain(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
+		}
+		return nil, err
+	}
+	if err := finalizeRequestedChainStatus(ctx, rt.ChainStore, chainID); err != nil {
+		return nil, err
+	}
+	stored, err := rt.ChainStore.GetChain(ctx, chainID)
+	if err != nil {
+		return nil, err
+	}
+	if stored.Status == "running" {
+		status := oneStepTerminalStatus(stepResult)
+		summary := fmt.Sprintf("one-step chain %s finished with verdict %s", chainID, stepResult.Verdict)
+		if status == "failed" && stepResult.Verdict == receipt.VerdictSafetyLimit {
+			_ = rt.ChainStore.LogEvent(ctx, chainID, stepResult.StepID, chain.EventSafetyLimitHit, map[string]any{"role": opts.Role, "limit": "receipt verdict safety_limit"})
+		}
+		if err := chain.ApplyTerminalChainClosure(ctx, rt.ChainStore, chainID, chain.TerminalChainClosure{
+			Status:    status,
+			EventType: chain.EventChainCompleted,
+			Summary:   &summary,
+			Extra:     map[string]any{"summary": summary, "role": opts.Role, "verdict": stepResult.Verdict},
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return finishControlledChain(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
+}
+
 func withDefaultDeps(deps Deps) Deps {
 	if deps.BuildRuntime == nil {
 		deps.BuildRuntime = rtpkg.BuildOrchestratorRuntime
@@ -211,6 +262,18 @@ func withDefaultDeps(deps Deps) Deps {
 	if deps.NewTurnRunner == nil {
 		deps.NewTurnRunner = func(deps agent.AgentLoopDeps) TurnRunner { return agent.NewAgentLoop(deps) }
 	}
+	if deps.NewStepRunner == nil {
+		deps.NewStepRunner = func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return spawnpkg.NewSpawnAgentTool(spawnpkg.SpawnAgentDeps{
+				Store:        rt.ChainStore,
+				Backend:      rt.BrainBackend,
+				Config:       rt.Config,
+				ChainID:      chainID,
+				EngineBinary: "tidmouth",
+				ProjectRoot:  rt.Config.ProjectRoot,
+			})
+		}
+	}
 	if deps.NewChainID == nil {
 		deps.NewChainID = id.New
 	}
@@ -218,6 +281,46 @@ func withDefaultDeps(deps Deps) Deps {
 		deps.ProcessID = os.Getpid
 	}
 	return deps
+}
+
+func resolveMode(opts Options) (Mode, error) {
+	if opts.Mode != "" {
+		switch opts.Mode {
+		case ModeOrchestrator, ModeOneStep:
+			return opts.Mode, nil
+		default:
+			return "", fmt.Errorf("unsupported chain mode %q", opts.Mode)
+		}
+	}
+	if strings.TrimSpace(opts.Role) != "" {
+		return ModeOneStep, nil
+	}
+	return ModeOrchestrator, nil
+}
+
+func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID string, opts Options) (Options, bool, bool, error) {
+	existing, err := resolveExistingChain(ctx, store, chainID)
+	if err != nil {
+		return opts, false, false, err
+	}
+	isNew := existing == nil
+	resumed := false
+	if existing != nil {
+		opts, err = populateOptionsFromExisting(opts, existing)
+		if err != nil {
+			return opts, false, false, err
+		}
+		resumed = existing.Status == "paused"
+		if err := prepareExistingChainForExecution(ctx, store, existing); err != nil {
+			return opts, false, false, err
+		}
+		return opts, isNew, resumed, nil
+	}
+	if _, err := store.StartChain(ctx, chainSpecFromOptions(chainID, opts)); err != nil {
+		return opts, false, false, err
+	}
+	_ = store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"specs": opts.SourceSpecs, "task": opts.SourceTask})
+	return opts, isNew, resumed, nil
 }
 
 func resolveExistingChain(ctx context.Context, store *chain.Store, chainID string) (*chain.Chain, error) {
@@ -378,6 +481,34 @@ func buildTask(opts Options, chainID string, receiptPaths []string) string {
 	return fmt.Sprintf("You are managing a chain execution. Task: %s. Chain ID: %s. %s Continue orchestrating from the current point.", strings.TrimSpace(opts.SourceTask), chainID, history)
 }
 
+func buildOneStepTask(opts Options) string {
+	task := strings.TrimSpace(opts.SourceTask)
+	if len(opts.SourceSpecs) == 0 {
+		return task
+	}
+	specs := strings.Join(opts.SourceSpecs, ", ")
+	if task == "" {
+		return fmt.Sprintf("Read these source specs from the brain and complete the requested work: %s.", specs)
+	}
+	return fmt.Sprintf("%s\n\nSource specs: %s", task, specs)
+}
+
+func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
+	if result.Status == "failed" {
+		return "failed"
+	}
+	switch result.Verdict {
+	case receipt.VerdictCompleted, receipt.VerdictCompletedWithConcerns, receipt.VerdictCompletedNoReceipt:
+		return "completed"
+	case receipt.VerdictFixRequired, receipt.VerdictBlocked, receipt.VerdictEscalate:
+		return "partial"
+	case receipt.VerdictSafetyLimit:
+		return "failed"
+	default:
+		return "failed"
+	}
+}
+
 func existingReceiptPaths(steps []chain.Step) []string {
 	paths := make([]string, 0, len(steps))
 	seen := make(map[string]struct{}, len(steps))
@@ -443,6 +574,17 @@ func waitWatch(watch WatchHandle, timeout time.Duration) error {
 		return nil
 	}
 	return watch.Wait(timeout)
+}
+
+func finishControlledChain(ctx context.Context, store *chain.Store, chainID string, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
+	status := terminalStatus(ctx, store, chainID)
+	if err := waitWatch(watch, watchTimeout); err != nil {
+		return nil, err
+	}
+	if code := exitCode(status, mustListEvents(ctx, store, chainID)); code != 0 {
+		return nil, ExitError{Code: code, Err: fmt.Errorf("chain %s ended with status %s", chainID, status)}
+	}
+	return &Result{ChainID: chainID, Status: status}, nil
 }
 
 func emit(onMessage func(string), format string, args ...any) {

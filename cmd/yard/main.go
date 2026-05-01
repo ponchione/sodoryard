@@ -39,6 +39,7 @@ func newRootCmd() *cobra.Command {
 		newYardLLMCmd(&configPath),
 		newYardBrainCmd(&configPath),
 		newYardChainCmd(&configPath),
+		newYardTUICmd(&configPath),
 	)
 	return rootCmd
 }

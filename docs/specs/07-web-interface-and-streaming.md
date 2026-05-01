@@ -8,9 +8,9 @@
 
 ## Overview
 
-sodoryard's primary interface is a locally-served web application. `yard serve` starts the supported HTTP server and opens the browser. The frontend communicates with the Go backend via REST (CRUD operations) and WebSocket (real-time streaming).
+sodoryard keeps a locally-served browser application, but the browser is no longer the primary operator interface. The target daily-driver surface is the terminal operator console specified in [[20-operator-console-tui]]. `yard serve` starts the supported HTTP server and embedded React app for rich inspection workflows that are genuinely better in a browser.
 
-This document covers the frontend stack, the backend HTTP/WebSocket server, the streaming message protocol, and the current UI component architecture. The browser product target is now the command center specified in [[20-command-center-ui]]: chat remains central, but the web app also becomes the operator surface for project readiness, chain execution, runtime control, and metrics.
+This document covers the browser stack, the backend HTTP/WebSocket server, the streaming message protocol, and the current web UI component architecture. The browser product target is the web inspector specified in [[21-web-inspector]]: chat remains available, and the app emphasizes rich transcripts, context inspection, tool details, diffs, file browsing, and metrics instead of duplicating the full TUI command center.
 
 ---
 
@@ -30,11 +30,11 @@ Go HTTP Server
 
 ---
 
-## Frontend Stack
+## Web Inspector Stack
 
-**v0.1 decision:** React + TypeScript + Vite + Tailwind CSS + shadcn/ui
+**Decision:** React + TypeScript + Vite + Tailwind CSS + shadcn/ui for the browser inspector.
 
-The UI needs to handle: WebSocket streaming, collapsible tool call blocks, syntax highlighting, file trees, diff views, and metrics panels. That favors a capable component ecosystem. shadcn/ui provides accessible, composable primitives, and the stack aligns with the current Layer 6 decomposition.
+The browser app needs to handle WebSocket streaming, collapsible tool call blocks, syntax highlighting, rendered markdown, file trees, diff views, and metrics panels. That favors a capable component ecosystem. shadcn/ui provides accessible, composable primitives, and the existing React app already implements the v0.1 conversation, tool-call, settings, and context-inspector surfaces.
 
 **Arguments for React:**
 - Largest component ecosystem (syntax highlighters, diff viewers, tree views all exist)
@@ -42,10 +42,10 @@ The UI needs to handle: WebSocket streaming, collapsible tool call blocks, synta
 - Developer familiarity
 - shadcn/ui is React-native
 
-**Arguments against:**
-- Heavy for a single-user local app
-- Build step adds complexity
-- Overkill if the UI ends up being simpler than imagined
+**Scope boundary:**
+- React is retained for rich inspection, not selected as the primary command center.
+- Operational workflows that are naturally terminal-native belong in [[20-operator-console-tui]].
+- The browser should avoid becoming a second full copy of the TUI.
 
 ---
 
@@ -164,22 +164,21 @@ WS     /api/ws                         WebSocket for streaming
 
 Notes:
 - `/api/project/tree` and `/api/project/file` are exposed backend/operator endpoints today, but a dedicated file-browser/code-viewer route is not part of the current shipped UI.
-- Command-center routes and chain controls are active product scope in [[20-command-center-ui]], not future placeholder work.
+- Chain launch/control belongs primarily to the TUI and CLI. The browser may expose read-only or follow-along chain views where rich layout helps, but it should not become the main launch console.
 
-### Command Center Build Target
+### Web Inspector Build Target
 
-The command center grows the shipped web app into:
+The web inspector grows the shipped app into:
 
-- **Observatory:** project readiness, provider/model/auth state, index state, active work, recent work, runtime warnings
-- **Launch workbench:** document drop, work packet assembly, agent selection, Sir Topham delegation, run/chain start
-- **Docs:** document intake and brain/spec browsing
-- **Agents:** configured role roster, selection, availability, recent activity
-- **Chains:** list, inspect, pause/resume/cancel, event log, receipt viewer
-- **Project browser:** file tree and read-only file preview from existing project endpoints
-- **Metrics:** conversation, chain, provider/model, tool, and context quality summaries
-- **Operational navigation:** stable top-level routes for observatory, launch, docs, agents, chains, chat, project, metrics, and settings
+- **Conversation transcript:** rich markdown, code blocks, thinking blocks, streaming status, and search.
+- **Tool detail inspector:** structured tool metadata, diffs, command output, search results, and normalized result details.
+- **Context inspector:** retrieved code chunks, brain hits, analyzer signals, budget allocation, and context-debug history.
+- **Chain inspection:** detail views for chain steps, event logs, receipts, and agent output when a browser pane is easier than terminal logs.
+- **Project browser:** file tree and read-only file preview from existing project endpoints.
+- **Metrics:** conversation, chain, provider/model, tool, and context quality summaries.
+- **Optional document intake:** browser document drop can remain if it proves materially better than terminal/editor-based workflows.
 
-The command center is implemented inside `yard serve`; it is not a separate Knapford service or container.
+The web inspector is implemented inside `yard serve`; it is not a separate Knapford service or container.
 
 ### Compelling Visualizations (Web-Only)
 - Live streaming diffs as the agent edits files
@@ -196,7 +195,8 @@ The command center is implemented inside `yard serve`; it is not a separate Knap
 - [[05-agent-loop]] — drives all streaming events
 - [[08-data-model]] — conversations, messages, metrics
 - [[03-provider-architecture]] — model selection, provider status
-- [[20-command-center-ui]] — active command-center product and route/API target
+- [[20-operator-console-tui]] — primary operator console and chain launch/control target
+- [[21-web-inspector]] — browser inspector product and route/API target
 
 ---
 
@@ -204,6 +204,6 @@ The command center is implemented inside `yard serve`; it is not a separate Knap
 
 - WebSocket over SSE — bidirectional transport is required for `cancel` and `model_override`.
 - SPA with client-side routing and one WebSocket connection per active conversation view.
-- React + TypeScript + Vite + Tailwind + shadcn/ui for the initial frontend implementation.
+- React + TypeScript + Vite + Tailwind + shadcn/ui for the browser inspector.
 - Vite dev server proxies API and WebSocket traffic to the Go backend during development.
 - Offline/degraded provider behavior remains a runtime concern: the UI should still function when only cloud providers are available.

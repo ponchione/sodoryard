@@ -1,12 +1,12 @@
 # 08 — Data Model
 
-**Status:** Draft v0.1 **Last Updated:** 2026-04-29 **Author:** Mitchell
+**Status:** Draft v0.1 **Last Updated:** 2026-05-01 **Author:** Mitchell
 
 ---
 
 ## Overview
 
-All structured persistence lives in SQLite. This document covers the schema for conversations, messages, tool executions, LLM sub-calls, context assembly reports, indexing state, and brain metadata. The schema supports multi-project from day one (even though v0.1 is single-project) and provides efficient queries for the web UI's conversation list, message history, context inspector, and metrics dashboard.
+All structured persistence lives in SQLite. This document covers the schema for conversations, messages, tool executions, LLM sub-calls, context assembly reports, indexing state, and brain metadata. The schema supports multi-project from day one (even though v0.1 is single-project) and provides efficient queries for operator surfaces: TUI chain/status views, the web inspector's conversation list and context inspector, and metrics dashboards.
 
 ---
 
@@ -24,7 +24,7 @@ All timestamp columns use `TEXT` with ISO8601 strings (`2026-03-28T14:30:00Z`). 
 
 IDs use the type that best fits each table's access pattern:
 
-- **UUIDv7 or deterministic external TEXT IDs:** For externally-referenced entities — `projects`, `conversations`, chains, launches, custom launch presets, and background operations. These IDs appear in REST URLs, WebSocket connections, event streams, and the web UI's URL bar. UUIDv7 is preferred where no human-readable chain ID is required because it is time-ordered.
+- **UUIDv7 or deterministic external TEXT IDs:** For externally-referenced entities — `projects`, `conversations`, chains, launches, custom launch presets, and background operations. These IDs appear in REST URLs, WebSocket connections, event streams, TUI lists, and browser URLs. UUIDv7 is preferred where no human-readable chain ID is required because it is time-ordered.
 - **INTEGER AUTOINCREMENT:** For high-frequency internal tables — `messages`, `sub_calls`, `tool_executions`, `context_reports`, `brain_documents`, `brain_links`, `index_state`. These are never exposed in URLs. Autoincrement is fast, compact, and provides natural insertion ordering.
 
 ### Migration Strategy
@@ -34,13 +34,13 @@ During active development, the canonical schema still lives in a single `schema.
 - rebuild `messages_fts` triggers so `role='tool'` messages are indexed
 - add `context_reports.token_budget_json` when missing
 - ensure the chain orchestrator tables and indexes exist
-- ensure command-center tables and indexes exist (`launches`, `launch_presets`, `background_operations`)
+- ensure launch and operation tables and indexes exist (`launches`, `launch_presets`, `background_operations`)
 
 This is not a general migration framework. It is a narrow bridge for dev-era databases whose data is useful enough to preserve. Once the schema stabilizes (v0.5+), migrate to versioned migration files — either golang-migrate or hand-written `.sql` files with a version table. The schema is simple enough that manual migrations are viable for a personal tool.
 
 ### SQLite Pragmas
 
-The agent loop writes messages and sub_calls while the web UI reads them concurrently. WAL mode is required for this read/write concurrency:
+The agent loop writes messages and sub_calls while operator surfaces read them concurrently. WAL mode is required for this read/write concurrency:
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -434,9 +434,9 @@ CREATE INDEX idx_brain_links_target ON brain_links(project_id, target_path);
 
 The chain orchestrator owns additional `chains`, `steps`, and `events` tables in the same `.yard/yard.db` database. Their schema changes more frequently with orchestration behavior and is specified in [[15-chain-orchestrator]], including `steps.task_context`, JSON `events.event_data` payloads for `step_output` and process lifecycle events, and event timestamp indexes.
 
-### Command Center Tables
+### Launch and Operation Tables
 
-The command center owns `launches`, `launch_presets`, and `background_operations` tables in the same `.yard/yard.db` database. A launch stores the operator-authored work packet and agent plan before browser-started work becomes a chain. Custom launch presets store reusable UI-managed templates; built-in presets are generated in code. Background operations track UI-started maintenance work such as code-index and brain-index rebuilds. The detailed schemas and lifecycles are specified in [[20-command-center-ui]]. CLI-started chains do not require launch records.
+Durable launch and operation state is shared operator-surface state, not browser-owned state. When implemented, `launches`, `launch_presets`, and `background_operations` live in the same `.yard/yard.db` database. A launch stores the operator-authored work packet and agent plan before TUI- or browser-started work becomes a chain. Custom launch presets store reusable templates; built-in presets are generated in code. Background operations track UI-started maintenance work such as code-index and brain-index rebuilds. The product lifecycle is specified in [[20-operator-console-tui]], with browser inspection boundaries in [[21-web-inspector]]. CLI-started chains do not require launch records.
 
 ### index_state
 
@@ -629,7 +629,7 @@ If this becomes a problem in practice (database file size growing unreasonably),
 - [[05-agent-loop]] — Writes messages, sub_calls, and tool_executions. Reads messages for conversation history reconstruction. Manages compression lifecycle.
 - [[06-context-assembly]] — Writes context_reports. Reads brain_documents and brain_links for retrieval. Reads index_state for freshness.
 - [[04-code-intelligence-and-rag]] — Reads and writes index_state for incremental indexing.
-- [[07-web-interface-and-streaming]] — Queries conversations, messages, sub_calls, tool_executions, and context_reports for the UI.
+- [[07-web-interface-and-streaming]] — Queries conversations, messages, sub_calls, tool_executions, and context_reports for the web inspector.
 - [[09-project-brain]] — Writes brain_documents and brain_links. Reads for retrieval and graph traversal.
 
 ---
