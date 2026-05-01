@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ponchione/sodoryard/internal/operator"
 	tuiapp "github.com/ponchione/sodoryard/internal/tui"
 )
+
+var runYardTUI = func(ctx context.Context, svc tuiapp.Operator, opts tuiapp.Options) error {
+	return tuiapp.Run(ctx, svc, opts)
+}
 
 func newYardTUICmd(configPath *string) *cobra.Command {
 	return &cobra.Command{
@@ -18,7 +24,9 @@ func newYardTUICmd(configPath *string) *cobra.Command {
 				return fmt.Errorf("open operator: %w", err)
 			}
 			defer svc.Close()
-			return tuiapp.Run(cmd.Context(), svc, tuiapp.Options{})
+			return runYardTUI(cmd.Context(), svc, tuiapp.Options{})
 		},
 	}
 }
+
+var _ tuiapp.Operator = (*operator.Service)(nil)
