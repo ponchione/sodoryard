@@ -15,7 +15,7 @@ func (m Model) renderHelp() string {
 		"up/down       move selection",
 		"d/l/c/p       dashboard/launch/chains/receipts",
 		"i             edit launch task",
-		"m/n/v         launch mode/role/preview",
+		"m/n/v         launch mode/role or roster/preview",
 		"S             start previewed launch",
 		"F             follow selected chain",
 		"P             pause selected chain",

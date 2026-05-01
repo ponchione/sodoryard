@@ -10,6 +10,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 func (s *Service) ListAgentRoles(ctx context.Context) ([]AgentRoleSummary, error) {
@@ -53,6 +54,13 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 			return LaunchPreview{}, fmt.Errorf("agent role %q not found in config", "orchestrator")
 		}
 		req.Role = "orchestrator"
+	case LaunchModeManualRoster:
+		roster, err := resolveLaunchRoster(cfg, req)
+		if err != nil {
+			return LaunchPreview{}, err
+		}
+		req.Roster = roster
+		req.Role = strings.Join(roster, ",")
 	default:
 		return LaunchPreview{}, fmt.Errorf("unsupported launch mode %s", req.Mode)
 	}
@@ -60,6 +68,7 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 	return LaunchPreview{
 		Mode:         req.Mode,
 		Role:         req.Role,
+		Roster:       append([]string(nil), req.Roster...),
 		Summary:      summarizeLaunch(req),
 		CompiledTask: compiled,
 		Warnings:     launchWarnings(req),
@@ -78,10 +87,12 @@ func (s *Service) StartChain(ctx context.Context, req LaunchRequest) (StartResul
 	req = withLaunchDefaults(normalizeLaunchRequest(req))
 	req.Mode = preview.Mode
 	req.Role = preview.Role
+	req.Roster = append([]string(nil), preview.Roster...)
 
 	startOpts := chainrun.Options{
 		Mode:             chainrun.Mode(req.Mode),
 		Role:             req.Role,
+		Roster:           chainrunRoster(req.Roster),
 		SourceSpecs:      append([]string(nil), req.SourceSpecs...),
 		SourceTask:       req.SourceTask,
 		MaxSteps:         req.MaxSteps,
@@ -159,8 +170,11 @@ func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
 	req.Role = strings.TrimSpace(req.Role)
 	req.SourceTask = strings.TrimSpace(req.SourceTask)
 	req.SourceSpecs = chaininput.NormalizeSpecs(req.SourceSpecs)
+	req.Roster = normalizeRoster(req.Roster)
 	if req.Mode == "" {
-		if req.Role != "" {
+		if len(req.Roster) > 0 {
+			req.Mode = LaunchModeManualRoster
+		} else if req.Role != "" {
 			req.Mode = LaunchModeOneStep
 		} else {
 			req.Mode = LaunchModeOrchestrator
@@ -202,6 +216,8 @@ func summarizeLaunch(req LaunchRequest) string {
 	switch req.Mode {
 	case LaunchModeOneStep:
 		return fmt.Sprintf("Run one %s step", req.Role)
+	case LaunchModeManualRoster:
+		return fmt.Sprintf("Run manual roster: %s", strings.Join(req.Roster, " -> "))
 	default:
 		return "Run Sir Topham-managed orchestration"
 	}
@@ -213,4 +229,42 @@ func launchWarnings(req LaunchRequest) []RuntimeWarning {
 		warnings = append(warnings, RuntimeWarning{Message: "no source specs selected"})
 	}
 	return warnings
+}
+
+func resolveLaunchRoster(cfg *appconfig.Config, req LaunchRequest) ([]string, error) {
+	roster := normalizeRoster(req.Roster)
+	if len(roster) == 0 && strings.TrimSpace(req.Role) != "" {
+		roster = normalizeRoster(strings.Split(req.Role, ","))
+	}
+	if len(roster) == 0 {
+		return nil, fmt.Errorf("manual roster requires at least one role")
+	}
+	for i := range roster {
+		roleName, _, err := cfg.ResolveAgentRole(roster[i])
+		if err != nil {
+			return nil, fmt.Errorf("resolve roster role %d: %w", i+1, err)
+		}
+		roster[i] = roleName
+	}
+	return roster, nil
+}
+
+func normalizeRoster(roles []string) []string {
+	normalized := make([]string, 0, len(roles))
+	for _, role := range roles {
+		role = strings.TrimSpace(role)
+		if role == "" {
+			continue
+		}
+		normalized = append(normalized, role)
+	}
+	return normalized
+}
+
+func chainrunRoster(roles []string) []chainrun.StepRequest {
+	roster := make([]chainrun.StepRequest, 0, len(roles))
+	for _, role := range roles {
+		roster = append(roster, chainrun.StepRequest{Role: role})
+	}
+	return roster
 }

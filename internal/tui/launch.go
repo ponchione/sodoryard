@@ -17,12 +17,16 @@ func (m Model) renderLaunch() string {
 	lines = append(lines, m.renderLaunchField(launchFieldTask, "task", renderLaunchTask(m.launch.SourceTask, m.launchEdit && m.launchField == launchFieldTask)))
 	lines = append(lines, m.renderLaunchField(launchFieldSpecs, "specs", renderLaunchSpecs(m.launch.SpecsText, m.launchEdit && m.launchField == launchFieldSpecs)))
 	lines = append(lines, m.renderLaunchField(launchFieldMode, "mode", string(m.launch.Mode)))
-	role := m.launch.Role
+	role := m.launchRoleDisplay()
 	if role == "" {
 		role = "none"
 	}
-	lines = append(lines, m.renderLaunchField(launchFieldRole, "role", role))
-	lines = append(lines, "", "controls: i edit task/specs  m mode  n role  v preview  S start")
+	roleLabel := "role"
+	if m.launch.Mode == operator.LaunchModeManualRoster {
+		roleLabel = "roster"
+	}
+	lines = append(lines, m.renderLaunchField(launchFieldRole, roleLabel, role))
+	lines = append(lines, "", "controls: i edit task/specs  m mode  n role/roster  v preview  S start")
 	lines = append(lines, "", m.styles.title.Render("Preview"))
 	if m.preview == nil {
 		lines = append(lines, m.styles.subtle.Render("No preview yet."))
@@ -31,10 +35,11 @@ func (m Model) renderLaunch() string {
 			fmt.Sprintf("summary: %s", m.preview.Summary),
 			fmt.Sprintf("mode: %s", m.preview.Mode),
 			fmt.Sprintf("role: %s", m.preview.Role),
-			"",
-			m.styles.title.Render("Compiled task"),
-			trimOneLine(m.preview.CompiledTask, 120),
 		)
+		if len(m.preview.Roster) > 0 {
+			lines = append(lines, fmt.Sprintf("roster: %s", strings.Join(m.preview.Roster, " -> ")))
+		}
+		lines = append(lines, "", m.styles.title.Render("Compiled task"), trimOneLine(m.preview.CompiledTask, 120))
 		if len(m.preview.Warnings) > 0 {
 			lines = append(lines, "", m.styles.title.Render("Warnings"))
 			for _, warning := range m.preview.Warnings {
@@ -88,16 +93,26 @@ func (m *Model) ensureLaunchDefaults() {
 	if m.launch.Role == "" {
 		m.launch.Role = firstLaunchRole(m.roles)
 	}
+	if m.launch.Mode == operator.LaunchModeManualRoster && len(m.launch.Roster) == 0 && m.launch.Role != "" {
+		m.launch.Roster = []string{m.launch.Role}
+	}
 	if m.launchField > launchFieldRole {
 		m.launchField = launchFieldTask
 	}
 }
 
 func (m *Model) toggleLaunchMode() {
-	if m.launch.Mode == operator.LaunchModeOneStep {
+	switch m.launch.Mode {
+	case operator.LaunchModeOneStep:
 		m.launch.Mode = operator.LaunchModeOrchestrator
 		m.notice = "launch mode set to orchestrator"
-	} else {
+	case operator.LaunchModeOrchestrator:
+		m.launch.Mode = operator.LaunchModeManualRoster
+		if len(m.launch.Roster) == 0 && m.launch.Role != "" {
+			m.launch.Roster = []string{m.launch.Role}
+		}
+		m.notice = "launch mode set to manual roster"
+	default:
 		m.launch.Mode = operator.LaunchModeOneStep
 		m.notice = "launch mode set to one-step"
 	}
@@ -108,6 +123,15 @@ func (m *Model) toggleLaunchMode() {
 func (m *Model) nextLaunchRole() {
 	if len(m.roles) == 0 {
 		m.notice = "no roles configured"
+		return
+	}
+	if m.launch.Mode == operator.LaunchModeManualRoster {
+		next := m.nextRosterRole()
+		m.launch.Roster = append(m.launch.Roster, next)
+		m.launch.Role = next
+		m.notice = fmt.Sprintf("added %s to manual roster", next)
+		m.clearLaunchPreview()
+		m.err = nil
 		return
 	}
 	current := m.launch.Role
@@ -172,12 +196,16 @@ func parseLaunchSpecs(value string) []string {
 }
 
 func (m Model) launchRequest() operator.LaunchRequest {
-	return operator.LaunchRequest{
+	req := operator.LaunchRequest{
 		Mode:        m.launch.Mode,
 		Role:        m.launch.Role,
 		SourceTask:  m.launch.SourceTask,
 		SourceSpecs: parseLaunchSpecs(m.launch.SpecsText),
 	}
+	if m.launch.Mode == operator.LaunchModeManualRoster {
+		req.Roster = append([]string(nil), m.launch.Roster...)
+	}
+	return req
 }
 
 func (m *Model) clearLaunchPreview() {
@@ -188,6 +216,14 @@ func (m *Model) clearLaunchPreview() {
 func sameLaunchRequest(left operator.LaunchRequest, right operator.LaunchRequest) bool {
 	if left.Mode != right.Mode || left.Role != right.Role || left.SourceTask != right.SourceTask {
 		return false
+	}
+	if len(left.Roster) != len(right.Roster) {
+		return false
+	}
+	for i := range left.Roster {
+		if left.Roster[i] != right.Roster[i] {
+			return false
+		}
 	}
 	if len(left.SourceSpecs) != len(right.SourceSpecs) {
 		return false
@@ -210,6 +246,30 @@ func firstLaunchRole(roles []operator.AgentRoleSummary) string {
 		return ""
 	}
 	return roles[0].Name
+}
+
+func (m Model) launchRoleDisplay() string {
+	if m.launch.Mode == operator.LaunchModeManualRoster {
+		return strings.Join(m.launch.Roster, " -> ")
+	}
+	return m.launch.Role
+}
+
+func (m Model) nextRosterRole() string {
+	current := ""
+	if len(m.launch.Roster) > 0 {
+		current = m.launch.Roster[len(m.launch.Roster)-1]
+	} else {
+		current = m.launch.Role
+	}
+	next := firstLaunchRole(m.roles)
+	for i, role := range m.roles {
+		if role.Name == current {
+			next = m.roles[(i+1)%len(m.roles)].Name
+			break
+		}
+	}
+	return next
 }
 
 func dropLastRune(value string) string {

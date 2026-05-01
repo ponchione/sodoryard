@@ -34,16 +34,24 @@ type Mode string
 const (
 	ModeOrchestrator Mode = "sir_topham_decides"
 	ModeOneStep      Mode = "one_step_chain"
+	ModeManualRoster Mode = "manual_roster"
 )
 
 type StepRunner interface {
 	RunStep(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error)
 }
 
+type StepRequest struct {
+	Role          string
+	TaskContext   string
+	ReindexBefore bool
+}
+
 type Options struct {
 	ChainID          string
 	Mode             Mode
 	Role             string
+	Roster           []StepRequest
 	SourceSpecs      []string
 	SourceTask       string
 	MaxSteps         int
@@ -108,8 +116,11 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 		if err != nil {
 			return nil, err
 		}
-	} else if _, _, err := cfg.ResolveAgentRole(opts.Role); err != nil {
-		return nil, fmt.Errorf("chain start: %w", err)
+	} else {
+		opts, err = resolveStepRoles(cfg, opts, mode)
+		if err != nil {
+			return nil, err
+		}
 	}
 	rt, err := deps.BuildRuntime(ctx, cfg)
 	if err != nil {
@@ -155,6 +166,9 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 
 	if mode == ModeOneStep {
 		return runOneStepMode(ctx, rt, opts, deps, chainID, watch)
+	}
+	if mode == ModeManualRoster {
+		return runManualRosterMode(ctx, rt, opts, deps, chainID, watch)
 	}
 	return runOrchestratorMode(ctx, cfg, rt, opts, deps, chainID, roleCfg, systemPrompt, watch)
 }
@@ -223,7 +237,11 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false})
 	if err != nil {
 		if errors.Is(err, tool.ErrChainComplete) {
-			return finishControlledChain(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
+			cleanupCtx := context.WithoutCancel(ctx)
+			if finalizeErr := finalizeRequestedChainStatus(cleanupCtx, rt.ChainStore, chainID); finalizeErr != nil {
+				return nil, finalizeErr
+			}
+			return finishControlledChain(cleanupCtx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
 		}
 		cleanupCtx := context.WithoutCancel(ctx)
 		if finalizeErr := finalizeRequestedChainStatus(cleanupCtx, rt.ChainStore, chainID); finalizeErr != nil {
@@ -260,6 +278,52 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 	return finishControlledChain(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
 }
 
+func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
+	runner := deps.NewStepRunner(rt, chainID)
+	receiptPaths := existingReceiptPaths(mustListSteps(ctx, rt.ChainStore, chainID))
+	results := make([]spawnpkg.AgentStepResult, 0, len(opts.Roster))
+	for i, step := range opts.Roster {
+		if controlled, result, err := stopIfRequested(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout); controlled || err != nil {
+			return result, err
+		}
+		task := buildManualRosterTask(opts, chainID, i+1, step.Role, receiptPaths)
+		taskContext := strings.TrimSpace(step.TaskContext)
+		if taskContext == "" {
+			taskContext = manualRosterTaskContext(chainID, i+1, step.Role)
+		}
+		stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: step.Role, Task: task, TaskContext: taskContext, ReindexBefore: step.ReindexBefore})
+		if err != nil {
+			if errors.Is(err, tool.ErrChainComplete) {
+				cleanupCtx := context.WithoutCancel(ctx)
+				if finalizeErr := finalizeRequestedChainStatus(cleanupCtx, rt.ChainStore, chainID); finalizeErr != nil {
+					return nil, finalizeErr
+				}
+				return finishControlledChain(cleanupCtx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
+			}
+			cleanupCtx := context.WithoutCancel(ctx)
+			if finalizeErr := finalizeRequestedChainStatus(cleanupCtx, rt.ChainStore, chainID); finalizeErr != nil {
+				return nil, finalizeErr
+			}
+			status := terminalStatus(cleanupCtx, rt.ChainStore, chainID)
+			if status == "cancelled" || status == "paused" {
+				return finishControlledChain(cleanupCtx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout)
+			}
+			return nil, err
+		}
+		results = append(results, stepResult)
+		if strings.TrimSpace(stepResult.ReceiptPath) != "" {
+			receiptPaths = append(receiptPaths, stepResult.ReceiptPath)
+		}
+		if controlled, result, err := stopIfRequested(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout); controlled || err != nil {
+			return result, err
+		}
+		if shouldStopManualRoster(stepResult) {
+			return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+		}
+	}
+	return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+}
+
 func withDefaultDeps(deps Deps) Deps {
 	if deps.BuildRuntime == nil {
 		deps.BuildRuntime = rtpkg.BuildOrchestratorRuntime
@@ -294,16 +358,45 @@ func withDefaultDeps(deps Deps) Deps {
 func resolveMode(opts Options) (Mode, error) {
 	if opts.Mode != "" {
 		switch opts.Mode {
-		case ModeOrchestrator, ModeOneStep:
+		case ModeOrchestrator, ModeOneStep, ModeManualRoster:
 			return opts.Mode, nil
 		default:
 			return "", fmt.Errorf("unsupported chain mode %q", opts.Mode)
 		}
 	}
+	if len(opts.Roster) > 0 {
+		return ModeManualRoster, nil
+	}
 	if strings.TrimSpace(opts.Role) != "" {
 		return ModeOneStep, nil
 	}
 	return ModeOrchestrator, nil
+}
+
+func resolveStepRoles(cfg *appconfig.Config, opts Options, mode Mode) (Options, error) {
+	switch mode {
+	case ModeOneStep:
+		roleName, _, err := cfg.ResolveAgentRole(opts.Role)
+		if err != nil {
+			return opts, fmt.Errorf("chain start: %w", err)
+		}
+		opts.Role = roleName
+		return opts, nil
+	case ModeManualRoster:
+		if len(opts.Roster) == 0 {
+			return opts, fmt.Errorf("chain start: manual roster requires at least one role")
+		}
+		for i := range opts.Roster {
+			roleName, _, err := cfg.ResolveAgentRole(opts.Roster[i].Role)
+			if err != nil {
+				return opts, fmt.Errorf("chain start: roster role %d: %w", i+1, err)
+			}
+			opts.Roster[i].Role = roleName
+		}
+		return opts, nil
+	default:
+		return opts, nil
+	}
 }
 
 func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID string, opts Options) (Options, bool, bool, error) {
@@ -516,6 +609,29 @@ func buildOneStepTask(opts Options) string {
 	return fmt.Sprintf("%s\n\nSource specs: %s", task, specs)
 }
 
+func buildManualRosterTask(opts Options, chainID string, sequence int, role string, receiptPaths []string) string {
+	workPacket := buildOneStepTask(opts)
+	if strings.TrimSpace(workPacket) == "" {
+		workPacket = "No task text was provided. Use the selected source specs as the work packet."
+	}
+	receiptHistory := "No previous receipt paths are available yet."
+	if len(receiptPaths) > 0 {
+		receiptHistory = "Previous receipt paths to read before working: " + strings.Join(receiptPaths, ", ") + "."
+	}
+	return fmt.Sprintf(`You are running manual roster step %d for role %s in chain %s.
+
+Original work packet:
+%s
+
+%s
+
+Complete only the work appropriate for this roster step and produce the required receipt.`, sequence, role, chainID, workPacket, receiptHistory)
+}
+
+func manualRosterTaskContext(chainID string, sequence int, role string) string {
+	return fmt.Sprintf("manual_roster:%s:%03d:%s", chainID, sequence, role)
+}
+
 func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
 	if result.Status == "failed" {
 		return "failed"
@@ -530,6 +646,66 @@ func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
 	default:
 		return "failed"
 	}
+}
+
+func shouldStopManualRoster(result spawnpkg.AgentStepResult) bool {
+	return !manualRosterVerdictCanContinue(result) || result.Status == "failed"
+}
+
+func manualRosterVerdictCanContinue(result spawnpkg.AgentStepResult) bool {
+	if result.Status == "failed" {
+		return false
+	}
+	switch result.Verdict {
+	case receipt.VerdictCompleted, receipt.VerdictCompletedWithConcerns, receipt.VerdictCompletedNoReceipt:
+		return true
+	default:
+		return false
+	}
+}
+
+func manualRosterTerminalStatus(results []spawnpkg.AgentStepResult) string {
+	if len(results) == 0 {
+		return "failed"
+	}
+	status := "completed"
+	for _, result := range results {
+		stepStatus := oneStepTerminalStatus(result)
+		if stepStatus == "failed" {
+			return "failed"
+		}
+		if stepStatus == "partial" {
+			status = "partial"
+		}
+	}
+	return status
+}
+
+func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, results []spawnpkg.AgentStepResult, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
+	status := manualRosterTerminalStatus(results)
+	summary := manualRosterSummary(chainID, status, results)
+	extra := map[string]any{"summary": summary, "mode": string(ModeManualRoster), "steps": len(results)}
+	if len(results) > 0 {
+		last := results[len(results)-1]
+		extra["last_role_verdict"] = last.Verdict
+	}
+	if err := chain.ApplyTerminalChainClosure(ctx, store, chainID, chain.TerminalChainClosure{
+		Status:    status,
+		EventType: chain.EventChainCompleted,
+		Summary:   &summary,
+		Extra:     extra,
+	}); err != nil {
+		return nil, err
+	}
+	return finishControlledChain(ctx, store, chainID, watch, watchTimeout)
+}
+
+func manualRosterSummary(chainID string, status string, results []spawnpkg.AgentStepResult) string {
+	if len(results) == 0 {
+		return fmt.Sprintf("manual roster chain %s finished with status %s before any steps ran", chainID, status)
+	}
+	last := results[len(results)-1]
+	return fmt.Sprintf("manual roster chain %s finished with status %s after %d step(s); last verdict %s", chainID, status, len(results), last.Verdict)
 }
 
 func existingReceiptPaths(steps []chain.Step) []string {
@@ -584,6 +760,14 @@ func mustListEvents(ctx context.Context, store *chain.Store, chainID string) []c
 	return events
 }
 
+func mustListSteps(ctx context.Context, store *chain.Store, chainID string) []chain.Step {
+	steps, err := store.ListSteps(ctx, chainID)
+	if err != nil {
+		return nil
+	}
+	return steps
+}
+
 func terminalStatus(ctx context.Context, store *chain.Store, chainID string) string {
 	ch, err := store.GetChain(context.WithoutCancel(ctx), chainID)
 	if err != nil {
@@ -608,6 +792,19 @@ func finishControlledChain(ctx context.Context, store *chain.Store, chainID stri
 		return nil, ExitError{Code: code, Err: fmt.Errorf("chain %s ended with status %s", chainID, status)}
 	}
 	return &Result{ChainID: chainID, Status: status}, nil
+}
+
+func stopIfRequested(ctx context.Context, store *chain.Store, chainID string, watch WatchHandle, watchTimeout time.Duration) (bool, *Result, error) {
+	cleanupCtx := context.WithoutCancel(ctx)
+	if err := finalizeRequestedChainStatus(cleanupCtx, store, chainID); err != nil {
+		return false, nil, err
+	}
+	status := terminalStatus(cleanupCtx, store, chainID)
+	if status == "paused" || status == "cancelled" {
+		result, err := finishControlledChain(cleanupCtx, store, chainID, watch, watchTimeout)
+		return true, result, err
+	}
+	return false, nil, nil
 }
 
 func emit(onMessage func(string), format string, args ...any) {

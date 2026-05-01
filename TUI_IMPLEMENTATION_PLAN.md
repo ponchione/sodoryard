@@ -20,11 +20,11 @@ Primary specs:
 - `internal/chain.Store` supports chains, steps, events, status transitions, events-since polling, and receipt path lookup through steps.
 - `internal/spawn.SpawnAgentTool` exposes the reusable step runner path used by tool execution and one-step chains.
 - Public single-agent work is represented by `yard chain start --role ...`; `yard run` code remains for the internal headless engine helper path but is no longer registered on the public `yard` command tree.
-- `chainrun.Start` supports orchestrator mode and `one_step_chain` mode. It does not yet implement `manual_roster` or constrained orchestration.
+- `chainrun.Start` supports orchestrator mode, `one_step_chain` mode, and `manual_roster` mode. It does not yet implement constrained orchestration.
 - Bubble Tea, Bubbles, and Lip Gloss dependencies are present.
 - `yard tui` is implemented. It starts without `yard serve`, reads through `internal/operator`, and includes dashboard, chains, receipts, event follow, pause/cancel, receipt open, launch preview, and launch start flows.
 - TUI resume currently shows the foreground `yard chain resume <chain-id>` command instead of continuing runner execution inside the TUI.
-- Remaining product gaps are manual roster mode, constrained orchestration, search/filter across chains and receipts, open-in-web handoffs, persistent launch drafts, and presets.
+- Remaining product gaps are constrained orchestration, search/filter across chains and receipts, open-in-web handoffs, persistent launch drafts, and presets.
 
 ## Non-Negotiables
 
@@ -52,7 +52,7 @@ internal/operator
 
 internal/chainrun
   shared execution runner
-  supports orchestrator mode, one-step chain mode, and later manual roster mode
+  supports orchestrator mode, one-step chain mode, and manual roster mode
 
 internal/tui
   Bubble Tea app
@@ -73,14 +73,14 @@ internal/server
 5. TUI event follow, pause/cancel, receipt summaries, and receipt open handoffs.
 6. Initial TUI launch wizard for one-step and orchestrated chains.
 7. TUI readiness metadata for provider/model, index state, local services mode, active chains, and warnings.
+8. Manual roster mode through `chainrun.Start`, operator launch preview/start, and minimal TUI launch controls.
 
 ## Recommended Next Order
 
-1. Manual roster mode in `chainrun.Start` using the existing reusable step runner.
-2. TUI search/filter for chains and receipts.
-3. Open-in-web handoffs that do not secretly start `yard serve`.
-4. Constrained orchestration once launch/request shapes can express role constraints cleanly.
-5. Persistent launch drafts and presets after the launch model needs durable cross-session state.
+1. TUI search/filter for chains and receipts.
+2. Open-in-web handoffs that do not secretly start `yard serve`.
+3. Constrained orchestration once launch/request shapes can express role constraints cleanly.
+4. Persistent launch drafts and presets after the launch model needs durable cross-session state.
 
 This order keeps new work on the shared runtime path and avoids rebuilding execution behavior inside the TUI.
 
@@ -372,7 +372,7 @@ one_step_chain mode:
   finalize chain status from receipt verdict / step result
 
 manual_roster mode:
-  still remaining
+  run each configured roster role in order through the reusable step runner
 ```
 
 4. Add `--role` to `yard chain start`.
@@ -474,7 +474,7 @@ yard tui
 yard chain status <chain-id>
 ```
 
-## Phase 5: TUI Launch Wizard - Partly Landed
+## Phase 5: TUI Launch Wizard - Mostly Landed
 
 Goal: start new work from the TUI.
 
@@ -483,11 +483,11 @@ Phase 3 one-step chain contract is complete.
 Launch modes to implement first:
 
 1. `one_step_chain` - landed
-2. `sir_topham_decides` - landed
+2. `manual_roster` - landed
+3. `sir_topham_decides` - landed
 
 Defer:
 
-- `manual_roster`
 - `constrained_orchestration`
 - persistent launch drafts
 - custom presets
@@ -548,11 +548,11 @@ make test
 make build
 ```
 
-## Phase 6: Manual Roster Mode - Remaining
+## Phase 6: Manual Roster Mode - Landed
 
 Goal: support an explicit ordered set of roles without an orchestrator.
 
-The reusable step runner from Phase 3 is available. This should be the next large runtime feature if the goal is explicit multi-role execution without an orchestrator.
+The reusable step runner from Phase 3 is used by manual roster mode. Each roster step receives the original work packet and previous receipt paths, and pause/cancel requests stop scheduling before the next step.
 
 Implementation:
 
@@ -780,11 +780,10 @@ The original first slice is complete:
 
 Choose one narrow remaining slice:
 
-1. Manual roster mode in `chainrun.Start`.
-2. Search/filter for chains and receipts in `internal/tui`.
-3. Open-in-web handoffs that only display or use an already-running `yard serve`.
-4. Constrained orchestration once launch constraints are modeled.
-5. Persistent launch drafts and presets after durable launch records are justified.
+1. Search/filter for chains and receipts in `internal/tui`.
+2. Open-in-web handoffs that only display or use an already-running `yard serve`.
+3. Constrained orchestration once launch constraints are modeled.
+4. Persistent launch drafts and presets after durable launch records are justified.
 
 For any slice, keep core operations routed through `internal/operator`, avoid Cobra shell-outs from the TUI, and run `make test` plus `make build`.
 

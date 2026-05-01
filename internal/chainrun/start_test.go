@@ -15,6 +15,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/receipt"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
 	"github.com/ponchione/sodoryard/internal/tool"
@@ -382,6 +383,251 @@ func TestStartOneStepMapsFixRequiredReceiptToPartialExit(t *testing.T) {
 	}
 }
 
+func TestBuildManualRosterTaskIncludesOriginalWorkPacketAndPreviousReceipts(t *testing.T) {
+	msg := buildManualRosterTask(Options{SourceTask: "fix auth", SourceSpecs: []string{"specs/auth.md"}}, "chain-1", 2, "coder", []string{"receipts/planner/chain-1-step-001.md"})
+	if !containsAll(msg, "manual roster step 2", "role coder", "chain chain-1", "fix auth", "Source specs: specs/auth.md", "receipts/planner/chain-1-step-001.md") {
+		t.Fatalf("message = %q, want roster context, original work packet, and previous receipt", msg)
+	}
+}
+
+func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"planner": {SystemPrompt: "builtin:planner"},
+		"coder":   {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	var inputs []spawnpkg.AgentStepInput
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return fakeStepRunner{run: func(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+				inputs = append(inputs, in)
+				sequence := len(inputs)
+				stepID, receiptPath := completeFakeRosterStep(t, ctx, store, chainID, sequence, in.Role, in.Task, receipt.VerdictCompleted)
+				return spawnpkg.AgentStepResult{StepID: stepID, Sequence: sequence, ReceiptPath: receiptPath, Verdict: receipt.VerdictCompleted, Status: "completed", TokensUsed: 10, DurationSecs: 1, ExitCode: 0}, "receipt", nil
+			}}
+		},
+		NewChainID: func() string { return "manual-roster-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{
+		Mode:             ModeManualRoster,
+		Roster:           []StepRequest{{Role: "planner"}, {Role: "coder"}},
+		SourceTask:       "ship manual roster",
+		MaxSteps:         10,
+		MaxResolverLoops: 1,
+		MaxDuration:      time.Hour,
+		TokenBudget:      100,
+	}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result status = %q, want completed", result.Status)
+	}
+	if len(inputs) != 2 || inputs[0].Role != "planner" || inputs[1].Role != "coder" {
+		t.Fatalf("inputs = %+v, want planner then coder", inputs)
+	}
+	if !strings.Contains(inputs[0].Task, "No previous receipt paths are available yet.") {
+		t.Fatalf("first task = %q, want no previous receipts", inputs[0].Task)
+	}
+	if !strings.Contains(inputs[1].Task, "receipts/planner/manual-roster-chain-step-001.md") {
+		t.Fatalf("second task = %q, want first receipt path", inputs[1].Task)
+	}
+	steps, err := store.ListSteps(ctx, "manual-roster-chain")
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 2 || steps[0].Role != "planner" || steps[1].Role != "coder" {
+		t.Fatalf("steps = %+v, want planner then coder", steps)
+	}
+	stored, err := store.GetChain(ctx, "manual-roster-chain")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != "completed" || stored.TotalSteps != 2 || stored.TotalTokens != 20 {
+		t.Fatalf("stored chain = %+v, want completed with roster metrics", stored)
+	}
+}
+
+func TestStartManualRosterStopsBeforeNextStepWhenPauseRequested(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"planner": {SystemPrompt: "builtin:planner"},
+		"coder":   {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	runs := 0
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return fakeStepRunner{run: func(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+				runs++
+				stepID, receiptPath := completeFakeRosterStep(t, ctx, store, chainID, runs, in.Role, in.Task, receipt.VerdictCompleted)
+				if err := store.SetChainStatus(ctx, chainID, "pause_requested"); err != nil {
+					t.Fatalf("SetChainStatus returned error: %v", err)
+				}
+				return spawnpkg.AgentStepResult{StepID: stepID, Sequence: runs, ReceiptPath: receiptPath, Verdict: receipt.VerdictCompleted, Status: "completed", TokensUsed: 10, DurationSecs: 1, ExitCode: 0}, "receipt", nil
+			}}
+		},
+		NewChainID: func() string { return "paused-manual-roster" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{
+		Mode:             ModeManualRoster,
+		Roster:           []StepRequest{{Role: "planner"}, {Role: "coder"}},
+		SourceTask:       "pause after first",
+		MaxSteps:         10,
+		MaxResolverLoops: 1,
+		MaxDuration:      time.Hour,
+		TokenBudget:      100,
+	}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != "paused" {
+		t.Fatalf("result status = %q, want paused", result.Status)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want one scheduled step", runs)
+	}
+	stored, err := store.GetChain(ctx, "paused-manual-roster")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != "paused" {
+		t.Fatalf("stored status = %q, want paused", stored.Status)
+	}
+}
+
+func TestStartManualRosterStopsBeforeNextStepWhenCancelRequested(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"planner": {SystemPrompt: "builtin:planner"},
+		"coder":   {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	runs := 0
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return fakeStepRunner{run: func(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+				runs++
+				stepID, receiptPath := completeFakeRosterStep(t, ctx, store, chainID, runs, in.Role, in.Task, receipt.VerdictCompleted)
+				if err := store.SetChainStatus(ctx, chainID, "cancel_requested"); err != nil {
+					t.Fatalf("SetChainStatus returned error: %v", err)
+				}
+				return spawnpkg.AgentStepResult{StepID: stepID, Sequence: runs, ReceiptPath: receiptPath, Verdict: receipt.VerdictCompleted, Status: "completed", TokensUsed: 10, DurationSecs: 1, ExitCode: 0}, "receipt", nil
+			}}
+		},
+		NewChainID: func() string { return "cancelled-manual-roster" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	_, err := Start(ctx, cfg, Options{
+		Mode:             ModeManualRoster,
+		Roster:           []StepRequest{{Role: "planner"}, {Role: "coder"}},
+		SourceTask:       "cancel after first",
+		MaxSteps:         10,
+		MaxResolverLoops: 1,
+		MaxDuration:      time.Hour,
+		TokenBudget:      100,
+	}, deps)
+	var exitErr ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("Start error = %T %[1]v, want ExitError", err)
+	}
+	if exitErr.ExitCode() != 4 {
+		t.Fatalf("ExitCode = %d, want cancel exit 4", exitErr.ExitCode())
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want one scheduled step", runs)
+	}
+	stored, loadErr := store.GetChain(ctx, "cancelled-manual-roster")
+	if loadErr != nil {
+		t.Fatalf("GetChain returned error: %v", loadErr)
+	}
+	if stored.Status != "cancelled" {
+		t.Fatalf("stored status = %q, want cancelled", stored.Status)
+	}
+}
+
+func TestStartManualRosterStopsAndMarksPartialForFixRequired(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"planner": {SystemPrompt: "builtin:planner"},
+		"coder":   {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	runs := 0
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			return fakeStepRunner{run: func(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
+				runs++
+				stepID, receiptPath := completeFakeRosterStep(t, ctx, store, chainID, runs, in.Role, in.Task, receipt.VerdictFixRequired)
+				return spawnpkg.AgentStepResult{StepID: stepID, Sequence: runs, ReceiptPath: receiptPath, Verdict: receipt.VerdictFixRequired, Status: "completed", TokensUsed: 10, DurationSecs: 1, ExitCode: 0}, "receipt", nil
+			}}
+		},
+		NewChainID: func() string { return "partial-manual-roster" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	_, err := Start(ctx, cfg, Options{
+		Mode:             ModeManualRoster,
+		Roster:           []StepRequest{{Role: "planner"}, {Role: "coder"}},
+		SourceTask:       "stop after non-success",
+		MaxSteps:         10,
+		MaxResolverLoops: 1,
+		MaxDuration:      time.Hour,
+		TokenBudget:      100,
+	}, deps)
+	var exitErr ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("Start error = %T %[1]v, want ExitError", err)
+	}
+	if exitErr.ExitCode() != 2 {
+		t.Fatalf("ExitCode = %d, want partial exit 2", exitErr.ExitCode())
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want one scheduled step", runs)
+	}
+	stored, loadErr := store.GetChain(ctx, "partial-manual-roster")
+	if loadErr != nil {
+		t.Fatalf("GetChain returned error: %v", loadErr)
+	}
+	if stored.Status != "partial" {
+		t.Fatalf("stored status = %q, want partial", stored.Status)
+	}
+}
+
 func TestStartReturnsCancelExitCodeForHandledInterruption(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -535,6 +781,26 @@ type fakeStepRunner struct {
 
 func (f fakeStepRunner) RunStep(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error) {
 	return f.run(ctx, in)
+}
+
+func completeFakeRosterStep(t *testing.T, ctx context.Context, store *chain.Store, chainID string, sequence int, role string, task string, verdict receipt.Verdict) (string, string) {
+	t.Helper()
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: sequence, Role: role, Task: task})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	receiptPath := receipt.StepPath(role, chainID, sequence)
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: string(verdict), ReceiptPath: receiptPath, TokensUsed: 10, DurationSecs: 1}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	ch, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: ch.TotalSteps + 1, TotalTokens: ch.TotalTokens + 10, TotalDurationSecs: ch.TotalDurationSecs + 1}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	return stepID, receiptPath
 }
 
 func newChainrunTestDB(t *testing.T) *sql.DB {

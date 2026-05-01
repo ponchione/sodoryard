@@ -134,8 +134,21 @@ func (f *fakeOperator) ValidateLaunch(_ context.Context, req operator.LaunchRequ
 		return operator.LaunchPreview{}, fmt.Errorf("one of task or specs is required")
 	}
 	role := req.Role
+	roster := append([]string(nil), req.Roster...)
+	summary := "preview " + role
+	if req.Mode == operator.LaunchModeManualRoster {
+		if len(roster) == 0 && role != "" {
+			roster = strings.Split(role, ",")
+		}
+		if len(roster) == 0 {
+			return operator.LaunchPreview{}, fmt.Errorf("manual roster requires at least one role")
+		}
+		role = strings.Join(roster, ",")
+		summary = "preview manual roster"
+	}
 	if role == "" {
 		role = "orchestrator"
+		summary = "preview " + role
 	}
 	compiled := req.SourceTask
 	if len(req.SourceSpecs) > 0 {
@@ -147,7 +160,8 @@ func (f *fakeOperator) ValidateLaunch(_ context.Context, req operator.LaunchRequ
 	return operator.LaunchPreview{
 		Mode:         req.Mode,
 		Role:         role,
-		Summary:      "preview " + role,
+		Roster:       roster,
+		Summary:      summary,
 		CompiledTask: compiled,
 	}, nil
 }
@@ -351,6 +365,42 @@ func TestModelLaunchModeAndRoleControls(t *testing.T) {
 	got = updated.(Model)
 	if got.launch.Role != "orchestrator" {
 		t.Fatalf("role = %s, want orchestrator after cycling", got.launch.Role)
+	}
+}
+
+func TestModelLaunchManualRosterControls(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "ship roster"
+
+	updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	got = updated.(Model)
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	got = updated.(Model)
+	if got.launch.Mode != operator.LaunchModeManualRoster || !reflect.DeepEqual(got.launch.Roster, []string{"coder"}) {
+		t.Fatalf("manual launch state = %+v, want coder roster", got.launch)
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if !reflect.DeepEqual(got.launch.Roster, []string{"coder", "orchestrator"}) {
+		t.Fatalf("roster = %v, want coder then orchestrator", got.launch.Roster)
+	}
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("manual roster preview returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.launchRequest.Mode != operator.LaunchModeManualRoster || !reflect.DeepEqual(fake.launchRequest.Roster, []string{"coder", "orchestrator"}) {
+		t.Fatalf("launch request = %+v, want manual roster", fake.launchRequest)
+	}
+	view := got.View()
+	if !strings.Contains(view, "roster: coder -> orchestrator") || !strings.Contains(view, "preview manual roster") {
+		t.Fatalf("manual roster view missing preview fragments:\n%s", view)
 	}
 }
 

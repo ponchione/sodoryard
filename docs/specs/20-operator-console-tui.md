@@ -26,8 +26,8 @@ All three surfaces should converge on shared internal runtime services. The TUI 
 
 Implementation status as of 2026-05-01:
 
-- Landed: `yard tui`, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, and launch preview/start for `one_step_chain` and `sir_topham_decides`.
-- Remaining: `manual_roster`, constrained orchestration, search/filter across chains and receipts, open-in-web handoffs, persistent launch drafts, and presets.
+- Landed: `yard tui`, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, and launch preview/start for `one_step_chain`, `manual_roster`, and `sir_topham_decides`.
+- Remaining: constrained orchestration, search/filter across chains and receipts, open-in-web handoffs, persistent launch drafts, and presets.
 - Resume is currently a foreground command handoff: the TUI shows `yard chain resume <chain-id>` rather than continuing runner execution inside the TUI.
 
 ---
@@ -400,7 +400,7 @@ The first implementation should keep this simple and avoid hidden long-running s
 - Add manual roster mode when the runner supports it.
 - Validate preflight warnings before start.
 - Preview compiled work packet.
-- Status: partly landed. One-step and orchestrated launch preview/start are present; manual roster and constrained orchestration remain deferred.
+- Status: mostly landed. One-step, manual-roster, and orchestrated launch preview/start are present; constrained orchestration remains deferred.
 
 ### Phase D - Operator Polish
 

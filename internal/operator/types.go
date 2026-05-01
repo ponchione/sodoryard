@@ -96,11 +96,13 @@ type LaunchMode string
 const (
 	LaunchModeOrchestrator LaunchMode = "sir_topham_decides"
 	LaunchModeOneStep      LaunchMode = "one_step_chain"
+	LaunchModeManualRoster LaunchMode = "manual_roster"
 )
 
 type LaunchRequest struct {
 	Mode             LaunchMode
 	Role             string
+	Roster           []string
 	SourceTask       string
 	SourceSpecs      []string
 	MaxSteps         int
@@ -112,6 +114,7 @@ type LaunchRequest struct {
 type LaunchPreview struct {
 	Mode         LaunchMode
 	Role         string
+	Roster       []string
 	Summary      string
 	CompiledTask string
 	Warnings     []RuntimeWarning

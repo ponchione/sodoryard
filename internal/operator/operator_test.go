@@ -416,6 +416,14 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if orchestrator.Mode != LaunchModeOrchestrator || orchestrator.Role != "orchestrator" || orchestrator.CompiledTask != "Specs: specs/a.md" {
 		t.Fatalf("orchestrator preview = %+v, want normalized spec preview", orchestrator)
 	}
+
+	manual, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeManualRoster, Roster: []string{" coder ", "orchestrator"}, SourceTask: "ship roster"})
+	if err != nil {
+		t.Fatalf("ValidateLaunch manual roster returned error: %v", err)
+	}
+	if manual.Mode != LaunchModeManualRoster || manual.Role != "coder,orchestrator" || !reflect.DeepEqual(manual.Roster, []string{"coder", "orchestrator"}) || manual.Summary != "Run manual roster: coder -> orchestrator" {
+		t.Fatalf("manual preview = %+v, want normalized roster preview", manual)
+	}
 }
 
 func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
@@ -427,6 +435,9 @@ func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
 	}
 	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "missing", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "resolve launch role") {
 		t.Fatalf("ValidateLaunch unknown role error = %v, want role resolution error", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeManualRoster, SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "manual roster requires at least one role") {
+		t.Fatalf("ValidateLaunch missing roster error = %v, want missing roster error", err)
 	}
 }
 
@@ -476,6 +487,37 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	}
 	if gotDeps.ProcessID == nil || gotDeps.ProcessID() != 0 {
 		t.Fatalf("ProcessID dependency returned nonzero, want embedded starts to register without a signalable PID")
+	}
+}
+
+func TestStartChainMapsManualRosterLaunchRequestToChainrun(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	configPath := writeOperatorTestConfig(t, projectRoot)
+	var gotOpts chainrun.Options
+	svc, err := Open(ctx, Options{
+		ConfigPath: configPath,
+		ReadOnly:   true,
+		ChainStarter: func(ctx context.Context, cfg *appconfig.Config, opts chainrun.Options, deps chainrun.Deps) (*chainrun.Result, error) {
+			gotOpts = opts
+			opts.OnChainID("manual-launched")
+			return &chainrun.Result{ChainID: "manual-launched", Status: "completed"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeManualRoster, Roster: []string{"coder", "orchestrator"}, SourceTask: "ship roster"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if result.ChainID != "manual-launched" || result.Preview.Summary != "Run manual roster: coder -> orchestrator" {
+		t.Fatalf("result = %+v, want manual roster preview", result)
+	}
+	if gotOpts.Mode != chainrun.ModeManualRoster || gotOpts.Role != "coder,orchestrator" || len(gotOpts.Roster) != 2 || gotOpts.Roster[0].Role != "coder" || gotOpts.Roster[1].Role != "orchestrator" {
+		t.Fatalf("chainrun opts = %+v, want manual roster mapped to step requests", gotOpts)
 	}
 }
 

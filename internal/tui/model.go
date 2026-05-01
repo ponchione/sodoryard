@@ -43,6 +43,7 @@ const (
 type launchDraft struct {
 	Mode       operator.LaunchMode
 	Role       string
+	Roster     []string
 	SourceTask string
 	SpecsText  string
 }
