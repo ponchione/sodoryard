@@ -25,6 +25,8 @@ type controlMsg struct {
 
 type followEventsMsg struct {
 	ChainID string
+	Status  string
+	Detail  *operator.ChainDetail
 	Events  []chain.Event
 	Err     error
 }

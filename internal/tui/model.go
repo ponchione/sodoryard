@@ -123,6 +123,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.receipt = msg.Receipt
 		m.lastUpdated = time.Now()
 		m.updateReceiptViewport()
+		if m.follow && m.followID == msg.SelectedChainID && m.detail != nil && !followStatusActive(m.detail.Chain.Status) {
+			m.stopFollowingCompletedChain(msg.SelectedChainID, m.detail.Chain.Status)
+		}
 		return m, nil
 	case controlMsg:
 		m.loading = false
@@ -148,6 +151,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.followLog = append(m.followLog, msg.Events...)
 		m.followLog = trimEvents(m.followLog, 200)
 		m.followAfter = maxEventID(m.followLog, m.followAfter)
+		if msg.Detail != nil {
+			m.applyFollowDetail(*msg.Detail)
+		}
+		if !followStatusActive(msg.Status) {
+			m.stopFollowingCompletedChain(msg.ChainID, msg.Status)
+			return m, nil
+		}
 		return m, m.followTickCmd()
 	case receiptOpenedMsg:
 		if msg.Err != nil {
@@ -662,7 +672,14 @@ func (m Model) followCmd() tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
 		defer cancel()
 		events, err := m.svc.ListEventsSince(ctx, chainID, afterID)
-		return followEventsMsg{ChainID: chainID, Events: events, Err: err}
+		if err != nil {
+			return followEventsMsg{ChainID: chainID, Err: err}
+		}
+		detail, err := m.svc.GetChainDetail(ctx, chainID)
+		if err != nil {
+			return followEventsMsg{ChainID: chainID, Err: err}
+		}
+		return followEventsMsg{ChainID: chainID, Status: detail.Chain.Status, Detail: &detail, Events: events}
 	}
 }
 
@@ -815,6 +832,41 @@ func canCancelChain(status string) bool {
 	default:
 		return false
 	}
+}
+
+func followStatusActive(status string) bool {
+	return status == "running" || status == "pause_requested" || status == "cancel_requested"
+}
+
+func (m *Model) applyFollowDetail(detail operator.ChainDetail) {
+	if selectedChainID(m.chains, m.chainCursor) != detail.Chain.ID {
+		return
+	}
+	m.detail = &detail
+	m.receiptItems = buildReceiptItems(m.detail)
+	m.receiptCursor = clampCursor(m.receiptCursor, len(m.receiptItems))
+	for i := range m.chains {
+		if m.chains[i].ID != detail.Chain.ID {
+			continue
+		}
+		m.chains[i].Status = detail.Chain.Status
+		m.chains[i].TotalSteps = detail.Chain.TotalSteps
+		m.chains[i].TotalTokens = detail.Chain.TotalTokens
+		m.chains[i].UpdatedAt = detail.Chain.UpdatedAt
+		break
+	}
+}
+
+func (m *Model) stopFollowingCompletedChain(chainID string, status string) {
+	m.follow = false
+	m.followID = ""
+	m.followAfter = 0
+	m.followLog = nil
+	if strings.TrimSpace(status) == "" {
+		m.notice = fmt.Sprintf("stopped following chain %s", chainID)
+		return
+	}
+	m.notice = fmt.Sprintf("chain %s is %s; stopped following", chainID, status)
 }
 
 func initialFollowEvents(detail *operator.ChainDetail, chainID string) []chain.Event {

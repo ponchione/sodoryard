@@ -610,3 +610,45 @@ func TestModelFollowsSelectedChainEvents(t *testing.T) {
 		t.Fatalf("follow view did not render filtered live events:\n%s", view)
 	}
 }
+
+func TestModelStopsFollowingCompletedChain(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1, FollowInterval: time.Second})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenChains
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("follow returned nil command")
+	}
+
+	completedAt := time.Date(2026, 5, 1, 12, 0, 2, 0, time.UTC)
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: "completed", SourceTask: "first task", TotalSteps: 1, TotalTokens: 12, UpdatedAt: completedAt},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "accepted", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
+		RecentEvents: []chain.Event{
+			{ID: 1, EventType: chain.EventStepStarted, EventData: `{"role":"coder"}`, CreatedAt: completedAt},
+			{ID: 2, EventType: chain.EventChainCompleted, EventData: `{"status":"completed"}`, CreatedAt: completedAt},
+		},
+	}
+
+	updated, next := got.Update(cmd())
+	got = updated.(Model)
+	if next != nil {
+		t.Fatal("completed follow scheduled another tick")
+	}
+	if got.follow || got.followID != "" || got.followAfter != 0 {
+		t.Fatalf("follow state = follow %t id %q after %d, want stopped", got.follow, got.followID, got.followAfter)
+	}
+	if got.detail == nil || got.detail.Chain.Status != "completed" {
+		t.Fatalf("detail status = %+v, want completed", got.detail)
+	}
+	if got.chains[0].Status != "completed" {
+		t.Fatalf("chain list status = %q, want completed", got.chains[0].Status)
+	}
+	if got.notice != "chain chain-1 is completed; stopped following" {
+		t.Fatalf("notice = %q, want completed follow notice", got.notice)
+	}
+}
