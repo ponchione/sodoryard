@@ -78,6 +78,7 @@ type Model struct {
 	launchField  launchField
 	launchEdit   bool
 	preview      *operator.LaunchPreview
+	previewReq   *operator.LaunchRequest
 	follow       bool
 	followID     string
 	followAfter  int64
@@ -87,8 +88,9 @@ type Model struct {
 }
 
 type pendingConfirmation struct {
-	Action  string
-	ChainID string
+	Action        string
+	ChainID       string
+	LaunchRequest operator.LaunchRequest
 }
 
 func (m Model) Init() tea.Cmd {
@@ -126,6 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.follow && m.followID == msg.SelectedChainID && m.detail != nil && !followStatusActive(m.detail.Chain.Status) {
 			m.stopFollowingCompletedChain(msg.SelectedChainID, m.detail.Chain.Status)
 		}
+		m.invalidateStaleConfirmation()
 		return m, nil
 	case controlMsg:
 		m.loading = false
@@ -172,11 +175,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.err = msg.Err
 			m.preview = nil
+			m.previewReq = nil
 			m.notice = ""
 			return m, nil
 		}
 		m.err = nil
-		m.preview = &msg.Preview
+		preview := msg.Preview
+		req := msg.Request
+		m.preview = &preview
+		m.previewReq = &req
 		m.notice = "launch preview ready"
 		return m, nil
 	case launchStartedMsg:
@@ -392,22 +399,22 @@ func (m Model) handleLaunchEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.launchPreviewCmd()
 	case tea.KeyBackspace, tea.KeyCtrlH:
 		m.setLaunchFieldText(dropLastRune(m.launchFieldText()))
-		m.preview = nil
+		m.clearLaunchPreview()
 		m.err = nil
 		return m, nil
 	case tea.KeyCtrlU:
 		m.setLaunchFieldText("")
-		m.preview = nil
+		m.clearLaunchPreview()
 		m.err = nil
 		return m, nil
 	case tea.KeySpace:
 		m.setLaunchFieldText(m.launchFieldText() + " ")
-		m.preview = nil
+		m.clearLaunchPreview()
 		m.err = nil
 		return m, nil
 	case tea.KeyRunes:
 		m.setLaunchFieldText(m.launchFieldText() + string(msg.Runes))
-		m.preview = nil
+		m.clearLaunchPreview()
 		m.err = nil
 		return m, nil
 	default:
@@ -426,7 +433,7 @@ func (m Model) handleConfirmationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.controlCmd("cancel", confirm.ChainID)
 		case "launch":
 			m.loading = true
-			return m, m.launchStartCmd()
+			return m, m.launchStartCmd(confirm.LaunchRequest)
 		default:
 			m.notice = fmt.Sprintf("unsupported confirmation action %s", confirm.Action)
 			return m, nil
@@ -509,11 +516,17 @@ func (m Model) toggleFollowSelectedChain() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) confirmLaunch() (tea.Model, tea.Cmd) {
-	if m.preview == nil {
+	if m.preview == nil || m.previewReq == nil {
 		m.notice = "preview launch before starting"
 		return m, m.launchPreviewCmd()
 	}
-	m.confirm = pendingConfirmation{Action: "launch"}
+	current := m.launchRequest()
+	if !sameLaunchRequest(*m.previewReq, current) {
+		m.clearLaunchPreview()
+		m.notice = "preview launch before starting"
+		return m, m.launchPreviewCmd()
+	}
+	m.confirm = pendingConfirmation{Action: "launch", LaunchRequest: *m.previewReq}
 	m.notice = "start launch? y/n"
 	return m, nil
 }
@@ -611,29 +624,20 @@ func (m Model) launchPreviewCmd() tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
 		defer cancel()
-		preview, err := m.svc.ValidateLaunch(ctx, operator.LaunchRequest{
-			Mode:        m.launch.Mode,
-			Role:        m.launch.Role,
-			SourceTask:  m.launch.SourceTask,
-			SourceSpecs: parseLaunchSpecs(m.launch.SpecsText),
-		})
-		return launchPreviewMsg{Preview: preview, Err: err}
+		req := m.launchRequest()
+		preview, err := m.svc.ValidateLaunch(ctx, req)
+		return launchPreviewMsg{Request: req, Preview: preview, Err: err}
 	}
 }
 
-func (m Model) launchStartCmd() tea.Cmd {
+func (m Model) launchStartCmd(req operator.LaunchRequest) tea.Cmd {
 	return func() tea.Msg {
 		if m.svc == nil {
 			return launchStartedMsg{Err: fmt.Errorf("operator service is not configured")}
 		}
 		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 		defer cancel()
-		result, err := m.svc.StartChain(ctx, operator.LaunchRequest{
-			Mode:        m.launch.Mode,
-			Role:        m.launch.Role,
-			SourceTask:  m.launch.SourceTask,
-			SourceSpecs: parseLaunchSpecs(m.launch.SpecsText),
-		})
+		result, err := m.svc.StartChain(ctx, req)
 		return launchStartedMsg{Result: result, Err: err}
 	}
 }
@@ -810,15 +814,37 @@ func (m Model) selectedChainStatus() string {
 	if chainID == "" {
 		return ""
 	}
+	status, _ := m.chainStatusByID(chainID)
+	return status
+}
+
+func (m Model) chainStatusByID(chainID string) (string, bool) {
 	if m.detail != nil && m.detail.Chain.ID == chainID {
-		return m.detail.Chain.Status
+		return m.detail.Chain.Status, true
 	}
 	for _, ch := range m.chains {
 		if ch.ID == chainID {
-			return ch.Status
+			return ch.Status, true
 		}
 	}
-	return ""
+	return "", false
+}
+
+func (m *Model) invalidateStaleConfirmation() {
+	if m.confirm.Action != "cancel" {
+		return
+	}
+	chainID := m.confirm.ChainID
+	status, ok := m.chainStatusByID(chainID)
+	if !ok {
+		m.confirm = pendingConfirmation{}
+		m.notice = fmt.Sprintf("chain %s is no longer available; cancel aborted", chainID)
+		return
+	}
+	if !canCancelChain(status) {
+		m.confirm = pendingConfirmation{}
+		m.notice = fmt.Sprintf("chain %s is %s; cancel aborted", chainID, status)
+	}
 }
 
 func canPauseChain(status string) bool {

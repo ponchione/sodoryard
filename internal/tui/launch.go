@@ -101,7 +101,7 @@ func (m *Model) toggleLaunchMode() {
 		m.launch.Mode = operator.LaunchModeOneStep
 		m.notice = "launch mode set to one-step"
 	}
-	m.preview = nil
+	m.clearLaunchPreview()
 	m.err = nil
 }
 
@@ -120,7 +120,7 @@ func (m *Model) nextLaunchRole() {
 	}
 	m.launch.Role = next
 	m.notice = fmt.Sprintf("launch role set to %s", next)
-	m.preview = nil
+	m.clearLaunchPreview()
 	m.err = nil
 }
 
@@ -169,6 +169,35 @@ func (m *Model) setLaunchFieldText(value string) {
 
 func parseLaunchSpecs(value string) []string {
 	return chaininput.ParseSpecs(value)
+}
+
+func (m Model) launchRequest() operator.LaunchRequest {
+	return operator.LaunchRequest{
+		Mode:        m.launch.Mode,
+		Role:        m.launch.Role,
+		SourceTask:  m.launch.SourceTask,
+		SourceSpecs: parseLaunchSpecs(m.launch.SpecsText),
+	}
+}
+
+func (m *Model) clearLaunchPreview() {
+	m.preview = nil
+	m.previewReq = nil
+}
+
+func sameLaunchRequest(left operator.LaunchRequest, right operator.LaunchRequest) bool {
+	if left.Mode != right.Mode || left.Role != right.Role || left.SourceTask != right.SourceTask {
+		return false
+	}
+	if len(left.SourceSpecs) != len(right.SourceSpecs) {
+		return false
+	}
+	for i := range left.SourceSpecs {
+		if left.SourceSpecs[i] != right.SourceSpecs[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func firstLaunchRole(roles []operator.AgentRoleSummary) string {

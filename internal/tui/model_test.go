@@ -351,6 +351,10 @@ func TestModelStartsPreviewedLaunchAfterConfirmation(t *testing.T) {
 	if got.confirm.Action != "launch" {
 		t.Fatalf("confirm action = %q, want launch", got.confirm.Action)
 	}
+	got.launch.SourceTask = "changed after confirmation"
+	got.launch.SpecsText = "specs/changed.md"
+	got.launch.Mode = operator.LaunchModeOrchestrator
+	got.launch.Role = "planner"
 	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	got = updated.(Model)
 	if cmd == nil {
@@ -525,6 +529,46 @@ func TestModelCancelsSelectedChain(t *testing.T) {
 	}
 	if got.notice != "chain chain-1 cancel requested" {
 		t.Fatalf("notice = %q, want cancel requested notice", got.notice)
+	}
+}
+
+func TestModelClearsStaleCancelConfirmation(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenChains
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("cancel confirmation returned command before confirmation")
+	}
+	if got.confirm.Action != "cancel" || got.confirm.ChainID != "chain-1" {
+		t.Fatalf("confirm = %+v, want cancel chain-1", got.confirm)
+	}
+
+	fake.chains[0].Status = "completed"
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: "completed", SourceTask: "first task"},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "accepted", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
+	}
+	updated, _ = got.Update(got.refreshCmd()())
+	got = updated.(Model)
+	if got.confirm.Action != "" {
+		t.Fatalf("confirm = %+v, want cleared stale cancel confirmation", got.confirm)
+	}
+	if got.notice != "chain chain-1 is completed; cancel aborted" {
+		t.Fatalf("notice = %q, want stale cancel notice", got.notice)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("stale confirm y returned command")
+	}
+	if fake.cancelledChain != "" {
+		t.Fatalf("cancelledChain = %q after stale confirmation, want empty", fake.cancelledChain)
 	}
 }
 

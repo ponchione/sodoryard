@@ -38,6 +38,7 @@ type receiptOpenedMsg struct {
 }
 
 type launchPreviewMsg struct {
+	Request operator.LaunchRequest
 	Preview operator.LaunchPreview
 	Err     error
 }
