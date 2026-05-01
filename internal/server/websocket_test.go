@@ -152,6 +152,63 @@ func TestWebSocketUpgrade(t *testing.T) {
 	conn.Close(websocket.StatusNormalClosure, "test done")
 }
 
+func TestWebSocketDevModeAcceptsViteOrigin(t *testing.T) {
+	base := setupWSOriginTest(t, true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": []string{"http://localhost:5173"}},
+	})
+	if err != nil {
+		t.Fatalf("websocket dial failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	conn.Close(websocket.StatusNormalClosure, "test done")
+}
+
+func TestWebSocketDevModeRejectsUnexpectedOrigin(t *testing.T) {
+	base := setupWSOriginTest(t, true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": []string{"http://malicious.example"}},
+	})
+	if err == nil {
+		conn.CloseNow()
+		t.Fatal("websocket dial succeeded, want forbidden origin error")
+	}
+	if resp == nil {
+		t.Fatalf("websocket dial returned nil response for error: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("websocket status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+func setupWSOriginTest(t *testing.T, devMode bool) string {
+	t.Helper()
+	agentMock := &mockAgentService{}
+	convMock := &mockConversationService{}
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0, DevMode: devMode}, newTestLogger())
+	cfg := &config.Config{
+		ProjectRoot: "test-project",
+		Server:      config.ServerConfig{DevMode: devMode},
+		Providers: map[string]config.ProviderConfig{
+			"codex": {Type: "codex", ContextLength: 200000},
+		},
+	}
+	server.NewWebSocketHandler(srv, agentMock, convMock, cfg, nil, newTestLogger())
+	_, base := startServer(t, srv)
+	return base
+}
+
 func TestWebSocketMessageTriggersRunTurn(t *testing.T) {
 	turnStarted := make(chan agent.RunTurnRequest, 1)
 	agentMock := &mockAgentService{
