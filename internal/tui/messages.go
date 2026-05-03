@@ -65,6 +65,11 @@ type launchPresetSavedMsg struct {
 	Err    error
 }
 
+type chatTurnMsg struct {
+	Result operator.ChatTurnResult
+	Err    error
+}
+
 type tickMsg time.Time
 
 type followTickMsg time.Time

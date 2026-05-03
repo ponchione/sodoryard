@@ -32,7 +32,7 @@ func newYardTUICmd(configPath *string) *cobra.Command {
 }
 
 func runYardTUICommand(cmd *cobra.Command, configPath string) error {
-	svc, err := openYardReadOnlyOperator(cmd.Context(), configPath)
+	svc, err := openYardOperator(cmd.Context(), configPath)
 	if err != nil {
 		return fmt.Errorf("open operator: %w", err)
 	}

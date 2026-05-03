@@ -25,6 +25,7 @@ type Operator interface {
 	ListLaunchPresets(context.Context) ([]operator.LaunchPreset, error)
 	SaveLaunchPreset(context.Context, string, operator.LaunchRequest) (operator.LaunchPreset, error)
 	StartChain(context.Context, operator.LaunchRequest) (operator.StartResult, error)
+	SendChatMessage(context.Context, operator.ChatTurnRequest) (operator.ChatTurnResult, error)
 }
 
 type Options struct {
@@ -69,7 +70,7 @@ func NewModel(svc Operator, opts Options) Model {
 	return Model{
 		ctx:             opts.Context,
 		svc:             svc,
-		screen:          screenDashboard,
+		screen:          screenChat,
 		width:           100,
 		height:          30,
 		refreshInterval: opts.RefreshInterval,

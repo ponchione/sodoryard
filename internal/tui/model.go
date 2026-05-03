@@ -18,7 +18,8 @@ import (
 type appScreen int
 
 const (
-	screenDashboard appScreen = iota
+	screenChat appScreen = iota
+	screenDashboard
 	screenLaunch
 	screenChains
 	screenReceipts
@@ -61,21 +62,25 @@ type Model struct {
 	chainLimit      int
 	receiptOpener   ReceiptOpener
 
-	status          operator.RuntimeStatus
-	roles           []operator.AgentRoleSummary
-	customPresets   []operator.LaunchPreset
-	chains          []operator.ChainSummary
-	chainCursor     int
-	detail          *operator.ChainDetail
-	receiptItems    []receiptItem
-	receiptCursor   int
-	receipt         *operator.ReceiptView
-	viewport        viewport.Model
-	chainFilter     string
-	receiptFilter   string
-	filterEdit      bool
-	filterScreen    appScreen
-	webBaseURLValue string
+	status             operator.RuntimeStatus
+	roles              []operator.AgentRoleSummary
+	customPresets      []operator.LaunchPreset
+	chains             []operator.ChainSummary
+	chainCursor        int
+	detail             *operator.ChainDetail
+	receiptItems       []receiptItem
+	receiptCursor      int
+	receipt            *operator.ReceiptView
+	viewport           viewport.Model
+	chatConversationID string
+	chatMessages       []operator.ChatMessage
+	chatInput          string
+	chatEdit           bool
+	chainFilter        string
+	receiptFilter      string
+	filterEdit         bool
+	filterScreen       appScreen
+	webBaseURLValue    string
 
 	loading      bool
 	err          error
@@ -255,6 +260,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.upsertCustomPreset(msg.Preset)
 		m.notice = "launch preset saved: " + msg.Preset.Name
 		return m, nil
+	case chatTurnMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.err = msg.Err
+			m.notice = ""
+			m.chatEdit = true
+			return m, nil
+		}
+		m.err = nil
+		m.chatConversationID = msg.Result.ConversationID
+		m.chatMessages = append([]operator.ChatMessage(nil), msg.Result.Messages...)
+		m.chatInput = ""
+		m.chatEdit = true
+		m.notice = fmt.Sprintf("chat response from %s:%s", msg.Result.Provider, msg.Result.Model)
+		return m, nil
 	case tickMsg:
 		m.loading = true
 		return m, tea.Batch(m.refreshCmd(), m.tickCmd())
@@ -279,6 +299,8 @@ func (m Model) View() string {
 	}
 	var body string
 	switch m.screen {
+	case screenChat:
+		body = m.renderChat()
 	case screenLaunch:
 		body = m.renderLaunch()
 	case screenChains:
@@ -296,7 +318,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q":
-		if !m.launchEdit && !m.filterEdit {
+		if !m.launchEdit && !m.filterEdit && !m.chatEdit {
 			return m, tea.Quit
 		}
 	}
@@ -305,6 +327,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.launchEdit {
 		return m.handleLaunchEditKey(msg)
+	}
+	if m.chatEdit {
+		return m.handleChatEditKey(msg)
 	}
 	if m.filterEdit {
 		return m.handleFilterEditKey(msg)
@@ -339,6 +364,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.loading = true
 		return m, m.refreshCmd()
+	case "N":
+		if m.screen == screenChat {
+			m.chatConversationID = ""
+			m.chatMessages = nil
+			m.chatInput = ""
+			m.chatEdit = true
+			m.notice = "new chat"
+			m.err = nil
+			return m, nil
+		}
 	case "/":
 		if !m.filterAvailable() {
 			m.notice = "filter is available on chains and receipts"
@@ -397,6 +432,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "i":
+		if m.screen == screenChat {
+			m.chatEdit = true
+			m.notice = "editing chat message"
+			return m, nil
+		}
 		if m.screen == screenLaunch {
 			if !m.launchFieldEditable() {
 				m.notice = "selected launch field is not editable"
@@ -425,6 +465,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "w":
 		return m.showSelectedWebInspectorTarget()
 	case "enter":
+		if m.screen == screenChat {
+			m.chatEdit = true
+			m.notice = "editing chat message"
+			return m, nil
+		}
 		if m.screen == screenDashboard {
 			m.screen = screenChains
 			return m, nil
@@ -458,6 +503,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.moveSelection(-1)
 	case "l":
 		m.screen = screenLaunch
+	case "a":
+		m.screen = screenChat
 	case "d":
 		m.screen = screenDashboard
 	case "c":
@@ -481,6 +528,47 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m Model) handleChatEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.chatEdit = false
+		m.notice = "chat edit stopped"
+		return m, nil
+	case tea.KeyEnter:
+		prompt := strings.TrimSpace(m.chatInput)
+		if prompt == "" {
+			m.notice = "chat message is empty"
+			return m, nil
+		}
+		if m.loading {
+			m.notice = "chat turn already running"
+			return m, nil
+		}
+		m.chatEdit = false
+		m.loading = true
+		m.notice = "chat turn running"
+		return m, m.chatSendCmd(prompt)
+	case tea.KeyBackspace, tea.KeyCtrlH:
+		m.chatInput = dropLastRune(m.chatInput)
+		m.err = nil
+		return m, nil
+	case tea.KeyCtrlU:
+		m.chatInput = ""
+		m.err = nil
+		return m, nil
+	case tea.KeySpace:
+		m.chatInput += " "
+		m.err = nil
+		return m, nil
+	case tea.KeyRunes:
+		m.chatInput += string(msg.Runes)
+		m.err = nil
+		return m, nil
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) handleLaunchEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -777,6 +865,19 @@ func (m Model) refreshCmd() tea.Cmd {
 	}
 }
 
+func (m Model) chatSendCmd(prompt string) tea.Cmd {
+	conversationID := m.chatConversationID
+	return func() tea.Msg {
+		if m.svc == nil {
+			return chatTurnMsg{Err: fmt.Errorf("operator service is not configured")}
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Minute)
+		defer cancel()
+		result, err := m.svc.SendChatMessage(ctx, operator.ChatTurnRequest{ConversationID: conversationID, Message: prompt})
+		return chatTurnMsg{Result: result, Err: err}
+	}
+}
+
 func (m Model) launchPreviewCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.svc == nil {
@@ -953,7 +1054,7 @@ func (m Model) statusLine() string {
 }
 
 func (m Model) renderNav() string {
-	lines := []string{"Nav", navLine("Dashboard", m.screen == screenDashboard), navLine("Launch", m.screen == screenLaunch), navLine("Chains", m.screen == screenChains), navLine("Receipts", m.screen == screenReceipts)}
+	lines := []string{"Nav", navLine("Chat", m.screen == screenChat), navLine("Dashboard", m.screen == screenDashboard), navLine("Launch", m.screen == screenLaunch), navLine("Chains", m.screen == screenChains), navLine("Receipts", m.screen == screenReceipts)}
 	return m.styles.nav.Width(14).Render(strings.Join(lines, "\n"))
 }
 

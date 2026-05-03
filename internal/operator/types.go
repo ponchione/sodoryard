@@ -31,6 +31,27 @@ type RuntimeIndexStatus struct {
 	StaleReason       string
 }
 
+type ChatMessage struct {
+	Role      string
+	Content   string
+	CreatedAt string
+}
+
+type ChatTurnRequest struct {
+	ConversationID string
+	Message        string
+}
+
+type ChatTurnResult struct {
+	ConversationID string
+	Provider       string
+	Model          string
+	Messages       []ChatMessage
+	InputTokens    int
+	OutputTokens   int
+	StopReason     string
+}
+
 type StepSummary struct {
 	ID          string
 	SequenceNum int

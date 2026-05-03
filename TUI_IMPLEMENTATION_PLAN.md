@@ -22,7 +22,7 @@ Primary specs:
 - Public single-agent work is represented by `yard chain start --role ...`; `yard run` code remains for the internal headless engine helper path but is no longer registered on the public `yard` command tree.
 - `chainrun.Start` supports orchestrator mode, `one_step_chain` mode, `manual_roster` mode, and `constrained_orchestration` mode. Constrained orchestration reuses the orchestrator runner and injects an allowed-role list into the orchestrator task packet.
 - Bubble Tea, Bubbles, and Lip Gloss dependencies are present.
-- Bare `yard` starts the TUI. It starts without `yard serve`, reads through `internal/operator`, and includes dashboard, chains, receipts, chain and receipt filtering, event follow, pause/cancel, receipt open, web-inspector target handoffs, built-in/custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, launch preview, and launch start flows.
+- Bare `yard` starts the TUI. It starts without `yard serve`, reads through `internal/operator`, and includes raw provider/model chat, dashboard, chains, receipts, chain and receipt filtering, event follow, pause/cancel, receipt open, web-inspector target handoffs, built-in/custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, launch preview, and launch start flows.
 - TUI resume currently shows the foreground `yard chain resume <chain-id>` command instead of continuing runner execution inside the TUI.
 - Remaining product gaps are project tree file attachment and fuller browser inspector parity.
 
@@ -81,6 +81,7 @@ internal/server
 13. Persistent current launch drafts. The TUI saves with `s`, loads with `L`, and stores the current draft in `.yard/yard.db` through `internal/operator`.
 14. Custom TUI launch presets. The TUI saves the current role/mode shape with `B`, stores it in `.yard/yard.db`, and cycles built-in plus custom presets with `b`.
 15. Richer TUI launch role-list controls. The TUI appends roles with `n`, removes the last manual/constrained role with `-`, and clears the active role list with `ctrl+u`.
+16. Raw TUI chat screen. The TUI starts on a chat screen that calls the configured provider/model directly through `internal/operator`, persists the transcript as a conversation, and does not apply one of the 13 role prompts, tools, or chain orchestration.
 
 ## Recommended Next Order
 

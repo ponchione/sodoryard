@@ -45,10 +45,10 @@ func TestRootCommandDoesNotRegisterPublicRun(t *testing.T) {
 }
 
 func TestRootCommandRunsTUIByDefault(t *testing.T) {
-	oldOpen := openYardReadOnlyOperator
+	oldOpen := openYardOperator
 	oldRun := runYardTUI
 	t.Cleanup(func() {
-		openYardReadOnlyOperator = oldOpen
+		openYardOperator = oldOpen
 		runYardTUI = oldRun
 	})
 
@@ -56,7 +56,7 @@ func TestRootCommandRunsTUIByDefault(t *testing.T) {
 	var openedConfig string
 	var ran bool
 	var gotOptions tuiapp.Options
-	openYardReadOnlyOperator = func(ctx context.Context, path string) (*operator.Service, error) {
+	openYardOperator = func(ctx context.Context, path string) (*operator.Service, error) {
 		openedConfig = path
 		return &operator.Service{}, nil
 	}
@@ -85,11 +85,11 @@ func TestRootCommandRunsTUIByDefault(t *testing.T) {
 	}
 }
 
-func TestTUICmdOpensReadOnlyOperatorAndRunsTUI(t *testing.T) {
-	oldOpen := openYardReadOnlyOperator
+func TestTUICmdOpensOperatorAndRunsTUI(t *testing.T) {
+	oldOpen := openYardOperator
 	oldRun := runYardTUI
 	t.Cleanup(func() {
-		openYardReadOnlyOperator = oldOpen
+		openYardOperator = oldOpen
 		runYardTUI = oldRun
 	})
 
@@ -97,7 +97,7 @@ func TestTUICmdOpensReadOnlyOperatorAndRunsTUI(t *testing.T) {
 	var openedConfig string
 	var ran bool
 	var gotOptions tuiapp.Options
-	openYardReadOnlyOperator = func(ctx context.Context, path string) (*operator.Service, error) {
+	openYardOperator = func(ctx context.Context, path string) (*operator.Service, error) {
 		openedConfig = path
 		return &operator.Service{}, nil
 	}
@@ -125,15 +125,15 @@ func TestTUICmdOpensReadOnlyOperatorAndRunsTUI(t *testing.T) {
 	}
 }
 
-func TestTUICmdWrapsReadOnlyOpenError(t *testing.T) {
-	oldOpen := openYardReadOnlyOperator
+func TestTUICmdWrapsOpenError(t *testing.T) {
+	oldOpen := openYardOperator
 	oldRun := runYardTUI
 	t.Cleanup(func() {
-		openYardReadOnlyOperator = oldOpen
+		openYardOperator = oldOpen
 		runYardTUI = oldRun
 	})
 
-	openYardReadOnlyOperator = func(ctx context.Context, path string) (*operator.Service, error) {
+	openYardOperator = func(ctx context.Context, path string) (*operator.Service, error) {
 		return nil, errors.New("boom")
 	}
 	runYardTUI = func(ctx context.Context, svc tuiapp.Operator, opts tuiapp.Options) error {

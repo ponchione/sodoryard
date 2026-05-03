@@ -14,7 +14,7 @@ The operator console is the target daily-driver interface for Yard. This spec de
 yard
 ```
 
-The console is not a replacement for the `yard` CLI command tree. The CLI remains the scriptable, composable surface for init, index, auth, doctor, config, brain, llm, serve, and chain commands. The TUI is the keyboard-driven operational surface for the same local runtime: project readiness, role selection, chain launch, chain control, live event following, receipt browsing, and quick navigation into files or richer browser views.
+The console is not a replacement for the `yard` CLI command tree. The CLI remains the scriptable, composable surface for init, index, auth, doctor, config, brain, llm, serve, and chain commands. The TUI is the keyboard-driven operational surface for the same local runtime: raw provider/model chat, project readiness, role selection, chain launch, chain control, live event following, receipt browsing, and quick navigation into files or richer browser views.
 
 The browser app remains available through `yard serve`, but its target role is the web inspector described in [[21-web-inspector]]. The product split is:
 
@@ -26,7 +26,7 @@ All three surfaces should converge on shared internal runtime services. The TUI 
 
 Implementation status as of 2026-05-03:
 
-- Landed: bare `yard` starts the TUI, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, chain and receipt filtering, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
+- Landed: bare `yard` starts the TUI, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, chain and receipt filtering, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
 - Remaining: project tree file attachment and fuller browser inspector parity.
 - Resume is currently a foreground command handoff: the TUI shows `yard chain resume <chain-id>` rather than continuing runner execution inside the TUI.
 
@@ -386,6 +386,7 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 ### Phase A - Read-Only Console
 
 - Make bare `yard` start the terminal console behind the normal build.
+- Add a raw chat screen backed by the configured provider/model, with no agent role prompt, no tools, and no chain runner.
 - Show dashboard with project, provider/model, auth, index state, and active chains.
 - Show chains list/detail from existing stores.
 - Show receipts list/detail.
@@ -424,14 +425,15 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 ## Acceptance Criteria
 
 1. `yard` starts a full-screen terminal app without requiring `yard serve`.
-2. The dashboard shows project, provider/model, auth, code index, brain index, and active-chain state.
-3. The chains screen lists active and recent terminal chains.
-4. The operator can follow a running chain and see new events without restarting the app.
-5. The operator can pause/resume/cancel a chain when the chain runner supports those controls.
-6. The operator can read receipts and open them in `$EDITOR` or `$PAGER`.
-7. The launch wizard can start at least a one-step chain through the same internal path as `yard chain start --role`.
-8. The TUI works without shelling out to Cobra commands for core Yard operations.
-9. The web UI remains optional for richer inspection and is not required for normal chain operation.
+2. The chat screen can send a direct raw message to the configured provider/model and persist the transcript as a conversation.
+3. The dashboard shows project, provider/model, auth, code index, brain index, and active-chain state.
+4. The chains screen lists active and recent terminal chains.
+5. The operator can follow a running chain and see new events without restarting the app.
+6. The operator can pause/resume/cancel a chain when the chain runner supports those controls.
+7. The operator can read receipts and open them in `$EDITOR` or `$PAGER`.
+8. The launch wizard can start at least a one-step chain through the same internal path as `yard chain start --role`.
+9. The TUI works without shelling out to Cobra commands for core Yard operations.
+10. The web UI remains optional for richer inspection and is not required for normal chain operation.
 
 ---
 

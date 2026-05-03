@@ -28,6 +28,8 @@ type fakeOperator struct {
 	loadDraftFound bool
 	customPresets  []operator.LaunchPreset
 	savedPreset    operator.LaunchPreset
+	chatRequest    operator.ChatTurnRequest
+	chatResult     operator.ChatTurnResult
 	pausedChain    string
 	cancelledChain string
 }
@@ -77,6 +79,15 @@ func newFakeOperator() *fakeOperator {
 			"chain-2:":  {ChainID: "chain-2", Path: "receipts/orchestrator/chain-2.md", Content: "chain 2 receipt"},
 		},
 		eventsSince: map[string][]chain.Event{},
+		chatResult: operator.ChatTurnResult{
+			ConversationID: "chat-1",
+			Provider:       "codex",
+			Model:          "test-model",
+			Messages: []operator.ChatMessage{
+				{Role: "user", Content: "draft a spec"},
+				{Role: "assistant", Content: "Here is a spec outline."},
+			},
+		},
 	}
 }
 
@@ -220,6 +231,21 @@ func (f *fakeOperator) SaveLaunchPreset(_ context.Context, name string, req oper
 	return preset, nil
 }
 
+func (f *fakeOperator) SendChatMessage(_ context.Context, req operator.ChatTurnRequest) (operator.ChatTurnResult, error) {
+	f.chatRequest = req
+	result := f.chatResult
+	if result.ConversationID == "" {
+		result.ConversationID = "chat-1"
+	}
+	if len(result.Messages) == 0 {
+		result.Messages = []operator.ChatMessage{
+			{Role: "user", Content: req.Message},
+			{Role: "assistant", Content: "assistant response"},
+		}
+	}
+	return result, nil
+}
+
 func TestModelRefreshLoadsOperatorData(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	updated, _ := model.Update(model.refreshCmd()())
@@ -239,6 +265,44 @@ func TestModelRefreshLoadsOperatorData(t *testing.T) {
 	}
 	if got.launch.Role != "coder" || got.launch.Mode != operator.LaunchModeOneStep || got.activeLaunchPresetName() != "solo coder" {
 		t.Fatalf("launch defaults = %+v, want coder one-step", got.launch)
+	}
+}
+
+func TestModelChatEditsAndSendsRawMessage(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	got = updated.(Model)
+	for _, r := range "draft spec" {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+		if r == ' ' {
+			msg = tea.KeyMsg{Type: tea.KeySpace}
+		}
+		updated, _ = got.Update(msg)
+		got = updated.(Model)
+	}
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("chat enter returned nil command")
+	}
+	if !got.loading || got.chatEdit {
+		t.Fatalf("chat sending state = loading:%v edit:%v, want loading true and edit false", got.loading, got.chatEdit)
+	}
+
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.chatRequest.Message != "draft spec" {
+		t.Fatalf("chat request message = %q, want draft spec", fake.chatRequest.Message)
+	}
+	if got.chatConversationID != "chat-1" || len(got.chatMessages) != 2 {
+		t.Fatalf("chat state = id %q messages %d, want chat-1 and 2 messages", got.chatConversationID, len(got.chatMessages))
+	}
+	if got.chatInput != "" || !got.chatEdit {
+		t.Fatalf("chat input/edit = %q/%v, want cleared and edit true", got.chatInput, got.chatEdit)
 	}
 }
 
