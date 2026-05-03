@@ -1050,23 +1050,30 @@ func (m Model) statusLine() string {
 	if m.loading {
 		updated = " loading"
 	}
-	return fmt.Sprintf("Yard %s | %s | active chains %d%s", project, provider, m.status.ActiveChains, updated)
+	return fmt.Sprintf("Yard  %s  %s  chains:%d%s", project, provider, m.status.ActiveChains, updated)
 }
 
 func (m Model) renderNav() string {
-	lines := []string{"Nav", navLine("Chat", m.screen == screenChat), navLine("Dashboard", m.screen == screenDashboard), navLine("Launch", m.screen == screenLaunch), navLine("Chains", m.screen == screenChains), navLine("Receipts", m.screen == screenReceipts)}
-	return m.styles.nav.Width(14).Render(strings.Join(lines, "\n"))
+	lines := []string{
+		m.styles.navTitle.Render("Yard"),
+		navLine(m.styles, "Chat", m.screen == screenChat),
+		navLine(m.styles, "Dashboard", m.screen == screenDashboard),
+		navLine(m.styles, "Launch", m.screen == screenLaunch),
+		navLine(m.styles, "Chains", m.screen == screenChains),
+		navLine(m.styles, "Receipts", m.screen == screenReceipts),
+	}
+	return m.styles.nav.Width(16).Render(strings.Join(lines, "\n"))
 }
 
-func navLine(label string, active bool) string {
+func navLine(s styles, label string, active bool) string {
 	if active {
-		return "> " + label
+		return s.navActive.Width(11).Render(label)
 	}
-	return "  " + label
+	return s.navItem.Width(11).Render(label)
 }
 
 func (m Model) contentWidth() int {
-	return maxInt(40, m.width-18)
+	return maxInt(40, m.width-24)
 }
 
 func selectedChainID(chains []operator.ChainSummary, cursor int) string {

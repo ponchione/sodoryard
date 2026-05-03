@@ -34,7 +34,7 @@ func TestChatRenderIncludesTranscriptAndComposer(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"Chat", "runtime: codex:test-model", "you: draft a spec", "assistant: Here is a spec outline.", "> next step_"} {
+	for _, want := range []string{"Chat", "runtime codex:test-model", "YOU", "draft a spec", "ASSISTANT", "Here is a spec outline.", "next step_"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chat view missing %q:\n%s", want, view)
 		}

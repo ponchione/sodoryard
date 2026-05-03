@@ -8,52 +8,72 @@ import (
 )
 
 func (m Model) renderChat() string {
-	lines := []string{m.styles.title.Render("Chat")}
+	lines := []string{
+		m.styles.title.Render("Chat"),
+		m.styles.chatMeta.Render(fmt.Sprintf("project %s  runtime %s:%s", valueOrUnknown(m.status.ProjectName), valueOrUnknown(m.status.Provider), valueOrUnknown(m.status.Model))),
+	}
 	if m.notice != "" {
 		lines = append(lines, m.styles.subtle.Render(m.notice))
 	}
 	if m.chatConversationID != "" {
-		lines = append(lines, fmt.Sprintf("conversation: %s", m.chatConversationID))
+		lines = append(lines, m.styles.chatMeta.Render(fmt.Sprintf("conversation %s", m.chatConversationID)))
 	}
-	lines = append(lines, fmt.Sprintf("runtime: %s:%s", valueOrUnknown(m.status.Provider), valueOrUnknown(m.status.Model)), "")
+	lines = append(lines, "")
 	if len(m.chatMessages) == 0 {
-		lines = append(lines, m.styles.subtle.Render("No messages yet."))
+		lines = append(lines, renderEmptyChat(m.contentWidth())...)
 	} else {
-		lines = append(lines, renderChatMessages(m.chatMessages, m.contentWidth()-4, maxInt(6, m.height-12))...)
+		lines = append(lines, m.renderChatMessages(maxInt(24, m.contentWidth()-4), maxInt(8, m.height-13))...)
 	}
-	lines = append(lines, "", m.styles.title.Render("Message"))
-	prompt := "> " + m.chatInput
+	lines = append(lines, "", m.styles.section.Render("Message"))
+	prompt := m.chatInput
+	if strings.TrimSpace(prompt) == "" && !m.chatEdit {
+		prompt = "Press enter or i to write a message."
+	}
 	if m.chatEdit {
 		prompt += "_"
 	}
-	lines = append(lines, prompt)
+	lines = append(lines, m.styles.composer.Width(maxInt(24, m.contentWidth()-6)).Render(prompt))
 	if m.err != nil {
 		lines = append(lines, "", m.styles.error.Render(m.err.Error()))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func renderChatMessages(messages []operator.ChatMessage, width int, maxLines int) []string {
+func renderEmptyChat(width int) []string {
+	return wrapChatText("Start a raw provider chat for specs, plans, and design notes. This surface does not apply a Yard agent role prompt.", maxInt(24, width-8))
+}
+
+func (m Model) renderChatMessages(width int, maxLines int) []string {
+	return renderChatMessages(m.styles, m.chatMessages, width, maxLines)
+}
+
+func renderChatMessages(styles styles, messages []operator.ChatMessage, width int, maxLines int) []string {
 	if width <= 0 {
 		width = 72
 	}
 	var lines []string
 	for _, message := range messages {
-		label := "assistant"
+		label := styles.chatAgentLabel.Render("ASSISTANT")
+		bodyStyle := styles.chatAgent
 		if message.Role == "user" {
-			label = "you"
+			label = styles.chatUserLabel.Render("YOU")
+			bodyStyle = styles.chatUser
 		}
 		content := strings.TrimSpace(message.Content)
 		if content == "" {
 			content = "[no visible text]"
 		}
-		wrapped := wrapChatText(content, maxInt(20, width-len(label)-2))
+		wrapped := wrapChatText(content, maxInt(20, width-2))
 		if len(wrapped) == 0 {
 			wrapped = []string{""}
 		}
-		lines = append(lines, fmt.Sprintf("%s: %s", label, wrapped[0]))
-		for _, line := range wrapped[1:] {
-			lines = append(lines, strings.Repeat(" ", len(label)+2)+line)
+		lines = append(lines, label)
+		for _, line := range wrapped {
+			if line == "" {
+				lines = append(lines, "")
+				continue
+			}
+			lines = append(lines, bodyStyle.Render("  "+line))
 		}
 		lines = append(lines, "")
 	}
