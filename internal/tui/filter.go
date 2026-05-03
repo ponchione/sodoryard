@@ -27,6 +27,8 @@ func chainMatchesFilter(ch operator.ChainSummary, query string) bool {
 		ch.Status,
 		ch.SourceTask,
 		strings.Join(ch.SourceSpecs, " "),
+		strconv.Itoa(ch.TotalSteps),
+		strconv.Itoa(ch.TotalTokens),
 	}
 	if ch.CurrentStep != nil {
 		fields = append(fields,
@@ -36,6 +38,7 @@ func chainMatchesFilter(ch operator.ChainSummary, query string) bool {
 			ch.CurrentStep.Status,
 			ch.CurrentStep.Verdict,
 			ch.CurrentStep.ReceiptPath,
+			strconv.Itoa(ch.CurrentStep.TokensUsed),
 		)
 	}
 	return textMatchesFilter(strings.Join(fields, " "), query)
