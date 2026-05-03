@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -74,6 +75,7 @@ type Model struct {
 	viewport           viewport.Model
 	chatConversationID string
 	chatMessages       []operator.ChatMessage
+	chatComposer       textarea.Model
 	chatInput          string
 	chatEdit           bool
 	chainFilter        string
@@ -116,6 +118,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeViewport()
+		m.resizeChatComposer()
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -272,9 +275,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chatConversationID = msg.Result.ConversationID
 		m.chatMessages = append([]operator.ChatMessage(nil), msg.Result.Messages...)
 		m.chatInput = ""
+		m.chatComposer.SetValue("")
 		m.chatEdit = true
+		cmd := m.chatComposer.Focus()
 		m.notice = fmt.Sprintf("chat response from %s:%s", msg.Result.Provider, msg.Result.Model)
-		return m, nil
+		return m, cmd
 	case tickMsg:
 		m.loading = true
 		return m, tea.Batch(m.refreshCmd(), m.tickCmd())
@@ -369,10 +374,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatConversationID = ""
 			m.chatMessages = nil
 			m.chatInput = ""
+			m.chatComposer.SetValue("")
 			m.chatEdit = true
+			cmd := m.chatComposer.Focus()
 			m.notice = "new chat"
 			m.err = nil
-			return m, nil
+			return m, cmd
 		}
 	case "/":
 		if !m.filterAvailable() {
@@ -433,9 +440,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "i":
 		if m.screen == screenChat {
-			m.chatEdit = true
-			m.notice = "editing chat message"
-			return m, nil
+			return m.beginChatEdit("editing chat message")
 		}
 		if m.screen == screenLaunch {
 			if !m.launchFieldEditable() {
@@ -466,9 +471,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.showSelectedWebInspectorTarget()
 	case "enter":
 		if m.screen == screenChat {
-			m.chatEdit = true
-			m.notice = "editing chat message"
-			return m, nil
+			return m.beginChatEdit("editing chat message")
 		}
 		if m.screen == screenDashboard {
 			m.screen = screenChains
@@ -534,10 +537,12 @@ func (m Model) handleChatEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.chatEdit = false
+		m.chatInput = m.chatComposer.Value()
+		m.chatComposer.Blur()
 		m.notice = "chat edit stopped"
 		return m, nil
 	case tea.KeyEnter:
-		prompt := strings.TrimSpace(m.chatInput)
+		prompt := strings.TrimSpace(m.chatComposer.Value())
 		if prompt == "" {
 			m.notice = "chat message is empty"
 			return m, nil
@@ -546,28 +551,28 @@ func (m Model) handleChatEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = "chat turn already running"
 			return m, nil
 		}
+		m.chatInput = m.chatComposer.Value()
 		m.chatEdit = false
+		m.chatComposer.Blur()
 		m.loading = true
 		m.notice = "chat turn running"
 		return m, m.chatSendCmd(prompt)
-	case tea.KeyBackspace, tea.KeyCtrlH:
-		m.chatInput = dropLastRune(m.chatInput)
-		m.err = nil
-		return m, nil
 	case tea.KeyCtrlU:
 		m.chatInput = ""
+		m.chatComposer.SetValue("")
 		m.err = nil
 		return m, nil
 	case tea.KeySpace:
-		m.chatInput += " "
-		m.err = nil
-		return m, nil
-	case tea.KeyRunes:
-		m.chatInput += string(msg.Runes)
+		m.chatComposer.InsertString(" ")
+		m.chatInput = m.chatComposer.Value()
 		m.err = nil
 		return m, nil
 	default:
-		return m, nil
+		var cmd tea.Cmd
+		m.chatComposer, cmd = m.chatComposer.Update(msg)
+		m.chatInput = m.chatComposer.Value()
+		m.err = nil
+		return m, cmd
 	}
 }
 
@@ -1005,12 +1010,33 @@ func (m Model) followTickCmd() tea.Cmd {
 	})
 }
 
+func (m Model) beginChatEdit(notice string) (tea.Model, tea.Cmd) {
+	m.chatEdit = true
+	m.notice = notice
+	if m.chatInput != "" && strings.TrimSpace(m.chatComposer.Value()) == "" {
+		m.chatComposer.SetValue(m.chatInput)
+	}
+	return m, m.chatComposer.Focus()
+}
+
 func (m *Model) resizeViewport() {
 	width := maxInt(20, m.contentWidth()-2)
 	height := maxInt(4, m.height-10)
 	m.viewport.Width = width
 	m.viewport.Height = height
 	m.updateReceiptViewport()
+}
+
+func (m *Model) resizeChatComposer() {
+	m.chatComposer.SetWidth(maxInt(24, m.contentWidth()-6))
+	height := 4
+	if m.height <= 22 {
+		height = 3
+	}
+	if m.height >= 42 {
+		height = 5
+	}
+	m.chatComposer.SetHeight(height)
 }
 
 func (m *Model) updateReceiptViewport() {

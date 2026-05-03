@@ -67,7 +67,7 @@ func NewModel(svc Operator, opts Options) Model {
 	if opts.ReceiptOpener == nil {
 		opts.ReceiptOpener = defaultReceiptOpener
 	}
-	return Model{
+	model := Model{
 		ctx:             opts.Context,
 		svc:             svc,
 		screen:          screenChat,
@@ -80,4 +80,7 @@ func NewModel(svc Operator, opts Options) Model {
 		webBaseURLValue: opts.WebBaseURL,
 		styles:          newStyles(),
 	}
+	model.chatComposer = newChatComposer(model.styles)
+	model.resizeChatComposer()
+	return model
 }

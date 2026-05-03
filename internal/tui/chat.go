@@ -4,10 +4,30 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ponchione/sodoryard/internal/operator"
 )
+
+func newChatComposer(styles styles) textarea.Model {
+	composer := textarea.New()
+	composer.Placeholder = "Message GPT-5.5..."
+	composer.ShowLineNumbers = false
+	composer.Prompt = ""
+	composer.EndOfBufferCharacter = ' '
+	composer.KeyMap.InsertNewline.SetKeys("alt+enter", "ctrl+j")
+	composer.KeyMap.InsertNewline.SetHelp("alt+enter", "newline")
+	composer.FocusedStyle.Base = styles.composer.BorderForeground(lipgloss.Color("28"))
+	composer.BlurredStyle.Base = styles.composer
+	composer.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	composer.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	composer.FocusedStyle.Placeholder = styles.subtle
+	composer.BlurredStyle.Placeholder = styles.subtle
+	composer.FocusedStyle.Text = styles.chatUser
+	composer.BlurredStyle.Text = styles.chatUser
+	return composer
+}
 
 func (m Model) renderChat() string {
 	lines := []string{
@@ -27,14 +47,7 @@ func (m Model) renderChat() string {
 		lines = append(lines, m.renderChatMessages(maxInt(24, m.contentWidth()-4), maxInt(8, m.height-13))...)
 	}
 	lines = append(lines, "", m.styles.section.Render("Message"))
-	prompt := m.chatInput
-	if strings.TrimSpace(prompt) == "" && !m.chatEdit {
-		prompt = "Press enter or i to write a message."
-	}
-	if m.chatEdit {
-		prompt += "_"
-	}
-	lines = append(lines, m.styles.composer.Width(maxInt(24, m.contentWidth()-6)).Render(prompt))
+	lines = append(lines, m.chatComposer.View())
 	if m.err != nil {
 		lines = append(lines, "", m.styles.error.Render(m.err.Error()))
 	}

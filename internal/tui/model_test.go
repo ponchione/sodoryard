@@ -306,6 +306,44 @@ func TestModelChatEditsAndSendsRawMessage(t *testing.T) {
 	}
 }
 
+func TestModelChatComposerSupportsNewlines(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	got = updated.(Model)
+	for _, r := range "line one" {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+		if r == ' ' {
+			msg = tea.KeyMsg{Type: tea.KeySpace}
+		}
+		updated, _ = got.Update(msg)
+		got = updated.(Model)
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	got = updated.(Model)
+	for _, r := range "line two" {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+		if r == ' ' {
+			msg = tea.KeyMsg{Type: tea.KeySpace}
+		}
+		updated, _ = got.Update(msg)
+		got = updated.(Model)
+	}
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("chat enter returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.chatRequest.Message != "line one\nline two" {
+		t.Fatalf("chat request message = %q, want multiline message", fake.chatRequest.Message)
+	}
+}
+
 func TestModelMovesChainSelectionAndReloadsDetail(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	loaded, _ := model.Update(model.refreshCmd()())
