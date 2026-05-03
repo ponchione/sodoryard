@@ -30,7 +30,7 @@ func (m Model) renderLaunch() string {
 		roleLabel = "allowed"
 	}
 	lines = append(lines, m.renderLaunchField(launchFieldRole, roleLabel, role))
-	lines = append(lines, "", "controls: b preset  B save preset  i edit task/specs  m mode  n role/roster/allowed  s save  L load  v preview  S start")
+	lines = append(lines, "", "controls: b preset  B save preset  i edit task/specs  m mode  n add role  - remove role  ctrl+u clear roles  s save  L load  v preview  S start")
 	lines = append(lines, "", m.styles.title.Render("Preview"))
 	if m.preview == nil {
 		lines = append(lines, m.styles.subtle.Render("No preview yet."))
@@ -169,6 +169,60 @@ func (m *Model) nextLaunchRole() {
 	}
 	m.launch.Role = next
 	m.notice = fmt.Sprintf("launch role set to %s", next)
+	m.clearLaunchPreview()
+	m.err = nil
+}
+
+func (m *Model) removeLastLaunchRole() {
+	switch m.launch.Mode {
+	case operator.LaunchModeManualRoster:
+		if len(m.launch.Roster) == 0 {
+			m.notice = "manual roster is empty"
+			return
+		}
+		removed := m.launch.Roster[len(m.launch.Roster)-1]
+		m.launch.Roster = append([]string(nil), m.launch.Roster[:len(m.launch.Roster)-1]...)
+		m.launch.Role = lastString(m.launch.Roster)
+		m.notice = fmt.Sprintf("removed %s from manual roster", removed)
+	case operator.LaunchModeConstrained:
+		if len(m.launch.AllowedRoles) == 0 {
+			m.notice = "constrained allowed roles are empty"
+			return
+		}
+		removed := m.launch.AllowedRoles[len(m.launch.AllowedRoles)-1]
+		m.launch.AllowedRoles = append([]string(nil), m.launch.AllowedRoles[:len(m.launch.AllowedRoles)-1]...)
+		m.launch.Role = lastString(m.launch.AllowedRoles)
+		m.notice = fmt.Sprintf("removed %s from constrained allowed roles", removed)
+	default:
+		m.notice = "role list controls apply to manual roster or constrained orchestration"
+		return
+	}
+	m.clearLaunchPreview()
+	m.err = nil
+}
+
+func (m *Model) clearLaunchRoleList() {
+	switch m.launch.Mode {
+	case operator.LaunchModeManualRoster:
+		if len(m.launch.Roster) == 0 {
+			m.notice = "manual roster is already empty"
+			return
+		}
+		m.launch.Roster = nil
+		m.launch.Role = ""
+		m.notice = "manual roster cleared"
+	case operator.LaunchModeConstrained:
+		if len(m.launch.AllowedRoles) == 0 {
+			m.notice = "constrained allowed roles are already empty"
+			return
+		}
+		m.launch.AllowedRoles = nil
+		m.launch.Role = ""
+		m.notice = "constrained allowed roles cleared"
+	default:
+		m.notice = "role list controls apply to manual roster or constrained orchestration"
+		return
+	}
 	m.clearLaunchPreview()
 	m.err = nil
 }
@@ -343,6 +397,13 @@ func (m Model) nextRosterRole() string {
 		}
 	}
 	return next
+}
+
+func lastString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[len(values)-1]
 }
 
 func dropLastRune(value string) string {

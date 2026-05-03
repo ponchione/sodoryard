@@ -26,8 +26,8 @@ All three surfaces should converge on shared internal runtime services. The TUI 
 
 Implementation status as of 2026-05-03:
 
-- Landed: `yard tui`, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, chain and receipt filtering, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
-- Remaining: project tree file attachment, richer role roster actions, and fuller browser inspector parity.
+- Landed: `yard tui`, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, chain and receipt filtering, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
+- Remaining: project tree file attachment and fuller browser inspector parity.
 - Resume is currently a foreground command handoff: the TUI shows `yard chain resume <chain-id>` rather than continuing runner execution inside the TUI.
 
 ---
@@ -185,6 +185,7 @@ Fields:
 MVP behavior:
 
 - The current launch draft lives in memory until saved. `s` saves the current draft and `L` loads the saved draft.
+- Manual roster and constrained orchestration role lists can be adjusted in place. `n` appends the next role, `-` removes the last entry, and `ctrl+u` clears the active role list.
 - Starting compiles a deterministic work packet and calls the same internal chain start path used by `yard chain start`.
 - Persistent current drafts and custom presets are stored in `.yard/yard.db` through `internal/operator`. Broader launch history remains future work.
 
@@ -416,7 +417,7 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 - Role roster actions.
 - Open-in-web handoffs.
 - Focused rendering tests for key screens.
-- Status: chain/receipt filtering, built-in/custom launch presets, persistent current launch drafts, and notice-only web-inspector target handoffs are landed. Project tree file attachment, role roster actions, and fuller browser inspector parity remain.
+- Status: chain/receipt filtering, built-in/custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and notice-only web-inspector target handoffs are landed. Project tree file attachment and fuller browser inspector parity remain.
 
 ---
 

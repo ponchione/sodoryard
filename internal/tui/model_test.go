@@ -630,6 +630,60 @@ func TestModelLaunchManualRosterControls(t *testing.T) {
 	}
 }
 
+func TestModelLaunchRoleListRemovalControls(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "ship roster controls"
+
+	for i := 0; i < 3; i++ {
+		updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+		got = updated.(Model)
+	}
+	updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if !reflect.DeepEqual(got.launch.Roster, []string{"coder", "orchestrator"}) {
+		t.Fatalf("initial roster = %v, want coder then orchestrator", got.launch.Roster)
+	}
+	got.preview = &operator.LaunchPreview{Summary: "stale"}
+	got.previewReq = &operator.LaunchRequest{SourceTask: "stale"}
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("remove role returned command")
+	}
+	if !reflect.DeepEqual(got.launch.Roster, []string{"coder"}) || got.launch.Role != "coder" {
+		t.Fatalf("roster after remove = %+v, want coder only", got.launch)
+	}
+	if got.preview != nil || got.previewReq != nil {
+		t.Fatalf("preview after remove = %+v/%+v, want cleared", got.preview, got.previewReq)
+	}
+	if got.notice != "removed orchestrator from manual roster" {
+		t.Fatalf("notice = %q, want remove notice", got.notice)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("clear roster returned command")
+	}
+	if len(got.launch.Roster) != 0 || got.launch.Role != "" {
+		t.Fatalf("roster after clear = %+v, want empty role list", got.launch)
+	}
+	if got.notice != "manual roster cleared" {
+		t.Fatalf("notice = %q, want clear notice", got.notice)
+	}
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if !reflect.DeepEqual(got.launch.Roster, []string{"coder"}) || got.launch.Role != "coder" {
+		t.Fatalf("roster after re-add = %+v, want coder", got.launch)
+	}
+}
+
 func TestModelLaunchConstrainedOrchestrationControls(t *testing.T) {
 	fake := newFakeOperator()
 	model := NewModel(fake, Options{RefreshInterval: -1})
@@ -665,6 +719,54 @@ func TestModelLaunchConstrainedOrchestrationControls(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("constrained view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestModelLaunchConstrainedRoleListRemovalControls(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+
+	updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	got = updated.(Model)
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	got = updated.(Model)
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if !reflect.DeepEqual(got.launch.AllowedRoles, []string{"coder", "planner"}) {
+		t.Fatalf("initial allowed roles = %v, want coder then planner", got.launch.AllowedRoles)
+	}
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("remove allowed role returned command")
+	}
+	if !reflect.DeepEqual(got.launch.AllowedRoles, []string{"coder"}) || got.launch.Role != "coder" {
+		t.Fatalf("allowed roles after remove = %+v, want coder only", got.launch)
+	}
+	if got.notice != "removed planner from constrained allowed roles" {
+		t.Fatalf("notice = %q, want constrained remove notice", got.notice)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("clear allowed roles returned command")
+	}
+	if len(got.launch.AllowedRoles) != 0 || got.launch.Role != "" {
+		t.Fatalf("allowed roles after clear = %+v, want empty role list", got.launch)
+	}
+	if got.notice != "constrained allowed roles cleared" {
+		t.Fatalf("notice = %q, want constrained clear notice", got.notice)
+	}
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if !reflect.DeepEqual(got.launch.AllowedRoles, []string{"coder"}) || got.launch.Role != "coder" {
+		t.Fatalf("allowed roles after re-add = %+v, want coder", got.launch)
 	}
 }
 

@@ -47,3 +47,17 @@ func TestRenderShowsActiveFilter(t *testing.T) {
 		t.Fatalf("chain view rendered filtered-out chain:\n%s", view)
 	}
 }
+
+func TestLaunchRenderShowsRoleListControls(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+	got.screen = screenLaunch
+
+	view := got.View()
+	for _, want := range []string{"n add role", "- remove role", "ctrl+u clear roles"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("launch view missing %q:\n%s", want, view)
+		}
+	}
+}

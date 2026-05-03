@@ -20,9 +20,9 @@ Current repo truth
 - `yard tui` is wired through `cmd/yard/tui.go`; the Bubble Tea app lives in `internal/tui`.
 - Shared operator services live in `internal/operator`; the TUI calls them directly and does not require or start `yard serve`.
 - `tidmouth` remains internal engine plumbing. Do not expose it as an operator-facing surface.
-- Landed TUI features include readiness metadata, recent chains and chain detail, step/event display, live event follow, pause/cancel, receipt summaries/content, receipt opening through `$PAGER`/`$EDITOR`, launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`, chain/receipt filtering, web-inspector target handoffs, built-in and custom launch presets, and persistent current launch drafts.
+- Landed TUI features include readiness metadata, recent chains and chain detail, step/event display, live event follow, pause/cancel, receipt summaries/content, receipt opening through `$PAGER`/`$EDITOR`, launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`, chain/receipt filtering, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, and launch role-list add/remove/clear controls.
 - Resume is still a foreground command handoff: the TUI shows `yard chain resume <chain-id>` rather than continuing runner execution inside the TUI.
-- Remaining TUI-first product gaps are project tree file attachment, richer role roster actions, and fuller browser inspector parity.
+- Remaining TUI-first product gaps are project tree file attachment and fuller browser inspector parity.
 
 Most recent landed slices
 - Implemented TUI search/filter for chains and receipts inside `internal/tui`.
@@ -41,6 +41,7 @@ Most recent landed slices
 - Implemented built-in TUI launch presets. `b` cycles presets generated from configured roles; presets preserve the current task/spec draft and only change mode/role selection.
 - Implemented persistent current launch drafts. The launch screen saves with `s` and loads with `L`; drafts are stored through `internal/operator` in the `.yard/yard.db` `launches` table and do not add a second execution path.
 - Implemented custom TUI launch presets. `B` saves the current role/mode shape as a durable preset in `launch_presets`; `b` cycles built-in and custom presets while preserving task/spec draft text.
+- Implemented richer launch role-list controls. `n` adds a manual roster or constrained allowed-role entry, `-` removes the last entry, and `ctrl+u` clears the active role list.
 
 Validation completed for the landed slice
 - Focused TUI package:
@@ -56,7 +57,7 @@ Validation completed for the landed slice
   - `rtk make build`
 
 Recommended next order
-1. Project tree file attachment, richer role roster actions, or browser inspector parity.
+1. Project tree file attachment or browser inspector parity.
 
 Do not change by default
 - Do not add search behavior to `cmd/yard`.

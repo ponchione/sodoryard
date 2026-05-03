@@ -320,8 +320,8 @@ Current repo state:
 - `tidmouth` remains only as the internal engine binary required by the current spawn contract.
 - Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
 - The active UI direction is terminal-first: `yard tui` is now implemented as the initial daily-driver operator console, while `yard serve` remains the browser/API surface for rich inspection. This direction is specified in `docs/specs/20-operator-console-tui.md` and `docs/specs/21-web-inspector.md`.
-- Implemented TUI/operator work includes readiness metadata, recent chain and detail views, chain and receipt filtering, receipt summaries/content, event following, pause/cancel controls, receipt opening through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
-- Remaining TUI-first work includes project tree file attachment, richer role roster actions, and fuller browser inspector parity.
+- Implemented TUI/operator work includes readiness metadata, recent chain and detail views, chain and receipt filtering, receipt summaries/content, event following, pause/cancel controls, receipt opening through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
+- Remaining TUI-first work includes project tree file attachment and fuller browser inspector parity.
 - The remaining active docs are the README, current specs, `NEXT_SESSION_HANDOFF.md`, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
 
 If you are resuming work cold, read in this order:
@@ -340,7 +340,7 @@ First thing to address next session:
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
 - keep TUI-first docs clear about target behavior versus already-implemented commands
-- choose the next implementation slice from project tree file attachment, richer role roster actions, or browser inspector parity
+- choose the next implementation slice from project tree file attachment or browser inspector parity
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:

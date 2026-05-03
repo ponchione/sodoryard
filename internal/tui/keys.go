@@ -1,6 +1,6 @@
 package tui
 
-const footerHelp = "? help  / filter  ctrl+u clear  w web  tab screen  l launch  b preset  B save preset  s save  L load  v preview  S start  F follow  P pause  X cancel  q quit"
+const footerHelp = "? help  / filter  ctrl+u clear  w web  tab screen  l launch  b preset  n add role  - remove role  s save  L load  v preview  S start  q quit"
 
 func nextScreen(screen appScreen) appScreen {
 	switch screen {

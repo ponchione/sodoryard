@@ -381,6 +381,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loading = true
 			return m, m.saveLaunchPresetCmd()
 		}
+	case "-":
+		if m.screen == screenLaunch {
+			m.removeLastLaunchRole()
+			return m, nil
+		}
+	case "ctrl+u":
+		if m.screen == screenLaunch {
+			m.clearLaunchRoleList()
+			return m, nil
+		}
 	case "n":
 		if m.screen == screenLaunch {
 			m.nextLaunchRole()
