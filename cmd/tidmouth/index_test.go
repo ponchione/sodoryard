@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appindex "github.com/ponchione/sodoryard/internal/index"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 func TestIndexCommandPassesFlagsToService(t *testing.T) {
@@ -213,6 +215,13 @@ type fakeShunterBrainIndexBackend struct {
 	cleanMeta    string
 	cleanCalled  bool
 	cleanCallErr error
+	state        projectmemory.BrainIndexState
+	stateFound   bool
+	stateErr     error
+}
+
+func (f *fakeShunterBrainIndexBackend) ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error) {
+	return f.state, f.stateFound, f.stateErr
 }
 
 func (f *fakeShunterBrainIndexBackend) MarkBrainIndexClean(_ context.Context, indexedAt time.Time, metadataJSON string) error {
@@ -236,6 +245,26 @@ func (fakeBrainIndexStore) GetByName(context.Context, string) ([]codeintel.Chunk
 }
 func (fakeBrainIndexStore) DeleteByFilePath(context.Context, string) error { return nil }
 func (fakeBrainIndexStore) Close() error                                   { return nil }
+
+type recordingBrainIndexStore struct {
+	deleted []string
+}
+
+func (s *recordingBrainIndexStore) Upsert(context.Context, []codeintel.Chunk) error { return nil }
+func (s *recordingBrainIndexStore) VectorSearch(context.Context, []float32, int, codeintel.Filter) ([]codeintel.SearchResult, error) {
+	return nil, nil
+}
+func (s *recordingBrainIndexStore) GetByFilePath(context.Context, string) ([]codeintel.Chunk, error) {
+	return nil, nil
+}
+func (s *recordingBrainIndexStore) GetByName(context.Context, string) ([]codeintel.Chunk, error) {
+	return nil, nil
+}
+func (s *recordingBrainIndexStore) DeleteByFilePath(_ context.Context, path string) error {
+	s.deleted = append(s.deleted, path)
+	return nil
+}
+func (s *recordingBrainIndexStore) Close() error { return nil }
 
 type fakeBrainIndexEmbedder struct{}
 
@@ -346,10 +375,85 @@ func TestRunBrainIndexMarksShunterBrainIndexCleanWithoutFileState(t *testing.T) 
 	if result.DocumentsIndexed != 1 {
 		t.Fatalf("DocumentsIndexed = %d, want 1", result.DocumentsIndexed)
 	}
-	if !backend.cleanCalled || backend.cleanAt.IsZero() || backend.cleanMeta != `{"source":"brain_index"}` {
+	var metadata struct {
+		Source        string   `json:"source"`
+		DocumentPaths []string `json:"document_paths"`
+	}
+	if err := json.Unmarshal([]byte(backend.cleanMeta), &metadata); err != nil {
+		t.Fatalf("unmarshal clean metadata: %v", err)
+	}
+	if !backend.cleanCalled || backend.cleanAt.IsZero() || metadata.Source != "brain_index" || !reflect.DeepEqual(metadata.DocumentPaths, []string{"notes.md"}) {
 		t.Fatalf("clean call = called:%t at:%s meta:%q, want Shunter clean mark", backend.cleanCalled, backend.cleanAt, backend.cleanMeta)
 	}
 	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
 		t.Fatalf("brain index state file stat err = %v, want not-exist", err)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("yard database stat err = %v, want not-exist", err)
+	}
+}
+
+func TestRunBrainIndexShunterUsesStateMetadataForStaleSemanticDeletes(t *testing.T) {
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Memory.Backend = "shunter"
+	cfg.Brain.ShunterDataDir = filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	cfg.Brain.DurableAck = true
+
+	origBackend := buildBrainIndexBackend
+	origStore := openBrainVectorStore
+	origEmbedder := newBrainEmbedder
+	origMarkFresh := markBrainIndexFresh
+	defer func() {
+		buildBrainIndexBackend = origBackend
+		openBrainVectorStore = origStore
+		newBrainEmbedder = origEmbedder
+		markBrainIndexFresh = origMarkFresh
+	}()
+
+	backend := &fakeShunterBrainIndexBackend{
+		fakeBrainIndexBackend: fakeBrainIndexBackend{docs: map[string]string{
+			"notes/current.md": "# Current\n\nCurrent semantic content.",
+		}},
+		stateFound: true,
+		state: projectmemory.BrainIndexState{
+			MetadataJSON: `{"source":"brain_index","document_paths":["notes/current.md","notes/stale.md"]}`,
+		},
+	}
+	store := &recordingBrainIndexStore{}
+	buildBrainIndexBackend = func(context.Context, appconfig.BrainConfig, *slog.Logger) (brain.Backend, func(), error) {
+		return backend, func() {}, nil
+	}
+	openBrainVectorStore = func(context.Context, string) (codeintel.Store, error) { return store, nil }
+	newBrainEmbedder = func(appconfig.Embedding) codeintel.Embedder { return fakeBrainIndexEmbedder{} }
+	markBrainIndexFresh = func(string, time.Time) error {
+		t.Fatal("file-backed MarkFresh should not be called for Shunter brain index")
+		return nil
+	}
+
+	result, err := runBrainIndex(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("runBrainIndex: %v", err)
+	}
+	if result.DocumentsIndexed != 1 || result.DocumentsDeleted != 1 || result.SemanticDocumentsDeleted != 1 {
+		t.Fatalf("result = %+v, want one current doc and one stale delete", result)
+	}
+	if !reflect.DeepEqual(store.deleted, []string{"notes/current.md", "notes/stale.md"}) {
+		t.Fatalf("semantic deletes = %#v, want current cleanup then stale delete", store.deleted)
+	}
+	var metadata struct {
+		DocumentPaths []string `json:"document_paths"`
+	}
+	if err := json.Unmarshal([]byte(backend.cleanMeta), &metadata); err != nil {
+		t.Fatalf("unmarshal clean metadata: %v", err)
+	}
+	if !reflect.DeepEqual(metadata.DocumentPaths, []string{"notes/current.md"}) {
+		t.Fatalf("clean metadata paths = %#v, want only current doc", metadata.DocumentPaths)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("yard database stat err = %v, want not-exist", err)
 	}
 }

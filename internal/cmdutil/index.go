@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	appindex "github.com/ponchione/sodoryard/internal/index"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/spf13/cobra"
 )
@@ -33,6 +35,15 @@ type BrainIndexDeps struct {
 
 type shunterBrainIndexCleaner interface {
 	MarkBrainIndexClean(context.Context, time.Time, string) error
+}
+
+type shunterBrainIndexStateReader interface {
+	ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error)
+}
+
+type brainIndexStateMetadata struct {
+	Source        string   `json:"source"`
+	DocumentPaths []string `json:"document_paths,omitempty"`
 }
 
 func DefaultBrainIndexDeps() BrainIndexDeps {
@@ -122,31 +133,49 @@ func RunBrainIndex(ctx context.Context, cfg *appconfig.Config, deps BrainIndexDe
 		return brainindexer.Result{}, fmt.Errorf("brain index: brain backend unavailable")
 	}
 
-	database, err := appdb.OpenDB(ctx, cfg.DatabasePath())
-	if err != nil {
-		return brainindexer.Result{}, fmt.Errorf("brain index: open database: %w", err)
-	}
-	defer database.Close()
-	if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
-		return brainindexer.Result{}, fmt.Errorf("brain index: init database schema: %w", err)
-	}
-	if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
-		return brainindexer.Result{}, fmt.Errorf("brain index: ensure project record: %w", err)
-	}
+	var (
+		result        brainindexer.Result
+		previousPaths []string
+		currentPaths  []string
+	)
+	if cfg.Brain.Backend == "shunter" {
+		previousPaths, err = previousShunterBrainIndexPaths(ctx, backend)
+		if err != nil {
+			return brainindexer.Result{}, err
+		}
+		metadataResult, err := brainindexer.NewMetadata(backend).RebuildProject(ctx, cfg.ProjectRoot, previousPaths)
+		if err != nil {
+			return brainindexer.Result{}, err
+		}
+		result = metadataResult.Result
+		currentPaths = metadataResult.DocumentPaths
+	} else {
+		database, err := appdb.OpenDB(ctx, cfg.DatabasePath())
+		if err != nil {
+			return brainindexer.Result{}, fmt.Errorf("brain index: open database: %w", err)
+		}
+		defer database.Close()
+		if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
+			return brainindexer.Result{}, fmt.Errorf("brain index: init database schema: %w", err)
+		}
+		if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
+			return brainindexer.Result{}, fmt.Errorf("brain index: ensure project record: %w", err)
+		}
 
-	queries := appdb.New(database)
-	existingDocs, err := queries.ListBrainDocumentsByProject(ctx, cfg.ProjectRoot)
-	if err != nil {
-		return brainindexer.Result{}, fmt.Errorf("brain index: list existing brain documents: %w", err)
-	}
-	previousPaths := make([]string, 0, len(existingDocs))
-	for _, doc := range existingDocs {
-		previousPaths = append(previousPaths, doc.Path)
-	}
+		queries := appdb.New(database)
+		existingDocs, err := queries.ListBrainDocumentsByProject(ctx, cfg.ProjectRoot)
+		if err != nil {
+			return brainindexer.Result{}, fmt.Errorf("brain index: list existing brain documents: %w", err)
+		}
+		previousPaths = make([]string, 0, len(existingDocs))
+		for _, doc := range existingDocs {
+			previousPaths = append(previousPaths, doc.Path)
+		}
 
-	result, err := brainindexer.New(database, backend).RebuildProject(ctx, cfg.ProjectRoot)
-	if err != nil {
-		return brainindexer.Result{}, err
+		result, err = brainindexer.New(database, backend).RebuildProject(ctx, cfg.ProjectRoot)
+		if err != nil {
+			return brainindexer.Result{}, err
+		}
 	}
 
 	store, err := deps.OpenStore(ctx, cfg.BrainLanceDBPath())
@@ -164,7 +193,11 @@ func RunBrainIndex(ctx context.Context, cfg *appconfig.Config, deps BrainIndexDe
 		if !ok {
 			return brainindexer.Result{}, fmt.Errorf("brain index: Shunter backend cannot mark index clean")
 		}
-		if err := cleaner.MarkBrainIndexClean(ctx, indexedAt, `{"source":"brain_index"}`); err != nil {
+		metadataJSON, err := encodeBrainIndexStateMetadata(currentPaths)
+		if err != nil {
+			return brainindexer.Result{}, fmt.Errorf("brain index: encode Shunter index metadata: %w", err)
+		}
+		if err := cleaner.MarkBrainIndexClean(ctx, indexedAt, metadataJSON); err != nil {
 			return brainindexer.Result{}, fmt.Errorf("brain index: mark Shunter index clean: %w", err)
 		}
 	} else if err := deps.MarkFresh(cfg.ProjectRoot, indexedAt); err != nil {
@@ -173,6 +206,70 @@ func RunBrainIndex(ctx context.Context, cfg *appconfig.Config, deps BrainIndexDe
 	result.SemanticChunksIndexed = semanticResult.SemanticChunksIndexed
 	result.SemanticDocumentsDeleted = semanticResult.SemanticDocumentsDeleted
 	return result, nil
+}
+
+func previousShunterBrainIndexPaths(ctx context.Context, backend brain.Backend) ([]string, error) {
+	reader, ok := backend.(shunterBrainIndexStateReader)
+	if !ok || reader == nil {
+		return nil, fmt.Errorf("brain index: Shunter backend cannot read index state")
+	}
+	state, found, err := reader.ReadBrainIndexState(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("brain index: read Shunter index state: %w", err)
+	}
+	if !found {
+		return nil, nil
+	}
+	paths, err := decodeBrainIndexStateMetadataPaths(state.MetadataJSON)
+	if err != nil {
+		return nil, fmt.Errorf("brain index: decode Shunter index metadata: %w", err)
+	}
+	return paths, nil
+}
+
+func encodeBrainIndexStateMetadata(paths []string) (string, error) {
+	metadata := brainIndexStateMetadata{
+		Source:        "brain_index",
+		DocumentPaths: normalizeBrainIndexPaths(paths),
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodeBrainIndexStateMetadataPaths(metadataJSON string) ([]string, error) {
+	metadataJSON = strings.TrimSpace(metadataJSON)
+	if metadataJSON == "" {
+		return nil, nil
+	}
+	var metadata brainIndexStateMetadata
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		return nil, err
+	}
+	return normalizeBrainIndexPaths(metadata.DocumentPaths), nil
+}
+
+func normalizeBrainIndexPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func PrintCodeIndexSummary(out io.Writer, result *appindex.Result) {
