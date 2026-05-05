@@ -68,6 +68,36 @@ type CodeFileIndexState struct {
 	LastIndexedAtUS uint64
 }
 
+type Conversation struct {
+	ID           string
+	ProjectID    string
+	Title        string
+	CreatedAtUS  uint64
+	UpdatedAtUS  uint64
+	Provider     string
+	Model        string
+	SettingsJSON string
+	Deleted      bool
+}
+
+type Message struct {
+	ID             string
+	ConversationID string
+	TurnNumber     uint32
+	Iteration      uint32
+	Sequence       uint64
+	Role           string
+	Content        string
+	ToolUseID      string
+	ToolName       string
+	CreatedAtUS    uint64
+	Visible        bool
+	Compressed     bool
+	IsSummary      bool
+	SummaryOfJSON  string
+	MetadataJSON   string
+}
+
 func documentRow(doc Document) types.ProductValue {
 	return types.ProductValue{
 		types.NewString(doc.Path),
@@ -212,6 +242,74 @@ func decodeCodeFileIndexStateRow(row types.ProductValue) CodeFileIndexState {
 	}
 }
 
+func conversationRow(conversation Conversation) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(conversation.ID),
+		types.NewString(conversation.ProjectID),
+		types.NewString(conversation.Title),
+		types.NewUint64(conversation.CreatedAtUS),
+		types.NewUint64(conversation.UpdatedAtUS),
+		types.NewString(conversation.Provider),
+		types.NewString(conversation.Model),
+		types.NewString(defaultString(conversation.SettingsJSON, emptyJSONObject)),
+		types.NewBool(conversation.Deleted),
+	}
+}
+
+func decodeConversationRow(row types.ProductValue) Conversation {
+	return Conversation{
+		ID:           row[0].AsString(),
+		ProjectID:    row[1].AsString(),
+		Title:        row[2].AsString(),
+		CreatedAtUS:  row[3].AsUint64(),
+		UpdatedAtUS:  row[4].AsUint64(),
+		Provider:     row[5].AsString(),
+		Model:        row[6].AsString(),
+		SettingsJSON: row[7].AsString(),
+		Deleted:      row[8].AsBool(),
+	}
+}
+
+func messageRow(message Message) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(message.ID),
+		types.NewString(message.ConversationID),
+		types.NewUint32(message.TurnNumber),
+		types.NewUint32(message.Iteration),
+		types.NewUint64(message.Sequence),
+		types.NewString(message.Role),
+		types.NewString(message.Content),
+		types.NewString(message.ToolUseID),
+		types.NewString(message.ToolName),
+		types.NewUint64(message.CreatedAtUS),
+		types.NewBool(message.Visible),
+		types.NewBool(message.Compressed),
+		types.NewBool(message.IsSummary),
+		types.NewString(defaultString(message.SummaryOfJSON, emptyJSONArray)),
+		types.NewString(defaultString(message.MetadataJSON, emptyJSONObject)),
+	}
+}
+
+func decodeMessageRow(row types.ProductValue) Message {
+	return Message{
+		ID:             row[0].AsString(),
+		ConversationID: row[1].AsString(),
+		TurnNumber:     row[2].AsUint32(),
+		Iteration:      row[3].AsUint32(),
+		Sequence:       row[4].AsUint64(),
+		Role:           row[5].AsString(),
+		Content:        row[6].AsString(),
+		ToolUseID:      row[7].AsString(),
+		ToolName:       row[8].AsString(),
+		CreatedAtUS:    row[9].AsUint64(),
+		Visible:        row[10].AsBool(),
+		Compressed:     row[11].AsBool(),
+		IsSummary:      row[12].AsBool(),
+		SummaryOfJSON:  row[13].AsString(),
+		MetadataJSON:   row[14].AsString(),
+	}
+}
+
 func splitDocumentChunks(path string, content string) []documentChunk {
 	if content == "" {
 		return nil
@@ -265,6 +363,10 @@ func memoryOperationID(operationType string, path string, actor string, atUS uin
 
 func CodeFileIndexID(projectID string, filePath string) string {
 	return stableID(strings.Join([]string{projectID, filePath}, "\x00"))
+}
+
+func MessageID(conversationID string, sequence uint64) string {
+	return fmt.Sprintf("%s:%020d", stableID(conversationID), sequence)
 }
 
 func stableID(value string) string {

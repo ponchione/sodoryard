@@ -96,7 +96,11 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	budgetManager := contextpkg.PriorityBudgetManager{}
 	budgetManager.SetBrainConfig(cfg.Brain)
 
-	convManager := conversation.NewManager(database, nil, logger)
+	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, brainBackend, logger)
+	if err != nil {
+		return closeOnError(err)
+	}
+	cleanup = ChainCleanup(cleanup, closeConversationManager)
 	contextAssembler := contextpkg.NewContextAssembler(
 		contextpkg.RuleBasedAnalyzer{},
 		contextpkg.HeuristicQueryExtractor{},
@@ -187,6 +191,30 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 		logger.Info("brain backend: MCP (in-process)", "vault", cfg.VaultPath)
 	}
 	return client, func() { _ = client.Close() }, nil
+}
+
+func BuildConversationManager(ctx context.Context, cfg *appconfig.Config, database *sql.DB, memoryBackend any, logger *slog.Logger) (*conversation.Manager, func(), error) {
+	if cfg == nil || cfg.Memory.Backend != "shunter" {
+		return conversation.NewManager(database, nil, logger), func() {}, nil
+	}
+	if store, ok := memoryBackend.(conversation.ProjectMemoryStore); ok && store != nil {
+		return conversation.NewProjectMemoryManager(store, nil, logger), func() {}, nil
+	}
+	if endpoint := os.Getenv(projectmemory.EnvMemoryEndpoint); endpoint != "" {
+		client, err := projectmemory.DialBrainBackend(endpoint)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return conversation.NewProjectMemoryManager(client, nil, logger), func() { _ = client.Close() }, nil
+	}
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+		DataDir:    cfg.Memory.ShunterDataDir,
+		DurableAck: cfg.Memory.DurableAck,
+	})
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return conversation.NewProjectMemoryManager(backend, nil, logger), func() { _ = backend.Close() }, nil
 }
 
 // BuildGraphStore opens (or creates) the code-graph SQLite store at the path

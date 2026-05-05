@@ -132,6 +132,66 @@ func (b *BrainBackend) MarkCodeIndexClean(ctx context.Context, revision string, 
 	})
 }
 
+func (b *BrainBackend) CreateConversation(ctx context.Context, args CreateConversationArgs) error {
+	return b.runtime.CreateConversation(ctx, args)
+}
+
+func (b *BrainBackend) DeleteConversation(ctx context.Context, args DeleteConversationArgs) error {
+	return b.runtime.DeleteConversation(ctx, args)
+}
+
+func (b *BrainBackend) SetConversationTitle(ctx context.Context, args SetConversationTitleArgs) error {
+	return b.runtime.SetConversationTitle(ctx, args)
+}
+
+func (b *BrainBackend) SetRuntimeDefaults(ctx context.Context, args SetRuntimeDefaultsArgs) error {
+	return b.runtime.SetRuntimeDefaults(ctx, args)
+}
+
+func (b *BrainBackend) AppendUserMessage(ctx context.Context, args AppendUserMessageArgs) error {
+	return b.runtime.AppendUserMessage(ctx, args)
+}
+
+func (b *BrainBackend) PersistIteration(ctx context.Context, args PersistIterationArgs) error {
+	return b.runtime.PersistIteration(ctx, args)
+}
+
+func (b *BrainBackend) CancelIteration(ctx context.Context, args CancelIterationArgs) error {
+	return b.runtime.CancelIteration(ctx, args)
+}
+
+func (b *BrainBackend) DiscardTurn(ctx context.Context, args DiscardTurnArgs) error {
+	return b.runtime.DiscardTurn(ctx, args)
+}
+
+func (b *BrainBackend) ReadConversation(ctx context.Context, id string) (Conversation, bool, error) {
+	return b.runtime.ReadConversation(ctx, id)
+}
+
+func (b *BrainBackend) ListConversations(ctx context.Context, projectID string, limit, offset int) ([]Conversation, error) {
+	return b.runtime.ListConversations(ctx, projectID, limit, offset)
+}
+
+func (b *BrainBackend) CountConversations(ctx context.Context, projectID string) (int64, error) {
+	return b.runtime.CountConversations(ctx, projectID)
+}
+
+func (b *BrainBackend) ListMessages(ctx context.Context, conversationID string, includeCompressed bool) ([]Message, error) {
+	return b.runtime.ListMessages(ctx, conversationID, includeCompressed)
+}
+
+func (b *BrainBackend) GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]Message, error) {
+	return b.runtime.GetMessagePage(ctx, conversationID, limit, offset)
+}
+
+func (b *BrainBackend) NextTurnNumber(ctx context.Context, conversationID string) (int, error) {
+	return b.runtime.NextTurnNumber(ctx, conversationID)
+}
+
+func (b *BrainBackend) SearchConversations(ctx context.Context, projectID string, query string, maxResults int) ([]ConversationSearchHit, error) {
+	return b.runtime.SearchConversations(ctx, projectID, query, maxResults)
+}
+
 func inferDocumentKind(path string) string {
 	switch {
 	case strings.HasPrefix(path, "conventions/"):

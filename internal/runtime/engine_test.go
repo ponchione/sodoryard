@@ -10,6 +10,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
@@ -103,6 +104,80 @@ func TestBuildBrainBackendUsesMemoryEndpointWithoutOpeningShunterDataDir(t *test
 	}
 	if got != "# Remote\n\nChild wrote through RPC." {
 		t.Fatalf("parent content = %q, want RPC write", got)
+	}
+	if _, statErr := os.Stat(dataDir); !os.IsNotExist(statErr) {
+		t.Fatalf("Shunter data dir stat err = %v, want not-exist", statErr)
+	}
+}
+
+func TestBuildConversationManagerUsesShunterMemoryBackend(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	cfg.Memory.DurableAck = true
+
+	manager, cleanup, err := BuildConversationManager(ctx, cfg, nil, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("BuildConversationManager returned error: %v", err)
+	}
+	defer cleanup()
+	conv, err := manager.Create(ctx, projectRoot, conversation.WithTitle("Shunter Runtime"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := manager.PersistUserMessage(ctx, conv.ID, 1, "runtime conversation write"); err != nil {
+		t.Fatalf("PersistUserMessage: %v", err)
+	}
+	history, err := manager.ReconstructHistory(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("ReconstructHistory: %v", err)
+	}
+	if len(history) != 1 || history[0].Content.String != "runtime conversation write" {
+		t.Fatalf("history = %+v, want runtime conversation write", history)
+	}
+}
+
+func TestBuildConversationManagerUsesMemoryEndpointWithoutOpeningShunterDataDir(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	parent, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(projectRoot, "parent-memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer parent.Close()
+	socketPath := filepath.Join(projectRoot, "run", "memory.sock")
+	server, err := projectmemory.StartRPCServer(ctx, projectmemory.RPCConfig{Transport: "unix", Path: socketPath}, parent)
+	if err != nil {
+		t.Fatalf("StartRPCServer: %v", err)
+	}
+	defer server.Close()
+
+	dataDir := filepath.Join(projectRoot, "child-should-not-open")
+	t.Setenv(projectmemory.EnvMemoryEndpoint, "unix:"+socketPath)
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = dataDir
+	cfg.Memory.DurableAck = true
+
+	manager, cleanup, err := BuildConversationManager(ctx, cfg, nil, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("BuildConversationManager returned error: %v", err)
+	}
+	defer cleanup()
+	conv, err := manager.Create(ctx, projectRoot, conversation.WithTitle("Remote Conversation"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	parentConversation, found, err := parent.ReadConversation(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("parent ReadConversation: %v", err)
+	}
+	if !found || parentConversation.Title != "Remote Conversation" {
+		t.Fatalf("parent conversation = %+v found=%t, want Remote Conversation", parentConversation, found)
 	}
 	if _, statErr := os.Stat(dataDir); !os.IsNotExist(statErr) {
 		t.Fatalf("Shunter data dir stat err = %v, want not-exist", statErr)

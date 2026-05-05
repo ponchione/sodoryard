@@ -114,7 +114,13 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		return nil, fmt.Errorf("start project memory RPC: %w", err)
 	}
 
-	convManager := conversation.NewManager(database, nil, logger)
+	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, brainBackend, logger)
+	if err != nil {
+		closeMemoryRPC()
+		closeBrainBackend()
+		cleanup()
+		return nil, err
+	}
 
 	rt := &OrchestratorRuntime{
 		Config:              cfg,
@@ -131,6 +137,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 			// Drain in-flight sub-call writes before closing the DB so stream
 			// goroutines don't race against database.Close() (TECH-DEBT R5).
 			provRouter.DrainTracking()
+			closeConversationManager()
 			closeMemoryRPC()
 			closeBrainBackend()
 			cleanup()

@@ -73,6 +73,66 @@ type CodeFileIndexArg struct {
 	ChunkCount uint32 `json:"chunk_count"`
 }
 
+type CreateConversationArgs struct {
+	ID           string `json:"id"`
+	ProjectID    string `json:"project_id"`
+	Title        string `json:"title"`
+	Model        string `json:"model"`
+	Provider     string `json:"provider"`
+	CreatedAtUS  uint64 `json:"created_at_us"`
+	SettingsJSON string `json:"settings_json"`
+}
+
+type DeleteConversationArgs struct {
+	ID string `json:"id"`
+}
+
+type SetConversationTitleArgs struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	UpdatedAtUS uint64 `json:"updated_at_us"`
+}
+
+type SetRuntimeDefaultsArgs struct {
+	ID          string `json:"id"`
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
+	UpdatedAtUS uint64 `json:"updated_at_us"`
+}
+
+type AppendUserMessageArgs struct {
+	ConversationID string `json:"conversation_id"`
+	TurnNumber     uint32 `json:"turn_number"`
+	Content        string `json:"content"`
+	CreatedAtUS    uint64 `json:"created_at_us"`
+}
+
+type PersistIterationArgs struct {
+	ConversationID string                    `json:"conversation_id"`
+	TurnNumber     uint32                    `json:"turn_number"`
+	Iteration      uint32                    `json:"iteration"`
+	Messages       []PersistIterationMessage `json:"messages"`
+	CreatedAtUS    uint64                    `json:"created_at_us"`
+}
+
+type PersistIterationMessage struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	ToolUseID string `json:"tool_use_id"`
+	ToolName  string `json:"tool_name"`
+}
+
+type CancelIterationArgs struct {
+	ConversationID string `json:"conversation_id"`
+	TurnNumber     uint32 `json:"turn_number"`
+	Iteration      uint32 `json:"iteration"`
+}
+
+type DiscardTurnArgs struct {
+	ConversationID string `json:"conversation_id"`
+	TurnNumber     uint32 `json:"turn_number"`
+}
+
 type reducerResult struct {
 	Path        string `json:"path,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
@@ -303,6 +363,182 @@ func markCodeIndexCleanReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, 
 	return encodeReducerResult(reducerResult{})
 }
 
+func createConversationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args CreateConversationArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(args.ID)
+	if id == "" {
+		return nil, fmt.Errorf("conversation id is required")
+	}
+	projectID := strings.TrimSpace(args.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project id is required")
+	}
+	if _, _, found := findConversationByID(ctx.DB, id); found {
+		return nil, fmt.Errorf("conversation already exists: %s", id)
+	}
+	nowUS := args.CreatedAtUS
+	if nowUS == 0 {
+		nowUS = reducerNowUS(ctx)
+	}
+	row := conversationRow(Conversation{
+		ID:           id,
+		ProjectID:    projectID,
+		Title:        args.Title,
+		CreatedAtUS:  nowUS,
+		UpdatedAtUS:  nowUS,
+		Provider:     args.Provider,
+		Model:        args.Model,
+		SettingsJSON: defaultString(args.SettingsJSON, emptyJSONObject),
+		Deleted:      false,
+	})
+	if _, err := ctx.DB.Insert(uint32(tableConversations), row); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func deleteConversationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args DeleteConversationArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	rowID, conversation, found := findConversationByID(ctx.DB, strings.TrimSpace(args.ID))
+	if !found || conversation.Deleted {
+		return nil, fmt.Errorf("conversation not found: %s", args.ID)
+	}
+	deleteMessagesForConversation(ctx.DB, conversation.ID)
+	conversation.Deleted = true
+	conversation.UpdatedAtUS = reducerNowUS(ctx)
+	if _, err := ctx.DB.Update(uint32(tableConversations), rowID, conversationRow(conversation)); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func setConversationTitleReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args SetConversationTitleArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	rowID, conversation, found := findConversationByID(ctx.DB, strings.TrimSpace(args.ID))
+	if !found || conversation.Deleted {
+		return nil, fmt.Errorf("conversation not found: %s", args.ID)
+	}
+	conversation.Title = args.Title
+	conversation.UpdatedAtUS = nonZeroUS(args.UpdatedAtUS, reducerNowUS(ctx))
+	if _, err := ctx.DB.Update(uint32(tableConversations), rowID, conversationRow(conversation)); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func setRuntimeDefaultsReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args SetRuntimeDefaultsArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	rowID, conversation, found := findConversationByID(ctx.DB, strings.TrimSpace(args.ID))
+	if !found || conversation.Deleted {
+		return nil, fmt.Errorf("conversation not found: %s", args.ID)
+	}
+	conversation.Provider = args.Provider
+	conversation.Model = args.Model
+	conversation.UpdatedAtUS = nonZeroUS(args.UpdatedAtUS, reducerNowUS(ctx))
+	if _, err := ctx.DB.Update(uint32(tableConversations), rowID, conversationRow(conversation)); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func appendUserMessageReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args AppendUserMessageArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.Content) == "" {
+		return nil, fmt.Errorf("user message content is required")
+	}
+	sequence, err := insertConversationMessage(ctx.DB, args.ConversationID, Message{
+		TurnNumber:  args.TurnNumber,
+		Iteration:   1,
+		Role:        "user",
+		Content:     args.Content,
+		CreatedAtUS: nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx)),
+		Visible:     true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := touchConversation(ctx.DB, args.ConversationID, nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx))); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{Revision: uint32(sequence)})
+}
+
+func persistIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args PersistIterationArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	if len(args.Messages) == 0 {
+		return nil, fmt.Errorf("persist_iteration requires at least one message")
+	}
+	nowUS := nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx))
+	for _, msg := range args.Messages {
+		role := strings.TrimSpace(msg.Role)
+		if role != "assistant" && role != "tool" {
+			return nil, fmt.Errorf("unsupported iteration message role: %s", msg.Role)
+		}
+		if _, err := insertConversationMessage(ctx.DB, args.ConversationID, Message{
+			TurnNumber:  args.TurnNumber,
+			Iteration:   args.Iteration,
+			Role:        role,
+			Content:     msg.Content,
+			ToolUseID:   msg.ToolUseID,
+			ToolName:    msg.ToolName,
+			CreatedAtUS: nowUS,
+			Visible:     true,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if err := touchConversation(ctx.DB, args.ConversationID, nowUS); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func cancelIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args CancelIterationArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	for rowID, row := range ctx.DB.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(args.ConversationID)) {
+		message := decodeMessageRow(row)
+		if message.TurnNumber == args.TurnNumber && message.Iteration == args.Iteration && message.Role != "user" {
+			_ = ctx.DB.Delete(uint32(tableMessages), rowID)
+		}
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func discardTurnReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args DiscardTurnArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	for rowID, row := range ctx.DB.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(args.ConversationID)) {
+		message := decodeMessageRow(row)
+		if message.TurnNumber == args.TurnNumber {
+			_ = ctx.DB.Delete(uint32(tableMessages), rowID)
+		}
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
 type documentMutation struct {
 	OperationType string
 	Path          string
@@ -409,6 +645,66 @@ func markBrainIndexDirty(db types.ReducerDB, projectID string, reason string, no
 	return err
 }
 
+func findConversationByID(db types.ReducerDB, id string) (types.RowID, Conversation, bool) {
+	rowID, row, ok := firstRow(db.SeekIndex(uint32(tableConversations), uint32(indexConversationsPrimary), types.NewString(id)))
+	if !ok {
+		return 0, Conversation{}, false
+	}
+	return rowID, decodeConversationRow(row), true
+}
+
+func deleteMessagesForConversation(db types.ReducerDB, conversationID string) {
+	for rowID := range db.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(conversationID)) {
+		_ = db.Delete(uint32(tableMessages), rowID)
+	}
+}
+
+func insertConversationMessage(db types.ReducerDB, conversationID string, message Message) (uint64, error) {
+	if strings.TrimSpace(conversationID) == "" {
+		return 0, fmt.Errorf("conversation id is required")
+	}
+	_, conversation, found := findConversationByID(db, conversationID)
+	if !found || conversation.Deleted {
+		return 0, fmt.Errorf("conversation not found: %s", conversationID)
+	}
+	sequence := nextMessageSequence(db, conversationID)
+	message.ConversationID = conversationID
+	message.Sequence = sequence
+	message.ID = MessageID(conversationID, sequence)
+	message.SummaryOfJSON = defaultString(message.SummaryOfJSON, emptyJSONArray)
+	message.MetadataJSON = defaultString(message.MetadataJSON, emptyJSONObject)
+	if _, err := db.Insert(uint32(tableMessages), messageRow(message)); err != nil {
+		return 0, err
+	}
+	return sequence, nil
+}
+
+func nextMessageSequence(db types.ReducerDB, conversationID string) uint64 {
+	var maxSequence uint64
+	found := false
+	for _, row := range db.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(conversationID)) {
+		sequence := row[4].AsUint64()
+		if !found || sequence > maxSequence {
+			maxSequence = sequence
+			found = true
+		}
+	}
+	if !found {
+		return 0
+	}
+	return maxSequence + 1
+}
+
+func touchConversation(db types.ReducerDB, conversationID string, updatedAtUS uint64) error {
+	rowID, conversation, found := findConversationByID(db, conversationID)
+	if !found || conversation.Deleted {
+		return fmt.Errorf("conversation not found: %s", conversationID)
+	}
+	conversation.UpdatedAtUS = updatedAtUS
+	_, err := db.Update(uint32(tableConversations), rowID, conversationRow(conversation))
+	return err
+}
+
 func firstRow(seq func(func(types.RowID, types.ProductValue) bool)) (types.RowID, types.ProductValue, bool) {
 	for rowID, row := range seq {
 		return rowID, row, true
@@ -456,4 +752,11 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func nonZeroUS(value uint64, fallback uint64) uint64 {
+	if value != 0 {
+		return value
+	}
+	return fallback
 }

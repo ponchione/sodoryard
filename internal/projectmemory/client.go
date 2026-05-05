@@ -117,6 +117,94 @@ func (c *Client) MarkCodeIndexClean(ctx context.Context, revision string, indexe
 	}, &EmptyResponse{})
 }
 
+func (c *Client) CreateConversation(ctx context.Context, args CreateConversationArgs) error {
+	return c.call(ctx, "Brain.CreateConversation", args, &EmptyResponse{})
+}
+
+func (c *Client) DeleteConversation(ctx context.Context, args DeleteConversationArgs) error {
+	return c.call(ctx, "Brain.DeleteConversation", args, &EmptyResponse{})
+}
+
+func (c *Client) SetConversationTitle(ctx context.Context, args SetConversationTitleArgs) error {
+	return c.call(ctx, "Brain.SetConversationTitle", args, &EmptyResponse{})
+}
+
+func (c *Client) SetRuntimeDefaults(ctx context.Context, args SetRuntimeDefaultsArgs) error {
+	return c.call(ctx, "Brain.SetRuntimeDefaults", args, &EmptyResponse{})
+}
+
+func (c *Client) AppendUserMessage(ctx context.Context, args AppendUserMessageArgs) error {
+	return c.call(ctx, "Brain.AppendUserMessage", args, &EmptyResponse{})
+}
+
+func (c *Client) PersistIteration(ctx context.Context, args PersistIterationArgs) error {
+	return c.call(ctx, "Brain.PersistIteration", args, &EmptyResponse{})
+}
+
+func (c *Client) CancelIteration(ctx context.Context, args CancelIterationArgs) error {
+	return c.call(ctx, "Brain.CancelIteration", args, &EmptyResponse{})
+}
+
+func (c *Client) DiscardTurn(ctx context.Context, args DiscardTurnArgs) error {
+	return c.call(ctx, "Brain.DiscardTurn", args, &EmptyResponse{})
+}
+
+func (c *Client) ReadConversation(ctx context.Context, id string) (Conversation, bool, error) {
+	var resp ReadConversationResponse
+	if err := c.call(ctx, "Brain.ReadConversation", ReadConversationRequest{ID: id}, &resp); err != nil {
+		return Conversation{}, false, err
+	}
+	return resp.Conversation, resp.Found, nil
+}
+
+func (c *Client) ListConversations(ctx context.Context, projectID string, limit, offset int) ([]Conversation, error) {
+	var resp ListConversationsResponse
+	if err := c.call(ctx, "Brain.ListConversations", ListConversationsRequest{ProjectID: projectID, Limit: limit, Offset: offset}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Conversations, nil
+}
+
+func (c *Client) CountConversations(ctx context.Context, projectID string) (int64, error) {
+	var resp CountConversationsResponse
+	if err := c.call(ctx, "Brain.CountConversations", CountConversationsRequest{ProjectID: projectID}, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Count, nil
+}
+
+func (c *Client) ListMessages(ctx context.Context, conversationID string, includeCompressed bool) ([]Message, error) {
+	var resp ListMessagesResponse
+	if err := c.call(ctx, "Brain.ListMessages", ListMessagesRequest{ConversationID: conversationID, IncludeCompressed: includeCompressed}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Messages, nil
+}
+
+func (c *Client) GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]Message, error) {
+	var resp ListMessagesResponse
+	if err := c.call(ctx, "Brain.GetMessagePage", GetMessagePageRequest{ConversationID: conversationID, Limit: limit, Offset: offset}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Messages, nil
+}
+
+func (c *Client) NextTurnNumber(ctx context.Context, conversationID string) (int, error) {
+	var resp NextTurnNumberResponse
+	if err := c.call(ctx, "Brain.NextTurnNumber", NextTurnNumberRequest{ConversationID: conversationID}, &resp); err != nil {
+		return 0, err
+	}
+	return resp.TurnNumber, nil
+}
+
+func (c *Client) SearchConversations(ctx context.Context, projectID string, query string, maxResults int) ([]ConversationSearchHit, error) {
+	var resp SearchConversationsResponse
+	if err := c.call(ctx, "Brain.SearchConversations", SearchConversationsRequest{ProjectID: projectID, Query: query, MaxResults: maxResults}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Hits, nil
+}
+
 func (c *Client) call(ctx context.Context, method string, args any, reply any) error {
 	if c == nil || c.rpc == nil {
 		return fmt.Errorf("project memory RPC client is closed")

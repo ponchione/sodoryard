@@ -180,6 +180,66 @@ type MarkCodeIndexCleanRequest struct {
 	MetadataJSON      string
 }
 
+type ReadConversationRequest struct {
+	ID string
+}
+
+type ReadConversationResponse struct {
+	Conversation Conversation
+	Found        bool
+}
+
+type ListConversationsRequest struct {
+	ProjectID string
+	Limit     int
+	Offset    int
+}
+
+type ListConversationsResponse struct {
+	Conversations []Conversation
+}
+
+type CountConversationsRequest struct {
+	ProjectID string
+}
+
+type CountConversationsResponse struct {
+	Count int64
+}
+
+type ListMessagesRequest struct {
+	ConversationID    string
+	IncludeCompressed bool
+}
+
+type GetMessagePageRequest struct {
+	ConversationID string
+	Limit          int
+	Offset         int
+}
+
+type ListMessagesResponse struct {
+	Messages []Message
+}
+
+type NextTurnNumberRequest struct {
+	ConversationID string
+}
+
+type NextTurnNumberResponse struct {
+	TurnNumber int
+}
+
+type SearchConversationsRequest struct {
+	ProjectID  string
+	Query      string
+	MaxResults int
+}
+
+type SearchConversationsResponse struct {
+	Hits []ConversationSearchHit
+}
+
 type EmptyResponse struct{}
 
 func (s *brainRPCService) ReadDocument(req ReadDocumentRequest, resp *ReadDocumentResponse) error {
@@ -263,4 +323,100 @@ func (s *brainRPCService) MarkCodeIndexClean(req MarkCodeIndexCleanRequest, resp
 		DeletedPaths:      req.DeletedPaths,
 		MetadataJSON:      req.MetadataJSON,
 	})
+}
+
+func (s *brainRPCService) CreateConversation(req CreateConversationArgs, resp *EmptyResponse) error {
+	return s.backend.CreateConversation(context.Background(), req)
+}
+
+func (s *brainRPCService) DeleteConversation(req DeleteConversationArgs, resp *EmptyResponse) error {
+	return s.backend.DeleteConversation(context.Background(), req)
+}
+
+func (s *brainRPCService) SetConversationTitle(req SetConversationTitleArgs, resp *EmptyResponse) error {
+	return s.backend.SetConversationTitle(context.Background(), req)
+}
+
+func (s *brainRPCService) SetRuntimeDefaults(req SetRuntimeDefaultsArgs, resp *EmptyResponse) error {
+	return s.backend.SetRuntimeDefaults(context.Background(), req)
+}
+
+func (s *brainRPCService) AppendUserMessage(req AppendUserMessageArgs, resp *EmptyResponse) error {
+	return s.backend.AppendUserMessage(context.Background(), req)
+}
+
+func (s *brainRPCService) PersistIteration(req PersistIterationArgs, resp *EmptyResponse) error {
+	return s.backend.PersistIteration(context.Background(), req)
+}
+
+func (s *brainRPCService) CancelIteration(req CancelIterationArgs, resp *EmptyResponse) error {
+	return s.backend.CancelIteration(context.Background(), req)
+}
+
+func (s *brainRPCService) DiscardTurn(req DiscardTurnArgs, resp *EmptyResponse) error {
+	return s.backend.DiscardTurn(context.Background(), req)
+}
+
+func (s *brainRPCService) ReadConversation(req ReadConversationRequest, resp *ReadConversationResponse) error {
+	conversation, found, err := s.backend.ReadConversation(context.Background(), req.ID)
+	if err != nil {
+		return err
+	}
+	resp.Conversation = conversation
+	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) ListConversations(req ListConversationsRequest, resp *ListConversationsResponse) error {
+	conversations, err := s.backend.ListConversations(context.Background(), req.ProjectID, req.Limit, req.Offset)
+	if err != nil {
+		return err
+	}
+	resp.Conversations = conversations
+	return nil
+}
+
+func (s *brainRPCService) CountConversations(req CountConversationsRequest, resp *CountConversationsResponse) error {
+	count, err := s.backend.CountConversations(context.Background(), req.ProjectID)
+	if err != nil {
+		return err
+	}
+	resp.Count = count
+	return nil
+}
+
+func (s *brainRPCService) ListMessages(req ListMessagesRequest, resp *ListMessagesResponse) error {
+	messages, err := s.backend.ListMessages(context.Background(), req.ConversationID, req.IncludeCompressed)
+	if err != nil {
+		return err
+	}
+	resp.Messages = messages
+	return nil
+}
+
+func (s *brainRPCService) GetMessagePage(req GetMessagePageRequest, resp *ListMessagesResponse) error {
+	messages, err := s.backend.GetMessagePage(context.Background(), req.ConversationID, req.Limit, req.Offset)
+	if err != nil {
+		return err
+	}
+	resp.Messages = messages
+	return nil
+}
+
+func (s *brainRPCService) NextTurnNumber(req NextTurnNumberRequest, resp *NextTurnNumberResponse) error {
+	next, err := s.backend.NextTurnNumber(context.Background(), req.ConversationID)
+	if err != nil {
+		return err
+	}
+	resp.TurnNumber = next
+	return nil
+}
+
+func (s *brainRPCService) SearchConversations(req SearchConversationsRequest, resp *SearchConversationsResponse) error {
+	hits, err := s.backend.SearchConversations(context.Background(), req.ProjectID, req.Query, req.MaxResults)
+	if err != nil {
+		return err
+	}
+	resp.Hits = hits
+	return nil
 }

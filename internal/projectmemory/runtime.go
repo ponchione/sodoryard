@@ -100,3 +100,43 @@ func (r *Runtime) MarkCodeIndexClean(ctx context.Context, args MarkCodeIndexClea
 	_, err := r.callReducerJSON(ctx, "mark_code_index_clean", args)
 	return err
 }
+
+func (r *Runtime) CreateConversation(ctx context.Context, args CreateConversationArgs) error {
+	_, err := r.callReducerJSON(ctx, "create_conversation", args)
+	return err
+}
+
+func (r *Runtime) DeleteConversation(ctx context.Context, args DeleteConversationArgs) error {
+	_, err := r.callReducerJSON(ctx, "delete_conversation", args)
+	return err
+}
+
+func (r *Runtime) SetConversationTitle(ctx context.Context, args SetConversationTitleArgs) error {
+	_, err := r.callReducerJSON(ctx, "set_conversation_title", args)
+	return err
+}
+
+func (r *Runtime) SetRuntimeDefaults(ctx context.Context, args SetRuntimeDefaultsArgs) error {
+	_, err := r.callReducerJSON(ctx, "set_runtime_defaults", args)
+	return err
+}
+
+func (r *Runtime) AppendUserMessage(ctx context.Context, args AppendUserMessageArgs) error {
+	_, err := r.callReducerJSON(ctx, "append_user_message", args)
+	return err
+}
+
+func (r *Runtime) PersistIteration(ctx context.Context, args PersistIterationArgs) error {
+	_, err := r.callReducerJSON(ctx, "persist_iteration", args)
+	return err
+}
+
+func (r *Runtime) CancelIteration(ctx context.Context, args CancelIterationArgs) error {
+	_, err := r.callReducerJSON(ctx, "cancel_iteration", args)
+	return err
+}
+
+func (r *Runtime) DiscardTurn(ctx context.Context, args DiscardTurnArgs) error {
+	_, err := r.callReducerJSON(ctx, "discard_turn", args)
+	return err
+}

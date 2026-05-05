@@ -194,6 +194,111 @@ func TestCodeIndexStateTracksFilesAndRestart(t *testing.T) {
 	}
 }
 
+func TestConversationHistorySearchAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	createdAt := time.Date(2026, 5, 5, 16, 0, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, CreateConversationArgs{
+		ID:          "conv-1",
+		ProjectID:   "project-1",
+		Title:       "Memory Slice",
+		Provider:    "codex",
+		Model:       "gpt-5",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if err := backend.AppendUserMessage(ctx, AppendUserMessageArgs{
+		ConversationID: "conv-1",
+		TurnNumber:     1,
+		Content:        "please wire Shunter conversation memory",
+		CreatedAtUS:    uint64(createdAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("AppendUserMessage: %v", err)
+	}
+	if err := backend.PersistIteration(ctx, PersistIterationArgs{
+		ConversationID: "conv-1",
+		TurnNumber:     1,
+		Iteration:      1,
+		CreatedAtUS:    uint64(createdAt.Add(2 * time.Second).UnixMicro()),
+		Messages: []PersistIterationMessage{
+			{Role: "assistant", Content: "Shunter conversation memory is persisted."},
+			{Role: "tool", ToolUseID: "tool-1", ToolName: "read_file", Content: "tool output"},
+		},
+	}); err != nil {
+		t.Fatalf("PersistIteration: %v", err)
+	}
+	next, err := backend.NextTurnNumber(ctx, "conv-1")
+	if err != nil {
+		t.Fatalf("NextTurnNumber: %v", err)
+	}
+	if next != 2 {
+		t.Fatalf("NextTurnNumber = %d, want 2", next)
+	}
+	messages, err := backend.ListMessages(ctx, "conv-1", false)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(messages) != 3 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[2].ToolName != "read_file" {
+		t.Fatalf("messages = %+v, want user/assistant/tool", messages)
+	}
+	hits, err := backend.SearchConversations(ctx, "project-1", "conversation memory", 20)
+	if err != nil {
+		t.Fatalf("SearchConversations: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "conv-1" {
+		t.Fatalf("SearchConversations = %+v, want conv-1", hits)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	conversation, found, err := reopened.ReadConversation(ctx, "conv-1")
+	if err != nil {
+		t.Fatalf("ReadConversation after restart: %v", err)
+	}
+	if !found || conversation.Title != "Memory Slice" || conversation.Provider != "codex" {
+		t.Fatalf("conversation after restart = %+v found=%t, want Memory Slice", conversation, found)
+	}
+	messages, err = reopened.ListMessages(ctx, "conv-1", false)
+	if err != nil {
+		t.Fatalf("ListMessages after restart: %v", err)
+	}
+	if len(messages) != 3 {
+		t.Fatalf("messages after restart = %d, want 3", len(messages))
+	}
+	if err := reopened.CancelIteration(ctx, CancelIterationArgs{ConversationID: "conv-1", TurnNumber: 1, Iteration: 1}); err != nil {
+		t.Fatalf("CancelIteration: %v", err)
+	}
+	messages, err = reopened.ListMessages(ctx, "conv-1", false)
+	if err != nil {
+		t.Fatalf("ListMessages after cancel: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Role != "user" {
+		t.Fatalf("messages after cancel = %+v, want preserved user message only", messages)
+	}
+	if err := reopened.DiscardTurn(ctx, DiscardTurnArgs{ConversationID: "conv-1", TurnNumber: 1}); err != nil {
+		t.Fatalf("DiscardTurn: %v", err)
+	}
+	messages, err = reopened.ListMessages(ctx, "conv-1", false)
+	if err != nil {
+		t.Fatalf("ListMessages after discard: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("messages after discard = %+v, want none", messages)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
@@ -260,5 +365,25 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if !found || codeState.LastIndexedCommit != "rpc-commit" {
 		t.Fatalf("parent code index state after RPC = %+v found=%t, want rpc-commit", codeState, found)
+	}
+	if err := client.CreateConversation(ctx, CreateConversationArgs{ID: "rpc-conv", ProjectID: "rpc-project", Title: "RPC Conversation", CreatedAtUS: uint64(time.Now().UTC().UnixMicro())}); err != nil {
+		t.Fatalf("client CreateConversation: %v", err)
+	}
+	if err := client.AppendUserMessage(ctx, AppendUserMessageArgs{ConversationID: "rpc-conv", TurnNumber: 1, Content: "remote conversation write"}); err != nil {
+		t.Fatalf("client AppendUserMessage: %v", err)
+	}
+	parentConversation, found, err := backend.ReadConversation(ctx, "rpc-conv")
+	if err != nil {
+		t.Fatalf("parent ReadConversation: %v", err)
+	}
+	if !found || parentConversation.Title != "RPC Conversation" {
+		t.Fatalf("parent conversation after RPC = %+v found=%t, want RPC Conversation", parentConversation, found)
+	}
+	parentMessages, err := backend.ListMessages(ctx, "rpc-conv", false)
+	if err != nil {
+		t.Fatalf("parent ListMessages: %v", err)
+	}
+	if len(parentMessages) != 1 || parentMessages[0].Content != "remote conversation write" {
+		t.Fatalf("parent messages after RPC = %+v, want remote conversation write", parentMessages)
 	}
 }

@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 const (
 	tableProjectState schema.TableID = iota
@@ -18,6 +18,8 @@ const (
 	tableBrainIndexState
 	tableCodeIndexState
 	tableCodeFileIndexState
+	tableConversations
+	tableMessages
 )
 
 const (
@@ -58,6 +60,16 @@ const (
 	indexCodeFileIndexStateProject
 )
 
+const (
+	indexConversationsPrimary schema.IndexID = iota
+	indexConversationsProject
+)
+
+const (
+	indexMessagesPrimary schema.IndexID = iota
+	indexMessagesConversation
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -68,6 +80,8 @@ func NewModule() *shunter.Module {
 	declareBrainIndexState(mod)
 	declareCodeIndexState(mod)
 	declareCodeFileIndexState(mod)
+	declareConversations(mod)
+	declareMessages(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -76,6 +90,14 @@ func NewModule() *shunter.Module {
 	mod.Reducer("mark_brain_index_clean", markBrainIndexCleanReducer)
 	mod.Reducer("mark_code_index_dirty", markCodeIndexDirtyReducer)
 	mod.Reducer("mark_code_index_clean", markCodeIndexCleanReducer)
+	mod.Reducer("create_conversation", createConversationReducer)
+	mod.Reducer("delete_conversation", deleteConversationReducer)
+	mod.Reducer("set_conversation_title", setConversationTitleReducer)
+	mod.Reducer("set_runtime_defaults", setRuntimeDefaultsReducer)
+	mod.Reducer("append_user_message", appendUserMessageReducer)
+	mod.Reducer("persist_iteration", persistIterationReducer)
+	mod.Reducer("cancel_iteration", cancelIterationReducer)
+	mod.Reducer("discard_turn", discardTurnReducer)
 	return mod
 }
 
@@ -210,6 +232,52 @@ func declareCodeFileIndexState(mod *shunter.Module) {
 		},
 		Indexes: []schema.IndexDefinition{
 			{Name: "code_file_index_state_project", Columns: []string{"project_id"}},
+		},
+	})
+}
+
+func declareConversations(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "conversations",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "project_id", Type: schema.KindString},
+			{Name: "title", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "updated_at_us", Type: schema.KindUint64},
+			{Name: "provider", Type: schema.KindString},
+			{Name: "model", Type: schema.KindString},
+			{Name: "settings_json", Type: schema.KindString},
+			{Name: "deleted", Type: schema.KindBool},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "conversations_project", Columns: []string{"project_id"}},
+		},
+	})
+}
+
+func declareMessages(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "messages",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "conversation_id", Type: schema.KindString},
+			{Name: "turn_number", Type: schema.KindUint32},
+			{Name: "iteration", Type: schema.KindUint32},
+			{Name: "sequence", Type: schema.KindUint64},
+			{Name: "role", Type: schema.KindString},
+			{Name: "content", Type: schema.KindString},
+			{Name: "tool_use_id", Type: schema.KindString},
+			{Name: "tool_name", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "visible", Type: schema.KindBool},
+			{Name: "compressed", Type: schema.KindBool},
+			{Name: "is_summary", Type: schema.KindBool},
+			{Name: "summary_of_json", Type: schema.KindString},
+			{Name: "metadata_json", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "messages_conversation", Columns: []string{"conversation_id"}},
 		},
 	})
 }

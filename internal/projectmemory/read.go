@@ -167,10 +167,251 @@ func (r *Runtime) ListCodeFileIndexStates(ctx context.Context) ([]CodeFileIndexS
 	return states, nil
 }
 
+func (r *Runtime) ReadConversation(ctx context.Context, id string) (Conversation, bool, error) {
+	var conversation Conversation
+	var found bool
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableConversations, indexConversationsPrimary, types.NewString(strings.TrimSpace(id))) {
+			conversation = decodeConversationRow(row)
+			found = true
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		return Conversation{}, false, err
+	}
+	if !found || conversation.Deleted {
+		return Conversation{}, false, nil
+	}
+	return conversation, true, nil
+}
+
+func (r *Runtime) ListConversations(ctx context.Context, projectID string, limit, offset int) ([]Conversation, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var conversations []Conversation
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableConversations, indexConversationsProject, types.NewString(projectID)) {
+			conversation := decodeConversationRow(row)
+			if conversation.Deleted {
+				continue
+			}
+			conversations = append(conversations, conversation)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(conversations, func(i, j int) bool {
+		if conversations[i].UpdatedAtUS == conversations[j].UpdatedAtUS {
+			return conversations[i].ID < conversations[j].ID
+		}
+		return conversations[i].UpdatedAtUS > conversations[j].UpdatedAtUS
+	})
+	if offset >= len(conversations) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(conversations) {
+		end = len(conversations)
+	}
+	return conversations[offset:end], nil
+}
+
+func (r *Runtime) CountConversations(ctx context.Context, projectID string) (int64, error) {
+	var count int64
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableConversations, indexConversationsProject, types.NewString(projectID)) {
+			if !decodeConversationRow(row).Deleted {
+				count++
+			}
+		}
+		return nil
+	})
+	return count, err
+}
+
+func (r *Runtime) ListMessages(ctx context.Context, conversationID string, includeCompressed bool) ([]Message, error) {
+	var messages []Message
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableMessages, indexMessagesConversation, types.NewString(conversationID)) {
+			message := decodeMessageRow(row)
+			if !message.Visible {
+				continue
+			}
+			if message.Compressed && !includeCompressed {
+				continue
+			}
+			messages = append(messages, message)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortMessages(messages)
+	return messages, nil
+}
+
+func (r *Runtime) GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	messages, err := r.ListMessages(ctx, conversationID, true)
+	if err != nil {
+		return nil, err
+	}
+	if offset >= len(messages) {
+		return nil, nil
+	}
+	start := len(messages) - offset - limit
+	if start < 0 {
+		start = 0
+	}
+	end := len(messages) - offset
+	if end < 0 {
+		end = 0
+	}
+	return messages[start:end], nil
+}
+
+func (r *Runtime) NextTurnNumber(ctx context.Context, conversationID string) (int, error) {
+	messages, err := r.ListMessages(ctx, conversationID, true)
+	if err != nil {
+		return 0, err
+	}
+	maxTurn := uint32(0)
+	for _, message := range messages {
+		if message.TurnNumber > maxTurn {
+			maxTurn = message.TurnNumber
+		}
+	}
+	return int(maxTurn) + 1, nil
+}
+
+func (r *Runtime) SearchConversations(ctx context.Context, projectID string, query string, maxResults int) ([]ConversationSearchHit, error) {
+	if maxResults <= 0 {
+		maxResults = 20
+	}
+	normalizedQuery := normalizeKeyword(query)
+	if normalizedQuery == "" {
+		return nil, nil
+	}
+	conversations, err := r.ListConversations(ctx, projectID, int(^uint(0)>>1), 0)
+	if err != nil {
+		return nil, err
+	}
+	type scoredHit struct {
+		hit   ConversationSearchHit
+		score int
+		order int
+	}
+	best := make(map[string]scoredHit)
+	order := 0
+	err = r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, conversation := range conversations {
+			titleMatch := strings.Contains(normalizeKeyword(conversation.Title), normalizedQuery)
+			for _, row := range view.SeekIndex(tableMessages, indexMessagesConversation, types.NewString(conversation.ID)) {
+				message := decodeMessageRow(row)
+				if !message.Visible {
+					continue
+				}
+				contentMatch := strings.Contains(normalizeKeyword(message.Content), normalizedQuery)
+				if !titleMatch && !contentMatch {
+					continue
+				}
+				score := conversationSearchScore(message.Role, titleMatch, contentMatch)
+				hit := ConversationSearchHit{
+					ID:          conversation.ID,
+					Title:       conversation.Title,
+					UpdatedAtUS: conversation.UpdatedAtUS,
+					Role:        message.Role,
+					Snippet:     snippetAround(message.Content, normalizedQuery),
+				}
+				if hit.Snippet == "" && titleMatch {
+					hit.Snippet = conversation.Title
+				}
+				current, exists := best[conversation.ID]
+				if !exists || score > current.score {
+					best[conversation.ID] = scoredHit{hit: hit, score: score, order: order}
+				}
+				order++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]scoredHit, 0, len(best))
+	for _, hit := range best {
+		hits = append(hits, hit)
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].score == hits[j].score {
+			return hits[i].order < hits[j].order
+		}
+		return hits[i].score > hits[j].score
+	})
+	if len(hits) > maxResults {
+		hits = hits[:maxResults]
+	}
+	out := make([]ConversationSearchHit, 0, len(hits))
+	for _, hit := range hits {
+		out = append(out, hit.hit)
+	}
+	return out, nil
+}
+
 type SearchHit struct {
 	Path    string
 	Snippet string
 	Score   float64
+}
+
+type ConversationSearchHit struct {
+	ID          string
+	Title       string
+	UpdatedAtUS uint64
+	Role        string
+	Snippet     string
+}
+
+func sortMessages(messages []Message) {
+	sort.Slice(messages, func(i, j int) bool {
+		if messages[i].Sequence == messages[j].Sequence {
+			return messages[i].ID < messages[j].ID
+		}
+		return messages[i].Sequence < messages[j].Sequence
+	})
+}
+
+func conversationSearchScore(role string, titleMatch bool, contentMatch bool) int {
+	score := 0
+	if titleMatch {
+		score += 40
+	}
+	if contentMatch {
+		score += 10
+	}
+	switch role {
+	case "assistant":
+		score += 30
+	case "user":
+		score += 20
+	case "tool":
+		score += 10
+	}
+	return score
 }
 
 func filepathSlash(value string) string {
