@@ -12,6 +12,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/receipt"
 	toolpkg "github.com/ponchione/sodoryard/internal/tool"
 )
@@ -135,6 +136,97 @@ Done.
 	}
 	if !processStartedSeen || !processExitedSeen {
 		t.Fatalf("step process events missing start/exit: %+v", events)
+	}
+}
+
+func TestSpawnAgentUsesProjectMemoryCompleteStepWithReceipt(t *testing.T) {
+	ctx := context.Background()
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+	store := chain.NewProjectMemoryStore(backend)
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "spawn-shunter-receipt", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 1000})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{
+		Store:        store,
+		Backend:      backend,
+		Config:       &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}},
+		ChainID:      chainID,
+		EngineBinary: "tidmouth",
+		ProjectRoot:  t.TempDir(),
+	})
+	receiptPath := "receipts/coder/" + chainID + "-step-001.md"
+	receiptContent := `---
+agent: coder
+chain_id: spawn-shunter-receipt
+step: 1
+verdict: completed
+timestamp: 2026-05-06T14:00:00Z
+turns_used: 2
+tokens_used: 44
+duration_seconds: 6
+---
+
+Done through Shunter atomic receipt completion.
+`
+	tool.now = func() time.Time { return time.Date(2026, 5, 6, 14, 0, 0, 0, time.UTC) }
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		if err := backend.WriteDocument(ctx, receiptPath, receiptContent); err != nil {
+			t.Fatalf("WriteDocument receipt: %v", err)
+		}
+		return RunResult{ExitCode: 0}
+	}
+	result, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result == nil || !result.Success || !strings.Contains(result.Content, "Shunter atomic receipt") {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	steps, err := store.ListSteps(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 1 || steps[0].Status != "completed" || steps[0].ReceiptPath != receiptPath || steps[0].TokensUsed != 44 {
+		t.Fatalf("steps = %+v, want Shunter-completed receipt step", steps)
+	}
+	ch, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if ch.TotalSteps != 1 || ch.TotalTokens != 44 {
+		t.Fatalf("chain = %+v, want updated Shunter metrics", ch)
+	}
+	receiptDoc, err := backend.ReadDocument(ctx, receiptPath)
+	if err != nil {
+		t.Fatalf("ReadDocument receipt: %v", err)
+	}
+	if receiptDoc != receiptContent {
+		t.Fatalf("receipt doc = %q, want atomic receipt content", receiptDoc)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var completed bool
+	for _, event := range events {
+		if event.EventType == chain.EventStepCompleted && strings.Contains(event.EventData, `"tokens_used":44`) {
+			completed = true
+		}
+	}
+	if !completed {
+		t.Fatalf("events = %+v, want step_completed from atomic reducer", events)
+	}
+	state, found, err := backend.ReadBrainIndexState(ctx)
+	if err != nil {
+		t.Fatalf("ReadBrainIndexState: %v", err)
+	}
+	if !found || !state.Dirty || state.DirtyReason != "complete_step_with_receipt" {
+		t.Fatalf("brain index state = %+v found=%t, want complete_step_with_receipt dirty reason", state, found)
 	}
 }
 

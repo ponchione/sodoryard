@@ -244,6 +244,10 @@ func (b *BrainBackend) CompleteStep(ctx context.Context, args CompleteStepArgs) 
 	return b.runtime.CompleteStep(ctx, args)
 }
 
+func (b *BrainBackend) CompleteStepWithReceipt(ctx context.Context, args CompleteStepWithReceiptArgs) error {
+	return b.runtime.CompleteStepWithReceipt(ctx, args)
+}
+
 func (b *BrainBackend) CompleteChain(ctx context.Context, args CompleteChainArgs) error {
 	return b.runtime.CompleteChain(ctx, args)
 }

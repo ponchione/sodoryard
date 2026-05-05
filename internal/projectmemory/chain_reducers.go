@@ -48,6 +48,34 @@ type CompleteStepArgs struct {
 	CompletedAtUS uint64 `json:"completed_at_us"`
 }
 
+type CompleteStepWithReceiptArgs struct {
+	StepID            string                         `json:"step_id"`
+	ChainID           string                         `json:"chain_id"`
+	Status            string                         `json:"status"`
+	Verdict           string                         `json:"verdict"`
+	ReceiptPath       string                         `json:"receipt_path"`
+	ReceiptContent    string                         `json:"receipt_content"`
+	TokensUsed        uint64                         `json:"tokens_used"`
+	TurnsUsed         uint64                         `json:"turns_used"`
+	DurationSecs      uint64                         `json:"duration_secs"`
+	ExitCode          int64                          `json:"exit_code"`
+	HasExitCode       bool                           `json:"has_exit_code"`
+	Error             string                         `json:"error"`
+	CompletedAtUS     uint64                         `json:"completed_at_us"`
+	TotalSteps        uint64                         `json:"total_steps"`
+	TotalTokens       uint64                         `json:"total_tokens"`
+	TotalDurationSecs uint64                         `json:"total_duration_secs"`
+	ResolverLoops     uint64                         `json:"resolver_loops"`
+	Events            []CompleteStepWithReceiptEvent `json:"events"`
+}
+
+type CompleteStepWithReceiptEvent struct {
+	StepID      string `json:"step_id"`
+	EventType   string `json:"event_type"`
+	PayloadJSON string `json:"payload_json"`
+	CreatedAtUS uint64 `json:"created_at_us"`
+}
+
 type CompleteChainArgs struct {
 	ID            string `json:"id"`
 	Status        string `json:"status"`
@@ -199,24 +227,82 @@ func completeStepReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error)
 	if !found {
 		return nil, fmt.Errorf("step not found: %s", args.ID)
 	}
-	status := strings.TrimSpace(args.Status)
-	if status == "" {
-		status = "completed"
-	}
-	step.Status = status
-	step.Verdict = args.Verdict
-	step.ReceiptPath = args.ReceiptPath
-	step.TokensUsed = args.TokensUsed
-	step.TurnsUsed = args.TurnsUsed
-	step.DurationSecs = args.DurationSecs
-	step.ExitCode = args.ExitCode
-	step.HasExitCode = args.HasExitCode
-	step.Error = args.Error
-	step.CompletedAtUS = nonZeroUS(args.CompletedAtUS, reducerNowUS(ctx))
+	step = applyCompleteStepArgs(step, args, reducerNowUS(ctx))
 	if _, err := ctx.DB.Update(uint32(tableSteps), rowID, chainStepRow(step)); err != nil {
 		return nil, err
 	}
 	return encodeReducerResult(reducerResult{OperationID: step.ID})
+}
+
+func completeStepWithReceiptReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args CompleteStepWithReceiptArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	chainID := strings.TrimSpace(args.ChainID)
+	if chainID == "" {
+		return nil, fmt.Errorf("chain id is required")
+	}
+	chainRowID, chain, found := findChainByID(ctx.DB, chainID)
+	if !found {
+		return nil, fmt.Errorf("chain not found: %s", chainID)
+	}
+	stepRowID, step, found := findStepByID(ctx.DB, strings.TrimSpace(args.StepID))
+	if !found {
+		return nil, fmt.Errorf("step not found: %s", args.StepID)
+	}
+	if step.ChainID != chainID {
+		return nil, fmt.Errorf("step %s belongs to chain %s, not %s", step.ID, step.ChainID, chainID)
+	}
+	if strings.TrimSpace(args.ReceiptPath) == "" {
+		return nil, fmt.Errorf("receipt path is required")
+	}
+	nowUS := reducerNowUS(ctx)
+	if _, err := upsertDocument(ctx, documentMutation{
+		OperationType: "complete_step_with_receipt",
+		Path:          args.ReceiptPath,
+		Content:       args.ReceiptContent,
+		Actor:         "chain",
+		Kind:          "receipt",
+		Title:         inferDocumentTitle(args.ReceiptPath, args.ReceiptContent),
+	}); err != nil {
+		return nil, err
+	}
+
+	step = applyCompleteStepArgs(step, CompleteStepArgs{
+		ID:            args.StepID,
+		Status:        args.Status,
+		Verdict:       args.Verdict,
+		ReceiptPath:   args.ReceiptPath,
+		TokensUsed:    args.TokensUsed,
+		TurnsUsed:     args.TurnsUsed,
+		DurationSecs:  args.DurationSecs,
+		ExitCode:      args.ExitCode,
+		HasExitCode:   args.HasExitCode,
+		Error:         args.Error,
+		CompletedAtUS: args.CompletedAtUS,
+	}, nowUS)
+	if _, err := ctx.DB.Update(uint32(tableSteps), stepRowID, chainStepRow(step)); err != nil {
+		return nil, err
+	}
+
+	updatedAtUS := nonZeroUS(args.CompletedAtUS, nowUS)
+	chain.MetricsJSON = mustJSON(chainMetricsPayload{
+		TotalSteps:        args.TotalSteps,
+		TotalTokens:       args.TotalTokens,
+		TotalDurationSecs: args.TotalDurationSecs,
+		ResolverLoops:     args.ResolverLoops,
+	})
+	chain.UpdatedAtUS = updatedAtUS
+	if _, err := ctx.DB.Update(uint32(tableChains), chainRowID, chainRow(chain)); err != nil {
+		return nil, err
+	}
+	for _, event := range args.Events {
+		if err := appendChainEvent(ctx.DB, chainID, event.StepID, event.EventType, event.PayloadJSON, nonZeroUS(event.CreatedAtUS, updatedAtUS)); err != nil {
+			return nil, err
+		}
+	}
+	return encodeReducerResult(reducerResult{OperationID: step.ID, Path: args.ReceiptPath})
 }
 
 func completeChainReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
@@ -302,26 +388,60 @@ func logChainEventReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error
 	if eventType == "" {
 		return nil, fmt.Errorf("event type is required")
 	}
-	sequence := nextChainEventSequence(ctx.DB, chainID)
 	id := strings.TrimSpace(args.ID)
+	eventID, err := appendChainEventWithID(ctx.DB, id, chainID, args.StepID, eventType, args.PayloadJSON, nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx)))
+	if err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: eventID})
+}
+
+func applyCompleteStepArgs(step ChainStep, args CompleteStepArgs, nowUS uint64) ChainStep {
+	status := strings.TrimSpace(args.Status)
+	if status == "" {
+		status = "completed"
+	}
+	step.Status = status
+	step.Verdict = args.Verdict
+	step.ReceiptPath = args.ReceiptPath
+	step.TokensUsed = args.TokensUsed
+	step.TurnsUsed = args.TurnsUsed
+	step.DurationSecs = args.DurationSecs
+	step.ExitCode = args.ExitCode
+	step.HasExitCode = args.HasExitCode
+	step.Error = args.Error
+	step.CompletedAtUS = nonZeroUS(args.CompletedAtUS, nowUS)
+	return step
+}
+
+func appendChainEvent(db types.ReducerDB, chainID string, stepID string, eventType string, payloadJSON string, createdAtUS uint64) error {
+	_, err := appendChainEventWithID(db, "", chainID, stepID, eventType, payloadJSON, createdAtUS)
+	return err
+}
+
+func appendChainEventWithID(db types.ReducerDB, id string, chainID string, stepID string, eventType string, payloadJSON string, createdAtUS uint64) (string, error) {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return "", fmt.Errorf("event type is required")
+	}
+	sequence := nextChainEventSequence(db, chainID)
+	id = strings.TrimSpace(id)
 	if id == "" {
 		id = ChainEventID(chainID, sequence)
 	}
-	if _, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableEvents), uint32(indexEventsPrimary), types.NewString(id))); found {
-		return nil, fmt.Errorf("event already exists: %s", id)
+	if _, _, found := firstRow(db.SeekIndex(uint32(tableEvents), uint32(indexEventsPrimary), types.NewString(id))); found {
+		return "", fmt.Errorf("event already exists: %s", id)
 	}
-	if _, err := ctx.DB.Insert(uint32(tableEvents), chainEventRow(ChainEvent{
+	_, err := db.Insert(uint32(tableEvents), chainEventRow(ChainEvent{
 		ID:          id,
 		ChainID:     chainID,
-		StepID:      strings.TrimSpace(args.StepID),
+		StepID:      strings.TrimSpace(stepID),
 		Sequence:    sequence,
 		EventType:   eventType,
-		CreatedAtUS: nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx)),
-		PayloadJSON: defaultString(args.PayloadJSON, emptyJSONObject),
-	})); err != nil {
-		return nil, err
-	}
-	return encodeReducerResult(reducerResult{OperationID: id})
+		CreatedAtUS: createdAtUS,
+		PayloadJSON: defaultString(payloadJSON, emptyJSONObject),
+	}))
+	return id, err
 }
 
 func findChainByID(db types.ReducerDB, id string) (types.RowID, Chain, bool) {

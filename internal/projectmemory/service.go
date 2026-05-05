@@ -578,6 +578,10 @@ func (s *brainRPCService) CompleteStep(req CompleteStepArgs, resp *EmptyResponse
 	return s.backend.CompleteStep(context.Background(), req)
 }
 
+func (s *brainRPCService) CompleteStepWithReceipt(req CompleteStepWithReceiptArgs, resp *EmptyResponse) error {
+	return s.backend.CompleteStepWithReceipt(context.Background(), req)
+}
+
 func (s *brainRPCService) CompleteChain(req CompleteChainArgs, resp *EmptyResponse) error {
 	return s.backend.CompleteChain(context.Background(), req)
 }

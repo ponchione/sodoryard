@@ -37,6 +37,7 @@ type ChainStore interface {
 	StartStep(ctx context.Context, args StartStepArgs) error
 	StepRunning(ctx context.Context, args StepRunningArgs) error
 	CompleteStep(ctx context.Context, args CompleteStepArgs) error
+	CompleteStepWithReceipt(ctx context.Context, args CompleteStepWithReceiptArgs) error
 	CompleteChain(ctx context.Context, args CompleteChainArgs) error
 	UpdateChainMetrics(ctx context.Context, args UpdateChainMetricsArgs) error
 	SetChainStatus(ctx context.Context, args SetChainStatusArgs) error
@@ -209,6 +210,11 @@ func (r *Runtime) StepRunning(ctx context.Context, args StepRunningArgs) error {
 
 func (r *Runtime) CompleteStep(ctx context.Context, args CompleteStepArgs) error {
 	_, err := r.callReducerJSON(ctx, "complete_step", args)
+	return err
+}
+
+func (r *Runtime) CompleteStepWithReceipt(ctx context.Context, args CompleteStepWithReceiptArgs) error {
+	_, err := r.callReducerJSON(ctx, "complete_step_with_receipt", args)
 	return err
 }
 

@@ -153,6 +153,7 @@ func NewModule() *shunter.Module {
 	mod.Reducer("start_step", startStepReducer)
 	mod.Reducer("step_running", stepRunningReducer)
 	mod.Reducer("complete_step", completeStepReducer)
+	mod.Reducer("complete_step_with_receipt", completeStepWithReceiptReducer)
 	mod.Reducer("complete_chain", completeChainReducer)
 	mod.Reducer("update_chain_metrics", updateChainMetricsReducer)
 	mod.Reducer("set_chain_status", setChainStatusReducer)

@@ -277,6 +277,10 @@ func (c *Client) CompleteStep(ctx context.Context, args CompleteStepArgs) error 
 	return c.call(ctx, "Brain.CompleteStep", args, &EmptyResponse{})
 }
 
+func (c *Client) CompleteStepWithReceipt(ctx context.Context, args CompleteStepWithReceiptArgs) error {
+	return c.call(ctx, "Brain.CompleteStepWithReceipt", args, &EmptyResponse{})
+}
+
 func (c *Client) CompleteChain(ctx context.Context, args CompleteChainArgs) error {
 	return c.call(ctx, "Brain.CompleteChain", args, &EmptyResponse{})
 }

@@ -721,6 +721,122 @@ func TestChainsStepsEventsStoreAndRestart(t *testing.T) {
 	}
 }
 
+func TestCompleteStepWithReceiptIsAtomicChainAndBrainWrite(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	startedAt := time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC)
+	if err := backend.StartChain(ctx, StartChainArgs{
+		ID:               "chain-receipt-atomic",
+		SourceTask:       "atomic receipt",
+		MaxSteps:         3,
+		MaxResolverLoops: 1,
+		MaxDurationSecs:  300,
+		TokenBudget:      1000,
+		CreatedAtUS:      uint64(startedAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("StartChain: %v", err)
+	}
+	if err := backend.StartStep(ctx, StartStepArgs{
+		ID:          "step-receipt-atomic",
+		ChainID:     "chain-receipt-atomic",
+		Sequence:    1,
+		Role:        "coder",
+		Task:        "write receipt",
+		CreatedAtUS: uint64(startedAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	receiptContent := `---
+agent: coder
+chain_id: chain-receipt-atomic
+step: 1
+verdict: completed
+timestamp: 2026-05-06T13:00:10Z
+turns_used: 2
+tokens_used: 55
+duration_seconds: 7
+---
+
+Done atomically.
+`
+	if err := backend.CompleteStepWithReceipt(ctx, CompleteStepWithReceiptArgs{
+		StepID:            "step-receipt-atomic",
+		ChainID:           "chain-receipt-atomic",
+		Status:            "completed",
+		Verdict:           "completed",
+		ReceiptPath:       "receipts/coder/chain-receipt-atomic-step-001.md",
+		ReceiptContent:    receiptContent,
+		TokensUsed:        55,
+		TurnsUsed:         2,
+		DurationSecs:      7,
+		ExitCode:          0,
+		HasExitCode:       true,
+		CompletedAtUS:     uint64(startedAt.Add(10 * time.Second).UnixMicro()),
+		TotalSteps:        1,
+		TotalTokens:       55,
+		TotalDurationSecs: 7,
+		Events: []CompleteStepWithReceiptEvent{
+			{
+				StepID:      "step-receipt-atomic",
+				EventType:   "step_completed",
+				PayloadJSON: `{"verdict":"completed","tokens_used":55}`,
+				CreatedAtUS: uint64(startedAt.Add(11 * time.Second).UnixMicro()),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("CompleteStepWithReceipt: %v", err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	content, err := reopened.ReadDocument(ctx, "receipts/coder/chain-receipt-atomic-step-001.md")
+	if err != nil {
+		t.Fatalf("ReadDocument receipt: %v", err)
+	}
+	if content != receiptContent {
+		t.Fatalf("receipt content = %q, want atomic receipt content", content)
+	}
+	step, found, err := reopened.ReadStep(ctx, "step-receipt-atomic")
+	if err != nil {
+		t.Fatalf("ReadStep: %v", err)
+	}
+	if !found || step.Status != "completed" || step.ReceiptPath != "receipts/coder/chain-receipt-atomic-step-001.md" || step.TokensUsed != 55 {
+		t.Fatalf("step = %+v found=%t, want completed atomic receipt step", step, found)
+	}
+	chain, found, err := reopened.ReadChain(ctx, "chain-receipt-atomic")
+	if err != nil {
+		t.Fatalf("ReadChain: %v", err)
+	}
+	if !found || !strings.Contains(chain.MetricsJSON, `"total_tokens":55`) {
+		t.Fatalf("chain = %+v found=%t, want updated metrics", chain, found)
+	}
+	events, err := reopened.ListChainEvents(ctx, "chain-receipt-atomic")
+	if err != nil {
+		t.Fatalf("ListChainEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "step_completed" || !strings.Contains(events[0].PayloadJSON, `"tokens_used":55`) {
+		t.Fatalf("events = %+v, want atomic step_completed", events)
+	}
+	state, found, err := reopened.ReadBrainIndexState(ctx)
+	if err != nil {
+		t.Fatalf("ReadBrainIndexState: %v", err)
+	}
+	if !found || !state.Dirty || state.DirtyReason != "complete_step_with_receipt" {
+		t.Fatalf("brain index state = %+v found=%t, want dirty complete_step_with_receipt", state, found)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})

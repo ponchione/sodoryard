@@ -13,6 +13,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/outputcap"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/receipt"
 	"github.com/ponchione/sodoryard/internal/tool"
 )
@@ -87,6 +88,10 @@ type engineRunOutcome struct {
 	stdout       string
 	stderr       string
 	durationSecs int
+}
+
+type stepReceiptCompleter interface {
+	CompleteStepWithReceipt(context.Context, projectmemory.CompleteStepWithReceiptArgs) error
 }
 
 func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
@@ -285,26 +290,24 @@ func (t *SpawnAgentTool) recordStepOutcome(ctx context.Context, step spawnStep, 
 	stepStatus := statusFromVerdict(parsed.Verdict)
 	result.Status = stepStatus
 	completeParams := chain.CompleteStepParams{StepID: step.stepID, Status: stepStatus, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, DurationSecs: outcome.durationSecs, ExitCode: intPtr(outcome.exitCode)}
-	if err := t.Store.CompleteStep(ctx, completeParams); err != nil {
-		return result, "", fmt.Errorf("spawn_agent: complete step: %w", err)
-	}
 	ch, err := t.Store.GetChain(ctx, t.ChainID)
 	if err != nil {
 		return result, "", fmt.Errorf("spawn_agent: load chain: %w", err)
 	}
 	metrics := chain.ChainMetrics{TotalSteps: ch.TotalSteps + 1, TotalTokens: ch.TotalTokens + parsed.TokensUsed, TotalDurationSecs: ch.TotalDurationSecs + outcome.durationSecs, ResolverLoops: ch.ResolverLoops}
+	events := make([]projectmemory.CompleteStepWithReceiptEvent, 0, 2)
 	if step.roleName == "resolver" {
 		metrics.ResolverLoops++
-		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventResolverLoop, map[string]any{"task_context": step.input.TaskContext, "count": metrics.ResolverLoops})
-	}
-	if err := t.Store.UpdateChainMetrics(ctx, t.ChainID, metrics); err != nil {
-		return result, "", fmt.Errorf("spawn_agent: update chain metrics: %w", err)
+		events = append(events, stepReceiptEvent(step.stepID, chain.EventResolverLoop, map[string]any{"task_context": step.input.TaskContext, "count": metrics.ResolverLoops}))
 	}
 	eventType := chain.EventStepCompleted
 	if stepStatus == "failed" {
 		eventType = chain.EventStepFailed
 	}
-	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, eventType, map[string]any{"verdict": parsed.Verdict, "tokens_used": parsed.TokensUsed, "turns_used": parsed.TurnsUsed, "duration_secs": outcome.durationSecs, "exit_code": outcome.exitCode})
+	events = append(events, stepReceiptEvent(step.stepID, eventType, map[string]any{"verdict": parsed.Verdict, "tokens_used": parsed.TokensUsed, "turns_used": parsed.TurnsUsed, "duration_secs": outcome.durationSecs, "exit_code": outcome.exitCode}))
+	if err := t.completeStepWithReceipt(ctx, step, completeParams, metrics, receiptContent, events); err != nil {
+		return result, "", err
+	}
 	if limitErr := t.postStepLimitError(ch, metrics); limitErr != nil {
 		summary := limitErr.Error()
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventSafetyLimitHit, map[string]any{"role": step.roleName, "limit": summary})
@@ -319,6 +322,75 @@ func (t *SpawnAgentTool) recordStepOutcome(ctx context.Context, step spawnStep, 
 		return result, summary, fmt.Errorf("%w: %v", tool.ErrChainComplete, limitErr)
 	}
 	return result, receiptContent, nil
+}
+
+func (t *SpawnAgentTool) completeStepWithReceipt(ctx context.Context, step spawnStep, completeParams chain.CompleteStepParams, metrics chain.ChainMetrics, receiptContent string, events []projectmemory.CompleteStepWithReceiptEvent) error {
+	if completer, ok := t.Backend.(stepReceiptCompleter); ok && completer != nil {
+		now := t.now
+		if now == nil {
+			now = time.Now
+		}
+		args := projectmemory.CompleteStepWithReceiptArgs{
+			StepID:            step.stepID,
+			ChainID:           t.ChainID,
+			Status:            completeParams.Status,
+			Verdict:           completeParams.Verdict,
+			ReceiptPath:       step.receiptPath,
+			ReceiptContent:    receiptContent,
+			TokensUsed:        uint64(nonNegativeInt(completeParams.TokensUsed)),
+			TurnsUsed:         uint64(nonNegativeInt(completeParams.TurnsUsed)),
+			DurationSecs:      uint64(nonNegativeInt(completeParams.DurationSecs)),
+			HasExitCode:       completeParams.ExitCode != nil,
+			Error:             completeParams.ErrorMessage,
+			CompletedAtUS:     uint64(now().UTC().UnixMicro()),
+			TotalSteps:        uint64(nonNegativeInt(metrics.TotalSteps)),
+			TotalTokens:       uint64(nonNegativeInt(metrics.TotalTokens)),
+			TotalDurationSecs: uint64(nonNegativeInt(metrics.TotalDurationSecs)),
+			ResolverLoops:     uint64(nonNegativeInt(metrics.ResolverLoops)),
+			Events:            events,
+		}
+		if completeParams.ExitCode != nil {
+			args.ExitCode = int64(*completeParams.ExitCode)
+		}
+		if err := completer.CompleteStepWithReceipt(ctx, args); err != nil {
+			return fmt.Errorf("spawn_agent: complete step with receipt: %w", err)
+		}
+		return nil
+	}
+	if err := t.Store.CompleteStep(ctx, completeParams); err != nil {
+		return fmt.Errorf("spawn_agent: complete step: %w", err)
+	}
+	for _, event := range events[:len(events)-1] {
+		_ = t.Store.LogEvent(ctx, t.ChainID, event.StepID, chain.EventType(event.EventType), json.RawMessage(event.PayloadJSON))
+	}
+	if err := t.Store.UpdateChainMetrics(ctx, t.ChainID, metrics); err != nil {
+		return fmt.Errorf("spawn_agent: update chain metrics: %w", err)
+	}
+	lastEvent := events[len(events)-1]
+	_ = t.Store.LogEvent(ctx, t.ChainID, lastEvent.StepID, chain.EventType(lastEvent.EventType), json.RawMessage(lastEvent.PayloadJSON))
+	return nil
+}
+
+func stepReceiptEvent(stepID string, eventType chain.EventType, payload any) projectmemory.CompleteStepWithReceiptEvent {
+	payloadJSON := "{}"
+	if payload != nil {
+		if data, err := json.Marshal(payload); err == nil {
+			payloadJSON = string(data)
+		}
+	}
+	return projectmemory.CompleteStepWithReceiptEvent{
+		StepID:      stepID,
+		EventType:   string(eventType),
+		PayloadJSON: payloadJSON,
+		CreatedAtUS: uint64(time.Now().UTC().UnixMicro()),
+	}
+}
+
+func nonNegativeInt(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
 }
 
 func (t *SpawnAgentTool) enforcePreSpawnLimits(ctx context.Context, roleName string, taskContext string) (time.Duration, error) {
