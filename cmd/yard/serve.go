@@ -139,6 +139,7 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		Queries:             rt.Queries,
 		ProviderRouter:      rt.ProviderRouter,
 		BrainBackend:        rt.BrainBackend,
+		MemoryBackend:       rt.MemoryBackend,
 		ConversationManager: rt.ConversationManager,
 		ChainStore:          rt.ChainStore,
 		Cleanup:             func() {},

@@ -10,6 +10,7 @@ import (
 
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
 
@@ -22,6 +23,11 @@ func (s *Service) SaveLaunchDraft(ctx context.Context, req LaunchRequest) (Launc
 	cfg, err := s.config()
 	if err != nil {
 		return LaunchDraft{}, err
+	}
+	if store, ok, err := s.projectMemoryLaunchStore(cfg); err != nil {
+		return LaunchDraft{}, err
+	} else if ok {
+		return s.saveProjectMemoryLaunchDraft(ctx, store, cfg, req)
 	}
 	database, err := s.database()
 	if err != nil {
@@ -74,6 +80,11 @@ func (s *Service) LoadLaunchDraft(ctx context.Context) (LaunchDraft, bool, error
 	if err != nil {
 		return LaunchDraft{}, false, err
 	}
+	if store, ok, err := s.projectMemoryLaunchStore(cfg); err != nil {
+		return LaunchDraft{}, false, err
+	} else if ok {
+		return s.loadProjectMemoryLaunchDraft(ctx, store, cfg)
+	}
 	database, err := s.database()
 	if err != nil {
 		return LaunchDraft{}, false, err
@@ -121,6 +132,11 @@ func (s *Service) SaveLaunchPreset(ctx context.Context, name string, req LaunchR
 	cfg, err := s.config()
 	if err != nil {
 		return LaunchPreset{}, err
+	}
+	if store, ok, err := s.projectMemoryLaunchStore(cfg); err != nil {
+		return LaunchPreset{}, err
+	} else if ok {
+		return s.saveProjectMemoryLaunchPreset(ctx, store, cfg, name, req)
 	}
 	database, err := s.database()
 	if err != nil {
@@ -170,6 +186,11 @@ func (s *Service) ListLaunchPresets(ctx context.Context) ([]LaunchPreset, error)
 	if err != nil {
 		return nil, err
 	}
+	if store, ok, err := s.projectMemoryLaunchStore(cfg); err != nil {
+		return nil, err
+	} else if ok {
+		return s.listProjectMemoryLaunchPresets(ctx, store, cfg)
+	}
 	database, err := s.database()
 	if err != nil {
 		return nil, err
@@ -206,6 +227,110 @@ ORDER BY updated_at DESC, name ASC
 	return presets, nil
 }
 
+func (s *Service) projectMemoryLaunchStore(cfg *appconfig.Config) (projectmemory.LaunchStore, bool, error) {
+	if cfg == nil || cfg.Memory.Backend != "shunter" || s == nil || s.rt == nil {
+		return nil, false, nil
+	}
+	if store, ok := s.rt.MemoryBackend.(projectmemory.LaunchStore); ok && store != nil {
+		return store, true, nil
+	}
+	if store, ok := s.rt.BrainBackend.(projectmemory.LaunchStore); ok && store != nil {
+		return store, true, nil
+	}
+	return nil, false, fmt.Errorf("shunter memory backend requires a project memory launch store")
+}
+
+func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projectmemory.LaunchStore, cfg *appconfig.Config, req LaunchRequest) (LaunchDraft, error) {
+	req = normalizeLaunchRequest(req)
+	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
+	if err != nil {
+		return LaunchDraft{}, fmt.Errorf("marshal allowed roles: %w", err)
+	}
+	roster, err := marshalStringSlice(req.Roster)
+	if err != nil {
+		return LaunchDraft{}, fmt.Errorf("marshal roster: %w", err)
+	}
+	sourceSpecs, err := marshalStringSlice(req.SourceSpecs)
+	if err != nil {
+		return LaunchDraft{}, fmt.Errorf("marshal source specs: %w", err)
+	}
+	updatedAt := time.Now().UTC()
+	if err := store.SaveLaunch(ctx, projectmemory.SaveLaunchArgs{
+		ProjectID:        cfg.ProjectRoot,
+		LaunchID:         currentLaunchDraftID,
+		Status:           "draft",
+		Mode:             string(req.Mode),
+		Role:             req.Role,
+		AllowedRolesJSON: allowedRoles,
+		RosterJSON:       roster,
+		SourceTask:       req.SourceTask,
+		SourceSpecsJSON:  sourceSpecs,
+		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
+	}); err != nil {
+		return LaunchDraft{}, fmt.Errorf("save launch draft: %w", err)
+	}
+	return LaunchDraft{ID: currentLaunchDraftID, Request: req, UpdatedAt: updatedAt.Format(time.RFC3339)}, nil
+}
+
+func (s *Service) loadProjectMemoryLaunchDraft(ctx context.Context, store projectmemory.LaunchStore, cfg *appconfig.Config) (LaunchDraft, bool, error) {
+	row, found, err := store.ReadLaunch(ctx, cfg.ProjectRoot, currentLaunchDraftID)
+	if err != nil {
+		return LaunchDraft{}, false, fmt.Errorf("load launch draft: %w", err)
+	}
+	if !found || row.Status != "draft" {
+		return LaunchDraft{}, false, nil
+	}
+	req, err := launchFromProjectMemory(row).request()
+	if err != nil {
+		return LaunchDraft{}, false, err
+	}
+	return LaunchDraft{ID: currentLaunchDraftID, Request: req, UpdatedAt: unixUSString(row.UpdatedAtUS)}, true, nil
+}
+
+func (s *Service) saveProjectMemoryLaunchPreset(ctx context.Context, store projectmemory.LaunchStore, cfg *appconfig.Config, name string, req LaunchRequest) (LaunchPreset, error) {
+	req, err := normalizeLaunchPresetRequest(cfg, req)
+	if err != nil {
+		return LaunchPreset{}, err
+	}
+	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
+	if err != nil {
+		return LaunchPreset{}, fmt.Errorf("marshal allowed roles: %w", err)
+	}
+	roster, err := marshalStringSlice(req.Roster)
+	if err != nil {
+		return LaunchPreset{}, fmt.Errorf("marshal roster: %w", err)
+	}
+	updatedAt := time.Now().UTC()
+	if err := store.SaveLaunchPreset(ctx, projectmemory.SaveLaunchPresetArgs{
+		ProjectID:        cfg.ProjectRoot,
+		Name:             name,
+		Mode:             string(req.Mode),
+		Role:             req.Role,
+		AllowedRolesJSON: allowedRoles,
+		RosterJSON:       roster,
+		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
+	}); err != nil {
+		return LaunchPreset{}, fmt.Errorf("save launch preset: %w", err)
+	}
+	return LaunchPreset{ID: "custom:" + name, Name: name, Request: req, UpdatedAt: updatedAt.Format(time.RFC3339)}, nil
+}
+
+func (s *Service) listProjectMemoryLaunchPresets(ctx context.Context, store projectmemory.LaunchStore, cfg *appconfig.Config) ([]LaunchPreset, error) {
+	rows, err := store.ListLaunchPresets(ctx, cfg.ProjectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("list launch presets: %w", err)
+	}
+	presets := make([]LaunchPreset, 0, len(rows))
+	for _, row := range rows {
+		req, err := presetFromProjectMemory(row).request()
+		if err != nil {
+			return nil, err
+		}
+		presets = append(presets, LaunchPreset{ID: row.PresetID, Name: row.Name, Request: req, UpdatedAt: unixUSString(row.UpdatedAtUS)})
+	}
+	return presets, nil
+}
+
 type launchDraftRow struct {
 	ID           string
 	Mode         string
@@ -225,6 +350,31 @@ type launchPresetRow struct {
 	AllowedRoles sql.NullString
 	Roster       sql.NullString
 	UpdatedAt    sql.NullString
+}
+
+func launchFromProjectMemory(row projectmemory.Launch) launchDraftRow {
+	return launchDraftRow{
+		ID:           row.LaunchID,
+		Mode:         row.Mode,
+		Role:         sql.NullString{String: row.Role, Valid: row.Role != ""},
+		AllowedRoles: sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
+		Roster:       sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
+		SourceTask:   sql.NullString{String: row.SourceTask, Valid: row.SourceTask != ""},
+		SourceSpecs:  sql.NullString{String: row.SourceSpecsJSON, Valid: row.SourceSpecsJSON != ""},
+		UpdatedAt:    sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
+	}
+}
+
+func presetFromProjectMemory(row projectmemory.LaunchPreset) launchPresetRow {
+	return launchPresetRow{
+		ID:           row.PresetID,
+		Name:         row.Name,
+		Mode:         row.Mode,
+		Role:         sql.NullString{String: row.Role, Valid: row.Role != ""},
+		AllowedRoles: sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
+		Roster:       sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
+		UpdatedAt:    sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
+	}
 }
 
 func (r launchDraftRow) request() (LaunchRequest, error) {
@@ -337,4 +487,11 @@ func unmarshalStringSlice(value sql.NullString) ([]string, error) {
 		return nil, err
 	}
 	return values, nil
+}
+
+func unixUSString(value uint64) string {
+	if value == 0 {
+		return ""
+	}
+	return time.UnixMicro(int64(value)).UTC().Format(time.RFC3339)
 }

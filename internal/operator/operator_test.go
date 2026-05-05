@@ -837,6 +837,71 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	}
 }
 
+func TestLaunchDraftAndPresetsUseProjectMemoryInShunterMode(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"coder":        {SystemPrompt: "prompts/coder.md"},
+		"orchestrator": {SystemPrompt: "prompts/orchestrator.md"},
+	}
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(projectRoot, "memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:        cfg,
+		BrainBackend:  backend,
+		MemoryBackend: backend,
+		Cleanup:       func() {},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	saved, err := svc.SaveLaunchDraft(ctx, LaunchRequest{
+		Mode:         LaunchModeConstrained,
+		Role:         "coder",
+		AllowedRoles: []string{"coder", "orchestrator"},
+		SourceTask:   "persist shunter launch",
+	})
+	if err != nil {
+		t.Fatalf("SaveLaunchDraft returned error: %v", err)
+	}
+	if saved.ID != "current" || saved.UpdatedAt == "" {
+		t.Fatalf("saved draft = %+v, want current id", saved)
+	}
+	loaded, found, err := svc.LoadLaunchDraft(ctx)
+	if err != nil {
+		t.Fatalf("LoadLaunchDraft returned error: %v", err)
+	}
+	if !found || loaded.Request.Mode != LaunchModeConstrained || loaded.Request.SourceTask != "persist shunter launch" || !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "orchestrator"}) {
+		t.Fatalf("loaded draft = %+v found=%t, want Shunter launch draft", loaded, found)
+	}
+
+	preset, err := svc.SaveLaunchPreset(ctx, "shunter audit pair", LaunchRequest{Mode: LaunchModeManualRoster, Roster: []string{"coder", "orchestrator"}, SourceTask: "do not persist"})
+	if err != nil {
+		t.Fatalf("SaveLaunchPreset returned error: %v", err)
+	}
+	if preset.ID != "custom:shunter audit pair" || preset.Request.SourceTask != "" {
+		t.Fatalf("preset = %+v, want custom preset without source task", preset)
+	}
+	presets, err := svc.ListLaunchPresets(ctx)
+	if err != nil {
+		t.Fatalf("ListLaunchPresets returned error: %v", err)
+	}
+	if len(presets) != 1 || presets[0].Name != "shunter audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) {
+		t.Fatalf("presets = %+v, want Shunter custom preset", presets)
+	}
+	if _, statErr := os.Stat(cfg.DatabasePath()); !os.IsNotExist(statErr) {
+		t.Fatalf("database stat err = %v, want no SQLite launch dependency in Shunter mode", statErr)
+	}
+}
+
 func TestStartChainCancelsRunnerWhenCallerContextEndsBeforeChainID(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	projectRoot := t.TempDir()

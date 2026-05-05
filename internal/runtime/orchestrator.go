@@ -33,6 +33,7 @@ type OrchestratorRuntime struct {
 	Queries             *appdb.Queries
 	ProviderRouter      *router.Router
 	BrainBackend        brain.Backend
+	MemoryBackend       any
 	ConversationManager *conversation.Manager
 	ContextAssembler    agent.ContextAssembler
 	ChainStore          *chain.Store
@@ -150,6 +151,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		Queries:             queries,
 		ProviderRouter:      provRouter,
 		BrainBackend:        brainBackend,
+		MemoryBackend:       memoryBackend,
 		ConversationManager: convManager,
 		ContextAssembler:    NoopContextAssembler{},
 		ChainStore:          chainStore,

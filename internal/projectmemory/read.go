@@ -562,6 +562,51 @@ func (r *Runtime) ListChainEventsSince(ctx context.Context, chainID string, afte
 	return events, nil
 }
 
+func (r *Runtime) ReadLaunch(ctx context.Context, projectID string, launchID string) (Launch, bool, error) {
+	projectID = strings.TrimSpace(projectID)
+	launchID = strings.TrimSpace(launchID)
+	if projectID == "" {
+		return Launch{}, false, fmt.Errorf("launch project id is required")
+	}
+	if launchID == "" {
+		return Launch{}, false, fmt.Errorf("launch id is required")
+	}
+	id := ProjectLaunchID(projectID, launchID)
+	var launch Launch
+	var found bool
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableLaunches, indexLaunchesPrimary, types.NewString(id)) {
+			launch = decodeLaunchRow(row)
+			found = true
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		return Launch{}, false, err
+	}
+	return launch, found, nil
+}
+
+func (r *Runtime) ListLaunchPresets(ctx context.Context, projectID string) ([]LaunchPreset, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("launch preset project id is required")
+	}
+	presets := make([]LaunchPreset, 0)
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableLaunchPresets, indexLaunchPresetsProject, types.NewString(projectID)) {
+			presets = append(presets, decodeLaunchPresetRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortLaunchPresets(presets)
+	return presets, nil
+}
+
 type SearchHit struct {
 	Path    string
 	Snippet string
@@ -627,6 +672,15 @@ func sortChainEvents(events []ChainEvent) {
 			return events[i].ID < events[j].ID
 		}
 		return events[i].Sequence < events[j].Sequence
+	})
+}
+
+func sortLaunchPresets(presets []LaunchPreset) {
+	sort.Slice(presets, func(i, j int) bool {
+		if presets[i].UpdatedAtUS == presets[j].UpdatedAtUS {
+			return presets[i].Name < presets[j].Name
+		}
+		return presets[i].UpdatedAtUS > presets[j].UpdatedAtUS
 	})
 }
 

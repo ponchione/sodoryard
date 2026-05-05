@@ -288,6 +288,22 @@ func (b *BrainBackend) ListChainEventsSince(ctx context.Context, chainID string,
 	return b.runtime.ListChainEventsSince(ctx, chainID, afterSequence)
 }
 
+func (b *BrainBackend) SaveLaunch(ctx context.Context, args SaveLaunchArgs) error {
+	return b.runtime.SaveLaunch(ctx, args)
+}
+
+func (b *BrainBackend) ReadLaunch(ctx context.Context, projectID string, launchID string) (Launch, bool, error) {
+	return b.runtime.ReadLaunch(ctx, projectID, launchID)
+}
+
+func (b *BrainBackend) SaveLaunchPreset(ctx context.Context, args SaveLaunchPresetArgs) error {
+	return b.runtime.SaveLaunchPreset(ctx, args)
+}
+
+func (b *BrainBackend) ListLaunchPresets(ctx context.Context, projectID string) ([]LaunchPreset, error) {
+	return b.runtime.ListLaunchPresets(ctx, projectID)
+}
+
 func inferDocumentKind(path string) string {
 	switch {
 	case strings.HasPrefix(path, "conventions/"):

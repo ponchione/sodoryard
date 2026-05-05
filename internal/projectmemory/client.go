@@ -341,6 +341,30 @@ func (c *Client) ListChainEventsSince(ctx context.Context, chainID string, after
 	return resp.Events, nil
 }
 
+func (c *Client) SaveLaunch(ctx context.Context, args SaveLaunchArgs) error {
+	return c.call(ctx, "Brain.SaveLaunch", args, &EmptyResponse{})
+}
+
+func (c *Client) ReadLaunch(ctx context.Context, projectID string, launchID string) (Launch, bool, error) {
+	var resp ReadLaunchResponse
+	if err := c.call(ctx, "Brain.ReadLaunch", ReadLaunchRequest{ProjectID: projectID, LaunchID: launchID}, &resp); err != nil {
+		return Launch{}, false, err
+	}
+	return resp.Launch, resp.Found, nil
+}
+
+func (c *Client) SaveLaunchPreset(ctx context.Context, args SaveLaunchPresetArgs) error {
+	return c.call(ctx, "Brain.SaveLaunchPreset", args, &EmptyResponse{})
+}
+
+func (c *Client) ListLaunchPresets(ctx context.Context, projectID string) ([]LaunchPreset, error) {
+	var resp ListLaunchPresetsResponse
+	if err := c.call(ctx, "Brain.ListLaunchPresets", ListLaunchPresetsRequest{ProjectID: projectID}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Presets, nil
+}
+
 func (c *Client) call(ctx context.Context, method string, args any, reply any) error {
 	if c == nil || c.rpc == nil {
 		return fmt.Errorf("project memory RPC client is closed")

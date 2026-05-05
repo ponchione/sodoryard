@@ -50,6 +50,13 @@ type ChainStore interface {
 	ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]ChainEvent, error)
 }
 
+type LaunchStore interface {
+	SaveLaunch(ctx context.Context, args SaveLaunchArgs) error
+	ReadLaunch(ctx context.Context, projectID string, launchID string) (Launch, bool, error)
+	SaveLaunchPreset(ctx context.Context, args SaveLaunchPresetArgs) error
+	ListLaunchPresets(ctx context.Context, projectID string) ([]LaunchPreset, error)
+}
+
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("project memory shunter data dir is required")
@@ -235,5 +242,15 @@ func (r *Runtime) SetChainStatus(ctx context.Context, args SetChainStatusArgs) e
 
 func (r *Runtime) LogChainEvent(ctx context.Context, args LogChainEventArgs) error {
 	_, err := r.callReducerJSON(ctx, "log_chain_event", args)
+	return err
+}
+
+func (r *Runtime) SaveLaunch(ctx context.Context, args SaveLaunchArgs) error {
+	_, err := r.callReducerJSON(ctx, "save_launch", args)
+	return err
+}
+
+func (r *Runtime) SaveLaunchPreset(ctx context.Context, args SaveLaunchPresetArgs) error {
+	_, err := r.callReducerJSON(ctx, "save_launch_preset", args)
 	return err
 }

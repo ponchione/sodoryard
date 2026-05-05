@@ -319,6 +319,24 @@ type ListChainEventsResponse struct {
 	Events []ChainEvent
 }
 
+type ReadLaunchRequest struct {
+	ProjectID string
+	LaunchID  string
+}
+
+type ReadLaunchResponse struct {
+	Launch Launch
+	Found  bool
+}
+
+type ListLaunchPresetsRequest struct {
+	ProjectID string
+}
+
+type ListLaunchPresetsResponse struct {
+	Presets []LaunchPreset
+}
+
 type EmptyResponse struct{}
 
 func (s *brainRPCService) ReadDocument(req ReadDocumentRequest, resp *ReadDocumentResponse) error {
@@ -642,5 +660,32 @@ func (s *brainRPCService) ListChainEventsSince(req ListChainEventsSinceRequest, 
 		return err
 	}
 	resp.Events = events
+	return nil
+}
+
+func (s *brainRPCService) SaveLaunch(req SaveLaunchArgs, resp *EmptyResponse) error {
+	return s.backend.SaveLaunch(context.Background(), req)
+}
+
+func (s *brainRPCService) ReadLaunch(req ReadLaunchRequest, resp *ReadLaunchResponse) error {
+	launch, found, err := s.backend.ReadLaunch(context.Background(), req.ProjectID, req.LaunchID)
+	if err != nil {
+		return err
+	}
+	resp.Launch = launch
+	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) SaveLaunchPreset(req SaveLaunchPresetArgs, resp *EmptyResponse) error {
+	return s.backend.SaveLaunchPreset(context.Background(), req)
+}
+
+func (s *brainRPCService) ListLaunchPresets(req ListLaunchPresetsRequest, resp *ListLaunchPresetsResponse) error {
+	presets, err := s.backend.ListLaunchPresets(context.Background(), req.ProjectID)
+	if err != nil {
+		return err
+	}
+	resp.Presets = presets
 	return nil
 }

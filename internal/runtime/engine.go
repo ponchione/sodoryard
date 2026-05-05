@@ -34,6 +34,7 @@ type EngineRuntime struct {
 	Queries             *appdb.Queries
 	ProviderRouter      *router.Router
 	BrainBackend        brain.Backend
+	MemoryBackend       any
 	SemanticSearcher    *codesearcher.Searcher
 	BrainSearcher       *contextpkg.HybridBrainSearcher
 	ConversationManager *conversation.Manager
@@ -141,6 +142,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		Queries:             queries,
 		ProviderRouter:      provRouter,
 		BrainBackend:        brainBackend,
+		MemoryBackend:       memoryBackend,
 		SemanticSearcher:    semanticSearcher,
 		BrainSearcher:       brainSearcher,
 		ConversationManager: convManager,
@@ -250,6 +252,9 @@ func BuildProjectMemoryStore(ctx context.Context, cfg *appconfig.Config, existin
 			return existing, func() {}, nil
 		}
 		if _, ok := existing.(conversation.ProjectMemoryStore); ok {
+			return existing, func() {}, nil
+		}
+		if _, ok := existing.(projectmemory.LaunchStore); ok {
 			return existing, func() {}, nil
 		}
 	}

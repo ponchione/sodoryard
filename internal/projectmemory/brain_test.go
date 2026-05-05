@@ -837,6 +837,64 @@ Done atomically.
 	}
 }
 
+func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	updatedAt := time.Date(2026, 5, 6, 15, 0, 0, 0, time.UTC)
+	if err := backend.SaveLaunch(ctx, SaveLaunchArgs{
+		ProjectID:        "project-launch",
+		LaunchID:         "current",
+		Status:           "draft",
+		Mode:             "constrained_orchestration",
+		Role:             "coder",
+		AllowedRolesJSON: `["coder","planner"]`,
+		SourceTask:       "persist launch draft",
+		SourceSpecsJSON:  `["docs/specs/a.md"]`,
+		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("SaveLaunch: %v", err)
+	}
+	if err := backend.SaveLaunchPreset(ctx, SaveLaunchPresetArgs{
+		ProjectID:        "project-launch",
+		Name:             "audit pair",
+		Mode:             "manual_roster",
+		Role:             "coder,orchestrator",
+		RosterJSON:       `["coder","orchestrator"]`,
+		AllowedRolesJSON: `[]`,
+		UpdatedAtUS:      uint64(updatedAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("SaveLaunchPreset: %v", err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	launch, found, err := reopened.ReadLaunch(ctx, "project-launch", "current")
+	if err != nil {
+		t.Fatalf("ReadLaunch: %v", err)
+	}
+	if !found || launch.Status != "draft" || launch.Mode != "constrained_orchestration" || launch.SourceTask != "persist launch draft" || !strings.Contains(launch.AllowedRolesJSON, "planner") {
+		t.Fatalf("launch = %+v found=%t, want saved draft", launch, found)
+	}
+	presets, err := reopened.ListLaunchPresets(ctx, "project-launch")
+	if err != nil {
+		t.Fatalf("ListLaunchPresets: %v", err)
+	}
+	if len(presets) != 1 || presets[0].PresetID != "custom:audit pair" || presets[0].Name != "audit pair" || !strings.Contains(presets[0].RosterJSON, "orchestrator") {
+		t.Fatalf("presets = %+v, want saved audit pair", presets)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})

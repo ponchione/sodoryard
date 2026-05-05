@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 const (
 	tableProjectState schema.TableID = iota
@@ -26,6 +26,8 @@ const (
 	tableChains
 	tableSteps
 	tableEvents
+	tableLaunches
+	tableLaunchPresets
 )
 
 const (
@@ -111,6 +113,17 @@ const (
 	indexEventsType
 )
 
+const (
+	indexLaunchesPrimary schema.IndexID = iota
+	indexLaunchesProject
+	indexLaunchesStatus
+)
+
+const (
+	indexLaunchPresetsPrimary schema.IndexID = iota
+	indexLaunchPresetsProject
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -129,6 +142,8 @@ func NewModule() *shunter.Module {
 	declareChains(mod)
 	declareSteps(mod)
 	declareEvents(mod)
+	declareLaunches(mod)
+	declareLaunchPresets(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -158,6 +173,8 @@ func NewModule() *shunter.Module {
 	mod.Reducer("update_chain_metrics", updateChainMetricsReducer)
 	mod.Reducer("set_chain_status", setChainStatusReducer)
 	mod.Reducer("log_chain_event", logChainEventReducer)
+	mod.Reducer("save_launch", saveLaunchReducer)
+	mod.Reducer("save_launch_preset", saveLaunchPresetReducer)
 	return mod
 }
 
@@ -487,6 +504,51 @@ func declareEvents(mod *shunter.Module) {
 		Indexes: []schema.IndexDefinition{
 			{Name: "events_chain", Columns: []string{"chain_id"}},
 			{Name: "events_type", Columns: []string{"event_type"}},
+		},
+	})
+}
+
+func declareLaunches(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "launches",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "project_id", Type: schema.KindString},
+			{Name: "launch_id", Type: schema.KindString},
+			{Name: "status", Type: schema.KindString},
+			{Name: "mode", Type: schema.KindString},
+			{Name: "role", Type: schema.KindString},
+			{Name: "allowed_roles_json", Type: schema.KindString},
+			{Name: "roster_json", Type: schema.KindString},
+			{Name: "source_task", Type: schema.KindString},
+			{Name: "source_specs_json", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "updated_at_us", Type: schema.KindUint64},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "launches_project", Columns: []string{"project_id"}},
+			{Name: "launches_status", Columns: []string{"status"}},
+		},
+	})
+}
+
+func declareLaunchPresets(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "launch_presets",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "project_id", Type: schema.KindString},
+			{Name: "preset_id", Type: schema.KindString},
+			{Name: "name", Type: schema.KindString},
+			{Name: "mode", Type: schema.KindString},
+			{Name: "role", Type: schema.KindString},
+			{Name: "allowed_roles_json", Type: schema.KindString},
+			{Name: "roster_json", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "updated_at_us", Type: schema.KindUint64},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "launch_presets_project", Columns: []string{"project_id"}},
 		},
 	})
 }
