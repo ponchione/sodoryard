@@ -62,6 +62,10 @@ yard [--config yard.yaml]             Terminal operator console
  |-- brain
  |   |-- index                     Rebuild derived brain metadata
  |   +-- serve --vault <path>      Legacy standalone brain MCP server (stdio)
+ |-- memory
+ |   |-- migrate                   Import Markdown/SQLite legacy state into Shunter
+ |   |-- verify                    Compare Markdown vault documents with Shunter
+ |   +-- export                    Export Shunter documents to a Markdown vault
  |-- llm
  |   |-- status                    Local LLM service health
  |   |-- up                        Start local LLM services
@@ -104,7 +108,7 @@ The brain is structured long-term project memory for specs, receipts, convention
 
 `yard brain index` rebuilds derived brain metadata and semantic chunks in `.yard/lancedb/brain` from the configured brain backend. In Shunter mode, `.brain/` and `.yard/yard.db` are transitional import/export state, not canonical runtime stores. `yard brain serve --vault <path>` remains available as a legacy standalone MCP server for external vault tooling.
 
-Existing vault-backed projects can import Markdown brain documents into Shunter with `yard memory migrate`; see [docs/shunter-migration.md](docs/shunter-migration.md) for the current migration workflow and remaining planned SQLite-state migration.
+Existing vault-backed projects can import Markdown brain documents and legacy SQLite runtime history into Shunter with `yard memory migrate`, then export Shunter documents back to Markdown with `yard memory export`; see [docs/shunter-migration.md](docs/shunter-migration.md) for the current migration workflow.
 
 ### Context Assembly
 
