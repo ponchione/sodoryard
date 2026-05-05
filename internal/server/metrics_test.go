@@ -275,6 +275,102 @@ func TestContextReportEndpointsUseProjectMemoryWithoutQueries(t *testing.T) {
 	assertSignalStreamEntry(t, signals.Stream[2], 2, "flag", "prefer_brain_context", "", "true")
 }
 
+func TestConversationMetricsEndpointUsesProjectMemoryWithoutQueries(t *testing.T) {
+	ctx := context.Background()
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	conversationID := "conv-project-memory-aggregate-metrics"
+	createdAt := time.Date(2026, 5, 5, 13, 0, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, projectmemory.CreateConversationArgs{
+		ID:          conversationID,
+		ProjectID:   "project-memory-test",
+		Title:       "Project Memory Aggregate Metrics",
+		Model:       "claude-sonnet-4-6-20250514",
+		Provider:    "anthropic",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	for _, subCall := range []projectmemory.RecordSubCallArgs{
+		{ID: "sub-chat-1", ConversationID: conversationID, TurnNumber: 1, Iteration: 1, Provider: "anthropic", Model: "claude-sonnet-4-6-20250514", Purpose: "chat", Status: "success", CompletedAtUS: uint64(createdAt.Add(time.Second).UnixMicro()), TokensIn: 100, TokensOut: 20, CacheReadTokens: 10, LatencyMs: 50},
+		{ID: "sub-embed-ignored", ConversationID: conversationID, TurnNumber: 1, Iteration: 1, Provider: "local", Model: "embed", Purpose: "embedding", Status: "success", CompletedAtUS: uint64(createdAt.Add(2 * time.Second).UnixMicro()), TokensIn: 900, TokensOut: 900, CacheReadTokens: 900, LatencyMs: 900},
+		{ID: "sub-chat-2", ConversationID: conversationID, TurnNumber: 2, Iteration: 1, Provider: "anthropic", Model: "claude-sonnet-4-6-20250514", Purpose: "chat", Status: "success", CompletedAtUS: uint64(createdAt.Add(3 * time.Second).UnixMicro()), TokensIn: 200, TokensOut: 40, CacheReadTokens: 20, LatencyMs: 80},
+		{ID: "sub-chat-3", ConversationID: conversationID, TurnNumber: 2, Iteration: 3, Provider: "anthropic", Model: "claude-sonnet-4-6-20250514", Purpose: "chat", Status: "success", CompletedAtUS: uint64(createdAt.Add(4 * time.Second).UnixMicro()), TokensIn: 300, TokensOut: 60, CacheReadTokens: 30, LatencyMs: 120},
+	} {
+		if err := backend.RecordSubCall(ctx, subCall); err != nil {
+			t.Fatalf("RecordSubCall %s: %v", subCall.ID, err)
+		}
+	}
+	for _, execution := range []projectmemory.RecordToolExecutionArgs{
+		{ConversationID: conversationID, TurnNumber: 1, Iteration: 1, ToolUseID: "toolu-read-1", ToolName: "file_read", Status: "success", DurationMs: 100},
+		{ConversationID: conversationID, TurnNumber: 2, Iteration: 1, ToolUseID: "toolu-read-2", ToolName: "file_read", Status: "error", DurationMs: 300, Error: "failed"},
+		{ConversationID: conversationID, TurnNumber: 2, Iteration: 3, ToolUseID: "toolu-shell-1", ToolName: "shell", Status: "success", DurationMs: 50},
+	} {
+		if err := backend.RecordToolExecution(ctx, execution); err != nil {
+			t.Fatalf("RecordToolExecution %s: %v", execution.ToolUseID, err)
+		}
+	}
+	mustStoreProjectMemoryMetricsReport(t, ctx, backend, conversationID, 1, createdAt.Add(5*time.Second), contextpkg.ContextAssemblyReport{
+		TurnNumber:      1,
+		BudgetTotal:     1000,
+		BudgetUsed:      200,
+		ContextHitRate:  0.5,
+		IncludedChunks:  []string{"internal/runtime/engine.go"},
+		BudgetBreakdown: map[string]int{"brain": 100},
+	}, true, 0.5)
+	mustStoreProjectMemoryMetricsReport(t, ctx, backend, conversationID, 2, createdAt.Add(6*time.Second), contextpkg.ContextAssemblyReport{
+		TurnNumber:      2,
+		BudgetTotal:     2000,
+		BudgetUsed:      1000,
+		ContextHitRate:  1.0,
+		IncludedChunks:  []string{"internal/server/metrics.go"},
+		BudgetBreakdown: map[string]int{"brain": 200},
+	}, false, 1.0)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := New(Config{}, logger)
+	NewMetricsHandler(srv, nil, logger, backend)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics/conversation/"+conversationID, nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp conversationMetricsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.TokenUsage.TokensIn != 600 || resp.TokenUsage.TokensOut != 120 || resp.TokenUsage.CacheReadTokens != 60 || resp.TokenUsage.TotalCalls != 3 || resp.TokenUsage.TotalLatencyMs != 250 {
+		t.Fatalf("token_usage = %+v, want chat-only aggregate", resp.TokenUsage)
+	}
+	if resp.CacheHitRate != 10 {
+		t.Fatalf("cache_hit_rate_pct = %v, want 10", resp.CacheHitRate)
+	}
+	fileRead := toolUsageByName(t, resp.ToolUsage, "file_read")
+	if fileRead.CallCount != 2 || fileRead.AvgDurationMs != 200 || fileRead.FailureCount != 1 {
+		t.Fatalf("file_read usage = %+v, want count=2 avg=200 failures=1", fileRead)
+	}
+	shell := toolUsageByName(t, resp.ToolUsage, "shell")
+	if shell.CallCount != 1 || shell.AvgDurationMs != 50 || shell.FailureCount != 0 {
+		t.Fatalf("shell usage = %+v, want count=1 avg=50 failures=0", shell)
+	}
+	if resp.ContextQuality.TotalTurns != 2 || resp.ContextQuality.ReactiveSearchCount != 1 || resp.ContextQuality.AvgHitRate != 0.75 || resp.ContextQuality.AvgBudgetUsedPct != 35 {
+		t.Fatalf("context_quality = %+v, want Shunter report aggregate", resp.ContextQuality)
+	}
+	if resp.LastTurn == nil {
+		t.Fatal("last_turn missing, want latest chat turn")
+	}
+	if resp.LastTurn.TurnNumber != 2 || resp.LastTurn.IterationCount != 3 || resp.LastTurn.TokensIn != 500 || resp.LastTurn.TokensOut != 100 || resp.LastTurn.LatencyMs != 200 {
+		t.Fatalf("last_turn = %+v, want turn 2 aggregate", resp.LastTurn)
+	}
+}
+
 func TestContextReportStoreRoundTripsPersistedTokenBudget(t *testing.T) {
 	database := newMetricsTestDB(t)
 	store := contextpkg.NewSQLiteReportStore(database)
@@ -375,6 +471,45 @@ func assertSignalStreamEntry(t *testing.T, got contextSignalStreamEntry, wantInd
 	if got.Index != wantIndex || got.Kind != wantKind || got.Type != wantType || got.Source != wantSource || got.Value != wantValue {
 		t.Fatalf("stream entry = %+v, want index=%d kind=%q type=%q source=%q value=%q", got, wantIndex, wantKind, wantType, wantSource, wantValue)
 	}
+}
+
+func mustStoreProjectMemoryMetricsReport(t *testing.T, ctx context.Context, backend *projectmemory.BrainBackend, conversationID string, turnNumber uint32, createdAt time.Time, report contextpkg.ContextAssemblyReport, usedSearch bool, hitRate float64) {
+	t.Helper()
+	reportJSON, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	qualityJSON, err := json.Marshal(map[string]any{
+		"agent_used_search_tool": usedSearch,
+		"agent_read_files":       []string{},
+		"context_hit_rate":       hitRate,
+	})
+	if err != nil {
+		t.Fatalf("marshal quality: %v", err)
+	}
+	if err := backend.StoreContextReport(ctx, projectmemory.StoreContextReportArgs{
+		ID:             projectmemory.ContextReportID(conversationID, turnNumber),
+		ConversationID: conversationID,
+		TurnNumber:     turnNumber,
+		CreatedAtUS:    uint64(createdAt.UTC().UnixMicro()),
+		UpdatedAtUS:    uint64(createdAt.UTC().UnixMicro()),
+		RequestJSON:    `{"conversation_id":"` + conversationID + `"}`,
+		ReportJSON:     string(reportJSON),
+		QualityJSON:    string(qualityJSON),
+	}); err != nil {
+		t.Fatalf("StoreContextReport turn %d: %v", turnNumber, err)
+	}
+}
+
+func toolUsageByName(t *testing.T, tools []toolUsageView, name string) toolUsageView {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.ToolName == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool usage for %q not found in %+v", name, tools)
+	return toolUsageView{}
 }
 
 func newMetricsTestDB(t *testing.T) *sql.DB {

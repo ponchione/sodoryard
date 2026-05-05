@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,15 +22,23 @@ type MetricsHandler struct {
 	queries        *appdb.Queries
 	contextReports metricsContextReportReader
 	turnSubCalls   metricsTurnSubCallReader
+	metrics        metricsConversationReader
 	logger         *slog.Logger
 }
 
 type metricsContextReportReader interface {
 	ReadContextReport(ctx context.Context, conversationID string, turnNumber uint32) (projectmemory.ContextReport, bool, error)
+	ListContextReports(ctx context.Context, conversationID string) ([]projectmemory.ContextReport, error)
 }
 
 type metricsTurnSubCallReader interface {
 	ListTurnSubCalls(ctx context.Context, conversationID string, turnNumber uint32) ([]projectmemory.SubCall, error)
+}
+
+type metricsConversationReader interface {
+	ListSubCalls(ctx context.Context, conversationID string) ([]projectmemory.SubCall, error)
+	ListToolExecutions(ctx context.Context, conversationID string) ([]projectmemory.ToolExecution, error)
+	ListContextReports(ctx context.Context, conversationID string) ([]projectmemory.ContextReport, error)
 }
 
 // NewMetricsHandler creates a handler and registers routes on the server.
@@ -44,6 +53,11 @@ func NewMetricsHandler(s *Server, queries *appdb.Queries, logger *slog.Logger, m
 		if h.turnSubCalls == nil {
 			if store, ok := backend.(metricsTurnSubCallReader); ok && store != nil {
 				h.turnSubCalls = store
+			}
+		}
+		if h.metrics == nil {
+			if store, ok := backend.(metricsConversationReader); ok && store != nil {
+				h.metrics = store
 			}
 		}
 	}
@@ -99,12 +113,27 @@ type contextQualityView struct {
 }
 
 func (h *MetricsHandler) handleConversationMetrics(w http.ResponseWriter, r *http.Request) {
-	if !h.requireQueries(w) {
-		return
-	}
 	convID := r.PathValue("id")
 
 	ctx := r.Context()
+	if h != nil && h.queries == nil {
+		if h.metrics == nil {
+			writeError(w, http.StatusServiceUnavailable, "metrics are unavailable for this memory backend")
+			return
+		}
+		resp, err := h.projectMemoryConversationMetrics(ctx, convID)
+		if err != nil {
+			h.logger.Error("get project memory conversation metrics", "error", err, "id", convID)
+			writeError(w, http.StatusInternalServerError, "failed to get conversation metrics")
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	if h == nil || h.queries == nil {
+		writeError(w, http.StatusServiceUnavailable, "metrics are unavailable for this memory backend")
+		return
+	}
 
 	// Token usage.
 	tokenRow, err := h.queries.GetConversationTokenUsage(ctx, sql.NullString{String: convID, Valid: true})
@@ -185,6 +214,38 @@ func (h *MetricsHandler) handleConversationMetrics(w http.ResponseWriter, r *htt
 		},
 		LastTurn: lastTurn,
 	})
+}
+
+func (h *MetricsHandler) projectMemoryConversationMetrics(ctx context.Context, conversationID string) (conversationMetricsResponse, error) {
+	subCalls, err := h.metrics.ListSubCalls(ctx, conversationID)
+	if err != nil {
+		return conversationMetricsResponse{}, fmt.Errorf("list subcalls: %w", err)
+	}
+	executions, err := h.metrics.ListToolExecutions(ctx, conversationID)
+	if err != nil {
+		return conversationMetricsResponse{}, fmt.Errorf("list tool executions: %w", err)
+	}
+	reports, err := h.metrics.ListContextReports(ctx, conversationID)
+	if err != nil {
+		return conversationMetricsResponse{}, fmt.Errorf("list context reports: %w", err)
+	}
+
+	tokenUsage := aggregateProjectMemoryConversationTokenUsage(subCalls)
+	cacheHitRate := 0.0
+	if tokenUsage.TokensIn > 0 {
+		cacheHitRate = float64(tokenUsage.CacheReadTokens) * 100.0 / float64(tokenUsage.TokensIn)
+	}
+	contextQuality, err := aggregateProjectMemoryConversationContextQuality(reports)
+	if err != nil {
+		return conversationMetricsResponse{}, err
+	}
+	return conversationMetricsResponse{
+		TokenUsage:     tokenUsage,
+		CacheHitRate:   cacheHitRate,
+		ToolUsage:      aggregateProjectMemoryConversationToolUsage(executions),
+		ContextQuality: contextQuality,
+		LastTurn:       aggregateProjectMemoryLastTurnUsage(subCalls),
+	}, nil
 }
 
 // ── GET /api/metrics/conversation/:id/context/:turn ──────────────────
@@ -370,14 +431,6 @@ func (h *MetricsHandler) contextReportForRequest(w http.ResponseWriter, r *http.
 
 	writeError(w, http.StatusServiceUnavailable, "metrics are unavailable for this memory backend")
 	return metricsContextReport{}, false
-}
-
-func (h *MetricsHandler) requireQueries(w http.ResponseWriter) bool {
-	if h != nil && h.queries != nil {
-		return true
-	}
-	writeError(w, http.StatusServiceUnavailable, "metrics are unavailable for this memory backend")
-	return false
 }
 
 func (h *MetricsHandler) buildTokenBudgetReport(r *http.Request, report metricsContextReport) (*contextpkg.TokenBudgetReport, error) {
@@ -661,6 +714,122 @@ type turnTokenUsage struct {
 	IterationCount      int64
 }
 
+func aggregateProjectMemoryConversationTokenUsage(subCalls []projectmemory.SubCall) tokenUsageView {
+	var usage tokenUsageView
+	for _, subCall := range subCalls {
+		if subCall.Purpose != "chat" {
+			continue
+		}
+		usage.TokensIn += uint64ToInt64(subCall.TokensIn)
+		usage.TokensOut += uint64ToInt64(subCall.TokensOut)
+		usage.CacheReadTokens += uint64ToInt64(subCall.CacheReadTokens)
+		usage.TotalLatencyMs += uint64ToInt64(subCall.LatencyMs)
+		usage.TotalCalls++
+	}
+	return usage
+}
+
+func aggregateProjectMemoryConversationToolUsage(executions []projectmemory.ToolExecution) []toolUsageView {
+	type toolAccumulator struct {
+		name     string
+		count    int64
+		duration int64
+		failures int64
+	}
+	byName := make(map[string]*toolAccumulator)
+	for _, execution := range executions {
+		name := strings.TrimSpace(execution.ToolName)
+		if name == "" {
+			name = "unknown"
+		}
+		acc := byName[name]
+		if acc == nil {
+			acc = &toolAccumulator{name: name}
+			byName[name] = acc
+		}
+		acc.count++
+		acc.duration += uint64ToInt64(execution.DurationMs)
+		if toolExecutionFailed(execution.Status) {
+			acc.failures++
+		}
+	}
+	tools := make([]toolUsageView, 0, len(byName))
+	for _, acc := range byName {
+		avgDuration := 0.0
+		if acc.count > 0 {
+			avgDuration = float64(acc.duration) / float64(acc.count)
+		}
+		tools = append(tools, toolUsageView{
+			ToolName:      acc.name,
+			CallCount:     acc.count,
+			AvgDurationMs: avgDuration,
+			FailureCount:  acc.failures,
+		})
+	}
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].ToolName < tools[j].ToolName
+	})
+	return tools
+}
+
+func aggregateProjectMemoryConversationContextQuality(reports []projectmemory.ContextReport) (contextQualityView, error) {
+	var quality contextQualityView
+	quality.TotalTurns = int64(len(reports))
+	var hitRateSum float64
+	var hitRateCount int64
+	var budgetUsedSum float64
+	var budgetUsedCount int64
+	for _, report := range reports {
+		metricsReport, err := metricsContextReportFromProjectMemory(report)
+		if err != nil {
+			return contextQualityView{}, fmt.Errorf("decode context report %s: %w", report.ID, err)
+		}
+		if int64PtrValue(metricsReport.AgentUsedSearch) != 0 {
+			quality.ReactiveSearchCount++
+		}
+		if metricsReport.ContextHitRate != nil {
+			hitRateSum += *metricsReport.ContextHitRate
+			hitRateCount++
+		}
+		if metricsReport.BudgetUsed != nil && metricsReport.BudgetTotal != nil && *metricsReport.BudgetTotal > 0 {
+			budgetUsedSum += float64(*metricsReport.BudgetUsed) * 100.0 / float64(*metricsReport.BudgetTotal)
+			budgetUsedCount++
+		}
+	}
+	if hitRateCount > 0 {
+		quality.AvgHitRate = hitRateSum / float64(hitRateCount)
+	}
+	if budgetUsedCount > 0 {
+		quality.AvgBudgetUsedPct = budgetUsedSum / float64(budgetUsedCount)
+	}
+	return quality, nil
+}
+
+func aggregateProjectMemoryLastTurnUsage(subCalls []projectmemory.SubCall) *lastTurnView {
+	latestTurn := uint32(0)
+	found := false
+	for _, subCall := range subCalls {
+		if subCall.Purpose != "chat" || subCall.TurnNumber == 0 {
+			continue
+		}
+		if !found || subCall.TurnNumber > latestTurn {
+			latestTurn = subCall.TurnNumber
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	usage := aggregateProjectMemoryTurnUsage(filterProjectMemoryTurnSubCalls(subCalls, latestTurn))
+	return &lastTurnView{
+		TurnNumber:     int64(latestTurn),
+		IterationCount: usage.IterationCount,
+		TokensIn:       usage.TokensIn,
+		TokensOut:      usage.TokensOut,
+		LatencyMs:      usage.LatencyMs,
+	}
+}
+
 func aggregateProjectMemoryTurnUsage(subCalls []projectmemory.SubCall) turnTokenUsage {
 	usage := turnTokenUsage{IterationCount: 1}
 	for _, subCall := range subCalls {
@@ -677,6 +846,20 @@ func aggregateProjectMemoryTurnUsage(subCalls []projectmemory.SubCall) turnToken
 		}
 	}
 	return usage
+}
+
+func filterProjectMemoryTurnSubCalls(subCalls []projectmemory.SubCall, turnNumber uint32) []projectmemory.SubCall {
+	out := make([]projectmemory.SubCall, 0, len(subCalls))
+	for _, subCall := range subCalls {
+		if subCall.TurnNumber == turnNumber {
+			out = append(out, subCall)
+		}
+	}
+	return out
+}
+
+func toolExecutionFailed(status string) bool {
+	return strings.ToLower(strings.TrimSpace(status)) != "success"
 }
 
 func marshalMetricsJSON(value any) (string, error) {

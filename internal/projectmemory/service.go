@@ -276,6 +276,14 @@ type ReadContextReportResponse struct {
 	Found  bool
 }
 
+type ListContextReportsRequest struct {
+	ConversationID string
+}
+
+type ListContextReportsResponse struct {
+	Reports []ContextReport
+}
+
 type ReadChainRequest struct {
 	ID string
 }
@@ -573,6 +581,15 @@ func (s *brainRPCService) ReadContextReport(req ReadContextReportRequest, resp *
 	}
 	resp.Report = report
 	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) ListContextReports(req ListContextReportsRequest, resp *ListContextReportsResponse) error {
+	reports, err := s.backend.ListContextReports(context.Background(), req.ConversationID)
+	if err != nil {
+		return err
+	}
+	resp.Reports = reports
 	return nil
 }
 

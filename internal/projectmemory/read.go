@@ -466,6 +466,24 @@ func (r *Runtime) ReadContextReport(ctx context.Context, conversationID string, 
 	return report, found, nil
 }
 
+func (r *Runtime) ListContextReports(ctx context.Context, conversationID string) ([]ContextReport, error) {
+	if strings.TrimSpace(conversationID) == "" {
+		return nil, fmt.Errorf("context report conversation id is required")
+	}
+	var reports []ContextReport
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableContextReports, indexContextReportsConversation, types.NewString(conversationID)) {
+			reports = append(reports, decodeContextReportRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortContextReports(reports)
+	return reports, nil
+}
+
 func (r *Runtime) ReadChain(ctx context.Context, id string) (Chain, bool, error) {
 	if strings.TrimSpace(id) == "" {
 		return Chain{}, false, fmt.Errorf("chain id is required")
@@ -645,6 +663,15 @@ func sortToolExecutions(executions []ToolExecution) {
 			return executions[i].ID < executions[j].ID
 		}
 		return executions[i].CompletedAtUS < executions[j].CompletedAtUS
+	})
+}
+
+func sortContextReports(reports []ContextReport) {
+	sort.Slice(reports, func(i, j int) bool {
+		if reports[i].TurnNumber == reports[j].TurnNumber {
+			return reports[i].ID < reports[j].ID
+		}
+		return reports[i].TurnNumber < reports[j].TurnNumber
 	})
 }
 

@@ -29,6 +29,7 @@ type ToolExecutionRecorder interface {
 type ContextReportStore interface {
 	StoreContextReport(ctx context.Context, args StoreContextReportArgs) error
 	ReadContextReport(ctx context.Context, conversationID string, turnNumber uint32) (ContextReport, bool, error)
+	ListContextReports(ctx context.Context, conversationID string) ([]ContextReport, error)
 	UpdateContextReportQuality(ctx context.Context, args UpdateContextReportQualityArgs) error
 }
 

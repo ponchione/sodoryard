@@ -293,4 +293,3 @@ func startServer(t *testing.T, srv *server.Server) (*server.Server, string) {
 	return srv, "http://" + addr
 }
 
-

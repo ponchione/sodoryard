@@ -224,6 +224,10 @@ func (b *BrainBackend) ReadContextReport(ctx context.Context, conversationID str
 	return b.runtime.ReadContextReport(ctx, conversationID, turnNumber)
 }
 
+func (b *BrainBackend) ListContextReports(ctx context.Context, conversationID string) ([]ContextReport, error) {
+	return b.runtime.ListContextReports(ctx, conversationID)
+}
+
 func (b *BrainBackend) UpdateContextReportQuality(ctx context.Context, args UpdateContextReportQualityArgs) error {
 	return b.runtime.UpdateContextReportQuality(ctx, args)
 }

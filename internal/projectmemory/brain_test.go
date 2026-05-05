@@ -562,6 +562,23 @@ func TestContextReportsStoreUpdateDiscardAndRestart(t *testing.T) {
 	if !found || report.ID != expectedID || !strings.Contains(report.ReportJSON, "included_chunks") {
 		t.Fatalf("report = %+v found=%t, want %s", report, found, expectedID)
 	}
+	if err := backend.StoreContextReport(ctx, StoreContextReportArgs{
+		ConversationID: "conv-context",
+		TurnNumber:     2,
+		CreatedAtUS:    uint64(createdAt.Add(2 * time.Second).UnixMicro()),
+		RequestJSON:    `{"conversation_id":"conv-context","turn_number":2}`,
+		ReportJSON:     `{"turn_number":2,"included_chunks":["internal/runtime/engine.go"]}`,
+		QualityJSON:    `{"agent_read_files":[]}`,
+	}); err != nil {
+		t.Fatalf("StoreContextReport second: %v", err)
+	}
+	reports, err := backend.ListContextReports(ctx, "conv-context")
+	if err != nil {
+		t.Fatalf("ListContextReports: %v", err)
+	}
+	if len(reports) != 2 || reports[0].TurnNumber != 1 || reports[1].TurnNumber != 2 {
+		t.Fatalf("reports = %+v, want turn ordered reports 1,2", reports)
+	}
 	if err := backend.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -577,6 +594,13 @@ func TestContextReportsStoreUpdateDiscardAndRestart(t *testing.T) {
 	}
 	if !found || report.ID != expectedID {
 		t.Fatalf("report after restart = %+v found=%t, want %s", report, found, expectedID)
+	}
+	reports, err = reopened.ListContextReports(ctx, "conv-context")
+	if err != nil {
+		t.Fatalf("ListContextReports after restart: %v", err)
+	}
+	if len(reports) != 2 || reports[0].TurnNumber != 1 || reports[1].TurnNumber != 2 {
+		t.Fatalf("reports after restart = %+v, want turn ordered reports 1,2", reports)
 	}
 	if err := reopened.UpdateContextReportQuality(ctx, UpdateContextReportQualityArgs{
 		ConversationID: "conv-context",
@@ -602,6 +626,13 @@ func TestContextReportsStoreUpdateDiscardAndRestart(t *testing.T) {
 	}
 	if found {
 		t.Fatal("ReadContextReport after discard found report, want missing")
+	}
+	reports, err = reopened.ListContextReports(ctx, "conv-context")
+	if err != nil {
+		t.Fatalf("ListContextReports after discard: %v", err)
+	}
+	if len(reports) != 1 || reports[0].TurnNumber != 2 {
+		t.Fatalf("reports after discard = %+v, want only turn 2", reports)
 	}
 }
 
@@ -1044,6 +1075,13 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if !found || !strings.Contains(parentReport.QualityJSON, "notes/rpc.md") {
 		t.Fatalf("parent report after RPC = %+v found=%t, want notes/rpc.md quality", parentReport, found)
+	}
+	clientReports, err := client.ListContextReports(ctx, "rpc-conv")
+	if err != nil {
+		t.Fatalf("client ListContextReports: %v", err)
+	}
+	if len(clientReports) != 1 || clientReports[0].TurnNumber != 1 || !strings.Contains(clientReports[0].QualityJSON, "notes/rpc.md") {
+		t.Fatalf("client reports = %+v, want turn 1 report with quality", clientReports)
 	}
 	if err := client.StartChain(ctx, StartChainArgs{
 		ID:               "rpc-chain",

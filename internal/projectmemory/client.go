@@ -257,6 +257,14 @@ func (c *Client) ReadContextReport(ctx context.Context, conversationID string, t
 	return resp.Report, resp.Found, nil
 }
 
+func (c *Client) ListContextReports(ctx context.Context, conversationID string) ([]ContextReport, error) {
+	var resp ListContextReportsResponse
+	if err := c.call(ctx, "Brain.ListContextReports", ListContextReportsRequest{ConversationID: conversationID}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Reports, nil
+}
+
 func (c *Client) UpdateContextReportQuality(ctx context.Context, args UpdateContextReportQualityArgs) error {
 	return c.call(ctx, "Brain.UpdateContextReportQuality", args, &EmptyResponse{})
 }
