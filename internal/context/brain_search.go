@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/ponchione/sodoryard/internal/brain"
+	brainparser "github.com/ponchione/sodoryard/internal/brain/parser"
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 )
@@ -24,6 +26,11 @@ const (
 type graphFrontierNode struct {
 	Path  string
 	Score float64
+}
+
+type brainGraph struct {
+	incoming map[string][]string
+	outgoing map[string][]string
 }
 
 type HybridBrainSearcher struct {
@@ -171,7 +178,11 @@ func (s *HybridBrainSearcher) addSemanticResults(ctx stdctx.Context, query strin
 }
 
 func (s *HybridBrainSearcher) expandGraphResults(ctx stdctx.Context, results map[string]*BrainSearchResult, maxDepth int) {
-	if s == nil || s.queries == nil || strings.TrimSpace(s.projectID) == "" || len(results) == 0 || maxDepth <= 0 {
+	if s == nil || len(results) == 0 || maxDepth <= 0 {
+		return
+	}
+	if s.queries == nil || strings.TrimSpace(s.projectID) == "" {
+		s.expandBackendGraphResults(ctx, results, maxDepth)
 		return
 	}
 	frontier := make([]graphFrontierNode, 0, len(results))
@@ -198,6 +209,44 @@ func (s *HybridBrainSearcher) expandGraphResults(ctx stdctx.Context, results map
 				for _, link := range outgoing {
 					s.applyGraphLink(results, nextByPath, bestDepth, current, strings.TrimSpace(link.TargetPath), depth, "graph")
 				}
+			}
+		}
+		frontier = make([]graphFrontierNode, 0, len(nextByPath))
+		for _, node := range nextByPath {
+			frontier = append(frontier, node)
+		}
+		sort.SliceStable(frontier, func(i, j int) bool {
+			if frontier[i].Score != frontier[j].Score {
+				return frontier[i].Score > frontier[j].Score
+			}
+			return frontier[i].Path < frontier[j].Path
+		})
+	}
+}
+
+func (s *HybridBrainSearcher) expandBackendGraphResults(ctx stdctx.Context, results map[string]*BrainSearchResult, maxDepth int) {
+	graph, err := s.loadBackendBrainGraph(ctx)
+	if err != nil || graph == nil {
+		return
+	}
+	frontier := make([]graphFrontierNode, 0, len(results))
+	bestDepth := make(map[string]int, len(results))
+	for resultPath, result := range results {
+		resultPath = strings.TrimSpace(resultPath)
+		if resultPath == "" || brain.IsOperationalDocument(resultPath) {
+			continue
+		}
+		frontier = append(frontier, graphFrontierNode{Path: resultPath, Score: result.FinalScore})
+		bestDepth[resultPath] = 0
+	}
+	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
+		nextByPath := map[string]graphFrontierNode{}
+		for _, current := range frontier {
+			for _, sourcePath := range graph.incoming[current.Path] {
+				s.applyGraphLink(results, nextByPath, bestDepth, current, sourcePath, depth, "backlink")
+			}
+			for _, targetPath := range graph.outgoing[current.Path] {
+				s.applyGraphLink(results, nextByPath, bestDepth, current, targetPath, depth, "graph")
 			}
 		}
 		frontier = make([]graphFrontierNode, 0, len(nextByPath))
@@ -284,24 +333,138 @@ func graphExpansionSnippet(parentPath string, source string, depth int) string {
 }
 
 func (s *HybridBrainSearcher) enrichMetadata(ctx stdctx.Context, result *BrainSearchResult) {
-	if s == nil || s.queries == nil || result == nil || strings.TrimSpace(s.projectID) == "" || strings.TrimSpace(result.DocumentPath) == "" {
+	if s == nil || result == nil || strings.TrimSpace(result.DocumentPath) == "" {
 		return
 	}
-	doc, err := s.queries.GetBrainDocumentByPath(ctx, appdb.GetBrainDocumentByPathParams{ProjectID: s.projectID, Path: result.DocumentPath})
-	if err != nil {
-		if err == sql.ErrNoRows {
+	if s.queries != nil && strings.TrimSpace(s.projectID) != "" {
+		doc, err := s.queries.GetBrainDocumentByPath(ctx, appdb.GetBrainDocumentByPathParams{ProjectID: s.projectID, Path: result.DocumentPath})
+		if err == nil {
+			if strings.TrimSpace(result.Title) == "" && doc.Title.Valid {
+				result.Title = strings.TrimSpace(doc.Title.String)
+			}
+			if len(result.Tags) == 0 && doc.Tags.Valid && strings.TrimSpace(doc.Tags.String) != "" {
+				var tags []string
+				if err := json.Unmarshal([]byte(doc.Tags.String), &tags); err == nil {
+					result.Tags = uniqueSortedStrings(tags)
+				}
+			}
+		} else if err != sql.ErrNoRows {
 			return
 		}
+	}
+	if strings.TrimSpace(result.Title) != "" && len(result.Tags) > 0 {
 		return
 	}
-	if strings.TrimSpace(result.Title) == "" && doc.Title.Valid {
-		result.Title = strings.TrimSpace(doc.Title.String)
+	doc, err := s.parseBackendDocument(ctx, result.DocumentPath)
+	if err != nil {
+		return
 	}
-	if len(result.Tags) == 0 && doc.Tags.Valid && strings.TrimSpace(doc.Tags.String) != "" {
-		var tags []string
-		if err := json.Unmarshal([]byte(doc.Tags.String), &tags); err == nil {
-			result.Tags = uniqueSortedStrings(tags)
+	if strings.TrimSpace(result.Title) == "" {
+		result.Title = strings.TrimSpace(doc.Title)
+	}
+	if len(result.Tags) == 0 {
+		result.Tags = uniqueSortedStrings(doc.Tags)
+	}
+}
+
+func (s *HybridBrainSearcher) parseBackendDocument(ctx stdctx.Context, docPath string) (brainparser.Document, error) {
+	if s == nil || s.keywordBackend == nil {
+		return brainparser.Document{}, fmt.Errorf("brain backend unavailable")
+	}
+	docPath = strings.TrimSpace(docPath)
+	if docPath == "" {
+		return brainparser.Document{}, fmt.Errorf("brain document path is required")
+	}
+	content, err := s.keywordBackend.ReadDocument(ctx, docPath)
+	if err != nil {
+		return brainparser.Document{}, err
+	}
+	return brainparser.ParseDocument(docPath, content)
+}
+
+func (s *HybridBrainSearcher) loadBackendBrainGraph(ctx stdctx.Context) (*brainGraph, error) {
+	if s == nil || s.keywordBackend == nil {
+		return nil, nil
+	}
+	paths, err := s.keywordBackend.ListDocuments(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]struct{}, len(paths))
+	for _, docPath := range paths {
+		docPath = strings.TrimSpace(docPath)
+		if docPath == "" || brain.IsOperationalDocument(docPath) {
+			continue
 		}
+		known[docPath] = struct{}{}
+	}
+	graph := &brainGraph{
+		incoming: map[string][]string{},
+		outgoing: map[string][]string{},
+	}
+	for _, docPath := range paths {
+		docPath = strings.TrimSpace(docPath)
+		if docPath == "" || brain.IsOperationalDocument(docPath) {
+			continue
+		}
+		doc, err := s.parseBackendDocument(ctx, docPath)
+		if err != nil {
+			continue
+		}
+		seenTargets := map[string]struct{}{}
+		for _, link := range doc.Wikilinks {
+			targetPath := resolveBrainLinkTarget(docPath, link.Target, known)
+			if targetPath == "" || targetPath == docPath || brain.IsOperationalDocument(targetPath) {
+				continue
+			}
+			if _, ok := seenTargets[targetPath]; ok {
+				continue
+			}
+			seenTargets[targetPath] = struct{}{}
+			graph.outgoing[docPath] = append(graph.outgoing[docPath], targetPath)
+			graph.incoming[targetPath] = append(graph.incoming[targetPath], docPath)
+		}
+	}
+	sortBrainGraph(graph)
+	return graph, nil
+}
+
+func resolveBrainLinkTarget(sourcePath string, target string, known map[string]struct{}) string {
+	target = strings.Trim(path.Clean(strings.ReplaceAll(strings.TrimSpace(target), `\`, "/")), "/")
+	if target == "" || target == "." {
+		return ""
+	}
+	candidates := []string{target}
+	if !strings.HasSuffix(strings.ToLower(target), ".md") {
+		candidates = append(candidates, target+".md")
+	}
+	if !strings.Contains(target, "/") {
+		sourceDir := path.Dir(strings.ReplaceAll(strings.TrimSpace(sourcePath), `\`, "/"))
+		if sourceDir != "." && sourceDir != "" {
+			relative := path.Clean(path.Join(sourceDir, target))
+			candidates = append(candidates, relative)
+			if !strings.HasSuffix(strings.ToLower(relative), ".md") {
+				candidates = append(candidates, relative+".md")
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		if _, ok := known[candidate]; ok {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func sortBrainGraph(graph *brainGraph) {
+	if graph == nil {
+		return
+	}
+	for key := range graph.incoming {
+		graph.incoming[key] = uniqueSortedStrings(graph.incoming[key])
+	}
+	for key := range graph.outgoing {
+		graph.outgoing[key] = uniqueSortedStrings(graph.outgoing[key])
 	}
 }
 

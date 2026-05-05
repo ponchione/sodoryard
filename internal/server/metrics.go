@@ -74,6 +74,9 @@ type contextQualityView struct {
 }
 
 func (h *MetricsHandler) handleConversationMetrics(w http.ResponseWriter, r *http.Request) {
+	if !h.requireQueries(w) {
+		return
+	}
 	convID := r.PathValue("id")
 
 	ctx := r.Context()
@@ -268,6 +271,9 @@ func (h *MetricsHandler) handleContextSignalStream(w http.ResponseWriter, r *htt
 }
 
 func (h *MetricsHandler) contextReportForRequest(w http.ResponseWriter, r *http.Request, logMessage, clientError string) (appdb.ContextReport, bool) {
+	if !h.requireQueries(w) {
+		return appdb.ContextReport{}, false
+	}
 	convID := r.PathValue("id")
 	turn, err := strconv.ParseInt(r.PathValue("turn"), 10, 64)
 	if err != nil {
@@ -289,6 +295,14 @@ func (h *MetricsHandler) contextReportForRequest(w http.ResponseWriter, r *http.
 		return appdb.ContextReport{}, false
 	}
 	return report, true
+}
+
+func (h *MetricsHandler) requireQueries(w http.ResponseWriter) bool {
+	if h != nil && h.queries != nil {
+		return true
+	}
+	writeError(w, http.StatusServiceUnavailable, "metrics are unavailable for this memory backend")
+	return false
 }
 
 func (h *MetricsHandler) buildTokenBudgetReport(r *http.Request, report appdb.ContextReport) (*contextpkg.TokenBudgetReport, error) {

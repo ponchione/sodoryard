@@ -193,6 +193,28 @@ func TestContextReportEndpointReturnsBrainGraphExplainabilityFields(t *testing.T
 	}
 }
 
+func TestMetricsEndpointsReturnUnavailableWithoutQueries(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := New(Config{}, logger)
+	NewMetricsHandler(srv, nil, logger)
+
+	for _, path := range []string{
+		"/api/metrics/conversation/conv-1",
+		"/api/metrics/conversation/conv-1/context/1",
+		"/api/metrics/conversation/conv-1/context/1/signals",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			srv.mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func assertSignalStreamEntry(t *testing.T, got contextSignalStreamEntry, wantIndex int, wantKind string, wantType string, wantSource string, wantValue string) {
 	t.Helper()
 	if got.Index != wantIndex || got.Kind != wantKind || got.Type != wantType || got.Source != wantSource || got.Value != wantValue {

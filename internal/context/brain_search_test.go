@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"testing"
 	"time"
 
@@ -14,11 +15,17 @@ import (
 
 type hybridBrainBackendStub struct {
 	hits  []brain.SearchHit
+	docs  map[string]string
 	calls int
 }
 
-func (s *hybridBrainBackendStub) ReadDocument(stdctx.Context, string) (string, error) { return "", nil }
-func (s *hybridBrainBackendStub) WriteDocument(stdctx.Context, string, string) error  { return nil }
+func (s *hybridBrainBackendStub) ReadDocument(_ stdctx.Context, path string) (string, error) {
+	if s.docs != nil {
+		return s.docs[path], nil
+	}
+	return "", nil
+}
+func (s *hybridBrainBackendStub) WriteDocument(stdctx.Context, string, string) error { return nil }
 func (s *hybridBrainBackendStub) PatchDocument(stdctx.Context, string, string, string) error {
 	return nil
 }
@@ -27,7 +34,12 @@ func (s *hybridBrainBackendStub) SearchKeyword(stdctx.Context, string) ([]brain.
 	return append([]brain.SearchHit(nil), s.hits...), nil
 }
 func (s *hybridBrainBackendStub) ListDocuments(stdctx.Context, string) ([]string, error) {
-	return nil, nil
+	paths := make([]string, 0, len(s.docs))
+	for path := range s.docs {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 type hybridBrainStoreStub struct {
@@ -334,6 +346,79 @@ VALUES (?, ?, ?, ?, ?, ?)
 	}
 	if deepPanel.FinalScore <= deepPanel.SemanticScore {
 		t.Fatalf("FinalScore = %.2f, want graph expansion to lift direct semantic score %.2f", deepPanel.FinalScore, deepPanel.SemanticScore)
+	}
+}
+
+func TestHybridBrainSearcherEnrichesMetadataFromBackendWhenQueriesNil(t *testing.T) {
+	backend := &hybridBrainBackendStub{docs: map[string]string{
+		"notes/shunter-runtime.md": "---\ntags: [shunter, retrieval]\n---\n# Shunter Runtime\n\nRuntime notes.",
+	}}
+	store := &hybridBrainStoreStub{results: []codeintel.SearchResult{{
+		Chunk: codeintel.Chunk{FilePath: "notes/shunter-runtime.md", Body: "Runtime notes from the Shunter brain index.", ChunkType: codeintel.ChunkTypeSection},
+		Score: 0.73,
+	}}}
+	searcher := NewHybridBrainSearcher(backend, store, &hybridBrainEmbedderStub{}, nil, "/tmp/project")
+
+	results, err := searcher.Search(stdctx.Background(), BrainSearchRequest{
+		Query: "shunter runtime retrieval",
+		Mode:  "semantic",
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	hit := results[0]
+	if hit.Title != "Shunter Runtime" {
+		t.Fatalf("Title = %q, want Shunter Runtime", hit.Title)
+	}
+	if len(hit.Tags) != 2 || hit.Tags[0] != "retrieval" || hit.Tags[1] != "shunter" {
+		t.Fatalf("Tags = %v, want [retrieval shunter]", hit.Tags)
+	}
+}
+
+func TestHybridBrainSearcherExpandsGraphHopsFromBackendWhenQueriesNil(t *testing.T) {
+	backend := &hybridBrainBackendStub{
+		hits: []brain.SearchHit{{
+			Path:    "notes/runtime-cache.md",
+			Snippet: "keyword cache reminder",
+			Score:   0.8,
+		}},
+		docs: map[string]string{
+			"notes/runtime-cache.md":     "# Runtime Cache Notes\n\nCache reminder.",
+			"notes/runtime-rationale.md": "# Runtime Cache Rationale\n\nThis links to [[notes/runtime-cache.md]].",
+			"notes/ops-checklist.md":     "# Ops Checklist\n\nThis links to [[notes/runtime-rationale.md]].",
+		},
+	}
+	searcher := NewHybridBrainSearcher(backend, nil, nil, nil, "/tmp/project")
+
+	results, err := searcher.Search(stdctx.Background(), BrainSearchRequest{
+		Query:            "runtime cache",
+		Mode:             "auto",
+		IncludeGraphHops: true,
+		GraphHopDepth:    2,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("len(results) = %d, want 3", len(results))
+	}
+	if results[0].DocumentPath != "notes/runtime-cache.md" || results[0].MatchMode != "keyword" {
+		t.Fatalf("first result = %+v, want direct keyword seed first", results[0])
+	}
+	if results[1].DocumentPath != "notes/runtime-rationale.md" || results[1].MatchMode != "backlink" {
+		t.Fatalf("second result = %+v, want backend backlink expansion", results[1])
+	}
+	if results[1].Title != "Runtime Cache Rationale" || results[1].GraphSourcePath != "notes/runtime-cache.md" || results[1].GraphHopDepth != 1 {
+		t.Fatalf("second result graph metadata = %+v, want backend title/source/depth", results[1])
+	}
+	if results[2].DocumentPath != "notes/ops-checklist.md" || results[2].MatchMode != "graph" {
+		t.Fatalf("third result = %+v, want backend second-hop graph expansion", results[2])
+	}
+	if results[2].Title != "Ops Checklist" || results[2].GraphSourcePath != "notes/runtime-rationale.md" || results[2].GraphHopDepth != 2 {
+		t.Fatalf("third result graph metadata = %+v, want backend title/source/depth", results[2])
 	}
 }
 
