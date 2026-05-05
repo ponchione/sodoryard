@@ -59,6 +59,61 @@ func TestMemoryVerifyDetectsDocumentMismatch(t *testing.T) {
 	}
 }
 
+func TestMemoryExportRoundTripDocuments(t *testing.T) {
+	ctx := context.Background()
+	configPath, dataDir := writeMemoryTestProject(t)
+	if _, err := runMemoryMigrate(ctx, configPath, "", "", ""); err != nil {
+		t.Fatalf("runMemoryMigrate returned error: %v", err)
+	}
+	projectRoot := filepath.Dir(configPath)
+	liveBrainContent, err := os.ReadFile(filepath.Join(projectRoot, ".brain", "notes", "a.md"))
+	if err != nil {
+		t.Fatalf("read live brain document: %v", err)
+	}
+
+	exportVault := filepath.Join(projectRoot, "exported-brain")
+	count, err := runMemoryExport(ctx, configPath, dataDir, exportVault)
+	if err != nil {
+		t.Fatalf("runMemoryExport returned error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("export count = %d, want 2", count)
+	}
+	exported, err := os.ReadFile(filepath.Join(exportVault, "notes", "a.md"))
+	if err != nil {
+		t.Fatalf("read exported document: %v", err)
+	}
+	if string(exported) != "# A\n\nAlpha." {
+		t.Fatalf("exported notes/a.md = %q, want original content", string(exported))
+	}
+	afterLiveBrainContent, err := os.ReadFile(filepath.Join(projectRoot, ".brain", "notes", "a.md"))
+	if err != nil {
+		t.Fatalf("reread live brain document: %v", err)
+	}
+	if string(afterLiveBrainContent) != string(liveBrainContent) {
+		t.Fatal("export mutated live .brain document")
+	}
+
+	verifyResult, err := runMemoryVerify(ctx, configPath, exportVault, dataDir)
+	if err != nil {
+		t.Fatalf("runMemoryVerify exported vault returned error: %v", err)
+	}
+	if verifyResult.Verified != 2 {
+		t.Fatalf("verified exported count = %d, want 2", verifyResult.Verified)
+	}
+	roundTripDataDir := filepath.Join(projectRoot, ".yard", "shunter", "round-trip-project-memory")
+	roundTripResult, err := runMemoryMigrate(ctx, configPath, exportVault, "", roundTripDataDir)
+	if err != nil {
+		t.Fatalf("round-trip runMemoryMigrate returned error: %v", err)
+	}
+	if roundTripResult.Documents != 2 {
+		t.Fatalf("round-trip migrated count = %d, want 2", roundTripResult.Documents)
+	}
+	if _, err := runMemoryVerify(ctx, configPath, exportVault, roundTripDataDir); err != nil {
+		t.Fatalf("round-trip runMemoryVerify returned error: %v", err)
+	}
+}
+
 func TestMemoryMigrateSQLiteImportsLegacyRuntimeState(t *testing.T) {
 	ctx := context.Background()
 	configPath, dataDir := writeMemoryTestProject(t)

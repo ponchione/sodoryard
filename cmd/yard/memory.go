@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ func newYardMemoryCmd(configPath *string) *cobra.Command {
 	cmd.AddCommand(
 		newYardMemoryMigrateCmd(configPath),
 		newYardMemoryVerifyCmd(configPath),
+		newYardMemoryExportCmd(configPath),
 	)
 	return cmd
 }
@@ -81,6 +83,26 @@ func newYardMemoryVerifyCmd(configPath *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&fromVault, "from-vault", "", "Source brain vault path (default: configured brain.vault_path)")
 	cmd.Flags().StringVar(&toDataDir, "to", "", "Shunter data dir to verify (default: configured memory.shunter_data_dir)")
+	return cmd
+}
+
+func newYardMemoryExportCmd(configPath *string) *cobra.Command {
+	var fromDataDir string
+	var toVault string
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export Shunter project-memory documents to a Markdown vault",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			count, err := runMemoryExport(cmd.Context(), *configPath, fromDataDir, toVault)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Exported brain documents: %d\n", count)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&fromDataDir, "from", "", "Source Shunter data dir (default: configured memory.shunter_data_dir)")
+	cmd.Flags().StringVar(&toVault, "to-vault", "", "Destination Markdown vault path (default: configured brain.vault_path)")
 	return cmd
 }
 
@@ -222,6 +244,52 @@ func openMemorySourceVault(projectRoot string, configuredVaultPath string, fromV
 		return nil, fmt.Errorf("open source vault: %w", err)
 	}
 	return source, nil
+}
+
+func runMemoryExport(ctx context.Context, configPath string, fromDataDir string, toVault string) (int, error) {
+	cfg, err := cmdutil.LoadConfig(configPath)
+	if err != nil {
+		return 0, err
+	}
+	sourcePath := strings.TrimSpace(fromDataDir)
+	if sourcePath == "" {
+		sourcePath = cfg.MemoryShunterDataDir()
+	} else {
+		sourcePath = resolveMemoryCLIPath(cfg.ProjectRoot, sourcePath)
+	}
+	targetPath := strings.TrimSpace(toVault)
+	if targetPath == "" {
+		targetPath = cfg.BrainVaultPath()
+	} else {
+		targetPath = resolveMemoryCLIPath(cfg.ProjectRoot, targetPath)
+	}
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		return 0, fmt.Errorf("create export vault: %w", err)
+	}
+	source, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: sourcePath, DurableAck: cfg.Memory.DurableAck})
+	if err != nil {
+		return 0, fmt.Errorf("open Shunter project memory: %w", err)
+	}
+	defer source.Close()
+	target, err := vault.New(targetPath)
+	if err != nil {
+		return 0, fmt.Errorf("open export vault: %w", err)
+	}
+	paths, err := source.ListDocuments(ctx, "")
+	if err != nil {
+		return 0, fmt.Errorf("list Shunter documents: %w", err)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		content, err := source.ReadDocument(ctx, path)
+		if err != nil {
+			return 0, fmt.Errorf("read Shunter document %s: %w", path, err)
+		}
+		if err := target.WriteDocument(ctx, path, content); err != nil {
+			return 0, fmt.Errorf("write export document %s: %w", path, err)
+		}
+	}
+	return len(paths), nil
 }
 
 func equalStringSlices(a []string, b []string) bool {
