@@ -36,6 +36,7 @@ type OrchestratorRuntime struct {
 	MemoryBackend       any
 	ConversationManager *conversation.Manager
 	ContextAssembler    agent.ContextAssembler
+	CompressionEngine   agent.CompressionEngine
 	ChainStore          *chain.Store
 	MemoryEndpointEnv   []string
 	Cleanup             func()
@@ -154,6 +155,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		MemoryBackend:       memoryBackend,
 		ConversationManager: convManager,
 		ContextAssembler:    NoopContextAssembler{},
+		CompressionEngine:   BuildCompressionEngine(cfg, database, memoryBackend, provRouter),
 		ChainStore:          chainStore,
 		MemoryEndpointEnv:   memoryEndpointEnv,
 		Cleanup: func() {

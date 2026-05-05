@@ -122,6 +122,24 @@ type PersistIterationMessage struct {
 	ToolName  string `json:"tool_name"`
 }
 
+type CompressMessagesArgs struct {
+	ConversationID      string                         `json:"conversation_id"`
+	MessageIDs          []string                       `json:"message_ids"`
+	SanitizedMessages   []CompressMessageContentUpdate `json:"sanitized_messages,omitempty"`
+	SummaryContent      string                         `json:"summary_content,omitempty"`
+	SummaryTurnNumber   uint32                         `json:"summary_turn_number,omitempty"`
+	SummaryIteration    uint32                         `json:"summary_iteration,omitempty"`
+	SummarySequence     uint64                         `json:"summary_sequence,omitempty"`
+	SummaryOfJSON       string                         `json:"summary_of_json,omitempty"`
+	SummaryMetadataJSON string                         `json:"summary_metadata_json,omitempty"`
+	CreatedAtUS         uint64                         `json:"created_at_us"`
+}
+
+type CompressMessageContentUpdate struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
+}
+
 type CancelIterationArgs struct {
 	ConversationID string `json:"conversation_id"`
 	TurnNumber     uint32 `json:"turn_number"`
@@ -573,6 +591,116 @@ func persistIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, er
 		}
 	}
 	if err := touchConversation(ctx.DB, args.ConversationID, nowUS); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func compressMessagesReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args CompressMessagesArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	conversationID := strings.TrimSpace(args.ConversationID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("compress_messages requires conversation_id")
+	}
+	_, conversation, found := findConversationByID(ctx.DB, conversationID)
+	if !found || conversation.Deleted {
+		return nil, fmt.Errorf("conversation not found: %s", conversationID)
+	}
+
+	compressSet := make(map[string]struct{}, len(args.MessageIDs))
+	for _, id := range args.MessageIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			compressSet[id] = struct{}{}
+		}
+	}
+	sanitizeSet := make(map[string]string, len(args.SanitizedMessages))
+	for _, update := range args.SanitizedMessages {
+		id := strings.TrimSpace(update.ID)
+		if id != "" {
+			sanitizeSet[id] = update.Content
+		}
+	}
+	if len(compressSet) == 0 && len(sanitizeSet) == 0 && strings.TrimSpace(args.SummaryContent) == "" {
+		return nil, fmt.Errorf("compress_messages requires messages or summary content")
+	}
+
+	seenCompress := make(map[string]struct{}, len(compressSet))
+	seenSanitize := make(map[string]struct{}, len(sanitizeSet))
+	for _, row := range ctx.DB.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(conversationID)) {
+		message := decodeMessageRow(row)
+		if _, ok := compressSet[message.ID]; ok {
+			seenCompress[message.ID] = struct{}{}
+		}
+		if _, ok := sanitizeSet[message.ID]; ok {
+			seenSanitize[message.ID] = struct{}{}
+		}
+	}
+	for id := range compressSet {
+		if _, ok := seenCompress[id]; !ok {
+			return nil, fmt.Errorf("compress_messages message not found: %s", id)
+		}
+	}
+	for id := range sanitizeSet {
+		if _, ok := seenSanitize[id]; !ok {
+			return nil, fmt.Errorf("compress_messages sanitized message not found: %s", id)
+		}
+	}
+
+	nowUS := nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx))
+	for rowID, row := range ctx.DB.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(conversationID)) {
+		message := decodeMessageRow(row)
+		changed := false
+		if content, ok := sanitizeSet[message.ID]; ok {
+			message.Content = content
+			changed = true
+		}
+		if _, ok := compressSet[message.ID]; ok {
+			message.Compressed = true
+			message.Visible = true
+			changed = true
+		}
+		if changed {
+			if _, err := ctx.DB.Update(uint32(tableMessages), rowID, messageRow(message)); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if summaryContent := strings.TrimSpace(args.SummaryContent); summaryContent != "" {
+		iteration := args.SummaryIteration
+		if iteration == 0 {
+			iteration = 1
+		}
+		summaryOfJSON := strings.TrimSpace(args.SummaryOfJSON)
+		if summaryOfJSON == "" {
+			encoded, err := json.Marshal(args.MessageIDs)
+			if err != nil {
+				return nil, fmt.Errorf("encode compression summary message ids: %w", err)
+			}
+			summaryOfJSON = string(encoded)
+		}
+		summary := Message{
+			ID:             CompressionSummaryMessageID(conversationID, args.SummarySequence, nowUS),
+			ConversationID: conversationID,
+			TurnNumber:     args.SummaryTurnNumber,
+			Iteration:      iteration,
+			Sequence:       args.SummarySequence,
+			Role:           "assistant",
+			Content:        summaryContent,
+			CreatedAtUS:    nowUS,
+			Visible:        true,
+			IsSummary:      true,
+			SummaryOfJSON:  summaryOfJSON,
+			MetadataJSON:   defaultString(args.SummaryMetadataJSON, emptyJSONObject),
+		}
+		if _, err := ctx.DB.Insert(uint32(tableMessages), messageRow(summary)); err != nil {
+			return nil, err
+		}
+	}
+	if err := touchConversation(ctx.DB, conversationID, nowUS); err != nil {
 		return nil, err
 	}
 	return encodeReducerResult(reducerResult{})

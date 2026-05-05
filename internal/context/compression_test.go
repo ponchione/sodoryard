@@ -15,6 +15,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/config"
 	dbpkg "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 )
 
@@ -69,6 +70,100 @@ func TestCompressionTriggerChecks(t *testing.T) {
 	}
 	if NeedsCompressionAfterProviderError(400, errors.New("other bad request")) {
 		t.Fatal("NeedsCompressionAfterProviderError(other 400) = true, want false")
+	}
+}
+
+func TestProjectMemoryCompressionEngineSummarizesAndReconstructs(t *testing.T) {
+	ctx := stdctx.Background()
+	dataDir := t.TempDir()
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	createdAt := time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, projectmemory.CreateConversationArgs{
+		ID:          "conv-pm-compress",
+		ProjectID:   "project-1",
+		Title:       "PM Compression",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	for turn := uint32(1); turn <= 3; turn++ {
+		if err := backend.AppendUserMessage(ctx, projectmemory.AppendUserMessageArgs{
+			ConversationID: "conv-pm-compress",
+			TurnNumber:     turn,
+			Content:        "turn user message",
+			CreatedAtUS:    uint64(createdAt.Add(time.Duration(turn) * time.Second).UnixMicro()),
+		}); err != nil {
+			t.Fatalf("AppendUserMessage turn %d: %v", turn, err)
+		}
+		if err := backend.PersistIteration(ctx, projectmemory.PersistIterationArgs{
+			ConversationID: "conv-pm-compress",
+			TurnNumber:     turn,
+			Iteration:      1,
+			CreatedAtUS:    uint64(createdAt.Add(time.Duration(turn+10) * time.Second).UnixMicro()),
+			Messages: []projectmemory.PersistIterationMessage{{
+				Role:    "assistant",
+				Content: "turn assistant message",
+			}},
+		}); err != nil {
+			t.Fatalf("PersistIteration turn %d: %v", turn, err)
+		}
+	}
+
+	providerStub := &compressionProviderStub{responseText: "- turn two summarized"}
+	engine := NewProjectMemoryCompressionEngine(backend, providerStub)
+	result, err := engine.Compress(ctx, "conv-pm-compress", config.ContextConfig{
+		CompressionHeadPreserve: 2,
+		CompressionTailPreserve: 2,
+		CompressionModel:        "local",
+	})
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	if !result.Compressed || !result.SummaryInserted || result.CompressedMessages != 2 {
+		t.Fatalf("Compress result = %+v, want compressed summary with 2 messages", result)
+	}
+	if len(providerStub.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(providerStub.requests))
+	}
+	active, err := backend.ListMessages(ctx, "conv-pm-compress", false)
+	if err != nil {
+		t.Fatalf("ListMessages active: %v", err)
+	}
+	if len(active) != 5 || !active[2].IsSummary || !strings.Contains(active[2].Content, "turn two summarized") {
+		t.Fatalf("active messages = %+v, want head summary tail", active)
+	}
+	all, err := backend.ListMessages(ctx, "conv-pm-compress", true)
+	if err != nil {
+		t.Fatalf("ListMessages all: %v", err)
+	}
+	compressed := 0
+	for _, msg := range all {
+		if msg.Compressed {
+			compressed++
+		}
+	}
+	if compressed != 2 {
+		t.Fatalf("compressed messages = %d, want 2 in %+v", compressed, all)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	active, err = reopened.ListMessages(ctx, "conv-pm-compress", false)
+	if err != nil {
+		t.Fatalf("ListMessages active after restart: %v", err)
+	}
+	if len(active) != 5 || !active[2].IsSummary {
+		t.Fatalf("active messages after restart = %+v, want persisted summary", active)
 	}
 }
 

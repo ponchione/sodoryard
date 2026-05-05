@@ -328,6 +328,100 @@ func TestConversationHistorySearchAndRestart(t *testing.T) {
 	}
 }
 
+func TestCompressMessagesMarksHistoryAndInsertsSummary(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	createdAt := time.Date(2026, 5, 5, 17, 0, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, CreateConversationArgs{
+		ID:          "conv-compress",
+		ProjectID:   "project-1",
+		Title:       "Compression",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if err := backend.AppendUserMessage(ctx, AppendUserMessageArgs{
+		ConversationID: "conv-compress",
+		TurnNumber:     1,
+		Content:        "summarize old context",
+		CreatedAtUS:    uint64(createdAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("AppendUserMessage: %v", err)
+	}
+	if err := backend.PersistIteration(ctx, PersistIterationArgs{
+		ConversationID: "conv-compress",
+		TurnNumber:     1,
+		Iteration:      1,
+		CreatedAtUS:    uint64(createdAt.Add(2 * time.Second).UnixMicro()),
+		Messages: []PersistIterationMessage{
+			{Role: "assistant", Content: "old assistant details"},
+			{Role: "tool", ToolUseID: "tool-old", ToolName: "file_read", Content: "old tool output"},
+		},
+	}); err != nil {
+		t.Fatalf("PersistIteration: %v", err)
+	}
+	messages, err := backend.ListMessages(ctx, "conv-compress", true)
+	if err != nil {
+		t.Fatalf("ListMessages before compression: %v", err)
+	}
+	if len(messages) != 3 {
+		t.Fatalf("messages before compression = %+v, want 3", messages)
+	}
+	if err := backend.CompressMessages(ctx, CompressMessagesArgs{
+		ConversationID:      "conv-compress",
+		MessageIDs:          []string{messages[1].ID, messages[2].ID},
+		SummaryContent:      "[CONTEXT COMPACTION]\n- old details summarized",
+		SummaryTurnNumber:   1,
+		SummaryIteration:    1,
+		SummarySequence:     messages[1].Sequence,
+		SummaryMetadataJSON: `{"compressed_turn_start":1,"compressed_turn_end":1,"compressed_messages":2}`,
+		CreatedAtUS:         uint64(createdAt.Add(3 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CompressMessages: %v", err)
+	}
+	active, err := backend.ListMessages(ctx, "conv-compress", false)
+	if err != nil {
+		t.Fatalf("ListMessages active after compression: %v", err)
+	}
+	if len(active) != 2 || active[0].Role != "user" || !active[1].IsSummary || !strings.Contains(active[1].Content, "old details summarized") {
+		t.Fatalf("active messages after compression = %+v, want user plus summary", active)
+	}
+	all, err := backend.ListMessages(ctx, "conv-compress", true)
+	if err != nil {
+		t.Fatalf("ListMessages all after compression: %v", err)
+	}
+	compressed := 0
+	for _, msg := range all {
+		if msg.Compressed {
+			compressed++
+		}
+	}
+	if compressed != 2 {
+		t.Fatalf("compressed message count = %d, want 2 in %+v", compressed, all)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	active, err = reopened.ListMessages(ctx, "conv-compress", false)
+	if err != nil {
+		t.Fatalf("ListMessages active after restart: %v", err)
+	}
+	if len(active) != 2 || !active[1].IsSummary {
+		t.Fatalf("active messages after restart = %+v, want persisted summary", active)
+	}
+}
+
 func TestSubCallsRecordLinkCancelAndRestart(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

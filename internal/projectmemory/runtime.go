@@ -222,6 +222,11 @@ func (r *Runtime) PersistIteration(ctx context.Context, args PersistIterationArg
 	return err
 }
 
+func (r *Runtime) CompressMessages(ctx context.Context, args CompressMessagesArgs) error {
+	_, err := r.callReducerJSON(ctx, "compress_messages", args)
+	return err
+}
+
 func (r *Runtime) CancelIteration(ctx context.Context, args CancelIterationArgs) error {
 	_, err := r.callReducerJSON(ctx, "cancel_iteration", args)
 	return err

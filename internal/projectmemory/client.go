@@ -141,6 +141,10 @@ func (c *Client) PersistIteration(ctx context.Context, args PersistIterationArgs
 	return c.call(ctx, "Brain.PersistIteration", args, &EmptyResponse{})
 }
 
+func (c *Client) CompressMessages(ctx context.Context, args CompressMessagesArgs) error {
+	return c.call(ctx, "Brain.CompressMessages", args, &EmptyResponse{})
+}
+
 func (c *Client) CancelIteration(ctx context.Context, args CancelIterationArgs) error {
 	return c.call(ctx, "Brain.CancelIteration", args, &EmptyResponse{})
 }

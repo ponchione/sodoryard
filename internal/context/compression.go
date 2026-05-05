@@ -12,6 +12,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/config"
 	dbpkg "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 )
 
@@ -51,6 +52,15 @@ type compressionPlan struct {
 	leftBoundary    float64
 	rightBoundary   float64
 	summarySequence float64
+	turnStart       int
+	turnEnd         int
+}
+
+type projectMemoryCompressionPlan struct {
+	head            []projectmemory.Message
+	middle          []projectmemory.Message
+	tail            []projectmemory.Message
+	summarySequence uint64
 	turnStart       int
 	turnEnd         int
 }
@@ -207,6 +217,173 @@ func (e *CompressionEngine) Compress(ctx stdctx.Context, conversationID string, 
 	}, nil
 }
 
+type ProjectMemoryCompressionStore interface {
+	ListMessages(ctx stdctx.Context, conversationID string, includeCompressed bool) ([]projectmemory.Message, error)
+	CompressMessages(ctx stdctx.Context, args projectmemory.CompressMessagesArgs) error
+}
+
+type ProjectMemoryCompressionEngine struct {
+	store            ProjectMemoryCompressionStore
+	provider         provider.Provider
+	now              func() time.Time
+	summaryMaxTokens int
+}
+
+func NewProjectMemoryCompressionEngine(store ProjectMemoryCompressionStore, p provider.Provider) *ProjectMemoryCompressionEngine {
+	return &ProjectMemoryCompressionEngine{
+		store:            store,
+		provider:         p,
+		now:              time.Now,
+		summaryMaxTokens: defaultCompressionMaxTokens,
+	}
+}
+
+func (e *ProjectMemoryCompressionEngine) Compress(ctx stdctx.Context, conversationID string, cfg config.ContextConfig) (*CompressionResult, error) {
+	if ctx == nil {
+		ctx = stdctx.Background()
+	}
+	if e == nil || e.store == nil {
+		return nil, errors.New("compression engine: project memory store is nil")
+	}
+	if strings.TrimSpace(conversationID) == "" {
+		return nil, errors.New("compression engine: conversation ID is empty")
+	}
+
+	messages, err := e.store.ListMessages(ctx, conversationID, true)
+	if err != nil {
+		return nil, fmt.Errorf("compression engine: list project memory messages: %w", err)
+	}
+	plan, shouldCompress, err := buildProjectMemoryCompressionPlan(messages, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("compression engine: plan project memory compression: %w", err)
+	}
+	if !shouldCompress {
+		return &CompressionResult{}, nil
+	}
+
+	summaryText, summaryInserted, fallbackUsed, err := e.prepareSummary(ctx, conversationID, projectMemoryMessagesToDB(plan.middle), cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	compressIDs := make([]string, 0, len(plan.middle))
+	for _, msg := range plan.middle {
+		compressIDs = append(compressIDs, msg.ID)
+	}
+	survivingToolResults := projectMemorySurvivingToolResultIDs(plan.head, plan.tail)
+	sanitized := make([]projectmemory.CompressMessageContentUpdate, 0)
+	for _, msg := range projectMemorySurvivingAssistantMessages(plan.head, plan.tail) {
+		contentRaw := strings.TrimSpace(msg.Content)
+		if contentRaw == "" || !strings.HasPrefix(contentRaw, "[") {
+			continue
+		}
+		content, changed, err := sanitizeAssistantMessageContent(msg.Content, survivingToolResults)
+		if err != nil {
+			return nil, fmt.Errorf("compression engine: sanitize assistant message %s: %w", msg.ID, err)
+		}
+		if changed {
+			sanitized = append(sanitized, projectmemory.CompressMessageContentUpdate{ID: msg.ID, Content: content})
+		}
+	}
+
+	survivingToolUses := projectMemorySurvivingAssistantToolUseIDs(plan.head, plan.tail)
+	for _, msg := range append(append([]projectmemory.Message(nil), plan.head...), plan.tail...) {
+		if msg.Role != "tool" || strings.TrimSpace(msg.ToolUseID) == "" {
+			continue
+		}
+		if _, ok := survivingToolUses[msg.ToolUseID]; ok {
+			continue
+		}
+		compressIDs = append(compressIDs, msg.ID)
+	}
+
+	nowUS := uint64(e.now().UTC().UnixMicro())
+	args := projectmemory.CompressMessagesArgs{
+		ConversationID:    conversationID,
+		MessageIDs:        compressIDs,
+		SanitizedMessages: sanitized,
+		CreatedAtUS:       nowUS,
+	}
+	if summaryInserted {
+		summaryOf, err := json.Marshal(compressIDs)
+		if err != nil {
+			return nil, fmt.Errorf("compression engine: encode project memory summary ids: %w", err)
+		}
+		metadata, err := json.Marshal(struct {
+			CompressedTurnStart int `json:"compressed_turn_start"`
+			CompressedTurnEnd   int `json:"compressed_turn_end"`
+			CompressedMessages  int `json:"compressed_messages"`
+		}{
+			CompressedTurnStart: plan.turnStart,
+			CompressedTurnEnd:   plan.turnEnd,
+			CompressedMessages:  len(plan.middle),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("compression engine: encode project memory summary metadata: %w", err)
+		}
+		args.SummaryContent = summaryText
+		args.SummaryTurnNumber = uint32(plan.turnEnd)
+		args.SummaryIteration = 1
+		args.SummarySequence = plan.summarySequence
+		args.SummaryOfJSON = string(summaryOf)
+		args.SummaryMetadataJSON = string(metadata)
+	}
+	if err := e.store.CompressMessages(ctx, args); err != nil {
+		return nil, fmt.Errorf("compression engine: compress project memory messages: %w", err)
+	}
+
+	return &CompressionResult{
+		Compressed:          true,
+		SummaryInserted:     summaryInserted,
+		FallbackUsed:        fallbackUsed,
+		CacheInvalidated:    true,
+		CompressedTurnStart: plan.turnStart,
+		CompressedTurnEnd:   plan.turnEnd,
+		CompressedMessages:  len(plan.middle),
+	}, nil
+}
+
+func (e *ProjectMemoryCompressionEngine) prepareSummary(ctx stdctx.Context, conversationID string, middle []dbpkg.Message, cfg config.ContextConfig) (string, bool, bool, error) {
+	summary, err := e.generateSummary(ctx, conversationID, middle, cfg)
+	if err == nil {
+		return prefixedCompressionSummary(summary), true, false, nil
+	}
+	if ctx.Err() != nil {
+		return "", false, false, fmt.Errorf("compression engine: summarize middle turns: %w", ctx.Err())
+	}
+	slog.Warn(
+		"context compression summarization failed",
+		"provider", compressionProviderName(e.provider),
+		"model", compressionModel(cfg),
+		"error", err,
+		"messages", len(middle),
+	)
+	return "", false, true, nil
+}
+
+func (e *ProjectMemoryCompressionEngine) generateSummary(ctx stdctx.Context, conversationID string, middle []dbpkg.Message, cfg config.ContextConfig) (string, error) {
+	if e.provider == nil {
+		return "", errors.New("compression provider is nil")
+	}
+	prompt := buildCompressionPrompt(middle)
+	response, err := e.provider.Complete(ctx, &provider.Request{
+		Messages:       []provider.Message{provider.NewUserMessage(prompt)},
+		Model:          compressionModel(cfg),
+		MaxTokens:      e.summaryMaxTokens,
+		Purpose:        "compression",
+		ConversationID: conversationID,
+		TurnNumber:     lastTurnNumber(middle),
+	})
+	if err != nil {
+		return "", err
+	}
+	text := strings.TrimSpace(extractCompressionSummaryText(response))
+	if text == "" {
+		return "", errors.New("compression summary response contained no text")
+	}
+	return text, nil
+}
+
 func buildCompressionPlan(messages []dbpkg.Message, cfg config.ContextConfig) (*compressionPlan, bool, error) {
 	active := make([]dbpkg.Message, 0, len(messages))
 	occupied := make(map[float64]struct{}, len(messages))
@@ -253,6 +430,41 @@ func buildCompressionPlan(messages []dbpkg.Message, cfg config.ContextConfig) (*
 	}, true, nil
 }
 
+func buildProjectMemoryCompressionPlan(messages []projectmemory.Message, cfg config.ContextConfig) (*projectMemoryCompressionPlan, bool, error) {
+	active := make([]projectmemory.Message, 0, len(messages))
+	for _, msg := range messages {
+		if !msg.Visible || msg.Compressed {
+			continue
+		}
+		active = append(active, msg)
+	}
+	if len(active) == 0 {
+		return nil, false, nil
+	}
+
+	headCount := compressionHeadPreserve(cfg)
+	tailCount := compressionTailPreserve(cfg)
+	if headCount+tailCount >= len(active) {
+		return nil, false, nil
+	}
+
+	head := append([]projectmemory.Message(nil), active[:headCount]...)
+	tail := append([]projectmemory.Message(nil), active[len(active)-tailCount:]...)
+	middle := append([]projectmemory.Message(nil), active[headCount:len(active)-tailCount]...)
+	if len(middle) == 0 {
+		return nil, false, nil
+	}
+	turnStart, turnEnd := projectMemoryCompressionTurnRange(middle)
+	return &projectMemoryCompressionPlan{
+		head:            head,
+		middle:          middle,
+		tail:            tail,
+		summarySequence: middle[0].Sequence,
+		turnStart:       turnStart,
+		turnEnd:         turnEnd,
+	}, true, nil
+}
+
 func chooseCompressionSequence(left float64, right float64, occupied map[float64]struct{}) (float64, error) {
 	if right <= left {
 		return 0, fmt.Errorf("invalid compression sequence bounds: %v >= %v", left, right)
@@ -287,6 +499,23 @@ func compressionTurnRange(messages []dbpkg.Message) (int, int) {
 	return start, end
 }
 
+func projectMemoryCompressionTurnRange(messages []projectmemory.Message) (int, int) {
+	if len(messages) == 0 {
+		return 0, 0
+	}
+	start, end := projectMemoryMessageTurnBounds(messages[0])
+	for _, msg := range messages[1:] {
+		msgStart, msgEnd := projectMemoryMessageTurnBounds(msg)
+		if msgStart < start {
+			start = msgStart
+		}
+		if msgEnd > end {
+			end = msgEnd
+		}
+	}
+	return start, end
+}
+
 func messageTurnBounds(msg dbpkg.Message) (int, int) {
 	start := int(msg.TurnNumber)
 	end := int(msg.TurnNumber)
@@ -296,6 +525,26 @@ func messageTurnBounds(msg dbpkg.Message) (int, int) {
 		}
 		if msg.CompressedTurnEnd.Valid {
 			end = int(msg.CompressedTurnEnd.Int64)
+		}
+	}
+	return start, end
+}
+
+func projectMemoryMessageTurnBounds(msg projectmemory.Message) (int, int) {
+	start := int(msg.TurnNumber)
+	end := int(msg.TurnNumber)
+	if msg.IsSummary {
+		var metadata struct {
+			CompressedTurnStart int `json:"compressed_turn_start"`
+			CompressedTurnEnd   int `json:"compressed_turn_end"`
+		}
+		if err := json.Unmarshal([]byte(msg.MetadataJSON), &metadata); err == nil {
+			if metadata.CompressedTurnStart > 0 {
+				start = metadata.CompressedTurnStart
+			}
+			if metadata.CompressedTurnEnd > 0 {
+				end = metadata.CompressedTurnEnd
+			}
 		}
 	}
 	return start, end
@@ -435,6 +684,19 @@ func survivingToolResultIDs(groups ...[]dbpkg.Message) map[string]struct{} {
 	return ids
 }
 
+func projectMemorySurvivingToolResultIDs(groups ...[]projectmemory.Message) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, group := range groups {
+		for _, msg := range group {
+			if msg.Role != "tool" || strings.TrimSpace(msg.ToolUseID) == "" {
+				continue
+			}
+			ids[msg.ToolUseID] = struct{}{}
+		}
+	}
+	return ids
+}
+
 func survivingAssistantToolUseIDs(groups ...[]dbpkg.Message) map[string]struct{} {
 	ids := make(map[string]struct{})
 	for _, group := range groups {
@@ -456,8 +718,41 @@ func survivingAssistantToolUseIDs(groups ...[]dbpkg.Message) map[string]struct{}
 	return ids
 }
 
+func projectMemorySurvivingAssistantToolUseIDs(groups ...[]projectmemory.Message) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, group := range groups {
+		for _, msg := range group {
+			if msg.Role != "assistant" || strings.TrimSpace(msg.Content) == "" {
+				continue
+			}
+			blocks, err := provider.ContentBlocksFromRaw(json.RawMessage(msg.Content))
+			if err != nil {
+				continue
+			}
+			for _, block := range blocks {
+				if block.Type == "tool_use" && block.ID != "" {
+					ids[block.ID] = struct{}{}
+				}
+			}
+		}
+	}
+	return ids
+}
+
 func survivingAssistantMessages(groups ...[]dbpkg.Message) []dbpkg.Message {
 	assistants := make([]dbpkg.Message, 0)
+	for _, group := range groups {
+		for _, msg := range group {
+			if msg.Role == "assistant" {
+				assistants = append(assistants, msg)
+			}
+		}
+	}
+	return assistants
+}
+
+func projectMemorySurvivingAssistantMessages(groups ...[]projectmemory.Message) []projectmemory.Message {
+	assistants := make([]projectmemory.Message, 0)
 	for _, group := range groups {
 		for _, msg := range group {
 			if msg.Role == "assistant" {
@@ -497,6 +792,33 @@ func sanitizeAssistantMessageContent(raw string, survivingToolResults map[string
 		return "", false, fmt.Errorf("marshal sanitized assistant content: %w", err)
 	}
 	return string(encoded), true, nil
+}
+
+func projectMemoryMessagesToDB(messages []projectmemory.Message) []dbpkg.Message {
+	out := make([]dbpkg.Message, 0, len(messages))
+	for _, msg := range messages {
+		dbMsg := dbpkg.Message{
+			ConversationID: msg.ConversationID,
+			Role:           msg.Role,
+			Content:        sql.NullString{String: msg.Content, Valid: msg.Content != ""},
+			ToolUseID:      sql.NullString{String: msg.ToolUseID, Valid: msg.ToolUseID != ""},
+			ToolName:       sql.NullString{String: msg.ToolName, Valid: msg.ToolName != ""},
+			TurnNumber:     int64(msg.TurnNumber),
+			Iteration:      int64(msg.Iteration),
+			Sequence:       float64(msg.Sequence),
+		}
+		if msg.Compressed {
+			dbMsg.IsCompressed = 1
+		}
+		if msg.IsSummary {
+			dbMsg.IsSummary = 1
+			start, end := projectMemoryMessageTurnBounds(msg)
+			dbMsg.CompressedTurnStart = sql.NullInt64{Int64: int64(start), Valid: start > 0}
+			dbMsg.CompressedTurnEnd = sql.NullInt64{Int64: int64(end), Valid: end > 0}
+		}
+		out = append(out, dbMsg)
+	}
+	return out
 }
 
 func lastTurnNumber(messages []dbpkg.Message) int {

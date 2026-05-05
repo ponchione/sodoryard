@@ -156,6 +156,10 @@ func (b *BrainBackend) PersistIteration(ctx context.Context, args PersistIterati
 	return b.runtime.PersistIteration(ctx, args)
 }
 
+func (b *BrainBackend) CompressMessages(ctx context.Context, args CompressMessagesArgs) error {
+	return b.runtime.CompressMessages(ctx, args)
+}
+
 func (b *BrainBackend) CancelIteration(ctx context.Context, args CancelIterationArgs) error {
 	return b.runtime.CancelIteration(ctx, args)
 }

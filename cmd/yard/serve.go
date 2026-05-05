@@ -110,6 +110,7 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		ToolDefinitions:     registry.ToolDefinitions(),
 		PromptBuilder:       agent.NewPromptBuilder(logger),
 		TitleGenerator:      titleGen,
+		CompressionEngine:   rt.CompressionEngine,
 		Config:              rtpkg.BuildAgentLoopConfig(cfg, cfg.Agent.MaxIterationsPerTurn, ""),
 		Logger:              logger,
 	})
@@ -142,6 +143,7 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		MemoryBackend:       rt.MemoryBackend,
 		ConversationManager: rt.ConversationManager,
 		ChainStore:          rt.ChainStore,
+		CompressionEngine:   rt.CompressionEngine,
 		Cleanup:             func() {},
 	}
 	operatorSvc, err := operator.NewForRuntime(operatorRuntime, operator.Options{ProcessID: os.Getpid})

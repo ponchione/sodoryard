@@ -158,6 +158,7 @@ func NewModule() *shunter.Module {
 	mod.Reducer("set_runtime_defaults", setRuntimeDefaultsReducer)
 	mod.Reducer("append_user_message", appendUserMessageReducer)
 	mod.Reducer("persist_iteration", persistIterationReducer)
+	mod.Reducer("compress_messages", compressMessagesReducer)
 	mod.Reducer("cancel_iteration", cancelIterationReducer)
 	mod.Reducer("discard_turn", discardTurnReducer)
 	mod.Reducer("record_sub_call", recordSubCallReducer)

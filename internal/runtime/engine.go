@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
 	"github.com/ponchione/sodoryard/internal/chain"
@@ -40,6 +41,7 @@ type EngineRuntime struct {
 	BrainSearcher       *contextpkg.HybridBrainSearcher
 	ConversationManager *conversation.Manager
 	ContextAssembler    *contextpkg.ContextAssembler
+	CompressionEngine   agent.CompressionEngine
 	ToolRecorder        *tool.ToolExecutionRecorder
 	ChainStore          *chain.Store
 	Cleanup             func()
@@ -125,6 +127,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		return closeOnError(err)
 	}
 	cleanup = ChainCleanup(cleanup, closeConversationManager)
+	compressionEngine := BuildCompressionEngine(cfg, database, memoryBackend, provRouter)
 	contextAssembler := contextpkg.NewContextAssemblerWithReportStore(
 		contextpkg.RuleBasedAnalyzer{},
 		contextpkg.HeuristicQueryExtractor{},
@@ -148,10 +151,28 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		BrainSearcher:       brainSearcher,
 		ConversationManager: convManager,
 		ContextAssembler:    contextAssembler,
+		CompressionEngine:   compressionEngine,
 		ToolRecorder:        toolRecorder,
 		ChainStore:          chainStore,
 		Cleanup:             cleanup,
 	}, nil
+}
+
+func BuildCompressionEngine(cfg *appconfig.Config, database *sql.DB, memoryBackend any, providerRouter *router.Router) agent.CompressionEngine {
+	if cfg == nil || !cfg.Agent.CompressHistoricalResults {
+		return nil
+	}
+	if cfg.Memory.Backend == "shunter" {
+		store, ok := memoryBackend.(contextpkg.ProjectMemoryCompressionStore)
+		if !ok || store == nil {
+			return nil
+		}
+		return contextpkg.NewProjectMemoryCompressionEngine(store, providerRouter)
+	}
+	if database == nil {
+		return nil
+	}
+	return contextpkg.NewCompressionEngine(database, providerRouter)
 }
 
 func buildBrainRuntime(ctx context.Context, cfg *appconfig.Config, semanticEmbedder codeintel.Embedder, queries *appdb.Queries, logger *slog.Logger) (brain.Backend, *contextpkg.HybridBrainSearcher, func(), error) {

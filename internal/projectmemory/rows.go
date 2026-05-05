@@ -531,6 +531,10 @@ func MessageID(conversationID string, sequence uint64) string {
 	return fmt.Sprintf("%s:%020d", stableID(conversationID), sequence)
 }
 
+func CompressionSummaryMessageID(conversationID string, sequence uint64, createdAtUS uint64) string {
+	return fmt.Sprintf("%s:summary:%020d:%020d", stableID(conversationID), sequence, createdAtUS)
+}
+
 func SubCallID(parts ...string) string {
 	return stableID(strings.Join(parts, "\x00"))
 }

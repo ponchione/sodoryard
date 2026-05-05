@@ -473,6 +473,10 @@ func (s *brainRPCService) PersistIteration(req PersistIterationArgs, resp *Empty
 	return s.backend.PersistIteration(context.Background(), req)
 }
 
+func (s *brainRPCService) CompressMessages(req CompressMessagesArgs, resp *EmptyResponse) error {
+	return s.backend.CompressMessages(context.Background(), req)
+}
+
 func (s *brainRPCService) CancelIteration(req CancelIterationArgs, resp *EmptyResponse) error {
 	return s.backend.CancelIteration(context.Background(), req)
 }
