@@ -253,6 +253,19 @@ type ListSubCallsResponse struct {
 	SubCalls []SubCall
 }
 
+type ListToolExecutionsRequest struct {
+	ConversationID string
+}
+
+type ListTurnToolExecutionsRequest struct {
+	ConversationID string
+	TurnNumber     uint32
+}
+
+type ListToolExecutionsResponse struct {
+	Executions []ToolExecution
+}
+
 type EmptyResponse struct{}
 
 func (s *brainRPCService) ReadDocument(req ReadDocumentRequest, resp *ReadDocumentResponse) error {
@@ -453,5 +466,27 @@ func (s *brainRPCService) ListTurnSubCalls(req ListTurnSubCallsRequest, resp *Li
 		return err
 	}
 	resp.SubCalls = subCalls
+	return nil
+}
+
+func (s *brainRPCService) RecordToolExecution(req RecordToolExecutionArgs, resp *EmptyResponse) error {
+	return s.backend.RecordToolExecution(context.Background(), req)
+}
+
+func (s *brainRPCService) ListToolExecutions(req ListToolExecutionsRequest, resp *ListToolExecutionsResponse) error {
+	executions, err := s.backend.ListToolExecutions(context.Background(), req.ConversationID)
+	if err != nil {
+		return err
+	}
+	resp.Executions = executions
+	return nil
+}
+
+func (s *brainRPCService) ListTurnToolExecutions(req ListTurnToolExecutionsRequest, resp *ListToolExecutionsResponse) error {
+	executions, err := s.backend.ListTurnToolExecutions(context.Background(), req.ConversationID, req.TurnNumber)
+	if err != nil {
+		return err
+	}
+	resp.Executions = executions
 	return nil
 }

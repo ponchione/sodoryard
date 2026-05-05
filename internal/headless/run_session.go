@@ -224,7 +224,7 @@ func prepareRunRequest(configPath string, req RunRequest, newChainID func() stri
 
 func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.Config, req RunRequest, taskText string, systemPrompt string, rt *rtpkg.EngineRuntime, registry *tool.Registry, loopMaxTurns int, deps Deps) (*agent.TurnResult, error, error) {
 	executor := tool.NewExecutor(registry, tool.ExecutorConfig{MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens, ProjectRoot: cfg.ProjectRoot}, rt.Logger)
-	executor.SetRecorder(tool.NewToolExecutionRecorder(rt.Queries))
+	executor.SetRecorder(rt.ToolRecorder)
 	adapter := tool.NewAgentLoopAdapter(executor)
 
 	var sink agent.EventSink

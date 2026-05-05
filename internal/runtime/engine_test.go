@@ -15,6 +15,7 @@ import (
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
+	"github.com/ponchione/sodoryard/internal/tool"
 )
 
 func TestBuildBrainRuntimeReturnsNilComponentsWhenDisabled(t *testing.T) {
@@ -185,6 +186,50 @@ func TestBuildSubCallStoreUsesProjectMemoryInShunterMode(t *testing.T) {
 	}
 	if len(subCalls) != 1 || subCalls[0].TokensIn != 12 || subCalls[0].LatencyMs != 25 {
 		t.Fatalf("subcalls = %+v, want runtime Shunter record", subCalls)
+	}
+}
+
+func TestBuildToolExecutionRecorderUsesProjectMemoryInShunterMode(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(projectRoot, "memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+	if err := backend.CreateConversation(ctx, projectmemory.CreateConversationArgs{
+		ID:          "conv-runtime-tool",
+		ProjectID:   "project-1",
+		Title:       "Runtime Tool",
+		CreatedAtUS: uint64(time.Now().UTC().UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	recorder, err := BuildToolExecutionRecorder(cfg, nil, backend)
+	if err != nil {
+		t.Fatalf("BuildToolExecutionRecorder: %v", err)
+	}
+	if recorder == nil {
+		t.Fatal("BuildToolExecutionRecorder returned nil")
+	}
+	if err := recorder.Record(ctx,
+		tool.ToolCall{ID: "toolu-runtime", Name: "file_read"},
+		tool.ToolResult{Success: true, Content: "runtime tool output", DurationMs: 10},
+		tool.ExecutionMeta{ConversationID: "conv-runtime-tool", TurnNumber: 1, Iteration: 1},
+		time.Date(2026, 5, 5, 21, 0, 0, 0, time.UTC),
+	); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	executions, err := backend.ListToolExecutions(ctx, "conv-runtime-tool")
+	if err != nil {
+		t.Fatalf("ListToolExecutions: %v", err)
+	}
+	if len(executions) != 1 || executions[0].ToolUseID != "toolu-runtime" || executions[0].DurationMs != 10 {
+		t.Fatalf("executions = %+v, want runtime Shunter tool record", executions)
 	}
 }
 

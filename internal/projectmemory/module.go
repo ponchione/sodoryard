@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 const (
 	tableProjectState schema.TableID = iota
@@ -21,6 +21,7 @@ const (
 	tableConversations
 	tableMessages
 	tableSubCalls
+	tableToolExecutions
 )
 
 const (
@@ -78,6 +79,12 @@ const (
 	indexSubCallsPurpose
 )
 
+const (
+	indexToolExecutionsPrimary schema.IndexID = iota
+	indexToolExecutionsConversation
+	indexToolExecutionsToolName
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -91,6 +98,7 @@ func NewModule() *shunter.Module {
 	declareConversations(mod)
 	declareMessages(mod)
 	declareSubCalls(mod)
+	declareToolExecutions(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -108,6 +116,7 @@ func NewModule() *shunter.Module {
 	mod.Reducer("cancel_iteration", cancelIterationReducer)
 	mod.Reducer("discard_turn", discardTurnReducer)
 	mod.Reducer("record_sub_call", recordSubCallReducer)
+	mod.Reducer("record_tool_execution", recordToolExecutionReducer)
 	return mod
 }
 
@@ -319,6 +328,33 @@ func declareSubCalls(mod *shunter.Module) {
 			{Name: "sub_calls_conversation", Columns: []string{"conversation_id"}},
 			{Name: "sub_calls_created", Columns: []string{"completed_at_us"}},
 			{Name: "sub_calls_purpose", Columns: []string{"purpose"}},
+		},
+	})
+}
+
+func declareToolExecutions(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "tool_executions",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "conversation_id", Type: schema.KindString},
+			{Name: "turn_number", Type: schema.KindUint32},
+			{Name: "iteration", Type: schema.KindUint32},
+			{Name: "tool_use_id", Type: schema.KindString},
+			{Name: "tool_name", Type: schema.KindString},
+			{Name: "status", Type: schema.KindString},
+			{Name: "started_at_us", Type: schema.KindUint64},
+			{Name: "completed_at_us", Type: schema.KindUint64},
+			{Name: "duration_ms", Type: schema.KindUint64},
+			{Name: "input_json", Type: schema.KindString},
+			{Name: "output_size", Type: schema.KindUint64},
+			{Name: "normalized_size", Type: schema.KindUint64},
+			{Name: "error", Type: schema.KindString},
+			{Name: "metadata_json", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "tool_executions_conversation", Columns: []string{"conversation_id"}},
+			{Name: "tool_executions_tool_name", Columns: []string{"tool_name"}},
 		},
 	})
 }

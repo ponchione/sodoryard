@@ -119,6 +119,24 @@ type SubCall struct {
 	MetadataJSON        string
 }
 
+type ToolExecution struct {
+	ID             string
+	ConversationID string
+	TurnNumber     uint32
+	Iteration      uint32
+	ToolUseID      string
+	ToolName       string
+	Status         string
+	StartedAtUS    uint64
+	CompletedAtUS  uint64
+	DurationMs     uint64
+	InputJSON      string
+	OutputSize     uint64
+	NormalizedSize uint64
+	Error          string
+	MetadataJSON   string
+}
+
 func documentRow(doc Document) types.ProductValue {
 	return types.ProductValue{
 		types.NewString(doc.Path),
@@ -377,6 +395,46 @@ func decodeSubCallRow(row types.ProductValue) SubCall {
 	}
 }
 
+func toolExecutionRow(execution ToolExecution) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(execution.ID),
+		types.NewString(execution.ConversationID),
+		types.NewUint32(execution.TurnNumber),
+		types.NewUint32(execution.Iteration),
+		types.NewString(execution.ToolUseID),
+		types.NewString(execution.ToolName),
+		types.NewString(execution.Status),
+		types.NewUint64(execution.StartedAtUS),
+		types.NewUint64(execution.CompletedAtUS),
+		types.NewUint64(execution.DurationMs),
+		types.NewString(execution.InputJSON),
+		types.NewUint64(execution.OutputSize),
+		types.NewUint64(execution.NormalizedSize),
+		types.NewString(execution.Error),
+		types.NewString(defaultString(execution.MetadataJSON, emptyJSONObject)),
+	}
+}
+
+func decodeToolExecutionRow(row types.ProductValue) ToolExecution {
+	return ToolExecution{
+		ID:             row[0].AsString(),
+		ConversationID: row[1].AsString(),
+		TurnNumber:     row[2].AsUint32(),
+		Iteration:      row[3].AsUint32(),
+		ToolUseID:      row[4].AsString(),
+		ToolName:       row[5].AsString(),
+		Status:         row[6].AsString(),
+		StartedAtUS:    row[7].AsUint64(),
+		CompletedAtUS:  row[8].AsUint64(),
+		DurationMs:     row[9].AsUint64(),
+		InputJSON:      row[10].AsString(),
+		OutputSize:     row[11].AsUint64(),
+		NormalizedSize: row[12].AsUint64(),
+		Error:          row[13].AsString(),
+		MetadataJSON:   row[14].AsString(),
+	}
+}
+
 func splitDocumentChunks(path string, content string) []documentChunk {
 	if content == "" {
 		return nil
@@ -438,6 +496,10 @@ func MessageID(conversationID string, sequence uint64) string {
 
 func SubCallID(parts ...string) string {
 	return stableID(strings.Join(parts, "\x00"))
+}
+
+func ToolExecutionID(conversationID string, turnNumber uint32, iteration uint32, toolUseID string, toolName string) string {
+	return stableID(strings.Join([]string{conversationID, fmt.Sprint(turnNumber), fmt.Sprint(iteration), toolUseID, toolName}, "\x00"))
 }
 
 func stableID(value string) string {

@@ -99,7 +99,7 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens,
 		ProjectRoot:     cfg.ProjectRoot,
 	}, logger)
-	executor.SetRecorder(tool.NewToolExecutionRecorder(rt.Queries))
+	executor.SetRecorder(rt.ToolRecorder)
 	adapter := tool.NewAgentLoopAdapter(executor)
 	titleGen := conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, logger)
 

@@ -204,6 +204,18 @@ func (b *BrainBackend) ListTurnSubCalls(ctx context.Context, conversationID stri
 	return b.runtime.ListTurnSubCalls(ctx, conversationID, turnNumber)
 }
 
+func (b *BrainBackend) RecordToolExecution(ctx context.Context, args RecordToolExecutionArgs) error {
+	return b.runtime.RecordToolExecution(ctx, args)
+}
+
+func (b *BrainBackend) ListToolExecutions(ctx context.Context, conversationID string) ([]ToolExecution, error) {
+	return b.runtime.ListToolExecutions(ctx, conversationID)
+}
+
+func (b *BrainBackend) ListTurnToolExecutions(ctx context.Context, conversationID string, turnNumber uint32) ([]ToolExecution, error) {
+	return b.runtime.ListTurnToolExecutions(ctx, conversationID, turnNumber)
+}
+
 func inferDocumentKind(path string) string {
 	switch {
 	case strings.HasPrefix(path, "conventions/"):

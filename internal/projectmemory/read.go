@@ -407,6 +407,41 @@ func (r *Runtime) ListTurnSubCalls(ctx context.Context, conversationID string, t
 	return out, nil
 }
 
+func (r *Runtime) ListToolExecutions(ctx context.Context, conversationID string) ([]ToolExecution, error) {
+	var executions []ToolExecution
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		if strings.TrimSpace(conversationID) == "" {
+			for _, row := range view.TableScan(tableToolExecutions) {
+				executions = append(executions, decodeToolExecutionRow(row))
+			}
+			return nil
+		}
+		for _, row := range view.SeekIndex(tableToolExecutions, indexToolExecutionsConversation, types.NewString(conversationID)) {
+			executions = append(executions, decodeToolExecutionRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortToolExecutions(executions)
+	return executions, nil
+}
+
+func (r *Runtime) ListTurnToolExecutions(ctx context.Context, conversationID string, turnNumber uint32) ([]ToolExecution, error) {
+	executions, err := r.ListToolExecutions(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ToolExecution, 0, len(executions))
+	for _, execution := range executions {
+		if execution.TurnNumber == turnNumber {
+			out = append(out, execution)
+		}
+	}
+	return out, nil
+}
+
 type SearchHit struct {
 	Path    string
 	Snippet string
@@ -436,6 +471,15 @@ func sortSubCalls(subCalls []SubCall) {
 			return subCalls[i].ID < subCalls[j].ID
 		}
 		return subCalls[i].CompletedAtUS < subCalls[j].CompletedAtUS
+	})
+}
+
+func sortToolExecutions(executions []ToolExecution) {
+	sort.Slice(executions, func(i, j int) bool {
+		if executions[i].CompletedAtUS == executions[j].CompletedAtUS {
+			return executions[i].ID < executions[j].ID
+		}
+		return executions[i].CompletedAtUS < executions[j].CompletedAtUS
 	})
 }
 

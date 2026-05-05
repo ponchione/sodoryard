@@ -22,6 +22,10 @@ type SubCallRecorder interface {
 	RecordSubCall(ctx context.Context, args RecordSubCallArgs) error
 }
 
+type ToolExecutionRecorder interface {
+	RecordToolExecution(ctx context.Context, args RecordToolExecutionArgs) error
+}
+
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("project memory shunter data dir is required")
@@ -147,5 +151,10 @@ func (r *Runtime) DiscardTurn(ctx context.Context, args DiscardTurnArgs) error {
 
 func (r *Runtime) RecordSubCall(ctx context.Context, args RecordSubCallArgs) error {
 	_, err := r.callReducerJSON(ctx, "record_sub_call", args)
+	return err
+}
+
+func (r *Runtime) RecordToolExecution(ctx context.Context, args RecordToolExecutionArgs) error {
+	_, err := r.callReducerJSON(ctx, "record_tool_execution", args)
 	return err
 }

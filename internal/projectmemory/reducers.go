@@ -154,6 +154,24 @@ type RecordSubCallArgs struct {
 	MetadataJSON        string `json:"metadata_json"`
 }
 
+type RecordToolExecutionArgs struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+	TurnNumber     uint32 `json:"turn_number"`
+	Iteration      uint32 `json:"iteration"`
+	ToolUseID      string `json:"tool_use_id"`
+	ToolName       string `json:"tool_name"`
+	Status         string `json:"status"`
+	StartedAtUS    uint64 `json:"started_at_us"`
+	CompletedAtUS  uint64 `json:"completed_at_us"`
+	DurationMs     uint64 `json:"duration_ms"`
+	InputJSON      string `json:"input_json"`
+	OutputSize     uint64 `json:"output_size"`
+	NormalizedSize uint64 `json:"normalized_size"`
+	Error          string `json:"error"`
+	MetadataJSON   string `json:"metadata_json"`
+}
+
 type reducerResult struct {
 	Path        string `json:"path,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
@@ -553,6 +571,7 @@ func cancelIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, err
 			_ = ctx.DB.Delete(uint32(tableMessages), rowID)
 		}
 	}
+	deleteIterationToolExecutions(ctx.DB, args.ConversationID, args.TurnNumber, args.Iteration)
 	deleteIterationSubCalls(ctx.DB, args.ConversationID, args.TurnNumber, args.Iteration)
 	return encodeReducerResult(reducerResult{})
 }
@@ -568,6 +587,7 @@ func discardTurnReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) 
 			_ = ctx.DB.Delete(uint32(tableMessages), rowID)
 		}
 	}
+	deleteTurnToolExecutions(ctx.DB, args.ConversationID, args.TurnNumber)
 	deleteTurnSubCalls(ctx.DB, args.ConversationID, args.TurnNumber)
 	return encodeReducerResult(reducerResult{})
 }
@@ -633,6 +653,73 @@ func recordSubCallReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error
 		LatencyMs:           args.LatencyMs,
 		Error:               args.Error,
 		MetadataJSON:        defaultString(args.MetadataJSON, emptyJSONObject),
+	})); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: id})
+}
+
+func recordToolExecutionReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args RecordToolExecutionArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	conversationID := strings.TrimSpace(args.ConversationID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("tool execution conversation id is required")
+	}
+	if _, conversation, found := findConversationByID(ctx.DB, conversationID); !found || conversation.Deleted {
+		return nil, fmt.Errorf("conversation not found: %s", conversationID)
+	}
+	toolUseID := strings.TrimSpace(args.ToolUseID)
+	if toolUseID == "" {
+		return nil, fmt.Errorf("tool execution tool_use_id is required")
+	}
+	toolName := strings.TrimSpace(args.ToolName)
+	if toolName == "" {
+		return nil, fmt.Errorf("tool execution tool_name is required")
+	}
+	completedAtUS := nonZeroUS(args.CompletedAtUS, reducerNowUS(ctx))
+	startedAtUS := args.StartedAtUS
+	if startedAtUS == 0 {
+		latencyUS := args.DurationMs * 1000
+		if latencyUS > 0 && completedAtUS > latencyUS {
+			startedAtUS = completedAtUS - latencyUS
+		} else {
+			startedAtUS = completedAtUS
+		}
+	}
+	status := strings.TrimSpace(args.Status)
+	if status == "" {
+		if strings.TrimSpace(args.Error) != "" {
+			status = "error"
+		} else {
+			status = "success"
+		}
+	}
+	id := strings.TrimSpace(args.ID)
+	if id == "" {
+		id = ToolExecutionID(conversationID, args.TurnNumber, args.Iteration, toolUseID, toolName)
+	}
+	if _, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableToolExecutions), uint32(indexToolExecutionsPrimary), types.NewString(id))); found {
+		return nil, fmt.Errorf("tool execution already exists: %s", id)
+	}
+	if _, err := ctx.DB.Insert(uint32(tableToolExecutions), toolExecutionRow(ToolExecution{
+		ID:             id,
+		ConversationID: conversationID,
+		TurnNumber:     args.TurnNumber,
+		Iteration:      args.Iteration,
+		ToolUseID:      toolUseID,
+		ToolName:       toolName,
+		Status:         status,
+		StartedAtUS:    startedAtUS,
+		CompletedAtUS:  completedAtUS,
+		DurationMs:     args.DurationMs,
+		InputJSON:      args.InputJSON,
+		OutputSize:     args.OutputSize,
+		NormalizedSize: args.NormalizedSize,
+		Error:          args.Error,
+		MetadataJSON:   defaultString(args.MetadataJSON, emptyJSONObject),
 	})); err != nil {
 		return nil, err
 	}
@@ -758,6 +845,7 @@ func deleteMessagesForConversation(db types.ReducerDB, conversationID string) {
 		_ = db.Delete(uint32(tableMessages), rowID)
 	}
 	deleteSubCallsForConversation(db, conversationID)
+	deleteToolExecutionsForConversation(db, conversationID)
 }
 
 func insertConversationMessage(db types.ReducerDB, conversationID string, message Message) (Message, error) {
@@ -826,6 +914,12 @@ func deleteSubCallsForConversation(db types.ReducerDB, conversationID string) {
 	}
 }
 
+func deleteToolExecutionsForConversation(db types.ReducerDB, conversationID string) {
+	for rowID := range db.SeekIndex(uint32(tableToolExecutions), uint32(indexToolExecutionsConversation), types.NewString(conversationID)) {
+		_ = db.Delete(uint32(tableToolExecutions), rowID)
+	}
+}
+
 func deleteIterationSubCalls(db types.ReducerDB, conversationID string, turnNumber uint32, iteration uint32) {
 	for rowID, row := range db.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsConversation), types.NewString(conversationID)) {
 		subCall := decodeSubCallRow(row)
@@ -835,11 +929,29 @@ func deleteIterationSubCalls(db types.ReducerDB, conversationID string, turnNumb
 	}
 }
 
+func deleteIterationToolExecutions(db types.ReducerDB, conversationID string, turnNumber uint32, iteration uint32) {
+	for rowID, row := range db.SeekIndex(uint32(tableToolExecutions), uint32(indexToolExecutionsConversation), types.NewString(conversationID)) {
+		execution := decodeToolExecutionRow(row)
+		if execution.TurnNumber == turnNumber && execution.Iteration == iteration {
+			_ = db.Delete(uint32(tableToolExecutions), rowID)
+		}
+	}
+}
+
 func deleteTurnSubCalls(db types.ReducerDB, conversationID string, turnNumber uint32) {
 	for rowID, row := range db.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsConversation), types.NewString(conversationID)) {
 		subCall := decodeSubCallRow(row)
 		if subCall.TurnNumber == turnNumber {
 			_ = db.Delete(uint32(tableSubCalls), rowID)
+		}
+	}
+}
+
+func deleteTurnToolExecutions(db types.ReducerDB, conversationID string, turnNumber uint32) {
+	for rowID, row := range db.SeekIndex(uint32(tableToolExecutions), uint32(indexToolExecutionsConversation), types.NewString(conversationID)) {
+		execution := decodeToolExecutionRow(row)
+		if execution.TurnNumber == turnNumber {
+			_ = db.Delete(uint32(tableToolExecutions), rowID)
 		}
 	}
 }

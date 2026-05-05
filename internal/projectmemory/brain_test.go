@@ -426,6 +426,107 @@ func TestSubCallsRecordLinkCancelAndRestart(t *testing.T) {
 	}
 }
 
+func TestToolExecutionsRecordCancelDiscardAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	createdAt := time.Date(2026, 5, 5, 20, 0, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, CreateConversationArgs{
+		ID:          "conv-tool",
+		ProjectID:   "project-1",
+		Title:       "Tool Slice",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if err := backend.AppendUserMessage(ctx, AppendUserMessageArgs{
+		ConversationID: "conv-tool",
+		TurnNumber:     1,
+		Content:        "track tool executions",
+		CreatedAtUS:    uint64(createdAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("AppendUserMessage: %v", err)
+	}
+	if err := backend.RecordToolExecution(ctx, RecordToolExecutionArgs{
+		ConversationID: "conv-tool",
+		TurnNumber:     1,
+		Iteration:      1,
+		ToolUseID:      "toolu-1",
+		ToolName:       "file_read",
+		Status:         "success",
+		StartedAtUS:    uint64(createdAt.Add(2 * time.Second).UnixMicro()),
+		CompletedAtUS:  uint64(createdAt.Add(3 * time.Second).UnixMicro()),
+		DurationMs:     1000,
+		InputJSON:      `{"path":"main.go"}`,
+		OutputSize:     80,
+		NormalizedSize: 40,
+	}); err != nil {
+		t.Fatalf("RecordToolExecution: %v", err)
+	}
+	executions, err := backend.ListToolExecutions(ctx, "conv-tool")
+	if err != nil {
+		t.Fatalf("ListToolExecutions: %v", err)
+	}
+	if len(executions) != 1 || executions[0].ToolName != "file_read" || executions[0].OutputSize != 80 || executions[0].Status != "success" {
+		t.Fatalf("executions = %+v, want recorded file_read", executions)
+	}
+	expectedID := ToolExecutionID("conv-tool", 1, 1, "toolu-1", "file_read")
+	if executions[0].ID != expectedID {
+		t.Fatalf("execution ID = %q, want deterministic %q", executions[0].ID, expectedID)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	executions, err = reopened.ListTurnToolExecutions(ctx, "conv-tool", 1)
+	if err != nil {
+		t.Fatalf("ListTurnToolExecutions after restart: %v", err)
+	}
+	if len(executions) != 1 || executions[0].ID != expectedID {
+		t.Fatalf("executions after restart = %+v, want %s", executions, expectedID)
+	}
+	if err := reopened.CancelIteration(ctx, CancelIterationArgs{ConversationID: "conv-tool", TurnNumber: 1, Iteration: 1}); err != nil {
+		t.Fatalf("CancelIteration: %v", err)
+	}
+	executions, err = reopened.ListToolExecutions(ctx, "conv-tool")
+	if err != nil {
+		t.Fatalf("ListToolExecutions after cancel: %v", err)
+	}
+	if len(executions) != 0 {
+		t.Fatalf("executions after cancel = %+v, want none", executions)
+	}
+	if err := reopened.RecordToolExecution(ctx, RecordToolExecutionArgs{
+		ConversationID: "conv-tool",
+		TurnNumber:     1,
+		Iteration:      1,
+		ToolUseID:      "toolu-2",
+		ToolName:       "shell",
+		Status:         "error",
+		Error:          "cancelled",
+	}); err != nil {
+		t.Fatalf("RecordToolExecution second: %v", err)
+	}
+	if err := reopened.DiscardTurn(ctx, DiscardTurnArgs{ConversationID: "conv-tool", TurnNumber: 1}); err != nil {
+		t.Fatalf("DiscardTurn: %v", err)
+	}
+	executions, err = reopened.ListToolExecutions(ctx, "conv-tool")
+	if err != nil {
+		t.Fatalf("ListToolExecutions after discard: %v", err)
+	}
+	if len(executions) != 0 {
+		t.Fatalf("executions after discard = %+v, want none", executions)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
@@ -533,5 +634,24 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if len(parentSubCalls) != 1 || parentSubCalls[0].ID != "rpc-sub" || parentSubCalls[0].TokensOut != 5 {
 		t.Fatalf("parent subcalls after RPC = %+v, want rpc-sub", parentSubCalls)
+	}
+	if err := client.RecordToolExecution(ctx, RecordToolExecutionArgs{
+		ConversationID: "rpc-conv",
+		TurnNumber:     1,
+		Iteration:      1,
+		ToolUseID:      "toolu-rpc",
+		ToolName:       "file_read",
+		Status:         "success",
+		OutputSize:     10,
+		NormalizedSize: 8,
+	}); err != nil {
+		t.Fatalf("client RecordToolExecution: %v", err)
+	}
+	parentExecutions, err := backend.ListToolExecutions(ctx, "rpc-conv")
+	if err != nil {
+		t.Fatalf("parent ListToolExecutions: %v", err)
+	}
+	if len(parentExecutions) != 1 || parentExecutions[0].ToolUseID != "toolu-rpc" || parentExecutions[0].NormalizedSize != 8 {
+		t.Fatalf("parent executions after RPC = %+v, want toolu-rpc", parentExecutions)
 	}
 }

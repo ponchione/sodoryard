@@ -21,6 +21,7 @@ import (
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider/router"
+	"github.com/ponchione/sodoryard/internal/tool"
 )
 
 // EngineRuntime holds all runtime dependencies required to serve engine
@@ -36,6 +37,7 @@ type EngineRuntime struct {
 	BrainSearcher       *contextpkg.HybridBrainSearcher
 	ConversationManager *conversation.Manager
 	ContextAssembler    *contextpkg.ContextAssembler
+	ToolRecorder        *tool.ToolExecutionRecorder
 	Cleanup             func()
 }
 
@@ -88,6 +90,10 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	if err != nil {
 		return closeOnError(err)
 	}
+	toolRecorder, err := BuildToolExecutionRecorder(cfg, queries, memoryBackend)
+	if err != nil {
+		return closeOnError(err)
+	}
 
 	graphStore, closeGraphStore, err := BuildGraphStore(cfg)
 	if err != nil {
@@ -129,6 +135,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		BrainSearcher:       brainSearcher,
 		ConversationManager: convManager,
 		ContextAssembler:    contextAssembler,
+		ToolRecorder:        toolRecorder,
 		Cleanup:             cleanup,
 	}, nil
 }
@@ -256,6 +263,17 @@ func BuildProjectMemoryStore(ctx context.Context, cfg *appconfig.Config, existin
 		logger.Info("project memory store: Shunter", "data_dir", cfg.Memory.ShunterDataDir)
 	}
 	return backend, func() { _ = backend.Close() }, nil
+}
+
+func BuildToolExecutionRecorder(cfg *appconfig.Config, queries *appdb.Queries, memoryBackend any) (*tool.ToolExecutionRecorder, error) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		recorder, ok := memoryBackend.(projectmemory.ToolExecutionRecorder)
+		if !ok || recorder == nil {
+			return nil, fmt.Errorf("shunter memory backend requires a project memory tool execution recorder")
+		}
+		return tool.NewProjectMemoryToolExecutionRecorder(recorder), nil
+	}
+	return tool.NewToolExecutionRecorder(queries), nil
 }
 
 // BuildGraphStore opens (or creates) the code-graph SQLite store at the path
