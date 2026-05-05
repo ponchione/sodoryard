@@ -11,6 +11,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/brain/vault"
 	"github.com/ponchione/sodoryard/internal/cmdutil"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
@@ -28,20 +29,37 @@ func newYardMemoryCmd(configPath *string) *cobra.Command {
 
 func newYardMemoryMigrateCmd(configPath *string) *cobra.Command {
 	var fromVault string
+	var fromSQLite string
 	var toDataDir string
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Migrate documents into Shunter project memory",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			count, err := runMemoryMigrate(cmd.Context(), *configPath, fromVault, toDataDir)
+			result, err := runMemoryMigrate(cmd.Context(), *configPath, fromVault, fromSQLite, toDataDir)
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated brain documents: %d\n", count)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated brain documents: %d\n", result.Documents)
+			if strings.TrimSpace(fromSQLite) != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite conversations: %d\n", result.SQLite.Conversations)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite messages: %d\n", result.SQLite.Messages)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite chains: %d\n", result.SQLite.Chains)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite steps: %d\n", result.SQLite.Steps)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite events: %d\n", result.SQLite.Events)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite tool executions: %d\n", result.SQLite.ToolExecutions)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite provider subcalls: %d\n", result.SQLite.SubCalls)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite context reports: %d\n", result.SQLite.ContextReports)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite launch drafts: %d\n", result.SQLite.Launches)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated SQLite launch presets: %d\n", result.SQLite.LaunchPresets)
+				if result.SQLite.Skipped > 0 {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Skipped existing SQLite rows: %d\n", result.SQLite.Skipped)
+				}
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&fromVault, "from-vault", "", "Source brain vault path (default: configured brain.vault_path)")
+	cmd.Flags().StringVar(&fromSQLite, "from-sqlite", "", "Source legacy SQLite database path (for example .yard/yard.db)")
 	cmd.Flags().StringVar(&toDataDir, "to", "", "Destination Shunter data dir (default: configured memory.shunter_data_dir)")
 	return cmd
 }
@@ -66,13 +84,43 @@ func newYardMemoryVerifyCmd(configPath *string) *cobra.Command {
 	return cmd
 }
 
-func runMemoryMigrate(ctx context.Context, configPath string, fromVault string, toDataDir string) (int, error) {
-	source, target, closeTarget, err := openMemoryVaultAndTarget(ctx, configPath, fromVault, toDataDir)
+type memoryMigrateResult struct {
+	Documents int
+	SQLite    projectmemory.ImportSQLiteStateResult
+}
+
+func runMemoryMigrate(ctx context.Context, configPath string, fromVault string, fromSQLite string, toDataDir string) (memoryMigrateResult, error) {
+	cfg, target, closeTarget, err := openMemoryTarget(ctx, configPath, toDataDir)
 	if err != nil {
-		return 0, err
+		return memoryMigrateResult{}, err
 	}
 	defer closeTarget()
 
+	result := memoryMigrateResult{}
+	if strings.TrimSpace(fromVault) != "" || strings.TrimSpace(fromSQLite) == "" {
+		source, err := openMemorySourceVault(cfg.ProjectRoot, cfg.BrainVaultPath(), fromVault)
+		if err != nil {
+			return memoryMigrateResult{}, err
+		}
+		count, err := migrateMemoryVaultDocuments(ctx, source, target)
+		if err != nil {
+			return memoryMigrateResult{}, err
+		}
+		result.Documents = count
+	}
+
+	if strings.TrimSpace(fromSQLite) != "" {
+		sqlitePath := resolveMemoryCLIPath(cfg.ProjectRoot, fromSQLite)
+		sqliteResult, err := migrateSQLiteProjectMemory(ctx, sqlitePath, target)
+		if err != nil {
+			return memoryMigrateResult{}, err
+		}
+		result.SQLite = sqliteResult
+	}
+	return result, nil
+}
+
+func migrateMemoryVaultDocuments(ctx context.Context, source *vault.Client, target *projectmemory.BrainBackend) (int, error) {
 	paths, err := source.ListDocuments(ctx, "")
 	if err != nil {
 		return 0, fmt.Errorf("list source vault documents: %w", err)
@@ -131,15 +179,22 @@ func runMemoryVerify(ctx context.Context, configPath string, fromVault string, t
 }
 
 func openMemoryVaultAndTarget(ctx context.Context, configPath string, fromVault string, toDataDir string) (*vault.Client, *projectmemory.BrainBackend, func(), error) {
+	cfg, target, closeTarget, err := openMemoryTarget(ctx, configPath, toDataDir)
+	if err != nil {
+		return nil, nil, closeTarget, err
+	}
+	source, err := openMemorySourceVault(cfg.ProjectRoot, cfg.BrainVaultPath(), fromVault)
+	if err != nil {
+		closeTarget()
+		return nil, nil, func() {}, err
+	}
+	return source, target, closeTarget, nil
+}
+
+func openMemoryTarget(ctx context.Context, configPath string, toDataDir string) (*appconfig.Config, *projectmemory.BrainBackend, func(), error) {
 	cfg, err := cmdutil.LoadConfig(configPath)
 	if err != nil {
 		return nil, nil, func() {}, err
-	}
-	sourcePath := strings.TrimSpace(fromVault)
-	if sourcePath == "" {
-		sourcePath = cfg.BrainVaultPath()
-	} else {
-		sourcePath = resolveMemoryCLIPath(cfg.ProjectRoot, sourcePath)
 	}
 	targetPath := strings.TrimSpace(toDataDir)
 	if targetPath == "" {
@@ -148,15 +203,25 @@ func openMemoryVaultAndTarget(ctx context.Context, configPath string, fromVault 
 		targetPath = resolveMemoryCLIPath(cfg.ProjectRoot, targetPath)
 	}
 
-	source, err := vault.New(sourcePath)
-	if err != nil {
-		return nil, nil, func() {}, fmt.Errorf("open source vault: %w", err)
-	}
 	target, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: targetPath, DurableAck: cfg.Memory.DurableAck})
 	if err != nil {
 		return nil, nil, func() {}, fmt.Errorf("open Shunter project memory: %w", err)
 	}
-	return source, target, func() { _ = target.Close() }, nil
+	return cfg, target, func() { _ = target.Close() }, nil
+}
+
+func openMemorySourceVault(projectRoot string, configuredVaultPath string, fromVault string) (*vault.Client, error) {
+	sourcePath := strings.TrimSpace(fromVault)
+	if sourcePath == "" {
+		sourcePath = configuredVaultPath
+	} else {
+		sourcePath = resolveMemoryCLIPath(projectRoot, sourcePath)
+	}
+	source, err := vault.New(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("open source vault: %w", err)
+	}
+	return source, nil
 }
 
 func equalStringSlices(a []string, b []string) bool {

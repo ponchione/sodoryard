@@ -177,6 +177,20 @@ func (r *Runtime) MarkBrainIndexDirty(ctx context.Context, args MarkBrainIndexDi
 	return err
 }
 
+func (r *Runtime) ImportSQLiteState(ctx context.Context, args ImportSQLiteStateArgs) (ImportSQLiteStateResult, error) {
+	data, err := r.callReducerJSON(ctx, "import_sqlite_state", args)
+	if err != nil {
+		return ImportSQLiteStateResult{}, err
+	}
+	var result ImportSQLiteStateResult
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &result); err != nil {
+			return ImportSQLiteStateResult{}, fmt.Errorf("decode import_sqlite_state result: %w", err)
+		}
+	}
+	return result, nil
+}
+
 func (r *Runtime) MarkBrainIndexClean(ctx context.Context, args MarkBrainIndexCleanArgs) error {
 	_, err := r.callReducerJSON(ctx, "mark_brain_index_clean", args)
 	return err
