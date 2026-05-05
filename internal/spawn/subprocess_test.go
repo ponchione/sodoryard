@@ -36,6 +36,28 @@ func TestRunCommandSuccessAndCapture(t *testing.T) {
 	}
 }
 
+func TestRunCommandMergesEnvOverridesWithParentEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell test")
+	}
+	t.Setenv("SODORYARD_PARENT_ENV_TEST", "parent")
+
+	var stdout bytes.Buffer
+	res := RunCommand(context.Background(), RunCommandInput{
+		Name:    "/bin/sh",
+		Args:    []string{"-c", "printf '%s:%s' \"$SODORYARD_PARENT_ENV_TEST\" \"$SODORYARD_CHILD_ENV_TEST\""},
+		Stdout:  &stdout,
+		Env:     []string{"SODORYARD_CHILD_ENV_TEST=child"},
+		Timeout: 5 * time.Second,
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	if got := stdout.String(); got != "parent:child" {
+		t.Fatalf("stdout = %q, want parent:child", got)
+	}
+}
+
 func TestRunCommandNonZeroExit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell test")

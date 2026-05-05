@@ -41,6 +41,25 @@ func TestExitCodeMapsSpecStatuses(t *testing.T) {
 	}
 }
 
+func TestDefaultStepRunnerPassesMemoryEndpointEnv(t *testing.T) {
+	expectedEnv := []string{"SODORYARD_MEMORY_ENDPOINT=unix:/tmp/memory.sock"}
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	deps := withDefaultDeps(Deps{})
+
+	runner := deps.NewStepRunner(&rtpkg.OrchestratorRuntime{
+		Config:            cfg,
+		MemoryEndpointEnv: expectedEnv,
+	}, "chain-env")
+	spawnTool, ok := runner.(*spawnpkg.SpawnAgentTool)
+	if !ok {
+		t.Fatalf("NewStepRunner returned %T, want *spawn.SpawnAgentTool", runner)
+	}
+	if strings.Join(spawnTool.SubprocessEnv, "\n") != strings.Join(expectedEnv, "\n") {
+		t.Fatalf("SubprocessEnv = %v, want %v", spawnTool.SubprocessEnv, expectedEnv)
+	}
+}
+
 func TestBuildTaskIncludesReceiptHistory(t *testing.T) {
 	msg := buildTask(Options{
 		SourceTask:       "fix auth",

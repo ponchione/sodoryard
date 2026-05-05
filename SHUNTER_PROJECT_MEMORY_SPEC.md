@@ -1,7 +1,7 @@
 # Shunter Project Memory Implementation Plan
 
-Status: implementation plan
-Date: 2026-05-04
+Status: implementation-ready plan
+Date: 2026-05-05
 
 This plan replaces the earlier "project memory" sketch. The target is not a soft
 MCP integration. The target is a full swap: Shunter becomes Sodoryard's canonical
@@ -40,7 +40,7 @@ application embedding:
 mod := shunter.NewModule("yard_project_memory")
 // mod.TableDef(...), mod.Reducer(...), mod.Query(...), mod.View(...)
 
-rt, err := shunter.Build(ctx, mod, shunter.Config{
+rt, err := shunter.Build(mod, shunter.Config{
     DataDir: ".yard/shunter/project-memory",
 })
 if err != nil {
@@ -49,18 +49,18 @@ if err != nil {
 if err := rt.Start(ctx); err != nil {
     return err
 }
-defer rt.Close(ctx)
+defer rt.Close()
 ```
 
 Useful public runtime methods include:
 
 - `CallReducer(ctx, name, []byte, opts...)`
 - `CallQuery(ctx, name, opts...)`
-- `SubscribeView(ctx, name, opts...)`
-- `Read(func(shunter.LocalReadView) error)`
+- `SubscribeView(ctx, name, queryID, opts...)`
+- `Read(ctx, func(shunter.LocalReadView) error)`
 - `Health()`
-- `CreateSnapshot(ctx)`
-- `CompactCommitLog(ctx)`
+- `CreateSnapshot()`
+- `CompactCommitLog(snapshotTxID)`
 - `HTTPHandler()`
 - `ListenAndServe(ctx)`
 - `ExportSchema()` and `ExportContract()`
@@ -83,16 +83,26 @@ Important constraints from current Shunter:
   I/O, network calls, embeddings, provider calls, or long blocking work.
 - Reducer arguments and returns are raw `[]byte`; Sodoryard should use JSON for
   readability and traceability.
-- Public read APIs currently expose table scans and row lookups, not public index
-  seek/range helpers.
+- `CallQuery` executes named declared SQL reads, but the root app API does not
+  expose dynamic query arguments.
+- `LocalReadView` currently exposes table scans, internal row-id lookups, and
+  row counts, not public index seek/range helpers. `GetRow` takes Shunter's
+  internal `RowID`, not an application primary-key value.
+- The reducer-facing `ReducerDB` also lacks public index seek/range helpers.
+  Reducers should not reach through `ReducerDB.Underlying()` to use lower-level
+  store APIs.
 - Shunter has internal index seek support, but it is not yet exposed through the
-  root app API.
+  root app and reducer APIs needed here.
 - Nullable columns are rejected in v1. Schema must use non-nullable columns with
   sentinel values such as `""`, `0`, `false`, `"[]"`, and `"{}"`.
 - Shunter timestamp values are microsecond precision. Sodoryard column names
   should use `*_unix_us` or `*_at_us`, not nanoseconds.
-- Table ids are assigned by module declaration order. Sodoryard must keep table
-  declaration order stable and define explicit table id constants on its side.
+- Table ids are zero-based and assigned by module declaration order before
+  Shunter appends system tables. Sodoryard must keep table declaration order
+  stable and define explicit table id constants on its side.
+- Shunter supports at most one primary-key column per table. Composite
+  application identities must use deterministic single-column ids and/or unique
+  secondary indexes.
 - Online backup is not exposed as an app-level primitive. Yard should quiesce
   writes, snapshot or compact if useful, close the runtime, then copy the full
   Shunter data directory.
@@ -108,17 +118,22 @@ func (r *Runtime) WaitUntilDurable(ctx context.Context, txID types.TxID) error
 Until that exists, Sodoryard can poll `Runtime.Health().Durability.DurableTxID`
 after committed reducer calls, but that should be temporary.
 
-2. Add public indexed reads.
+2. Add public indexed reads for local reads and reducers.
 
 For v1, table scans are acceptable only for low-cardinality surfaces and tests.
 The real brain needs index lookup for paths, ids, conversations, chains, and turn
 ranges. The exact Shunter shape can vary, but Sodoryard needs this capability
-without using `ReducerDB.Underlying()`:
+without using `ReducerDB.Underlying()` or lower-level store packages:
 
 ```go
 type IndexedReadView interface {
-    SeekIndex(tableID uint32, indexID uint32, key []types.Value) ([]types.RowID, error)
-    SeekIndexRange(tableID uint32, indexID uint32, start, end []types.Value) ([]types.RowID, error)
+    SeekIndex(tableID schema.TableID, indexID schema.IndexID, key ...types.Value) iter.Seq2[types.RowID, types.ProductValue]
+    SeekIndexRange(tableID schema.TableID, indexID schema.IndexID, start, end IndexBound) iter.Seq2[types.RowID, types.ProductValue]
+}
+
+type IndexedReducerDB interface {
+    SeekIndex(tableID uint32, indexID uint32, key ...types.Value) ([]types.RowID, error)
+    SeekIndexRange(tableID uint32, indexID uint32, start, end IndexBound) ([]types.RowID, error)
 }
 ```
 
@@ -132,15 +147,18 @@ The current memory seams are uneven:
 - `BuildConventionSource` bypasses `brain.Backend` and reads `.brain/conventions`
   directly.
 - Brain indexing already consumes `brain.Backend`, so a Shunter backend can feed
-  the existing LanceDB and SQLite-derived indexers.
+  the existing LanceDB path during migration. The current SQLite
+  `brain_documents`/`brain_links` materialization must also become Shunter-backed
+  before the default flip.
 - Conversations, chains, context reports, tool execution logging, and several
   server/operator paths are still coupled to concrete SQLite stores.
 - Provider subcall tracking already has an interface and is easier to move.
 - `buildRuntimeBase` always opens `.yard/yard.db`; that must stop being the
   canonical runtime dependency.
-- Spawned agents currently start their own runtime. Under Shunter, child
-  `tidmouth run` processes must connect to the parent memory service instead of
-  opening the same Shunter data directory.
+- Spawned agents and reindex subprocesses currently start their own runtime.
+  Under Shunter, child `tidmouth run`, `tidmouth index`, and `yard brain index`
+  processes must connect to the parent memory service instead of opening the
+  same Shunter data directory.
 
 ## Target Architecture
 
@@ -167,16 +185,18 @@ internal/projectmemory/
   indexstate.go    code/brain index metadata stores
 ```
 
-Top-level commands own the memory runtime. Spawned child processes use a local RPC
-endpoint:
+Top-level commands own the memory runtime. This includes `yard`, `yard serve`,
+`yard chain start`, `yard index`, `yard brain index`, and `yard memory ...`
+commands when they run without `SODORYARD_MEMORY_ENDPOINT`. Spawned child
+processes use a local RPC endpoint:
 
 ```text
 yard chain start
   owns Shunter runtime
   listens on .yard/run/memory.sock
-  spawns tidmouth run with SODORYARD_MEMORY_ENDPOINT
+  spawns tidmouth run / tidmouth index / yard brain index with SODORYARD_MEMORY_ENDPOINT
 
-tidmouth run
+tidmouth run / tidmouth index / yard brain index
   sees SODORYARD_MEMORY_ENDPOINT
   builds remote projectmemory.Client
   never opens .yard/shunter/project-memory directly
@@ -194,19 +214,17 @@ Add memory configuration separate from the old brain vault setting:
 ```yaml
 memory:
   backend: shunter
-  shunter_data_dir: .yard/shunter/project-memory
+  shunter_data_dir: .yard/shunter/project-memory # project-relative unless absolute
   durable_ack: true
   rpc:
     transport: unix
-    path: .yard/run/memory.sock
+    path: .yard/run/memory.sock # project-relative unless absolute
 
 brain:
   enabled: true
   backend: shunter
   vault_path: .brain # import/export only when backend is shunter
   embedding_model: ...
-  index_path: ...
-  rag_path: ...
 ```
 
 Validation changes:
@@ -214,10 +232,13 @@ Validation changes:
 - `brain.vault_path` is required only for `brain.backend: vault` or explicit
   import/export commands.
 - `memory.shunter_data_dir` is required for `memory.backend: shunter`.
+- `memory.shunter_data_dir` and `memory.rpc.path` resolve relative to
+  `project_root` when not absolute.
 - If `SODORYARD_MEMORY_ENDPOINT` is set, runtime construction must create a remote
   memory client and must not open local Shunter state.
-- Direct double-open of the Shunter data dir should fail fast through a lock or
-  endpoint ownership check.
+- Direct double-open of the Shunter data dir should fail fast through an
+  app-owned lock or endpoint ownership check. Current Shunter does not provide a
+  cross-process data-dir lock for a standalone `Runtime`.
 
 ## Canonical And Derived State
 
@@ -262,11 +283,11 @@ const ModuleName = "yard_project_memory"
 ```
 
 Declare table ids explicitly in Sodoryard code and never reorder table
-declarations without a schema migration:
+declarations without a schema migration. The first application table is id `0`:
 
 ```go
 const (
-    tableProjectState uint32 = iota + 1
+    tableProjectState schema.TableID = iota
     tableDocuments
     tableDocumentChunks
     tableDocumentLinks
@@ -288,6 +309,11 @@ const (
     tableBrainIndexChunks
 )
 ```
+
+Reducer code can cast these constants with `uint32(tableDocuments)` at the
+`ReducerDB` boundary. Index ids are assigned per table: a synthesized primary-key
+index is id `0`, and explicit secondary indexes follow in declaration order.
+Define index id constants next to each table declaration.
 
 Use non-nullable columns only. Prefer typed scalar columns for common predicates
 and JSON strings for irregular payloads.
@@ -319,7 +345,9 @@ func declareDocuments(mod *shunter.Module) {
 
 Document content should be chunked for Shunter row size and revision management,
 but the Shunter chunks are canonical storage chunks, not semantic RAG chunks.
-Reconstruction joins exact chunks by `(path, chunk_index)`.
+Because Shunter has single-column primary keys, composite rows should use stable
+single-column ids plus secondary indexes. Reconstruction joins exact chunks by a
+unique `(path, chunk_index)` index.
 
 ```text
 documents
@@ -327,13 +355,14 @@ documents
   tags_json, metadata_json
 
 document_chunks
-  path, chunk_index, body, body_hash
+  chunk_id, path, chunk_index, body, body_hash
 
 document_links
-  source_path, target_path, link_text, created_at_us
+  link_id, source_path, target_path, link_text, created_at_us
 
 document_revisions
-  path, revision, content_hash, operation_id, created_at_us, summary, actor
+  revision_id, path, revision, content_hash, operation_id, created_at_us,
+  summary, actor
 
 memory_operations
   operation_id, operation_type, path, actor, created_at_us, before_hash,
@@ -344,43 +373,48 @@ Suggested operational tables:
 
 ```text
 conversations
-  id, title, created_at_us, updated_at_us, provider, model, settings_json,
-  deleted
+  id, project_id, title, created_at_us, updated_at_us, provider, model,
+  settings_json, deleted
 
 messages
-  id, conversation_id, turn_number, role, content, created_at_us,
-  visible, compressed, summary_of_json, metadata_json
+  id, conversation_id, turn_number, iteration, sequence_index, role, content,
+  tool_use_id, tool_name, created_at_us, visible, compressed, is_summary,
+  summary_of_json, metadata_json
 
 tool_executions
-  id, conversation_id, message_id, tool_name, status, started_at_us,
-  completed_at_us, input_json, output_json, error
+  id, conversation_id, turn_number, iteration, tool_use_id, tool_name, status,
+  started_at_us, completed_at_us, input_json, output_size, normalized_size,
+  error
 
 sub_calls
-  id, conversation_id, message_id, provider, model, status, started_at_us,
-  completed_at_us, prompt_tokens, completion_tokens, cost_micros,
-  metadata_json
+  id, conversation_id, message_id, turn_number, iteration, provider, model,
+  purpose, status, started_at_us, completed_at_us, tokens_in, tokens_out,
+  cache_read_tokens, cache_creation_tokens, latency_ms, metadata_json
 
 context_reports
-  id, conversation_id, created_at_us, updated_at_us, request_json,
+  id, conversation_id, turn_number, created_at_us, updated_at_us, request_json,
   report_json, quality_json
 
 chains
-  id, title, status, created_at_us, updated_at_us, goal, metrics_json,
+  id, source_specs_json, source_task, status, summary, created_at_us,
+  updated_at_us, started_at_us, completed_at_us, metrics_json, limits_json,
   control_json
 
 steps
-  id, chain_id, sequence, kind, status, assigned_to, created_at_us,
-  started_at_us, completed_at_us, prompt, result_json, receipt_path,
-  error
+  id, chain_id, sequence, role, task, task_context, status, verdict,
+  created_at_us, started_at_us, completed_at_us, receipt_path, tokens_used,
+  turns_used, duration_secs, exit_code, error
 
 events
-  id, chain_id, step_id, sequence, kind, created_at_us, payload_json
+  id, chain_id, step_id, event_type, created_at_us, payload_json
 
 launches
-  id, name, status, created_at_us, updated_at_us, command_json, metadata_json
+  id, project_id, status, mode, role, allowed_roles_json, roster_json,
+  source_task, source_specs_json, created_at_us, updated_at_us
 
 launch_presets
-  id, name, created_at_us, updated_at_us, config_json
+  id, project_id, name, mode, role, allowed_roles_json, roster_json,
+  created_at_us, updated_at_us
 
 code_index_state
   project_id, last_indexed_commit, last_indexed_at_us, dirty, metadata_json
@@ -399,7 +433,8 @@ brain_index_chunks
 Conversation search currently benefits from SQLite FTS. The Shunter replacement
 should start with deterministic lexical scanning over messages and documents, then
 add a materialized `message_terms` or `document_terms` table if scan performance
-is not acceptable. Do not keep SQLite FTS as a hidden canonical dependency.
+is not acceptable. Those term tables are Shunter-owned derived materializations,
+not canonical content. Do not keep SQLite FTS as a hidden runtime dependency.
 
 ## Reducer Design
 
@@ -501,30 +536,32 @@ replacing chunks. That prevents read-modify-write races between agents.
 
 `brain.Backend` already exists and should get a Shunter implementation.
 
-The other concrete SQLite stores need interfaces before the swap can be clean:
+The other concrete SQLite stores need interfaces before the swap can be clean.
+Keep these close to the current caller-facing method shapes instead of inventing
+a new API during the storage swap:
 
 ```go
 type ConversationStore interface {
-    Create(ctx context.Context, req CreateRequest) (*Conversation, error)
+    Create(ctx context.Context, projectID string, opts ...CreateOption) (*Conversation, error)
     Get(ctx context.Context, id string) (*Conversation, error)
-    List(ctx context.Context, limit, offset int) ([]Conversation, error)
+    List(ctx context.Context, projectID string, limit, offset int) ([]ConversationSummary, error)
     Delete(ctx context.Context, id string) error
-    SetTitle(ctx context.Context, id, title string) error
-    SetRuntimeDefaults(ctx context.Context, id string, defaults RuntimeDefaults) error
-    Count(ctx context.Context) (int, error)
+    SetTitle(ctx context.Context, conversationID, title string) error
+    SetRuntimeDefaults(ctx context.Context, conversationID string, provider, model *string) error
+    Count(ctx context.Context, projectID string) (int64, error)
     NextTurnNumber(ctx context.Context, conversationID string) (int, error)
-    GetMessages(ctx context.Context, conversationID string) ([]Message, error)
-    GetMessagePage(ctx context.Context, req MessagePageRequest) (MessagePage, error)
-    Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
+    GetMessages(ctx context.Context, conversationID string) ([]MessageView, error)
+    GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]MessageView, error)
+    Search(ctx context.Context, projectID string, query string) ([]SearchResult, error)
 }
 
 type HistoryStore interface {
-    PersistUserMessage(ctx context.Context, conversationID, content string) (Message, error)
-    PersistIteration(ctx context.Context, req PersistIterationRequest) error
-    CancelIteration(ctx context.Context, req CancelIterationRequest) error
+    PersistUserMessage(ctx context.Context, conversationID string, turnNumber int, message string) error
+    PersistIteration(ctx context.Context, conversationID string, turnNumber, iteration int, messages []conversation.IterationMessage) error
+    CancelIteration(ctx context.Context, conversationID string, turnNumber, iteration int) error
     DiscardTurn(ctx context.Context, conversationID string, turnNumber int) error
-    ReconstructHistory(ctx context.Context, conversationID string) ([]agent.Message, error)
-    SeenFiles(ctx context.Context, conversationID string) ([]string, error)
+    ReconstructHistory(ctx context.Context, conversationID string) ([]db.Message, error)
+    SeenFiles(conversationID string) contextpkg.SeenFileLookup
 }
 ```
 
@@ -533,21 +570,24 @@ callers:
 
 ```go
 type ChainStore interface {
-    StartChain(ctx context.Context, req StartChainRequest) (*Chain, error)
-    StartStep(ctx context.Context, req StartStepRequest) (*Step, error)
+    StartChain(ctx context.Context, spec ChainSpec) (string, error)
+    StartStep(ctx context.Context, spec StepSpec) (string, error)
     StepRunning(ctx context.Context, stepID string) error
-    CompleteStep(ctx context.Context, req CompleteStepRequest) error
-    FailStep(ctx context.Context, req FailStepRequest) error
-    CompleteChain(ctx context.Context, chainID string) error
-    UpdateChainMetrics(ctx context.Context, chainID string, metrics Metrics) error
+    CompleteStep(ctx context.Context, params CompleteStepParams) error
+    FailStep(ctx context.Context, params CompleteStepParams) error
+    CompleteChain(ctx context.Context, chainID, status, summary string) error
+    UpdateChainMetrics(ctx context.Context, chainID string, metrics ChainMetrics) error
     GetChain(ctx context.Context, chainID string) (*Chain, error)
-    ListChains(ctx context.Context, filter ListFilter) ([]Chain, error)
+    ListChains(ctx context.Context, limit int) ([]Chain, error)
     GetStep(ctx context.Context, stepID string) (*Step, error)
     ListSteps(ctx context.Context, chainID string) ([]Step, error)
-    SetChainStatus(ctx context.Context, chainID string, status Status) error
+    SetChainStatus(ctx context.Context, chainID, status string) error
+    CountResolverStepsForContext(ctx context.Context, chainID, taskContext string) (int, error)
+    CheckLimits(ctx context.Context, chainID string, in LimitCheckInput) error
+    RemainingDuration(ctx context.Context, chainID string) (time.Duration, error)
     ListEvents(ctx context.Context, chainID string) ([]Event, error)
-    ListEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]Event, error)
-    LogEvent(ctx context.Context, req LogEventRequest) error
+    ListEventsSince(ctx context.Context, chainID string, afterID int64) ([]Event, error)
+    LogEvent(ctx context.Context, chainID string, stepID string, eventType EventType, eventData any) error
 }
 ```
 
@@ -555,7 +595,8 @@ Additional stores:
 
 - `context.ReportStore`
 - `tracking.SubCallStore` already exists
-- `tool.ExecutionRecorder`
+- a `tool` execution-recorder interface around the current
+  `ToolExecutionRecorder.Record` behavior
 - launch and launch preset store
 - code index metadata store
 - brain index metadata store
@@ -599,8 +640,10 @@ document_terms
   term, path, field, frequency, updated_at_us
 ```
 
-That table is still canonical Shunter state because it is maintained by document
-reducers, but it is rebuildable from documents if needed.
+That table is not canonical content. It is a Shunter-owned derived
+materialization that can be rebuilt from `documents` and `document_chunks`.
+If maintained by reducers, tokenization must stay cheap and deterministic; if
+that is not true, maintain it from the brain indexer after document commits.
 
 ## RAG And Code Retrieval
 
@@ -644,6 +687,12 @@ Environment:
 SODORYARD_MEMORY_ENDPOINT=unix:.yard/run/memory.sock
 SODORYARD_MEMORY_TOKEN=<optional local token>
 ```
+
+When this endpoint is set, all runtime builders must use the RPC client for
+memory state. This applies to spawned `tidmouth run`, spawned `tidmouth index`,
+and spawned `yard brain index`, not only agent execution. A top-level command
+with no endpoint owns the embedded Shunter runtime, creates `.yard/run`, removes
+any stale socket it owns, and passes the endpoint through subprocess env.
 
 Initial RPC surface should mirror store methods, not raw Shunter internals:
 
@@ -693,9 +742,11 @@ Backup rules:
 
 - Pause or reject new writes.
 - Wait for committed transactions to become durable.
-- Create a Shunter snapshot or compact if useful.
+- Create a Shunter snapshot if useful; pass the returned tx id to
+  `CompactCommitLog(snapshotTxID)` if compacting.
 - Close the runtime.
-- Copy the full Shunter data directory.
+- Copy the full Shunter data directory, preferably through Shunter's offline
+  `BackupDataDir` helper after `Close`.
 - Restart the runtime.
 
 ## Implementation Phases
@@ -711,6 +762,8 @@ Deliverables:
 - add memory config and validation
 - build/start/close embedded Shunter runtime
 - add durable write helper using public Shunter durable wait when available
+- resolve or explicitly gate the Shunter API blockers: durable wait plus indexed
+  read access from both `LocalReadView` and reducer code
 - add local RPC server/client skeleton
 - add tests for reducer commit, restart recovery, and schema compatibility
 
@@ -761,8 +814,10 @@ Deliverables:
 - introduce chain store interface
 - implement Shunter chain/step/event store
 - implement `complete_step_with_receipt`
-- pass `SODORYARD_MEMORY_ENDPOINT` to spawned `tidmouth run`
-- make child runtimes use RPC client instead of opening Shunter
+- pass `SODORYARD_MEMORY_ENDPOINT` to spawned `tidmouth run`, `tidmouth index`,
+  and `yard brain index`
+- make child runtimes and spawned reindex commands use the RPC client instead of
+  opening Shunter
 - move launches and launch presets to Shunter
 
 Exit criteria:
@@ -779,7 +834,9 @@ Deliverables:
 - move brain index state from SQLite to Shunter
 - update `yard index` and retrieval freshness checks
 - stop opening `.yard/yard.db` in `buildRuntimeBase` for Shunter mode
-- keep SQLite only for explicit migration or legacy mode
+- keep `.yard/yard.db` only for explicit migration or legacy mode. The derived
+  code graph SQLite database (`.yard/graph.db`) may remain because it is not
+  canonical memory.
 
 Exit criteria:
 
@@ -817,6 +874,7 @@ Required tests:
 - brain index rebuild from Shunter documents
 - code index freshness update after workspace changes
 - parent/child chain run where only the parent owns Shunter
+- spawned reindex commands in a chain use the parent memory endpoint
 - convention lookup with `.brain` absent or renamed
 - conversation reconstruction after compression
 - operator/server list views for conversations, chains, events, launches
@@ -836,7 +894,8 @@ websocket or agent execution tests.
 1. Public Shunter API gaps
 
    Durable wait and indexed reads are important enough to fix in Shunter rather
-   than working around them permanently in Sodoryard.
+   than working around them permanently in Sodoryard. The indexed-read gap is
+   both external (`LocalReadView`) and reducer-facing (`ReducerDB`).
 
 2. SQLite FTS replacement
 
@@ -846,13 +905,14 @@ websocket or agent execution tests.
 
 3. Schema evolution
 
-   Shunter table declaration order and non-nullable columns require discipline.
-   Add schema compatibility checks before opening existing project memory.
+   Shunter table declaration order, zero-based table ids, single-column primary
+   keys, and non-nullable columns require discipline. Add schema compatibility
+   checks before opening existing project memory.
 
 4. Multi-process ownership
 
-   Child agents must not open the Shunter data directory. Parent-owned local RPC
-   is mandatory for chain mode.
+   Child agents and spawned reindex commands must not open the Shunter data
+   directory. Parent-owned local RPC is mandatory for chain mode.
 
 5. Reducer purity
 
@@ -870,9 +930,12 @@ The first implementation slice should be small but should prove the architecture
 
 1. Add `memory.backend: shunter` config and `internal/projectmemory`.
 2. Declare `documents`, `document_chunks`, `document_revisions`, and
-   `memory_operations`.
+   `memory_operations` with zero-based table id constants and deterministic
+   single-column ids for chunk/revision rows.
 3. Implement `write_document`, `patch_document`, `list_documents`,
-   `read_document`, and keyword scan.
+   `read_document`, and keyword scan. Do not flip this on by default until the
+   Shunter indexed-read blocker is resolved or the scan-only path is explicitly
+   limited to development/test use.
 4. Implement `brain.Backend` on Shunter.
 5. Route `BuildBrainBackend` and `BuildConventionSource` through that backend.
 6. Add `yard memory migrate --from-vault .brain` for documents only.

@@ -19,6 +19,7 @@ import (
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 )
 
@@ -88,7 +89,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	}
 	cleanup = ChainCleanup(cleanup, closeGraphStore)
 
-	conventionSource := BuildConventionSource(cfg)
+	conventionSource := BuildConventionSource(cfg, brainBackend)
 	retrievalOrchestrator := contextpkg.NewRetrievalOrchestrator(semanticSearcher, graphStore, conventionSource, brainSearcher, cfg.ProjectRoot)
 	retrievalOrchestrator.SetLogBrainQueries(cfg.Brain.LogBrainQueries)
 	retrievalOrchestrator.SetBrainConfig(cfg.Brain)
@@ -149,11 +150,42 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 	if !cfg.Enabled {
 		return nil, func() {}, nil
 	}
+	if cfg.Backend == "" {
+		cfg.Backend = "vault"
+	}
+	if cfg.Backend == "shunter" {
+		if endpoint := os.Getenv(projectmemory.EnvMemoryEndpoint); endpoint != "" {
+			client, err := projectmemory.DialBrainBackend(endpoint)
+			if err != nil {
+				return nil, func() {}, err
+			}
+			if logger != nil {
+				logger.Info("brain backend: Shunter RPC", "endpoint", endpoint)
+			}
+			return client, func() { _ = client.Close() }, nil
+		}
+		backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+			DataDir:    cfg.ShunterDataDir,
+			DurableAck: cfg.DurableAck,
+		})
+		if err != nil {
+			return nil, func() {}, err
+		}
+		if logger != nil {
+			logger.Info("brain backend: Shunter", "data_dir", cfg.ShunterDataDir)
+		}
+		return backend, func() { _ = backend.Close() }, nil
+	}
+	if cfg.Backend != "vault" {
+		return nil, func() {}, fmt.Errorf("unsupported brain backend %q", cfg.Backend)
+	}
 	client, err := mcpclient.Connect(ctx, cfg.VaultPath)
 	if err != nil {
 		return nil, func() {}, err
 	}
-	logger.Info("brain backend: MCP (in-process)", "vault", cfg.VaultPath)
+	if logger != nil {
+		logger.Info("brain backend: MCP (in-process)", "vault", cfg.VaultPath)
+	}
 	return client, func() { _ = client.Close() }, nil
 }
 
@@ -174,8 +206,14 @@ func BuildGraphStore(cfg *appconfig.Config) (*codegraph.Store, func(), error) {
 // vault at the path derived from cfg when the brain is enabled. Disabled-brain
 // mode returns a no-op source so context assembly does not read convention
 // documents from the vault.
-func BuildConventionSource(cfg *appconfig.Config) contextpkg.ConventionSource {
+func BuildConventionSource(cfg *appconfig.Config, backend ...brain.Backend) contextpkg.ConventionSource {
 	if cfg == nil || !cfg.Brain.Enabled {
+		return contextpkg.NoopConventionSource{}
+	}
+	if cfg.Brain.Backend == "shunter" {
+		if len(backend) > 0 && backend[0] != nil {
+			return contextpkg.NewBrainBackendConventionSource(backend[0])
+		}
 		return contextpkg.NoopConventionSource{}
 	}
 	return contextpkg.NewBrainConventionSource(cfg.BrainVaultPath())

@@ -21,6 +21,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
@@ -79,6 +80,17 @@ func (f *fakeBrainBackend) ListDocuments(ctx context.Context, directory string) 
 	return nil, nil
 }
 
+type fakeShunterIndexBrainBackend struct {
+	fakeBrainBackend
+	state projectmemory.BrainIndexState
+	found bool
+	err   error
+}
+
+func (f *fakeShunterIndexBrainBackend) ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error) {
+	return f.state, f.found, f.err
+}
+
 func TestRuntimeStatusCountsActiveChains(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
@@ -115,6 +127,51 @@ func TestRuntimeStatusCountsActiveChains(t *testing.T) {
 	}
 	if status.ActiveChains != 2 {
 		t.Fatalf("ActiveChains = %d, want 2", status.ActiveChains)
+	}
+}
+
+func TestRuntimeStatusReadsShunterBrainIndexState(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	db := newOperatorTestDB(t)
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Memory.Backend = "shunter"
+	cfg.Routing.Default.Model = "test-model"
+	store := chain.NewStore(db)
+	staleAt := time.Date(2026, 5, 1, 12, 30, 0, 0, time.UTC)
+	backend := &fakeShunterIndexBrainBackend{
+		state: projectmemory.BrainIndexState{
+			LastIndexedAtUS: uint64(time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC).UnixMicro()),
+			Dirty:           true,
+			DirtySinceUS:    uint64(staleAt.UnixMicro()),
+			DirtyReason:     "write_document",
+		},
+		found: true,
+	}
+	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:       cfg,
+		Database:     db,
+		ChainStore:   store,
+		BrainBackend: backend,
+		Cleanup:      func() {},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	status, err := svc.RuntimeStatus(ctx)
+	if err != nil {
+		t.Fatalf("RuntimeStatus returned error: %v", err)
+	}
+	if status.BrainIndex.Status != brainindexstate.StatusStale || status.BrainIndex.StaleSince != staleAt.Format(time.RFC3339) || status.BrainIndex.StaleReason != "write_document" {
+		t.Fatalf("BrainIndex = %+v, want Shunter stale write_document state", status.BrainIndex)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist", err)
 	}
 }
 

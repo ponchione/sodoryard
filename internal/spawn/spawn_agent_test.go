@@ -399,14 +399,16 @@ func TestSpawnAgentRunsReindexBeforeWhenRequested(t *testing.T) {
 	store := chain.NewStore(newSpawnTestDB(t))
 	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
 	backend := &fakeBrainBackend{docs: map[string]string{}}
-	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{Brain: appconfig.BrainConfig{Enabled: true}, AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	expectedEnv := []string{"SODORYARD_MEMORY_ENDPOINT=unix:/tmp/memory.sock"}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{Brain: appconfig.BrainConfig{Enabled: true}, AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir(), SubprocessEnv: expectedEnv})
 	type commandCall struct {
 		name string
 		args []string
+		env  []string
 	}
 	var calls []commandCall
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
-		calls = append(calls, commandCall{name: in.Name, args: append([]string(nil), in.Args...)})
+		calls = append(calls, commandCall{name: in.Name, args: append([]string(nil), in.Args...), env: append([]string(nil), in.Env...)})
 		if len(calls) == 3 {
 			backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
 agent: coder
@@ -436,6 +438,11 @@ Done.
 	}
 	if !strings.Contains(strings.Join(calls[0].args, " "), "--quiet") {
 		t.Fatalf("code reindex args = %v, want --quiet", calls[0].args)
+	}
+	for _, call := range calls {
+		if strings.Join(call.env, "\n") != strings.Join(expectedEnv, "\n") {
+			t.Fatalf("%s env = %v, want %v", call.name, call.env, expectedEnv)
+		}
 	}
 }
 

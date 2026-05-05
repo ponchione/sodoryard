@@ -91,6 +91,12 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Brain.LintStaleDays != 90 {
 		t.Fatalf("Brain.LintStaleDays = %d, want 90", cfg.Brain.LintStaleDays)
 	}
+	if cfg.Memory.Backend != "legacy" {
+		t.Fatalf("Memory.Backend = %q, want legacy", cfg.Memory.Backend)
+	}
+	if cfg.Brain.Backend != "vault" {
+		t.Fatalf("Brain.Backend = %q, want vault", cfg.Brain.Backend)
+	}
 }
 
 func TestLoadTracksExplicitProviderNames(t *testing.T) {
@@ -277,6 +283,67 @@ func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	}
 	if cfg.Embedding.QueryPrefix != "Represent this query for searching relevant code: " {
 		t.Fatalf("Embedding.QueryPrefix = %q, want default prefix", cfg.Embedding.QueryPrefix)
+	}
+}
+
+func TestLoadShunterMemoryResolvesPathsAndDoesNotRequireVault(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"memory:\n" +
+		"  backend: shunter\n" +
+		"  shunter_data_dir: .yard/shunter/project-memory\n" +
+		"  durable_ack: true\n" +
+		"  rpc:\n" +
+		"    transport: unix\n" +
+		"    path: .yard/run/memory.sock\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  backend: shunter\n" +
+		"  vault_path: .brain\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.Memory.Backend != "shunter" {
+		t.Fatalf("Memory.Backend = %q, want shunter", cfg.Memory.Backend)
+	}
+	if cfg.Brain.Backend != "shunter" {
+		t.Fatalf("Brain.Backend = %q, want shunter", cfg.Brain.Backend)
+	}
+	if want := filepath.Join(projectRoot, ".yard", "shunter", "project-memory"); cfg.Memory.ShunterDataDir != want {
+		t.Fatalf("Memory.ShunterDataDir = %q, want %q", cfg.Memory.ShunterDataDir, want)
+	}
+	if want := filepath.Join(projectRoot, ".yard", "run", "memory.sock"); cfg.Memory.RPC.Path != want {
+		t.Fatalf("Memory.RPC.Path = %q, want %q", cfg.Memory.RPC.Path, want)
+	}
+	if cfg.Brain.ShunterDataDir != cfg.Memory.ShunterDataDir {
+		t.Fatalf("Brain.ShunterDataDir = %q, want %q", cfg.Brain.ShunterDataDir, cfg.Memory.ShunterDataDir)
+	}
+}
+
+func TestLoadRejectsShunterBrainWithoutShunterMemory(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  backend: shunter\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load succeeded, want validation error")
+	}
+	if !strings.Contains(err.Error(), "requires memory.backend: shunter") {
+		t.Fatalf("Load error = %v, want memory.backend validation", err)
 	}
 }
 

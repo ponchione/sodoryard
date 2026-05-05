@@ -31,6 +31,10 @@ type BrainIndexDeps struct {
 	MarkFresh    func(string, time.Time) error
 }
 
+type shunterBrainIndexCleaner interface {
+	MarkBrainIndexClean(context.Context, time.Time, string) error
+}
+
 func DefaultBrainIndexDeps() BrainIndexDeps {
 	return BrainIndexDeps{
 		BuildBackend: rtpkg.BuildBrainBackend,
@@ -154,7 +158,16 @@ func RunBrainIndex(ctx context.Context, cfg *appconfig.Config, deps BrainIndexDe
 	if err != nil {
 		return brainindexer.Result{}, fmt.Errorf("brain index: semantic rebuild: %w", err)
 	}
-	if err := deps.MarkFresh(cfg.ProjectRoot, time.Now().UTC()); err != nil {
+	indexedAt := time.Now().UTC()
+	if cfg.Brain.Backend == "shunter" {
+		cleaner, ok := backend.(shunterBrainIndexCleaner)
+		if !ok {
+			return brainindexer.Result{}, fmt.Errorf("brain index: Shunter backend cannot mark index clean")
+		}
+		if err := cleaner.MarkBrainIndexClean(ctx, indexedAt, `{"source":"brain_index"}`); err != nil {
+			return brainindexer.Result{}, fmt.Errorf("brain index: mark Shunter index clean: %w", err)
+		}
+	} else if err := deps.MarkFresh(cfg.ProjectRoot, indexedAt); err != nil {
 		return brainindexer.Result{}, fmt.Errorf("brain index: persist freshness state: %w", err)
 	}
 	result.SemanticChunksIndexed = semanticResult.SemanticChunksIndexed

@@ -207,6 +207,21 @@ func (f fakeBrainIndexBackend) ListDocuments(context.Context, string) ([]string,
 	return paths, nil
 }
 
+type fakeShunterBrainIndexBackend struct {
+	fakeBrainIndexBackend
+	cleanAt      time.Time
+	cleanMeta    string
+	cleanCalled  bool
+	cleanCallErr error
+}
+
+func (f *fakeShunterBrainIndexBackend) MarkBrainIndexClean(_ context.Context, indexedAt time.Time, metadataJSON string) error {
+	f.cleanCalled = true
+	f.cleanAt = indexedAt
+	f.cleanMeta = metadataJSON
+	return f.cleanCallErr
+}
+
 type fakeBrainIndexStore struct{}
 
 func (fakeBrainIndexStore) Upsert(context.Context, []codeintel.Chunk) error { return nil }
@@ -288,5 +303,53 @@ func TestRunBrainIndexMarksBrainIndexFresh(t *testing.T) {
 	}
 	if state.StaleSince != "" || state.StaleReason != "" {
 		t.Fatalf("stale fields should be cleared after reindex: %+v", state)
+	}
+}
+
+func TestRunBrainIndexMarksShunterBrainIndexCleanWithoutFileState(t *testing.T) {
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Memory.Backend = "shunter"
+	cfg.Brain.ShunterDataDir = filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	cfg.Brain.DurableAck = true
+	brainDoc := "---\ntags: [debug]\n---\n# Runtime Notes\n\nShunter freshness proof."
+
+	origBackend := buildBrainIndexBackend
+	origStore := openBrainVectorStore
+	origEmbedder := newBrainEmbedder
+	origMarkFresh := markBrainIndexFresh
+	defer func() {
+		buildBrainIndexBackend = origBackend
+		openBrainVectorStore = origStore
+		newBrainEmbedder = origEmbedder
+		markBrainIndexFresh = origMarkFresh
+	}()
+
+	backend := &fakeShunterBrainIndexBackend{fakeBrainIndexBackend: fakeBrainIndexBackend{docs: map[string]string{"notes.md": brainDoc}}}
+	buildBrainIndexBackend = func(context.Context, appconfig.BrainConfig, *slog.Logger) (brain.Backend, func(), error) {
+		return backend, func() {}, nil
+	}
+	openBrainVectorStore = func(context.Context, string) (codeintel.Store, error) { return fakeBrainIndexStore{}, nil }
+	newBrainEmbedder = func(appconfig.Embedding) codeintel.Embedder { return fakeBrainIndexEmbedder{} }
+	markBrainIndexFresh = func(string, time.Time) error {
+		t.Fatal("file-backed MarkFresh should not be called for Shunter brain index")
+		return nil
+	}
+
+	result, err := runBrainIndex(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("runBrainIndex: %v", err)
+	}
+	if result.DocumentsIndexed != 1 {
+		t.Fatalf("DocumentsIndexed = %d, want 1", result.DocumentsIndexed)
+	}
+	if !backend.cleanCalled || backend.cleanAt.IsZero() || backend.cleanMeta != `{"source":"brain_index"}` {
+		t.Fatalf("clean call = called:%t at:%s meta:%q, want Shunter clean mark", backend.cleanCalled, backend.cleanAt, backend.cleanMeta)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist", err)
 	}
 }

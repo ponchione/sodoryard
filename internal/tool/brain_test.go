@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/config"
 	appcontext "github.com/ponchione/sodoryard/internal/context"
 	appdb "github.com/ponchione/sodoryard/internal/db"
@@ -881,6 +883,26 @@ func TestBrainWriteSuccess(t *testing.T) {
 	}
 }
 
+func TestBrainWriteShunterSkipsFileBackedStaleState(t *testing.T) {
+	projectRoot := t.TempDir()
+	backend := newFakeBackend(map[string]string{})
+	cfg := brainConfig(true)
+	cfg.Backend = "shunter"
+	cfg.LogBrainOperations = false
+	tool := NewBrainWrite(backend, cfg)
+
+	result, err := tool.Execute(context.Background(), projectRoot, json.RawMessage(`{"path":"notes/shunter.md","content":"---\ntags: [memory]\n---\n# Shunter"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist for Shunter backend", err)
+	}
+}
+
 func TestBrainWriteAppendsOperationLogWithSession(t *testing.T) {
 	backend := newFakeBackend(map[string]string{})
 	tool := NewBrainWrite(backend, brainConfig(true))
@@ -1034,6 +1056,29 @@ func TestBrainUpdateUsesBackendPatchDocument(t *testing.T) {
 	}
 	if len(backend.patchOps) != 1 || backend.patchOps[0] != "append" {
 		t.Fatalf("patchOps = %#v, want [append]", backend.patchOps)
+	}
+}
+
+func TestBrainUpdateShunterSkipsFileBackedStaleState(t *testing.T) {
+	projectRoot := t.TempDir()
+	backend := newFakeBackend(map[string]string{
+		"notes/design.md": "# Design\n\nOriginal details.",
+	})
+	cfg := brainConfig(true)
+	cfg.Backend = "shunter"
+	cfg.LogBrainOperations = false
+	tool := NewBrainUpdate(backend, cfg)
+	input := json.RawMessage(`{"path":"notes/design.md","operation":"append","content":"## Appendix\n\nExtra notes."}`)
+
+	result, err := tool.Execute(context.Background(), projectRoot, input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist for Shunter backend", err)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
@@ -319,7 +320,7 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 	if codeWarning != nil {
 		warnings = append(warnings, *codeWarning)
 	}
-	brainIndex, brainWarning := brainIndexStatus(cfg)
+	brainIndex, brainWarning := brainIndexStatus(ctx, cfg, s.rt.BrainBackend)
 	if brainWarning != nil {
 		warnings = append(warnings, *brainWarning)
 	}
@@ -476,9 +477,22 @@ func (s *Service) codeIndexStatus(ctx context.Context, cfg *appconfig.Config) (R
 	return status, nil
 }
 
-func brainIndexStatus(cfg *appconfig.Config) (RuntimeIndexStatus, *RuntimeWarning) {
+func brainIndexStatus(ctx context.Context, cfg *appconfig.Config, backend any) (RuntimeIndexStatus, *RuntimeWarning) {
 	if cfg == nil || !cfg.Brain.Enabled {
 		return RuntimeIndexStatus{Status: "disabled"}, nil
+	}
+	if cfg.Brain.Backend == "shunter" {
+		reader, ok := backend.(interface {
+			ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error)
+		})
+		if !ok || reader == nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load brain index state: Shunter backend unavailable"))
+		}
+		state, found, err := reader.ReadBrainIndexState(ctx)
+		if err != nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load brain index state: %v", err))
+		}
+		return runtimeStatusFromShunterBrainIndexState(state, found), nil
 	}
 	state, err := brainindexstate.Load(cfg.ProjectRoot)
 	if err != nil {
@@ -490,6 +504,25 @@ func brainIndexStatus(cfg *appconfig.Config) (RuntimeIndexStatus, *RuntimeWarnin
 		StaleSince:    state.StaleSince,
 		StaleReason:   state.StaleReason,
 	}, nil
+}
+
+func runtimeStatusFromShunterBrainIndexState(state projectmemory.BrainIndexState, found bool) RuntimeIndexStatus {
+	status := RuntimeIndexStatus{Status: brainindexstate.StatusNeverIndexed}
+	if !found {
+		return status
+	}
+	if state.LastIndexedAtUS > 0 {
+		status.Status = brainindexstate.StatusClean
+		status.LastIndexedAt = time.UnixMicro(int64(state.LastIndexedAtUS)).UTC().Format(time.RFC3339)
+	}
+	if state.Dirty {
+		status.Status = brainindexstate.StatusStale
+		if state.DirtySinceUS > 0 {
+			status.StaleSince = time.UnixMicro(int64(state.DirtySinceUS)).UTC().Format(time.RFC3339)
+		}
+		status.StaleReason = state.DirtyReason
+	}
+	return status
 }
 
 func indexReadinessWarnings(codeIndex RuntimeIndexStatus, brainIndex RuntimeIndexStatus) []RuntimeWarning {

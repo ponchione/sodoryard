@@ -5,15 +5,17 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
-	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 	"github.com/ponchione/sodoryard/internal/role"
@@ -34,6 +36,7 @@ type OrchestratorRuntime struct {
 	ConversationManager *conversation.Manager
 	ContextAssembler    agent.ContextAssembler
 	ChainStore          *chain.Store
+	MemoryEndpointEnv   []string
 	Cleanup             func()
 }
 
@@ -99,10 +102,16 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		return nil, err
 	}
 
-	brainBackend, err := buildOrchestratorBrainBackend(ctx, cfg.Brain)
+	brainBackend, closeBrainBackend, err := buildOrchestratorBrainBackend(ctx, cfg.Brain, logger)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("build brain backend: %w", err)
+	}
+	memoryEndpointEnv, closeMemoryRPC, err := buildOrchestratorMemoryRPC(ctx, cfg, brainBackend, logger)
+	if err != nil {
+		closeBrainBackend()
+		cleanup()
+		return nil, fmt.Errorf("start project memory RPC: %w", err)
 	}
 
 	convManager := conversation.NewManager(database, nil, logger)
@@ -117,15 +126,13 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		ConversationManager: convManager,
 		ContextAssembler:    NoopContextAssembler{},
 		ChainStore:          chain.NewStore(database),
+		MemoryEndpointEnv:   memoryEndpointEnv,
 		Cleanup: func() {
 			// Drain in-flight sub-call writes before closing the DB so stream
 			// goroutines don't race against database.Close() (TECH-DEBT R5).
 			provRouter.DrainTracking()
-			if brainBackend != nil {
-				if c, ok := brainBackend.(interface{ Close() error }); ok {
-					_ = c.Close()
-				}
-			}
+			closeMemoryRPC()
+			closeBrainBackend()
 			cleanup()
 		},
 	}
@@ -133,14 +140,81 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 }
 
 // buildOrchestratorBrainBackend constructs the brain backend for the
-// orchestrator. Unlike the engine's brain backend builder it returns only
-// (brain.Backend, error) because the orchestrator manages its own cleanup via
-// OrchestratorRuntime.Cleanup.
-func buildOrchestratorBrainBackend(ctx context.Context, cfg appconfig.BrainConfig) (brain.Backend, error) {
+// orchestrator and returns cleanup for OrchestratorRuntime.Cleanup.
+func buildOrchestratorBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *slog.Logger) (brain.Backend, func(), error) {
 	if !cfg.Enabled {
-		return nil, nil
+		return nil, func() {}, nil
 	}
-	return mcpclient.Connect(ctx, cfg.VaultPath)
+	return BuildBrainBackend(ctx, cfg, logger)
+}
+
+func buildOrchestratorMemoryRPC(ctx context.Context, cfg *appconfig.Config, backend brain.Backend, logger *slog.Logger) ([]string, func(), error) {
+	if cfg == nil || !cfg.Brain.Enabled || cfg.Brain.Backend != "shunter" {
+		return projectMemoryEndpointEnv(cfg), func() {}, nil
+	}
+	if strings.TrimSpace(os.Getenv(projectmemory.EnvMemoryEndpoint)) != "" {
+		return projectMemoryEndpointEnv(cfg), func() {}, nil
+	}
+	localBackend, ok := backend.(*projectmemory.BrainBackend)
+	if !ok || localBackend == nil {
+		return nil, func() {}, fmt.Errorf("local Shunter brain backend is required to own project memory RPC")
+	}
+	transport, path := configuredMemoryRPC(cfg)
+	if transport == "" {
+		transport = "unix"
+	}
+	if path == "" {
+		return nil, func() {}, fmt.Errorf("project memory RPC path is required")
+	}
+	server, err := projectmemory.StartRPCServer(ctx, projectmemory.RPCConfig{Transport: transport, Path: path}, localBackend)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	endpoint := transport + ":" + path
+	if logger != nil {
+		logger.Info("project memory RPC listening", "endpoint", endpoint)
+	}
+	return []string{projectmemory.EnvMemoryEndpoint + "=" + endpoint}, func() { _ = server.Close() }, nil
+}
+
+func projectMemoryEndpointEnv(cfg *appconfig.Config) []string {
+	endpoint := strings.TrimSpace(os.Getenv(projectmemory.EnvMemoryEndpoint))
+	if endpoint == "" {
+		endpoint = configuredMemoryEndpoint(cfg)
+	}
+	if endpoint == "" {
+		return nil
+	}
+	return []string{projectmemory.EnvMemoryEndpoint + "=" + endpoint}
+}
+
+func configuredMemoryEndpoint(cfg *appconfig.Config) string {
+	if cfg == nil || !cfg.Brain.Enabled || cfg.Brain.Backend != "shunter" {
+		return ""
+	}
+	transport, path := configuredMemoryRPC(cfg)
+	if transport == "" {
+		transport = "unix"
+	}
+	if path == "" {
+		return ""
+	}
+	return transport + ":" + path
+}
+
+func configuredMemoryRPC(cfg *appconfig.Config) (string, string) {
+	if cfg == nil {
+		return "", ""
+	}
+	transport := strings.TrimSpace(cfg.Memory.RPC.Transport)
+	if transport == "" {
+		transport = strings.TrimSpace(cfg.Brain.RPCTransport)
+	}
+	path := strings.TrimSpace(cfg.Memory.RPC.Path)
+	if path == "" {
+		path = strings.TrimSpace(cfg.Brain.RPCPath)
+	}
+	return transport, path
 }
 
 // BuildOrchestratorRegistry constructs a tool.Registry for the orchestrator
@@ -150,12 +224,13 @@ func BuildOrchestratorRegistry(rt *OrchestratorRuntime, roleCfg appconfig.AgentR
 	factory := map[string]func() tool.Tool{
 		"spawn_agent": func() tool.Tool {
 			return spawnpkg.NewSpawnAgentTool(spawnpkg.SpawnAgentDeps{
-				Store:        rt.ChainStore,
-				Backend:      rt.BrainBackend,
-				Config:       rt.Config,
-				ChainID:      chainID,
-				EngineBinary: "tidmouth",
-				ProjectRoot:  rt.Config.ProjectRoot,
+				Store:         rt.ChainStore,
+				Backend:       rt.BrainBackend,
+				Config:        rt.Config,
+				ChainID:       chainID,
+				EngineBinary:  "tidmouth",
+				ProjectRoot:   rt.Config.ProjectRoot,
+				SubprocessEnv: rt.MemoryEndpointEnv,
 			})
 		},
 		"chain_complete": func() tool.Tool {

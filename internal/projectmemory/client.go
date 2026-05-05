@@ -1,0 +1,125 @@
+package projectmemory
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"net/rpc"
+	"strings"
+	"time"
+
+	"github.com/ponchione/sodoryard/internal/brain"
+)
+
+type Client struct {
+	rpc *rpc.Client
+}
+
+func DialBrainBackend(endpoint string) (*Client, error) {
+	network, address, err := parseEndpoint(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.Dial(network, address)
+	if err != nil {
+		return nil, fmt.Errorf("dial project memory RPC endpoint %q: %w", endpoint, err)
+	}
+	return &Client{rpc: rpc.NewClient(conn)}, nil
+}
+
+func (c *Client) Close() error {
+	if c == nil || c.rpc == nil {
+		return nil
+	}
+	return c.rpc.Close()
+}
+
+func (c *Client) ReadDocument(ctx context.Context, path string) (string, error) {
+	var resp ReadDocumentResponse
+	if err := c.call(ctx, "Brain.ReadDocument", ReadDocumentRequest{Path: path}, &resp); err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
+
+func (c *Client) WriteDocument(ctx context.Context, path string, content string) error {
+	return c.call(ctx, "Brain.WriteDocument", WriteDocumentRequest{Path: path, Content: content}, &EmptyResponse{})
+}
+
+func (c *Client) PatchDocument(ctx context.Context, path string, operation string, content string) error {
+	return c.call(ctx, "Brain.PatchDocument", PatchDocumentRequest{Path: path, Operation: operation, Content: content}, &EmptyResponse{})
+}
+
+func (c *Client) SearchKeyword(ctx context.Context, query string) ([]brain.SearchHit, error) {
+	return c.SearchKeywordLimit(ctx, query, 10)
+}
+
+func (c *Client) SearchKeywordLimit(ctx context.Context, query string, maxResults int) ([]brain.SearchHit, error) {
+	var resp SearchKeywordResponse
+	if err := c.call(ctx, "Brain.SearchKeywordLimit", SearchKeywordRequest{Query: query, MaxResults: maxResults}, &resp); err != nil {
+		return nil, err
+	}
+	hits := make([]brain.SearchHit, 0, len(resp.Hits))
+	for _, hit := range resp.Hits {
+		hits = append(hits, brain.SearchHit{Path: hit.Path, Snippet: hit.Snippet, Score: hit.Score})
+	}
+	return hits, nil
+}
+
+func (c *Client) ListDocuments(ctx context.Context, directory string) ([]string, error) {
+	var resp ListDocumentsResponse
+	if err := c.call(ctx, "Brain.ListDocuments", ListDocumentsRequest{Directory: directory}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Paths, nil
+}
+
+func (c *Client) ReadBrainIndexState(ctx context.Context) (BrainIndexState, bool, error) {
+	var resp ReadBrainIndexStateResponse
+	if err := c.call(ctx, "Brain.ReadBrainIndexState", ReadBrainIndexStateRequest{ProjectID: DefaultProjectID}, &resp); err != nil {
+		return BrainIndexState{}, false, err
+	}
+	return resp.State, resp.Found, nil
+}
+
+func (c *Client) MarkBrainIndexClean(ctx context.Context, indexedAt time.Time, metadataJSON string) error {
+	return c.call(ctx, "Brain.MarkBrainIndexClean", MarkBrainIndexCleanRequest{
+		ProjectID:       DefaultProjectID,
+		LastIndexedAtUS: uint64(indexedAt.UTC().UnixMicro()),
+		MetadataJSON:    metadataJSON,
+	}, &EmptyResponse{})
+}
+
+func (c *Client) call(ctx context.Context, method string, args any, reply any) error {
+	if c == nil || c.rpc == nil {
+		return fmt.Errorf("project memory RPC client is closed")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	call := c.rpc.Go(method, args, reply, make(chan *rpc.Call, 1))
+	select {
+	case done := <-call.Done:
+		return done.Error
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func parseEndpoint(endpoint string) (string, string, error) {
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("project memory RPC endpoint is required")
+	}
+	transport, address, ok := strings.Cut(trimmed, ":")
+	if !ok {
+		return "", "", fmt.Errorf("project memory RPC endpoint %q must be transport:path", endpoint)
+	}
+	if transport != "unix" {
+		return "", "", fmt.Errorf("unsupported project memory RPC transport %q", transport)
+	}
+	if strings.TrimSpace(address) == "" {
+		return "", "", fmt.Errorf("project memory RPC endpoint path is required")
+	}
+	return "unix", address, nil
+}

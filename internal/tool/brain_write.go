@@ -96,12 +96,14 @@ func (b *BrainWrite) Execute(ctx context.Context, projectRoot string, input json
 			Error:   err.Error(),
 		}, nil
 	}
-	if err := brainindexstate.MarkStale(projectRoot, "brain_write", time.Now().UTC()); err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Brain document written but failed to record stale brain index state: %v", err),
-			Error:   err.Error(),
-		}, nil
+	if b.config.Backend != "shunter" {
+		if err := brainindexstate.MarkStale(projectRoot, "brain_write", time.Now().UTC()); err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: fmt.Sprintf("Brain document written but failed to record stale brain index state: %v", err),
+				Error:   err.Error(),
+			}, nil
+		}
 	}
 
 	if b.config.LogBrainOperations {

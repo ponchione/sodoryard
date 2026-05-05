@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/ponchione/sodoryard/internal/brain"
 )
 
 const defaultConventionBulletLimit = 10
@@ -43,6 +45,66 @@ func NewBrainConventionSource(vaultPath string) *BrainConventionSource {
 		walkDir:     filepath.WalkDir,
 		stat:        os.Stat,
 	}
+}
+
+// BrainBackendConventionSource loads project conventions through the configured
+// brain backend instead of reading a vault directory directly.
+type BrainBackendConventionSource struct {
+	backend     brain.Backend
+	bulletLimit int
+}
+
+func NewBrainBackendConventionSource(backend brain.Backend) *BrainBackendConventionSource {
+	return &BrainBackendConventionSource{
+		backend:     backend,
+		bulletLimit: defaultConventionBulletLimit,
+	}
+}
+
+func (s *BrainBackendConventionSource) Load(ctx stdctx.Context) (string, error) {
+	if s == nil || s.backend == nil {
+		return "", nil
+	}
+	paths, err := s.backend.ListDocuments(ctx, "conventions")
+	if err != nil {
+		return "", nil
+	}
+	sort.Strings(paths)
+	limit := s.bulletLimit
+	if limit <= 0 {
+		limit = defaultConventionBulletLimit
+	}
+	bullets := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for _, path := range paths {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		if !strings.EqualFold(filepath.Ext(path), ".md") {
+			continue
+		}
+		content, err := s.backend.ReadDocument(ctx, path)
+		if err != nil {
+			return "", fmt.Errorf("read convention document %s: %w", filepath.Base(path), err)
+		}
+		for _, bullet := range extractConventionBullets(filepath.Base(path), content) {
+			bullet = strings.TrimSpace(bullet)
+			if bullet == "" {
+				continue
+			}
+			if _, ok := seen[bullet]; ok {
+				continue
+			}
+			seen[bullet] = struct{}{}
+			bullets = append(bullets, bullet)
+			if len(bullets) >= limit {
+				return strings.Join(bullets, "\n"), nil
+			}
+		}
+	}
+	return strings.Join(bullets, "\n"), nil
 }
 
 // Load returns a short bullet list derived from markdown documents inside the

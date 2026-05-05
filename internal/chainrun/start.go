@@ -346,12 +346,13 @@ func withDefaultDeps(deps Deps) Deps {
 	if deps.NewStepRunner == nil {
 		deps.NewStepRunner = func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
 			return spawnpkg.NewSpawnAgentTool(spawnpkg.SpawnAgentDeps{
-				Store:        rt.ChainStore,
-				Backend:      rt.BrainBackend,
-				Config:       rt.Config,
-				ChainID:      chainID,
-				EngineBinary: "tidmouth",
-				ProjectRoot:  rt.Config.ProjectRoot,
+				Store:         rt.ChainStore,
+				Backend:       rt.BrainBackend,
+				Config:        rt.Config,
+				ChainID:       chainID,
+				EngineBinary:  "tidmouth",
+				ProjectRoot:   rt.Config.ProjectRoot,
+				SubprocessEnv: rt.MemoryEndpointEnv,
 			})
 		}
 	}

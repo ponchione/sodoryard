@@ -27,6 +27,11 @@ const (
 	defaultLocalServicesNetwork = "llm-net"
 	defaultLocalStartupTimeout  = 180
 	defaultLocalHealthInterval  = 2
+	memoryBackendLegacy         = "legacy"
+	memoryBackendShunter        = "shunter"
+	brainBackendVault           = "vault"
+	brainBackendShunter         = "shunter"
+	memoryRPCTransportUnix      = "unix"
 )
 
 // Canonical on-disk names for the yard state directory and its contents.
@@ -58,6 +63,7 @@ type Config struct {
 	Agent         AgentConfig                `yaml:"agent"`
 	AgentRoles    map[string]AgentRoleConfig `yaml:"agent_roles"`
 	Context       ContextConfig              `yaml:"context"`
+	Memory        MemoryConfig               `yaml:"memory"`
 	Brain         BrainConfig                `yaml:"brain"`
 	LocalServices LocalServicesConfig        `yaml:"local_services"`
 }
@@ -185,6 +191,7 @@ type ContextConfig struct {
 
 type BrainConfig struct {
 	Enabled                 bool     `yaml:"enabled"`
+	Backend                 string   `yaml:"backend"`
 	VaultPath               string   `yaml:"vault_path"`
 	EmbeddingModel          string   `yaml:"embedding_model"`
 	ChunkAtHeadings         bool     `yaml:"chunk_at_headings"`
@@ -199,6 +206,24 @@ type BrainConfig struct {
 	LintOrphanAllowlist     []string `yaml:"lint_orphan_allowlist"`
 	BrainWritePaths         []string `yaml:"brain_write_paths"`
 	BrainDenyPaths          []string `yaml:"brain_deny_paths"`
+
+	MemoryBackend  string `yaml:"-"`
+	ShunterDataDir string `yaml:"-"`
+	DurableAck     bool   `yaml:"-"`
+	RPCTransport   string `yaml:"-"`
+	RPCPath        string `yaml:"-"`
+}
+
+type MemoryConfig struct {
+	Backend        string          `yaml:"backend"`
+	ShunterDataDir string          `yaml:"shunter_data_dir"`
+	DurableAck     bool            `yaml:"durable_ack"`
+	RPC            MemoryRPCConfig `yaml:"rpc"`
+}
+
+type MemoryRPCConfig struct {
+	Transport string `yaml:"transport"`
+	Path      string `yaml:"path"`
 }
 
 type LocalServicesConfig struct {
@@ -319,8 +344,18 @@ func Default() *Config {
 			EmitContextDebug:        true,
 			StoreAssemblyReports:    true,
 		},
+		Memory: MemoryConfig{
+			Backend:        memoryBackendLegacy,
+			ShunterDataDir: ".yard/shunter/project-memory",
+			DurableAck:     true,
+			RPC: MemoryRPCConfig{
+				Transport: memoryRPCTransportUnix,
+				Path:      ".yard/run/memory.sock",
+			},
+		},
 		Brain: BrainConfig{
 			Enabled:                 true,
+			Backend:                 brainBackendVault,
 			VaultPath:               ".brain",
 			EmbeddingModel:          "nomic-embed-code",
 			ChunkAtHeadings:         true,
@@ -544,6 +579,24 @@ func (c *Config) BrainVaultPath() string {
 	return projectRelativePath(c.ProjectRoot, vp)
 }
 
+// MemoryShunterDataDir returns the resolved Shunter project-memory directory.
+func (c *Config) MemoryShunterDataDir() string {
+	path := c.Memory.ShunterDataDir
+	if path == "" {
+		path = ".yard/shunter/project-memory"
+	}
+	return projectRelativePath(c.ProjectRoot, path)
+}
+
+// MemoryRPCPath returns the resolved local memory RPC socket path.
+func (c *Config) MemoryRPCPath() string {
+	path := c.Memory.RPC.Path
+	if path == "" {
+		path = ".yard/run/memory.sock"
+	}
+	return projectRelativePath(c.ProjectRoot, path)
+}
+
 func (c *Config) ResolveAgentRoleSystemPromptPath(path string) string {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
@@ -599,10 +652,29 @@ func (c *Config) normalize() {
 	}
 
 	c.Index.Exclude = appendMissingStrings(c.Index.Exclude, c.requiredIndexExcludePatterns()...)
+	c.normalizeMemory()
 	c.normalizeLocalServices()
 
 	c.ServerHost = c.Server.Host
 	c.ServerPort = c.Server.Port
+}
+
+func (c *Config) normalizeMemory() {
+	if c.Memory.Backend == "" {
+		c.Memory.Backend = memoryBackendLegacy
+	}
+	if c.Memory.ShunterDataDir == "" {
+		c.Memory.ShunterDataDir = ".yard/shunter/project-memory"
+	}
+	if c.Memory.RPC.Transport == "" {
+		c.Memory.RPC.Transport = memoryRPCTransportUnix
+	}
+	if c.Memory.RPC.Path == "" {
+		c.Memory.RPC.Path = ".yard/run/memory.sock"
+	}
+	if c.Brain.Backend == "" {
+		c.Brain.Backend = brainBackendVault
+	}
 }
 
 func (c *Config) normalizeLocalServices() {
@@ -755,8 +827,23 @@ func (c *Config) validatePaths() error {
 	if err := c.resolveLocalServicePaths(); err != nil {
 		return err
 	}
+	if err := c.resolveMemoryPaths(); err != nil {
+		return err
+	}
+	c.syncBrainRuntimeMemoryFields()
 
 	if !c.Brain.Enabled {
+		return nil
+	}
+	brainBackend, err := validateEnumValue("brain.backend", c.Brain.Backend, "vault or shunter", brainBackendVault, brainBackendShunter)
+	if err != nil {
+		return err
+	}
+	c.Brain.Backend = brainBackend
+	if c.Brain.Backend == brainBackendShunter {
+		if c.Memory.Backend != memoryBackendShunter {
+			return fmt.Errorf("invalid field brain.backend=%q (requires memory.backend: shunter)", c.Brain.Backend)
+		}
 		return nil
 	}
 
@@ -774,6 +861,47 @@ func (c *Config) validatePaths() error {
 	c.Brain.VaultPath = vaultPath
 
 	return nil
+}
+
+func (c *Config) resolveMemoryPaths() error {
+	memoryBackend, err := validateEnumValue("memory.backend", c.Memory.Backend, "legacy or shunter", memoryBackendLegacy, memoryBackendShunter)
+	if err != nil {
+		return err
+	}
+	c.Memory.Backend = memoryBackend
+	rpcTransport, err := validateEnumValue("memory.rpc.transport", c.Memory.RPC.Transport, "unix", memoryRPCTransportUnix)
+	if err != nil {
+		return err
+	}
+	c.Memory.RPC.Transport = rpcTransport
+	if c.Memory.Backend != memoryBackendShunter {
+		return nil
+	}
+	if strings.TrimSpace(c.Memory.ShunterDataDir) == "" {
+		return errors.New("invalid field memory.shunter_data_dir=\"\" (must be set when memory.backend is shunter)")
+	}
+	dataDir, err := resolveProjectRelativePath(c.ProjectRoot, c.Memory.ShunterDataDir)
+	if err != nil {
+		return fmt.Errorf("invalid field memory.shunter_data_dir=%q: %w", c.Memory.ShunterDataDir, err)
+	}
+	c.Memory.ShunterDataDir = dataDir
+	if strings.TrimSpace(c.Memory.RPC.Path) == "" {
+		return errors.New("invalid field memory.rpc.path=\"\" (must be set when memory.backend is shunter)")
+	}
+	rpcPath, err := resolveProjectRelativePath(c.ProjectRoot, c.Memory.RPC.Path)
+	if err != nil {
+		return fmt.Errorf("invalid field memory.rpc.path=%q: %w", c.Memory.RPC.Path, err)
+	}
+	c.Memory.RPC.Path = rpcPath
+	return nil
+}
+
+func (c *Config) syncBrainRuntimeMemoryFields() {
+	c.Brain.MemoryBackend = c.Memory.Backend
+	c.Brain.ShunterDataDir = c.Memory.ShunterDataDir
+	c.Brain.DurableAck = c.Memory.DurableAck
+	c.Brain.RPCTransport = c.Memory.RPC.Transport
+	c.Brain.RPCPath = c.Memory.RPC.Path
 }
 
 func (c *Config) validateRouting() error {

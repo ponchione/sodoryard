@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -44,7 +45,9 @@ func RunCommand(ctx context.Context, in RunCommandInput) RunResult {
 	cmd.Stdin = in.Stdin
 	cmd.Stdout = composeOutputWriter(in.Stdout, in.OnStdoutLine)
 	cmd.Stderr = composeOutputWriter(in.Stderr, in.OnStderrLine)
-	cmd.Env = in.Env
+	if len(in.Env) > 0 {
+		cmd.Env = append(os.Environ(), in.Env...)
+	}
 	cmd.Dir = in.Dir
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
