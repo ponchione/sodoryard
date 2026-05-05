@@ -30,6 +30,9 @@ const (
 )
 
 func (s *Store) LogEvent(ctx context.Context, chainID string, stepID string, eventType EventType, eventData any) error {
+	if s != nil && s.memory != nil {
+		return s.memory.LogEvent(ctx, chainID, stepID, eventType, eventData)
+	}
 	var payload sql.NullString
 	if eventData != nil {
 		b, err := json.Marshal(eventData)
@@ -45,6 +48,9 @@ func (s *Store) LogEvent(ctx context.Context, chainID string, stepID string, eve
 }
 
 func (s *Store) ListEventsSince(ctx context.Context, chainID string, afterID int64) ([]Event, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.ListEventsSince(ctx, chainID, afterID)
+	}
 	rows, err := s.q.ListEventsByChainSince(ctx, appdb.ListEventsByChainSinceParams{ChainID: chainID, ID: afterID})
 	if err != nil {
 		return nil, fmt.Errorf("list events since: %w", err)

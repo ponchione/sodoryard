@@ -466,6 +466,102 @@ func (r *Runtime) ReadContextReport(ctx context.Context, conversationID string, 
 	return report, found, nil
 }
 
+func (r *Runtime) ReadChain(ctx context.Context, id string) (Chain, bool, error) {
+	if strings.TrimSpace(id) == "" {
+		return Chain{}, false, fmt.Errorf("chain id is required")
+	}
+	var chain Chain
+	var found bool
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableChains, indexChainsPrimary, types.NewString(strings.TrimSpace(id))) {
+			chain = decodeChainRow(row)
+			found = true
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		return Chain{}, false, err
+	}
+	return chain, found, nil
+}
+
+func (r *Runtime) ListChains(ctx context.Context, limit int) ([]Chain, error) {
+	chains := make([]Chain, 0)
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.TableScan(tableChains) {
+			chains = append(chains, decodeChainRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortChains(chains)
+	if limit > 0 && len(chains) > limit {
+		chains = chains[:limit]
+	}
+	return chains, nil
+}
+
+func (r *Runtime) ReadStep(ctx context.Context, id string) (ChainStep, bool, error) {
+	if strings.TrimSpace(id) == "" {
+		return ChainStep{}, false, fmt.Errorf("step id is required")
+	}
+	var step ChainStep
+	var found bool
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableSteps, indexStepsPrimary, types.NewString(strings.TrimSpace(id))) {
+			step = decodeChainStepRow(row)
+			found = true
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		return ChainStep{}, false, err
+	}
+	return step, found, nil
+}
+
+func (r *Runtime) ListChainSteps(ctx context.Context, chainID string) ([]ChainStep, error) {
+	steps := make([]ChainStep, 0)
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableSteps, indexStepsChain, types.NewString(strings.TrimSpace(chainID))) {
+			steps = append(steps, decodeChainStepRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortChainSteps(steps)
+	return steps, nil
+}
+
+func (r *Runtime) ListChainEvents(ctx context.Context, chainID string) ([]ChainEvent, error) {
+	return r.ListChainEventsSince(ctx, chainID, 0)
+}
+
+func (r *Runtime) ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]ChainEvent, error) {
+	events := make([]ChainEvent, 0)
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableEvents, indexEventsChain, types.NewString(strings.TrimSpace(chainID))) {
+			event := decodeChainEventRow(row)
+			if event.Sequence <= afterSequence {
+				continue
+			}
+			events = append(events, event)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortChainEvents(events)
+	return events, nil
+}
+
 type SearchHit struct {
 	Path    string
 	Snippet string
@@ -504,6 +600,33 @@ func sortToolExecutions(executions []ToolExecution) {
 			return executions[i].ID < executions[j].ID
 		}
 		return executions[i].CompletedAtUS < executions[j].CompletedAtUS
+	})
+}
+
+func sortChains(chains []Chain) {
+	sort.Slice(chains, func(i, j int) bool {
+		if chains[i].CreatedAtUS == chains[j].CreatedAtUS {
+			return chains[i].ID < chains[j].ID
+		}
+		return chains[i].CreatedAtUS > chains[j].CreatedAtUS
+	})
+}
+
+func sortChainSteps(steps []ChainStep) {
+	sort.Slice(steps, func(i, j int) bool {
+		if steps[i].Sequence == steps[j].Sequence {
+			return steps[i].ID < steps[j].ID
+		}
+		return steps[i].Sequence < steps[j].Sequence
+	})
+}
+
+func sortChainEvents(events []ChainEvent) {
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].Sequence == events[j].Sequence {
+			return events[i].ID < events[j].ID
+		}
+		return events[i].Sequence < events[j].Sequence
 	})
 }
 

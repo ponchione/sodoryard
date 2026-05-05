@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 const (
 	tableProjectState schema.TableID = iota
@@ -23,6 +23,9 @@ const (
 	tableSubCalls
 	tableToolExecutions
 	tableContextReports
+	tableChains
+	tableSteps
+	tableEvents
 )
 
 const (
@@ -91,6 +94,23 @@ const (
 	indexContextReportsConversation
 )
 
+const (
+	indexChainsPrimary schema.IndexID = iota
+	indexChainsStatus
+)
+
+const (
+	indexStepsPrimary schema.IndexID = iota
+	indexStepsChain
+	indexStepsStatus
+)
+
+const (
+	indexEventsPrimary schema.IndexID = iota
+	indexEventsChain
+	indexEventsType
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -106,6 +126,9 @@ func NewModule() *shunter.Module {
 	declareSubCalls(mod)
 	declareToolExecutions(mod)
 	declareContextReports(mod)
+	declareChains(mod)
+	declareSteps(mod)
+	declareEvents(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -126,6 +149,14 @@ func NewModule() *shunter.Module {
 	mod.Reducer("record_tool_execution", recordToolExecutionReducer)
 	mod.Reducer("store_context_report", storeContextReportReducer)
 	mod.Reducer("update_context_report_quality", updateContextReportQualityReducer)
+	mod.Reducer("start_chain", startChainReducer)
+	mod.Reducer("start_step", startStepReducer)
+	mod.Reducer("step_running", stepRunningReducer)
+	mod.Reducer("complete_step", completeStepReducer)
+	mod.Reducer("complete_chain", completeChainReducer)
+	mod.Reducer("update_chain_metrics", updateChainMetricsReducer)
+	mod.Reducer("set_chain_status", setChainStatusReducer)
+	mod.Reducer("log_chain_event", logChainEventReducer)
 	return mod
 }
 
@@ -383,6 +414,78 @@ func declareContextReports(mod *shunter.Module) {
 		},
 		Indexes: []schema.IndexDefinition{
 			{Name: "context_reports_conversation", Columns: []string{"conversation_id"}},
+		},
+	})
+}
+
+func declareChains(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "chains",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "source_specs_json", Type: schema.KindString},
+			{Name: "source_task", Type: schema.KindString},
+			{Name: "status", Type: schema.KindString},
+			{Name: "summary", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "updated_at_us", Type: schema.KindUint64},
+			{Name: "started_at_us", Type: schema.KindUint64},
+			{Name: "completed_at_us", Type: schema.KindUint64},
+			{Name: "metrics_json", Type: schema.KindString},
+			{Name: "limits_json", Type: schema.KindString},
+			{Name: "control_json", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "chains_status", Columns: []string{"status"}},
+		},
+	})
+}
+
+func declareSteps(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "steps",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "chain_id", Type: schema.KindString},
+			{Name: "sequence", Type: schema.KindUint32},
+			{Name: "role", Type: schema.KindString},
+			{Name: "task", Type: schema.KindString},
+			{Name: "task_context", Type: schema.KindString},
+			{Name: "status", Type: schema.KindString},
+			{Name: "verdict", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "started_at_us", Type: schema.KindUint64},
+			{Name: "completed_at_us", Type: schema.KindUint64},
+			{Name: "receipt_path", Type: schema.KindString},
+			{Name: "tokens_used", Type: schema.KindUint64},
+			{Name: "turns_used", Type: schema.KindUint64},
+			{Name: "duration_secs", Type: schema.KindUint64},
+			{Name: "exit_code", Type: schema.KindInt64},
+			{Name: "has_exit_code", Type: schema.KindBool},
+			{Name: "error", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "steps_chain", Columns: []string{"chain_id"}},
+			{Name: "steps_status", Columns: []string{"status"}},
+		},
+	})
+}
+
+func declareEvents(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "events",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "chain_id", Type: schema.KindString},
+			{Name: "step_id", Type: schema.KindString},
+			{Name: "sequence", Type: schema.KindUint64},
+			{Name: "event_type", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+			{Name: "payload_json", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "events_chain", Columns: []string{"chain_id"}},
+			{Name: "events_type", Columns: []string{"event_type"}},
 		},
 	})
 }

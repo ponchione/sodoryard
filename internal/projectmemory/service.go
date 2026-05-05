@@ -276,6 +276,49 @@ type ReadContextReportResponse struct {
 	Found  bool
 }
 
+type ReadChainRequest struct {
+	ID string
+}
+
+type ReadChainResponse struct {
+	Chain Chain
+	Found bool
+}
+
+type ListChainsRequest struct {
+	Limit int
+}
+
+type ListChainsResponse struct {
+	Chains []Chain
+}
+
+type ReadStepRequest struct {
+	ID string
+}
+
+type ReadStepResponse struct {
+	Step  ChainStep
+	Found bool
+}
+
+type ListChainStepsRequest struct {
+	ChainID string
+}
+
+type ListChainStepsResponse struct {
+	Steps []ChainStep
+}
+
+type ListChainEventsSinceRequest struct {
+	ChainID       string
+	AfterSequence uint64
+}
+
+type ListChainEventsResponse struct {
+	Events []ChainEvent
+}
+
 type EmptyResponse struct{}
 
 func (s *brainRPCService) ReadDocument(req ReadDocumentRequest, resp *ReadDocumentResponse) error {
@@ -517,4 +560,83 @@ func (s *brainRPCService) ReadContextReport(req ReadContextReportRequest, resp *
 
 func (s *brainRPCService) UpdateContextReportQuality(req UpdateContextReportQualityArgs, resp *EmptyResponse) error {
 	return s.backend.UpdateContextReportQuality(context.Background(), req)
+}
+
+func (s *brainRPCService) StartChain(req StartChainArgs, resp *EmptyResponse) error {
+	return s.backend.StartChain(context.Background(), req)
+}
+
+func (s *brainRPCService) StartStep(req StartStepArgs, resp *EmptyResponse) error {
+	return s.backend.StartStep(context.Background(), req)
+}
+
+func (s *brainRPCService) StepRunning(req StepRunningArgs, resp *EmptyResponse) error {
+	return s.backend.StepRunning(context.Background(), req)
+}
+
+func (s *brainRPCService) CompleteStep(req CompleteStepArgs, resp *EmptyResponse) error {
+	return s.backend.CompleteStep(context.Background(), req)
+}
+
+func (s *brainRPCService) CompleteChain(req CompleteChainArgs, resp *EmptyResponse) error {
+	return s.backend.CompleteChain(context.Background(), req)
+}
+
+func (s *brainRPCService) UpdateChainMetrics(req UpdateChainMetricsArgs, resp *EmptyResponse) error {
+	return s.backend.UpdateChainMetrics(context.Background(), req)
+}
+
+func (s *brainRPCService) SetChainStatus(req SetChainStatusArgs, resp *EmptyResponse) error {
+	return s.backend.SetChainStatus(context.Background(), req)
+}
+
+func (s *brainRPCService) LogChainEvent(req LogChainEventArgs, resp *EmptyResponse) error {
+	return s.backend.LogChainEvent(context.Background(), req)
+}
+
+func (s *brainRPCService) ReadChain(req ReadChainRequest, resp *ReadChainResponse) error {
+	chain, found, err := s.backend.ReadChain(context.Background(), req.ID)
+	if err != nil {
+		return err
+	}
+	resp.Chain = chain
+	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) ListChains(req ListChainsRequest, resp *ListChainsResponse) error {
+	chains, err := s.backend.ListChains(context.Background(), req.Limit)
+	if err != nil {
+		return err
+	}
+	resp.Chains = chains
+	return nil
+}
+
+func (s *brainRPCService) ReadStep(req ReadStepRequest, resp *ReadStepResponse) error {
+	step, found, err := s.backend.ReadStep(context.Background(), req.ID)
+	if err != nil {
+		return err
+	}
+	resp.Step = step
+	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) ListChainSteps(req ListChainStepsRequest, resp *ListChainStepsResponse) error {
+	steps, err := s.backend.ListChainSteps(context.Background(), req.ChainID)
+	if err != nil {
+		return err
+	}
+	resp.Steps = steps
+	return nil
+}
+
+func (s *brainRPCService) ListChainEventsSince(req ListChainEventsSinceRequest, resp *ListChainEventsResponse) error {
+	events, err := s.backend.ListChainEventsSince(context.Background(), req.ChainID, req.AfterSequence)
+	if err != nil {
+		return err
+	}
+	resp.Events = events
+	return nil
 }

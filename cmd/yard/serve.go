@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ponchione/sodoryard/internal/agent"
-	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/operator"
@@ -141,7 +140,7 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		ProviderRouter:      rt.ProviderRouter,
 		BrainBackend:        rt.BrainBackend,
 		ConversationManager: rt.ConversationManager,
-		ChainStore:          chain.NewStore(rt.Database),
+		ChainStore:          rt.ChainStore,
 		Cleanup:             func() {},
 	}
 	operatorSvc, err := operator.NewForRuntime(operatorRuntime, operator.Options{ProcessID: os.Getpid})

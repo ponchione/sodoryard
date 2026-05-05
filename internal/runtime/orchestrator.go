@@ -133,6 +133,15 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		cleanup()
 		return nil, err
 	}
+	chainStore, err := BuildChainStore(cfg, database, memoryBackend)
+	if err != nil {
+		closeConversationManager()
+		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
+		cleanup()
+		return nil, err
+	}
 
 	rt := &OrchestratorRuntime{
 		Config:              cfg,
@@ -143,7 +152,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		BrainBackend:        brainBackend,
 		ConversationManager: convManager,
 		ContextAssembler:    NoopContextAssembler{},
-		ChainStore:          chain.NewStore(database),
+		ChainStore:          chainStore,
 		MemoryEndpointEnv:   memoryEndpointEnv,
 		Cleanup: func() {
 			// Drain in-flight sub-call writes before closing the DB so stream

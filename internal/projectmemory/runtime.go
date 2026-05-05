@@ -32,6 +32,23 @@ type ContextReportStore interface {
 	UpdateContextReportQuality(ctx context.Context, args UpdateContextReportQualityArgs) error
 }
 
+type ChainStore interface {
+	StartChain(ctx context.Context, args StartChainArgs) error
+	StartStep(ctx context.Context, args StartStepArgs) error
+	StepRunning(ctx context.Context, args StepRunningArgs) error
+	CompleteStep(ctx context.Context, args CompleteStepArgs) error
+	CompleteChain(ctx context.Context, args CompleteChainArgs) error
+	UpdateChainMetrics(ctx context.Context, args UpdateChainMetricsArgs) error
+	SetChainStatus(ctx context.Context, args SetChainStatusArgs) error
+	LogChainEvent(ctx context.Context, args LogChainEventArgs) error
+	ReadChain(ctx context.Context, id string) (Chain, bool, error)
+	ListChains(ctx context.Context, limit int) ([]Chain, error)
+	ReadStep(ctx context.Context, id string) (ChainStep, bool, error)
+	ListChainSteps(ctx context.Context, chainID string) ([]ChainStep, error)
+	ListChainEvents(ctx context.Context, chainID string) ([]ChainEvent, error)
+	ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]ChainEvent, error)
+}
+
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("project memory shunter data dir is required")
@@ -172,5 +189,45 @@ func (r *Runtime) StoreContextReport(ctx context.Context, args StoreContextRepor
 
 func (r *Runtime) UpdateContextReportQuality(ctx context.Context, args UpdateContextReportQualityArgs) error {
 	_, err := r.callReducerJSON(ctx, "update_context_report_quality", args)
+	return err
+}
+
+func (r *Runtime) StartChain(ctx context.Context, args StartChainArgs) error {
+	_, err := r.callReducerJSON(ctx, "start_chain", args)
+	return err
+}
+
+func (r *Runtime) StartStep(ctx context.Context, args StartStepArgs) error {
+	_, err := r.callReducerJSON(ctx, "start_step", args)
+	return err
+}
+
+func (r *Runtime) StepRunning(ctx context.Context, args StepRunningArgs) error {
+	_, err := r.callReducerJSON(ctx, "step_running", args)
+	return err
+}
+
+func (r *Runtime) CompleteStep(ctx context.Context, args CompleteStepArgs) error {
+	_, err := r.callReducerJSON(ctx, "complete_step", args)
+	return err
+}
+
+func (r *Runtime) CompleteChain(ctx context.Context, args CompleteChainArgs) error {
+	_, err := r.callReducerJSON(ctx, "complete_chain", args)
+	return err
+}
+
+func (r *Runtime) UpdateChainMetrics(ctx context.Context, args UpdateChainMetricsArgs) error {
+	_, err := r.callReducerJSON(ctx, "update_chain_metrics", args)
+	return err
+}
+
+func (r *Runtime) SetChainStatus(ctx context.Context, args SetChainStatusArgs) error {
+	_, err := r.callReducerJSON(ctx, "set_chain_status", args)
+	return err
+}
+
+func (r *Runtime) LogChainEvent(ctx context.Context, args LogChainEventArgs) error {
+	_, err := r.callReducerJSON(ctx, "log_chain_event", args)
 	return err
 }

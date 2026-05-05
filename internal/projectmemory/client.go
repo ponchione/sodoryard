@@ -261,6 +261,82 @@ func (c *Client) UpdateContextReportQuality(ctx context.Context, args UpdateCont
 	return c.call(ctx, "Brain.UpdateContextReportQuality", args, &EmptyResponse{})
 }
 
+func (c *Client) StartChain(ctx context.Context, args StartChainArgs) error {
+	return c.call(ctx, "Brain.StartChain", args, &EmptyResponse{})
+}
+
+func (c *Client) StartStep(ctx context.Context, args StartStepArgs) error {
+	return c.call(ctx, "Brain.StartStep", args, &EmptyResponse{})
+}
+
+func (c *Client) StepRunning(ctx context.Context, args StepRunningArgs) error {
+	return c.call(ctx, "Brain.StepRunning", args, &EmptyResponse{})
+}
+
+func (c *Client) CompleteStep(ctx context.Context, args CompleteStepArgs) error {
+	return c.call(ctx, "Brain.CompleteStep", args, &EmptyResponse{})
+}
+
+func (c *Client) CompleteChain(ctx context.Context, args CompleteChainArgs) error {
+	return c.call(ctx, "Brain.CompleteChain", args, &EmptyResponse{})
+}
+
+func (c *Client) UpdateChainMetrics(ctx context.Context, args UpdateChainMetricsArgs) error {
+	return c.call(ctx, "Brain.UpdateChainMetrics", args, &EmptyResponse{})
+}
+
+func (c *Client) SetChainStatus(ctx context.Context, args SetChainStatusArgs) error {
+	return c.call(ctx, "Brain.SetChainStatus", args, &EmptyResponse{})
+}
+
+func (c *Client) LogChainEvent(ctx context.Context, args LogChainEventArgs) error {
+	return c.call(ctx, "Brain.LogChainEvent", args, &EmptyResponse{})
+}
+
+func (c *Client) ReadChain(ctx context.Context, id string) (Chain, bool, error) {
+	var resp ReadChainResponse
+	if err := c.call(ctx, "Brain.ReadChain", ReadChainRequest{ID: id}, &resp); err != nil {
+		return Chain{}, false, err
+	}
+	return resp.Chain, resp.Found, nil
+}
+
+func (c *Client) ListChains(ctx context.Context, limit int) ([]Chain, error) {
+	var resp ListChainsResponse
+	if err := c.call(ctx, "Brain.ListChains", ListChainsRequest{Limit: limit}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Chains, nil
+}
+
+func (c *Client) ReadStep(ctx context.Context, id string) (ChainStep, bool, error) {
+	var resp ReadStepResponse
+	if err := c.call(ctx, "Brain.ReadStep", ReadStepRequest{ID: id}, &resp); err != nil {
+		return ChainStep{}, false, err
+	}
+	return resp.Step, resp.Found, nil
+}
+
+func (c *Client) ListChainSteps(ctx context.Context, chainID string) ([]ChainStep, error) {
+	var resp ListChainStepsResponse
+	if err := c.call(ctx, "Brain.ListChainSteps", ListChainStepsRequest{ChainID: chainID}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Steps, nil
+}
+
+func (c *Client) ListChainEvents(ctx context.Context, chainID string) ([]ChainEvent, error) {
+	return c.ListChainEventsSince(ctx, chainID, 0)
+}
+
+func (c *Client) ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]ChainEvent, error) {
+	var resp ListChainEventsResponse
+	if err := c.call(ctx, "Brain.ListChainEventsSince", ListChainEventsSinceRequest{ChainID: chainID, AfterSequence: afterSequence}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Events, nil
+}
+
 func (c *Client) call(ctx context.Context, method string, args any, reply any) error {
 	if c == nil || c.rpc == nil {
 		return fmt.Errorf("project memory RPC client is closed")

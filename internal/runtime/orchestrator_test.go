@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
@@ -51,6 +52,24 @@ func TestBuildOrchestratorRuntimeStartsMemoryRPCForShunterBrain(t *testing.T) {
 	}
 	if got != "# Runtime\n\nRPC is live." {
 		t.Fatalf("runtime content = %q, want RPC content", got)
+	}
+	chainID, err := rt.ChainStore.StartChain(ctx, chain.ChainSpec{ChainID: "orchestrator-chain", SourceTask: "rpc chain state"})
+	if err != nil {
+		t.Fatalf("runtime ChainStore StartChain: %v", err)
+	}
+	client, err = projectmemory.DialBrainBackend("unix:" + cfg.Memory.RPC.Path)
+	if err != nil {
+		t.Fatalf("DialBrainBackend for chain read: %v", err)
+	}
+	chainRow, found, err := client.ReadChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("client ReadChain: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("client Close after chain read: %v", err)
+	}
+	if !found || chainRow.SourceTask != "rpc chain state" {
+		t.Fatalf("RPC chain row = %+v found=%t, want rpc chain state", chainRow, found)
 	}
 
 	rt.Cleanup()

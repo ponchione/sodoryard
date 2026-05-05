@@ -228,6 +228,62 @@ func (b *BrainBackend) UpdateContextReportQuality(ctx context.Context, args Upda
 	return b.runtime.UpdateContextReportQuality(ctx, args)
 }
 
+func (b *BrainBackend) StartChain(ctx context.Context, args StartChainArgs) error {
+	return b.runtime.StartChain(ctx, args)
+}
+
+func (b *BrainBackend) StartStep(ctx context.Context, args StartStepArgs) error {
+	return b.runtime.StartStep(ctx, args)
+}
+
+func (b *BrainBackend) StepRunning(ctx context.Context, args StepRunningArgs) error {
+	return b.runtime.StepRunning(ctx, args)
+}
+
+func (b *BrainBackend) CompleteStep(ctx context.Context, args CompleteStepArgs) error {
+	return b.runtime.CompleteStep(ctx, args)
+}
+
+func (b *BrainBackend) CompleteChain(ctx context.Context, args CompleteChainArgs) error {
+	return b.runtime.CompleteChain(ctx, args)
+}
+
+func (b *BrainBackend) UpdateChainMetrics(ctx context.Context, args UpdateChainMetricsArgs) error {
+	return b.runtime.UpdateChainMetrics(ctx, args)
+}
+
+func (b *BrainBackend) SetChainStatus(ctx context.Context, args SetChainStatusArgs) error {
+	return b.runtime.SetChainStatus(ctx, args)
+}
+
+func (b *BrainBackend) LogChainEvent(ctx context.Context, args LogChainEventArgs) error {
+	return b.runtime.LogChainEvent(ctx, args)
+}
+
+func (b *BrainBackend) ReadChain(ctx context.Context, id string) (Chain, bool, error) {
+	return b.runtime.ReadChain(ctx, id)
+}
+
+func (b *BrainBackend) ListChains(ctx context.Context, limit int) ([]Chain, error) {
+	return b.runtime.ListChains(ctx, limit)
+}
+
+func (b *BrainBackend) ReadStep(ctx context.Context, id string) (ChainStep, bool, error) {
+	return b.runtime.ReadStep(ctx, id)
+}
+
+func (b *BrainBackend) ListChainSteps(ctx context.Context, chainID string) ([]ChainStep, error) {
+	return b.runtime.ListChainSteps(ctx, chainID)
+}
+
+func (b *BrainBackend) ListChainEvents(ctx context.Context, chainID string) ([]ChainEvent, error) {
+	return b.runtime.ListChainEvents(ctx, chainID)
+}
+
+func (b *BrainBackend) ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]ChainEvent, error) {
+	return b.runtime.ListChainEventsSince(ctx, chainID, afterSequence)
+}
+
 func inferDocumentKind(path string) string {
 	switch {
 	case strings.HasPrefix(path, "conventions/"):

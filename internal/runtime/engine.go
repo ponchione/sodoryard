@@ -10,6 +10,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
+	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
 	codegraph "github.com/ponchione/sodoryard/internal/codeintel/graph"
@@ -38,6 +39,7 @@ type EngineRuntime struct {
 	ConversationManager *conversation.Manager
 	ContextAssembler    *contextpkg.ContextAssembler
 	ToolRecorder        *tool.ToolExecutionRecorder
+	ChainStore          *chain.Store
 	Cleanup             func()
 }
 
@@ -98,6 +100,10 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	if err != nil {
 		return closeOnError(err)
 	}
+	chainStore, err := BuildChainStore(cfg, database, memoryBackend)
+	if err != nil {
+		return closeOnError(err)
+	}
 
 	graphStore, closeGraphStore, err := BuildGraphStore(cfg)
 	if err != nil {
@@ -140,6 +146,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		ConversationManager: convManager,
 		ContextAssembler:    contextAssembler,
 		ToolRecorder:        toolRecorder,
+		ChainStore:          chainStore,
 		Cleanup:             cleanup,
 	}, nil
 }
@@ -289,6 +296,17 @@ func BuildContextReportStore(cfg *appconfig.Config, database *sql.DB, memoryBack
 		return contextpkg.NewProjectMemoryReportStore(store), nil
 	}
 	return contextpkg.NewSQLiteReportStore(database), nil
+}
+
+func BuildChainStore(cfg *appconfig.Config, database *sql.DB, memoryBackend any) (*chain.Store, error) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		store, ok := memoryBackend.(projectmemory.ChainStore)
+		if !ok || store == nil {
+			return nil, fmt.Errorf("shunter memory backend requires a project memory chain store")
+		}
+		return chain.NewProjectMemoryStore(store), nil
+	}
+	return chain.NewStore(database), nil
 }
 
 // BuildGraphStore opens (or creates) the code-graph SQLite store at the path

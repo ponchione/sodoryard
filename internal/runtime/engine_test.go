@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
@@ -274,6 +275,35 @@ func TestBuildContextReportStoreUsesProjectMemoryInShunterMode(t *testing.T) {
 	}
 	if !found || report.ID != projectmemory.ContextReportID("conv-runtime-context", 1) {
 		t.Fatalf("report = %+v found=%t, want runtime Shunter context report", report, found)
+	}
+}
+
+func TestBuildChainStoreUsesProjectMemoryInShunterMode(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(projectRoot, "memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	store, err := BuildChainStore(cfg, nil, backend)
+	if err != nil {
+		t.Fatalf("BuildChainStore: %v", err)
+	}
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "runtime-chain", SourceTask: "runtime shunter chain", MaxSteps: 2, MaxResolverLoops: 1, MaxDuration: time.Minute, TokenBudget: 10})
+	if err != nil {
+		t.Fatalf("StartChain: %v", err)
+	}
+	row, found, err := backend.ReadChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ReadChain: %v", err)
+	}
+	if !found || row.ID != "runtime-chain" || row.SourceTask != "runtime shunter chain" {
+		t.Fatalf("chain row = %+v found=%t, want runtime Shunter chain", row, found)
 	}
 }
 

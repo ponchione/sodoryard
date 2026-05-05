@@ -605,6 +605,122 @@ func TestContextReportsStoreUpdateDiscardAndRestart(t *testing.T) {
 	}
 }
 
+func TestChainsStepsEventsStoreAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	startedAt := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	if err := backend.StartChain(ctx, StartChainArgs{
+		ID:               "chain-shunter",
+		SourceSpecsJSON:  `["specs/one.md"]`,
+		SourceTask:       "ship chain state",
+		MaxSteps:         5,
+		MaxResolverLoops: 2,
+		MaxDurationSecs:  3600,
+		TokenBudget:      1000,
+		CreatedAtUS:      uint64(startedAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("StartChain: %v", err)
+	}
+	if err := backend.StartStep(ctx, StartStepArgs{
+		ID:          "step-1",
+		ChainID:     "chain-shunter",
+		Sequence:    1,
+		Role:        "coder",
+		Task:        "do work",
+		TaskContext: "ctx-1",
+		CreatedAtUS: uint64(startedAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	if err := backend.StepRunning(ctx, StepRunningArgs{ID: "step-1", StartedAtUS: uint64(startedAt.Add(2 * time.Second).UnixMicro())}); err != nil {
+		t.Fatalf("StepRunning: %v", err)
+	}
+	if err := backend.CompleteStep(ctx, CompleteStepArgs{
+		ID:            "step-1",
+		Status:        "completed",
+		Verdict:       "completed",
+		ReceiptPath:   "receipts/coder/chain-shunter-step-001.md",
+		TokensUsed:    42,
+		TurnsUsed:     3,
+		DurationSecs:  9,
+		ExitCode:      0,
+		HasExitCode:   true,
+		CompletedAtUS: uint64(startedAt.Add(10 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CompleteStep: %v", err)
+	}
+	if err := backend.UpdateChainMetrics(ctx, UpdateChainMetricsArgs{
+		ID:                "chain-shunter",
+		TotalSteps:        1,
+		TotalTokens:       42,
+		TotalDurationSecs: 9,
+		ResolverLoops:     0,
+		UpdatedAtUS:       uint64(startedAt.Add(11 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("UpdateChainMetrics: %v", err)
+	}
+	if err := backend.LogChainEvent(ctx, LogChainEventArgs{
+		ChainID:     "chain-shunter",
+		EventType:   "chain_started",
+		PayloadJSON: `{"execution_id":"exec-1"}`,
+		CreatedAtUS: uint64(startedAt.Add(12 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("LogChainEvent start: %v", err)
+	}
+	if err := backend.LogChainEvent(ctx, LogChainEventArgs{
+		ChainID:     "chain-shunter",
+		StepID:      "step-1",
+		EventType:   "step_completed",
+		PayloadJSON: `{"verdict":"completed"}`,
+		CreatedAtUS: uint64(startedAt.Add(13 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("LogChainEvent step: %v", err)
+	}
+	if err := backend.CompleteChain(ctx, CompleteChainArgs{
+		ID:            "chain-shunter",
+		Status:        "completed",
+		Summary:       "done",
+		CompletedAtUS: uint64(startedAt.Add(14 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CompleteChain: %v", err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	chain, found, err := reopened.ReadChain(ctx, "chain-shunter")
+	if err != nil {
+		t.Fatalf("ReadChain: %v", err)
+	}
+	if !found || chain.Status != "completed" || !strings.Contains(chain.MetricsJSON, `"total_tokens":42`) || !strings.Contains(chain.LimitsJSON, `"max_steps":5`) {
+		t.Fatalf("chain = %+v found=%t, want completed metrics/limits", chain, found)
+	}
+	steps, err := reopened.ListChainSteps(ctx, "chain-shunter")
+	if err != nil {
+		t.Fatalf("ListChainSteps: %v", err)
+	}
+	if len(steps) != 1 || steps[0].ID != "step-1" || steps[0].TokensUsed != 42 || !steps[0].HasExitCode {
+		t.Fatalf("steps = %+v, want completed step-1", steps)
+	}
+	events, err := reopened.ListChainEventsSince(ctx, "chain-shunter", 1)
+	if err != nil {
+		t.Fatalf("ListChainEventsSince: %v", err)
+	}
+	if len(events) != 1 || events[0].Sequence != 2 || events[0].EventType != "step_completed" {
+		t.Fatalf("events since 1 = %+v, want step_completed sequence 2", events)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
@@ -754,5 +870,52 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if !found || !strings.Contains(parentReport.QualityJSON, "notes/rpc.md") {
 		t.Fatalf("parent report after RPC = %+v found=%t, want notes/rpc.md quality", parentReport, found)
+	}
+	if err := client.StartChain(ctx, StartChainArgs{
+		ID:               "rpc-chain",
+		SourceSpecsJSON:  `["specs/rpc.md"]`,
+		SourceTask:       "rpc chain",
+		MaxSteps:         3,
+		MaxResolverLoops: 1,
+		MaxDurationSecs:  60,
+		TokenBudget:      100,
+	}); err != nil {
+		t.Fatalf("client StartChain: %v", err)
+	}
+	if err := client.StartStep(ctx, StartStepArgs{ID: "rpc-step", ChainID: "rpc-chain", Sequence: 1, Role: "coder", Task: "rpc step"}); err != nil {
+		t.Fatalf("client StartStep: %v", err)
+	}
+	if err := client.StepRunning(ctx, StepRunningArgs{ID: "rpc-step"}); err != nil {
+		t.Fatalf("client StepRunning: %v", err)
+	}
+	if err := client.CompleteStep(ctx, CompleteStepArgs{ID: "rpc-step", Status: "completed", Verdict: "completed", TokensUsed: 7}); err != nil {
+		t.Fatalf("client CompleteStep: %v", err)
+	}
+	if err := client.UpdateChainMetrics(ctx, UpdateChainMetricsArgs{ID: "rpc-chain", TotalSteps: 1, TotalTokens: 7}); err != nil {
+		t.Fatalf("client UpdateChainMetrics: %v", err)
+	}
+	if err := client.LogChainEvent(ctx, LogChainEventArgs{ChainID: "rpc-chain", EventType: "chain_started", PayloadJSON: `{"rpc":true}`}); err != nil {
+		t.Fatalf("client LogChainEvent: %v", err)
+	}
+	parentChain, found, err := backend.ReadChain(ctx, "rpc-chain")
+	if err != nil {
+		t.Fatalf("parent ReadChain: %v", err)
+	}
+	if !found || parentChain.SourceTask != "rpc chain" || !strings.Contains(parentChain.MetricsJSON, `"total_tokens":7`) {
+		t.Fatalf("parent chain after RPC = %+v found=%t, want rpc chain metrics", parentChain, found)
+	}
+	parentSteps, err := backend.ListChainSteps(ctx, "rpc-chain")
+	if err != nil {
+		t.Fatalf("parent ListChainSteps: %v", err)
+	}
+	if len(parentSteps) != 1 || parentSteps[0].ID != "rpc-step" || parentSteps[0].TokensUsed != 7 {
+		t.Fatalf("parent steps after RPC = %+v, want rpc-step", parentSteps)
+	}
+	parentEvents, err := backend.ListChainEvents(ctx, "rpc-chain")
+	if err != nil {
+		t.Fatalf("parent ListChainEvents: %v", err)
+	}
+	if len(parentEvents) != 1 || parentEvents[0].Sequence != 1 || parentEvents[0].EventType != "chain_started" {
+		t.Fatalf("parent events after RPC = %+v, want chain_started", parentEvents)
 	}
 }

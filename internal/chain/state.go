@@ -12,9 +12,28 @@ import (
 )
 
 type Store struct {
-	q     *appdb.Queries
-	db    *sql.DB
-	clock func() time.Time
+	q      *appdb.Queries
+	db     *sql.DB
+	memory storeBackend
+	clock  func() time.Time
+}
+
+type storeBackend interface {
+	StartChain(ctx context.Context, spec ChainSpec) (string, error)
+	StartStep(ctx context.Context, spec StepSpec) (string, error)
+	StepRunning(ctx context.Context, stepID string) error
+	CompleteStep(ctx context.Context, params CompleteStepParams) error
+	CompleteChain(ctx context.Context, chainID, status, summary string) error
+	UpdateChainMetrics(ctx context.Context, chainID string, metrics ChainMetrics) error
+	GetChain(ctx context.Context, chainID string) (*Chain, error)
+	ListChains(ctx context.Context, limit int) ([]Chain, error)
+	GetStep(ctx context.Context, stepID string) (*Step, error)
+	ListSteps(ctx context.Context, chainID string) ([]Step, error)
+	SetChainStatus(ctx context.Context, chainID, status string) error
+	CountResolverStepsForContext(ctx context.Context, chainID, taskContext string) (int, error)
+	LogEvent(ctx context.Context, chainID string, stepID string, eventType EventType, eventData any) error
+	ListEvents(ctx context.Context, chainID string) ([]Event, error)
+	ListEventsSince(ctx context.Context, chainID string, afterID int64) ([]Event, error)
 }
 
 type ChainSpec struct {
@@ -137,6 +156,14 @@ func (s *Store) StartChain(ctx context.Context, spec ChainSpec) (string, error) 
 	if tokenBudget <= 0 {
 		tokenBudget = 5_000_000
 	}
+	if s != nil && s.memory != nil {
+		spec.ChainID = chainID
+		spec.MaxSteps = maxSteps
+		spec.MaxResolverLoops = maxResolverLoops
+		spec.MaxDuration = time.Duration(maxDurationSecs) * time.Second
+		spec.TokenBudget = tokenBudget
+		return s.memory.StartChain(ctx, spec)
+	}
 	if err := s.q.CreateChain(ctx, appdb.CreateChainParams{
 		ID:               chainID,
 		SourceSpecs:      marshalStrings(spec.SourceSpecs),
@@ -156,6 +183,10 @@ func (s *Store) StartStep(ctx context.Context, spec StepSpec) (string, error) {
 	if stepID == "" {
 		stepID = id.New()
 	}
+	if s != nil && s.memory != nil {
+		spec.StepID = stepID
+		return s.memory.StartStep(ctx, spec)
+	}
 	if err := s.q.CreateStep(ctx, appdb.CreateStepParams{
 		ID:          stepID,
 		ChainID:     spec.ChainID,
@@ -170,6 +201,9 @@ func (s *Store) StartStep(ctx context.Context, spec StepSpec) (string, error) {
 }
 
 func (s *Store) StepRunning(ctx context.Context, stepID string) error {
+	if s != nil && s.memory != nil {
+		return s.memory.StepRunning(ctx, stepID)
+	}
 	if err := s.q.StartStep(ctx, stepID); err != nil {
 		return fmt.Errorf("step running: %w", err)
 	}
@@ -177,6 +211,9 @@ func (s *Store) StepRunning(ctx context.Context, stepID string) error {
 }
 
 func (s *Store) CompleteStep(ctx context.Context, params CompleteStepParams) error {
+	if s != nil && s.memory != nil {
+		return s.memory.CompleteStep(ctx, params)
+	}
 	if err := s.q.CompleteStep(ctx, appdb.CompleteStepParams{
 		Status:       params.Status,
 		Verdict:      nullableString(params.Verdict),
@@ -199,6 +236,9 @@ func (s *Store) FailStep(ctx context.Context, params CompleteStepParams) error {
 }
 
 func (s *Store) CompleteChain(ctx context.Context, chainID, status, summary string) error {
+	if s != nil && s.memory != nil {
+		return s.memory.CompleteChain(ctx, chainID, status, summary)
+	}
 	if err := s.q.CompleteChain(ctx, appdb.CompleteChainParams{Status: status, Summary: nullableString(summary), ID: chainID}); err != nil {
 		return fmt.Errorf("complete chain: %w", err)
 	}
@@ -206,6 +246,9 @@ func (s *Store) CompleteChain(ctx context.Context, chainID, status, summary stri
 }
 
 func (s *Store) UpdateChainMetrics(ctx context.Context, chainID string, metrics ChainMetrics) error {
+	if s != nil && s.memory != nil {
+		return s.memory.UpdateChainMetrics(ctx, chainID, metrics)
+	}
 	if err := s.q.UpdateChainMetrics(ctx, appdb.UpdateChainMetricsParams{
 		TotalSteps:        int64(metrics.TotalSteps),
 		TotalTokens:       int64(metrics.TotalTokens),
@@ -219,6 +262,9 @@ func (s *Store) UpdateChainMetrics(ctx context.Context, chainID string, metrics 
 }
 
 func (s *Store) GetChain(ctx context.Context, chainID string) (*Chain, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.GetChain(ctx, chainID)
+	}
 	row, err := s.q.GetChain(ctx, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("get chain: %w", err)
@@ -231,6 +277,9 @@ func (s *Store) GetChain(ctx context.Context, chainID string) (*Chain, error) {
 }
 
 func (s *Store) ListChains(ctx context.Context, limit int) ([]Chain, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.ListChains(ctx, limit)
+	}
 	rows, err := s.q.ListChains(ctx, int64(limit))
 	if err != nil {
 		return nil, fmt.Errorf("list chains: %w", err)
@@ -247,6 +296,9 @@ func (s *Store) ListChains(ctx context.Context, limit int) ([]Chain, error) {
 }
 
 func (s *Store) GetStep(ctx context.Context, stepID string) (*Step, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.GetStep(ctx, stepID)
+	}
 	row, err := s.q.GetStep(ctx, stepID)
 	if err != nil {
 		return nil, fmt.Errorf("get step: %w", err)
@@ -259,6 +311,9 @@ func (s *Store) GetStep(ctx context.Context, stepID string) (*Step, error) {
 }
 
 func (s *Store) ListSteps(ctx context.Context, chainID string) ([]Step, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.ListSteps(ctx, chainID)
+	}
 	rows, err := s.q.ListStepsByChain(ctx, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("list steps: %w", err)
@@ -275,6 +330,9 @@ func (s *Store) ListSteps(ctx context.Context, chainID string) ([]Step, error) {
 }
 
 func (s *Store) SetChainStatus(ctx context.Context, chainID, status string) error {
+	if s != nil && s.memory != nil {
+		return s.memory.SetChainStatus(ctx, chainID, status)
+	}
 	if err := s.q.UpdateChainStatus(ctx, appdb.UpdateChainStatusParams{Status: status, ID: chainID}); err != nil {
 		return fmt.Errorf("set chain status: %w", err)
 	}
@@ -282,6 +340,9 @@ func (s *Store) SetChainStatus(ctx context.Context, chainID, status string) erro
 }
 
 func (s *Store) CountResolverStepsForContext(ctx context.Context, chainID, taskContext string) (int, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.CountResolverStepsForContext(ctx, chainID, taskContext)
+	}
 	count, err := s.q.CountResolverStepsForTaskContext(ctx, appdb.CountResolverStepsForTaskContextParams{ChainID: chainID, TaskContext: nullableString(taskContext)})
 	if err != nil {
 		return 0, fmt.Errorf("count resolver steps: %w", err)
@@ -290,6 +351,9 @@ func (s *Store) CountResolverStepsForContext(ctx context.Context, chainID, taskC
 }
 
 func (s *Store) ListEvents(ctx context.Context, chainID string) ([]Event, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.ListEvents(ctx, chainID)
+	}
 	rows, err := s.q.ListEventsByChain(ctx, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
