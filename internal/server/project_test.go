@@ -13,6 +13,7 @@ import (
 	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/server"
 )
 
@@ -207,6 +208,147 @@ func TestProjectEndpointIncludesBrainIndexState(t *testing.T) {
 	}
 	if body.BrainIndex.StaleReason != "brain_update" {
 		t.Fatalf("brain_index.stale_reason = %q, want brain_update", body.BrainIndex.StaleReason)
+	}
+}
+
+func TestProjectEndpointReadsShunterIndexStateWithoutLegacyStores(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.ProjectRoot = dir
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(dir, ".yard", "shunter", "project-memory")
+	cfg.Memory.DurableAck = true
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Brain.ShunterDataDir = cfg.Memory.ShunterDataDir
+
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: cfg.Memory.ShunterDataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	codeIndexedAt := time.Date(2026, 5, 5, 14, 15, 0, 0, time.UTC)
+	brainIndexedAt := time.Date(2026, 5, 5, 15, 30, 0, 0, time.UTC)
+	if err := backend.MarkCodeIndexClean(ctx, "abc123def", codeIndexedAt, []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkCodeIndexClean: %v", err)
+	}
+	if err := backend.MarkBrainIndexClean(ctx, brainIndexedAt, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkBrainIndexClean: %v", err)
+	}
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewProjectHandler(srv, cfg, newTestLogger(), backend)
+	_, base := startServer(t, srv)
+
+	resp, err := http.Get(base + "/api/project")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		LastIndexedAt     string `json:"last_indexed_at"`
+		LastIndexedCommit string `json:"last_indexed_commit"`
+		BrainIndex        *struct {
+			Status        string `json:"status"`
+			LastIndexedAt string `json:"last_indexed_at"`
+		} `json:"brain_index"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.LastIndexedAt != codeIndexedAt.Format(time.RFC3339) || body.LastIndexedCommit != "abc123def" {
+		t.Fatalf("code index metadata = %q/%q, want Shunter abc123def at %s", body.LastIndexedAt, body.LastIndexedCommit, codeIndexedAt.Format(time.RFC3339))
+	}
+	if body.BrainIndex == nil {
+		t.Fatal("expected brain_index payload")
+	}
+	if body.BrainIndex.Status != brainindexstate.StatusClean || body.BrainIndex.LastIndexedAt != brainIndexedAt.Format(time.RFC3339) {
+		t.Fatalf("brain_index = %+v, want Shunter clean at %s", body.BrainIndex, brainIndexedAt.Format(time.RFC3339))
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
+	if _, err := os.Stat(brainindexstate.Path(dir)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state stat err = %v, want no file-backed state created in Shunter mode", err)
+	}
+}
+
+func TestProjectEndpointUsesMemoryEndpointForShunterIndexState(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parentBackend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(t.TempDir(), "parent-memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	t.Cleanup(func() { _ = parentBackend.Close() })
+	indexedAt := time.Date(2026, 5, 5, 16, 45, 0, 0, time.UTC)
+	if err := parentBackend.MarkCodeIndexClean(ctx, "endpoint123", indexedAt, []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkCodeIndexClean: %v", err)
+	}
+	if err := parentBackend.MarkBrainIndexClean(ctx, indexedAt, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkBrainIndexClean: %v", err)
+	}
+
+	socketPath := filepath.Join(dir, ".yard", "run", "memory.sock")
+	rpcServer, err := projectmemory.StartRPCServer(ctx, projectmemory.RPCConfig{Transport: "unix", Path: socketPath}, parentBackend)
+	if err != nil {
+		t.Fatalf("StartRPCServer: %v", err)
+	}
+	t.Cleanup(func() { _ = rpcServer.Close() })
+	t.Setenv(projectmemory.EnvMemoryEndpoint, "unix:"+socketPath)
+
+	cfg := config.Default()
+	cfg.ProjectRoot = dir
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(dir, "child-should-not-open")
+	cfg.Memory.DurableAck = true
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Brain.ShunterDataDir = cfg.Memory.ShunterDataDir
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewProjectHandler(srv, cfg, newTestLogger())
+	_, base := startServer(t, srv)
+
+	resp, err := http.Get(base + "/api/project")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		LastIndexedAt     string `json:"last_indexed_at"`
+		LastIndexedCommit string `json:"last_indexed_commit"`
+		BrainIndex        *struct {
+			Status        string `json:"status"`
+			LastIndexedAt string `json:"last_indexed_at"`
+		} `json:"brain_index"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.LastIndexedAt != indexedAt.Format(time.RFC3339) || body.LastIndexedCommit != "endpoint123" {
+		t.Fatalf("code index metadata = %q/%q, want endpoint Shunter state", body.LastIndexedAt, body.LastIndexedCommit)
+	}
+	if body.BrainIndex == nil || body.BrainIndex.Status != brainindexstate.StatusClean || body.BrainIndex.LastIndexedAt != indexedAt.Format(time.RFC3339) {
+		t.Fatalf("brain_index = %+v, want endpoint Shunter clean state", body.BrainIndex)
+	}
+	if _, err := os.Stat(cfg.Memory.ShunterDataDir); !os.IsNotExist(err) {
+		t.Fatalf("child data dir stat err = %v, want memory endpoint path to avoid opening local Shunter data dir", err)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
+	if _, err := os.Stat(brainindexstate.Path(dir)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state stat err = %v, want no file-backed state created in Shunter mode", err)
 	}
 }
 

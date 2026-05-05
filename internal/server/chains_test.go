@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/operator"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/server"
 )
@@ -127,6 +130,76 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	getJSON(t, base+"/api/chains/"+chainID+"/receipt?step=1", &receipt)
 	if receipt.Path != receiptPath || receipt.Content != "receipt content" {
 		t.Fatalf("receipt = %+v, want content", receipt)
+	}
+}
+
+func TestRuntimeStatusEndpointReadsShunterIndexStateWithoutLegacyStores(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := config.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	cfg.Memory.DurableAck = true
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Brain.ShunterDataDir = cfg.Memory.ShunterDataDir
+	cfg.Routing.Default.Model = "test-model"
+
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: cfg.Memory.ShunterDataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	codeIndexedAt := time.Date(2026, 5, 5, 17, 0, 0, 0, time.UTC)
+	brainIndexedAt := time.Date(2026, 5, 5, 17, 5, 0, 0, time.UTC)
+	if err := backend.MarkCodeIndexClean(ctx, "status123", codeIndexedAt, []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkCodeIndexClean: %v", err)
+	}
+	if err := backend.MarkBrainIndexClean(ctx, brainIndexedAt, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkBrainIndexClean: %v", err)
+	}
+
+	store := chain.NewStore(newChainInspectorTestDB(t))
+	opSvc, err := operator.NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:       cfg,
+		ChainStore:   store,
+		BrainBackend: backend,
+		Cleanup:      func() {},
+	}, operator.Options{})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(opSvc.Close)
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewChainInspectorHandler(srv, opSvc, newTestLogger())
+	_, base := startServer(t, srv)
+
+	var status struct {
+		CodeIndex struct {
+			Status            string `json:"status"`
+			LastIndexedAt     string `json:"last_indexed_at"`
+			LastIndexedCommit string `json:"last_indexed_commit"`
+		} `json:"code_index"`
+		BrainIndex struct {
+			Status        string `json:"status"`
+			LastIndexedAt string `json:"last_indexed_at"`
+		} `json:"brain_index"`
+	}
+	getJSON(t, base+"/api/runtime/status", &status)
+
+	if status.CodeIndex.Status != "indexed" || status.CodeIndex.LastIndexedCommit != "status123" || status.CodeIndex.LastIndexedAt != codeIndexedAt.Format(time.RFC3339) {
+		t.Fatalf("code_index = %+v, want Shunter indexed status123", status.CodeIndex)
+	}
+	if status.BrainIndex.Status != brainindexstate.StatusClean || status.BrainIndex.LastIndexedAt != brainIndexedAt.Format(time.RFC3339) {
+		t.Fatalf("brain_index = %+v, want Shunter clean state", status.BrainIndex)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state stat err = %v, want no file-backed state created in Shunter mode", err)
 	}
 }
 

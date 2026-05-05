@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/config"
@@ -18,20 +19,26 @@ import (
 	"github.com/ponchione/sodoryard/internal/langutil"
 	"github.com/ponchione/sodoryard/internal/pathglob"
 	"github.com/ponchione/sodoryard/internal/pathguard"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 // ProjectHandler serves project info, file tree, and file content endpoints.
 type ProjectHandler struct {
-	cfg    *config.Config
-	logger *slog.Logger
+	cfg           *config.Config
+	logger        *slog.Logger
+	memoryBackend any
 
 	langOnce sync.Once
 	langVal  string // cached primary language
 }
 
 // NewProjectHandler creates a handler and registers routes on the server.
-func NewProjectHandler(s *Server, cfg *config.Config, logger *slog.Logger) *ProjectHandler {
-	h := &ProjectHandler{cfg: cfg, logger: logger}
+func NewProjectHandler(s *Server, cfg *config.Config, logger *slog.Logger, memoryBackend ...any) *ProjectHandler {
+	var backend any
+	if len(memoryBackend) > 0 {
+		backend = memoryBackend[0]
+	}
+	h := &ProjectHandler{cfg: cfg, logger: logger, memoryBackend: backend}
 
 	s.HandleFunc("GET /api/project", h.handleProject)
 	s.HandleFunc("GET /api/project/tree", h.handleTree)
@@ -59,7 +66,7 @@ type brainIndexResponse struct {
 	StaleReason   string `json:"stale_reason,omitempty"`
 }
 
-func (h *ProjectHandler) handleProject(w http.ResponseWriter, _ *http.Request) {
+func (h *ProjectHandler) handleProject(w http.ResponseWriter, r *http.Request) {
 	name := filepath.Base(h.cfg.ProjectRoot)
 
 	h.langOnce.Do(func() {
@@ -67,8 +74,8 @@ func (h *ProjectHandler) handleProject(w http.ResponseWriter, _ *http.Request) {
 		h.logger.Info("cached primary language", "language", h.langVal)
 	})
 
-	lastIndexedAt, lastIndexedCommit := h.loadProjectIndexMetadata(context.Background())
-	brainIndex := h.loadBrainIndexState()
+	lastIndexedAt, lastIndexedCommit := h.loadProjectIndexMetadata(r.Context())
+	brainIndex := h.loadBrainIndexState(r.Context())
 
 	writeJSON(w, http.StatusOK, projectInfoResponse{
 		ID:                h.cfg.ProjectRoot,
@@ -168,6 +175,9 @@ func (h *ProjectHandler) loadProjectIndexMetadata(ctx context.Context) (lastInde
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if h.cfg != nil && h.cfg.Memory.Backend == "shunter" {
+		return h.loadShunterProjectIndexMetadata(ctx)
+	}
 	databasePath := h.cfg.DatabasePath()
 	if strings.TrimSpace(databasePath) == "" {
 		return "", ""
@@ -200,9 +210,35 @@ func (h *ProjectHandler) loadProjectIndexMetadata(ctx context.Context) (lastInde
 	return lastIndexedAt, lastIndexedCommit
 }
 
-func (h *ProjectHandler) loadBrainIndexState() *brainIndexResponse {
+func (h *ProjectHandler) loadShunterProjectIndexMetadata(ctx context.Context) (lastIndexedAt string, lastIndexedCommit string) {
+	backend, cleanup, err := h.projectMemoryIndexBackend(ctx)
+	if err != nil {
+		h.logger.Debug("open project memory index backend", "error", err)
+		return "", ""
+	}
+	defer cleanup()
+	reader, ok := backend.(shunterCodeIndexStateReader)
+	if !ok || reader == nil {
+		h.logger.Debug("project memory code index reader unavailable")
+		return "", ""
+	}
+	state, found, err := reader.ReadCodeIndexState(ctx)
+	if err != nil {
+		h.logger.Debug("load Shunter code index metadata", "error", err)
+		return "", ""
+	}
+	if !found {
+		return "", ""
+	}
+	return formatProjectMemoryUnixUS(state.LastIndexedAtUS), state.LastIndexedCommit
+}
+
+func (h *ProjectHandler) loadBrainIndexState(ctx context.Context) *brainIndexResponse {
 	if h.cfg == nil || !h.cfg.Brain.Enabled {
 		return nil
+	}
+	if h.cfg.Brain.Backend == "shunter" {
+		return h.loadShunterBrainIndexState(ctx)
 	}
 	state, err := brainindexstate.Load(h.cfg.ProjectRoot)
 	if err != nil {
@@ -215,6 +251,85 @@ func (h *ProjectHandler) loadBrainIndexState() *brainIndexResponse {
 		StaleSince:    state.StaleSince,
 		StaleReason:   state.StaleReason,
 	}
+}
+
+func (h *ProjectHandler) loadShunterBrainIndexState(ctx context.Context) *brainIndexResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	backend, cleanup, err := h.projectMemoryIndexBackend(ctx)
+	if err != nil {
+		h.logger.Debug("open project memory index backend", "error", err)
+		return &brainIndexResponse{Status: brainindexstate.StatusNeverIndexed}
+	}
+	defer cleanup()
+	reader, ok := backend.(shunterBrainIndexStateReader)
+	if !ok || reader == nil {
+		h.logger.Debug("project memory brain index reader unavailable")
+		return &brainIndexResponse{Status: brainindexstate.StatusNeverIndexed}
+	}
+	state, found, err := reader.ReadBrainIndexState(ctx)
+	if err != nil {
+		h.logger.Debug("load Shunter brain index state", "error", err)
+		return &brainIndexResponse{Status: brainindexstate.StatusNeverIndexed}
+	}
+	return brainIndexResponseFromShunterState(state, found)
+}
+
+type shunterCodeIndexStateReader interface {
+	ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error)
+}
+
+type shunterBrainIndexStateReader interface {
+	ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error)
+}
+
+func (h *ProjectHandler) projectMemoryIndexBackend(ctx context.Context) (any, func(), error) {
+	if h.memoryBackend != nil {
+		return h.memoryBackend, func() {}, nil
+	}
+	if endpoint := strings.TrimSpace(os.Getenv(projectmemory.EnvMemoryEndpoint)); endpoint != "" {
+		client, err := projectmemory.DialBrainBackend(endpoint)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return client, func() { _ = client.Close() }, nil
+	}
+	if h.cfg == nil {
+		return nil, func() {}, errors.New("project config is required")
+	}
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+		DataDir:    h.cfg.MemoryShunterDataDir(),
+		DurableAck: h.cfg.Memory.DurableAck,
+	})
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return backend, func() { _ = backend.Close() }, nil
+}
+
+func brainIndexResponseFromShunterState(state projectmemory.BrainIndexState, found bool) *brainIndexResponse {
+	resp := &brainIndexResponse{Status: brainindexstate.StatusNeverIndexed}
+	if !found {
+		return resp
+	}
+	if state.LastIndexedAtUS > 0 {
+		resp.Status = brainindexstate.StatusClean
+		resp.LastIndexedAt = formatProjectMemoryUnixUS(state.LastIndexedAtUS)
+	}
+	if state.Dirty {
+		resp.Status = brainindexstate.StatusStale
+		resp.StaleSince = formatProjectMemoryUnixUS(state.DirtySinceUS)
+		resp.StaleReason = state.DirtyReason
+	}
+	return resp
+}
+
+func formatProjectMemoryUnixUS(value uint64) string {
+	if value == 0 {
+		return ""
+	}
+	return time.UnixMicro(int64(value)).UTC().Format(time.RFC3339)
 }
 
 func buildTree(root, dir string, excludes []string, depth, maxDepth int) treeNode {
