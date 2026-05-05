@@ -115,6 +115,105 @@ func TestBuildBrainBackendUsesMemoryEndpointWithoutOpeningShunterDataDir(t *test
 	}
 }
 
+func TestBuildEngineRuntimeStartsShunterModeWithoutYardDB(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv(projectmemory.EnvMemoryEndpoint, "")
+	cfg := newShunterOrchestratorTestConfig(t)
+
+	rt, err := BuildEngineRuntime(ctx, cfg)
+	if err != nil {
+		t.Fatalf("BuildEngineRuntime returned error: %v", err)
+	}
+	cleaned := false
+	t.Cleanup(func() {
+		if !cleaned {
+			rt.Cleanup()
+		}
+	})
+
+	if rt.Database != nil || rt.Queries != nil {
+		t.Fatalf("runtime SQLite = (%v, %v), want nil database and queries in Shunter mode", rt.Database, rt.Queries)
+	}
+	if rt.BrainBackend == nil || rt.MemoryBackend == nil || rt.ProviderRouter == nil || rt.ConversationManager == nil || rt.ContextAssembler == nil || rt.ToolRecorder == nil || rt.ChainStore == nil {
+		t.Fatalf("runtime missing Shunter-mode components: %+v", rt)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
+	if _, err := os.Stat(cfg.Brain.VaultPath); !os.IsNotExist(err) {
+		t.Fatalf("brain vault stat err = %v, want no .brain dependency in Shunter mode", err)
+	}
+	if _, err := os.Stat(cfg.GraphDBPath()); err != nil {
+		t.Fatalf("graph db stat err = %v, want derived graph store created", err)
+	}
+
+	conv, err := rt.ConversationManager.Create(ctx, cfg.ProjectRoot, conversation.WithTitle("Engine Shunter"))
+	if err != nil {
+		t.Fatalf("Create conversation: %v", err)
+	}
+	if err := rt.ConversationManager.PersistUserMessage(ctx, conv.ID, 1, "runtime should use Shunter project memory"); err != nil {
+		t.Fatalf("PersistUserMessage: %v", err)
+	}
+	history, err := rt.ConversationManager.ReconstructHistory(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("ReconstructHistory: %v", err)
+	}
+	if len(history) != 1 || history[0].Content.String != "runtime should use Shunter project memory" {
+		t.Fatalf("history = %+v, want Shunter-backed user message", history)
+	}
+	if err := rt.BrainBackend.WriteDocument(ctx, "notes/engine.md", "# Engine\n\nRuntime brain writes stay in Shunter."); err != nil {
+		t.Fatalf("WriteDocument: %v", err)
+	}
+	doc, err := rt.BrainBackend.ReadDocument(ctx, "notes/engine.md")
+	if err != nil {
+		t.Fatalf("ReadDocument: %v", err)
+	}
+	if doc != "# Engine\n\nRuntime brain writes stay in Shunter." {
+		t.Fatalf("ReadDocument = %q, want Shunter brain content", doc)
+	}
+	if err := rt.ToolRecorder.Record(ctx,
+		tool.ToolCall{ID: "toolu-engine", Name: "brain_write"},
+		tool.ToolResult{Success: true, Content: "wrote note", DurationMs: 17},
+		tool.ExecutionMeta{ConversationID: conv.ID, TurnNumber: 1, Iteration: 1},
+		time.Date(2026, 5, 5, 22, 0, 0, 0, time.UTC),
+	); err != nil {
+		t.Fatalf("Record tool execution: %v", err)
+	}
+	executionReader, ok := rt.MemoryBackend.(interface {
+		ListToolExecutions(context.Context, string) ([]projectmemory.ToolExecution, error)
+	})
+	if !ok {
+		t.Fatalf("MemoryBackend = %T, want tool execution reader", rt.MemoryBackend)
+	}
+	executions, err := executionReader.ListToolExecutions(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("ListToolExecutions: %v", err)
+	}
+	if len(executions) != 1 || executions[0].ToolUseID != "toolu-engine" || executions[0].DurationMs != 17 {
+		t.Fatalf("executions = %+v, want Shunter-backed tool execution", executions)
+	}
+	chainID, err := rt.ChainStore.StartChain(ctx, chain.ChainSpec{ChainID: "engine-shunter-chain", SourceTask: "runtime Shunter chain"})
+	if err != nil {
+		t.Fatalf("StartChain: %v", err)
+	}
+	chainReader, ok := rt.MemoryBackend.(interface {
+		ReadChain(context.Context, string) (projectmemory.Chain, bool, error)
+	})
+	if !ok {
+		t.Fatalf("MemoryBackend = %T, want chain reader", rt.MemoryBackend)
+	}
+	chainRow, found, err := chainReader.ReadChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ReadChain: %v", err)
+	}
+	if !found || chainRow.SourceTask != "runtime Shunter chain" {
+		t.Fatalf("chain row = %+v found=%t, want Shunter-backed chain", chainRow, found)
+	}
+
+	rt.Cleanup()
+	cleaned = true
+}
+
 func TestBuildConversationManagerUsesShunterMemoryBackend(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := t.TempDir()
