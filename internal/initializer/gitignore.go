@@ -17,10 +17,9 @@ var gitignoreEntries = []string{
 	".brain/",
 }
 
-// EnsureGitignoreEntries appends the railway entries (.yard/, .brain/) to
-// the project's .gitignore file if they're not already present. Creates
-// the file if it doesn't exist. Returns the list of entries that were
-// actually added (empty if all were already present).
+// EnsureGitignoreEntries appends the yard state entries to the project's
+// .gitignore file if they're not already present. .brain/ is retained for
+// legacy imports/exports, but default init no longer creates it.
 func EnsureGitignoreEntries(projectRoot string) ([]string, error) {
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 

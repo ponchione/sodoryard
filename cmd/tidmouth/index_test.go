@@ -284,6 +284,8 @@ func TestRunBrainIndexMarksBrainIndexFresh(t *testing.T) {
 	vaultPath := t.TempDir()
 	cfg := appconfig.Default()
 	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "legacy"
+	cfg.Brain.Backend = "vault"
 	cfg.Brain.Enabled = true
 	cfg.Brain.VaultPath = vaultPath
 	if err := os.MkdirAll(cfg.StateDir(), 0o755); err != nil {

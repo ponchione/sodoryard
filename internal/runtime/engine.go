@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
@@ -181,7 +182,11 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 		return nil, func() {}, nil
 	}
 	if cfg.Backend == "" {
-		cfg.Backend = "vault"
+		if strings.EqualFold(strings.TrimSpace(cfg.MemoryBackend), "shunter") || strings.TrimSpace(cfg.ShunterDataDir) != "" {
+			cfg.Backend = "shunter"
+		} else {
+			cfg.Backend = "vault"
+		}
 	}
 	if cfg.Backend == "shunter" {
 		if endpoint := os.Getenv(projectmemory.EnvMemoryEndpoint); endpoint != "" {
@@ -208,6 +213,9 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 	}
 	if cfg.Backend != "vault" {
 		return nil, func() {}, fmt.Errorf("unsupported brain backend %q", cfg.Backend)
+	}
+	if strings.TrimSpace(cfg.MemoryBackend) != "" && cfg.MemoryBackend != "legacy" {
+		return nil, func() {}, fmt.Errorf("vault brain backend requires memory.backend: legacy")
 	}
 	client, err := mcpclient.Connect(ctx, cfg.VaultPath)
 	if err != nil {
@@ -327,10 +335,10 @@ func BuildGraphStore(cfg *appconfig.Config) (*codegraph.Store, func(), error) {
 	return store, func() { _ = store.Close() }, nil
 }
 
-// BuildConventionSource constructs a ConventionSource backed by the brain
-// vault at the path derived from cfg when the brain is enabled. Disabled-brain
-// mode returns a no-op source so context assembly does not read convention
-// documents from the vault.
+// BuildConventionSource constructs a ConventionSource for the configured brain
+// backend. Shunter mode reads conventions through project memory; legacy vault
+// mode reads .brain/conventions directly. Disabled-brain mode returns a no-op
+// source.
 func BuildConventionSource(cfg *appconfig.Config, backend ...brain.Backend) contextpkg.ConventionSource {
 	if cfg == nil || !cfg.Brain.Enabled {
 		return contextpkg.NoopConventionSource{}

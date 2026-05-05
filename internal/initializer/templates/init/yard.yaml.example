@@ -11,6 +11,7 @@
 # After confirming provider/auth settings, run:
 #
 #   yard index --config yard.yaml
+#   yard brain index --config yard.yaml
 #   yard chain start --config yard.yaml --task "..."
 #
 # See docs/specs/13_Headless_Run_Command.md and
@@ -66,8 +67,17 @@ index:
     - "**/.turbo/**"
     - "**/*.min.js"
 
+memory:
+  backend: shunter
+  shunter_data_dir: .yard/shunter/project-memory
+  durable_ack: true
+  rpc:
+    transport: unix
+    path: .yard/run/memory.sock
+
 brain:
   enabled: true
+  backend: shunter
   vault_path: .brain
   log_brain_queries: true
 

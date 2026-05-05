@@ -345,7 +345,7 @@ func Default() *Config {
 			StoreAssemblyReports:    true,
 		},
 		Memory: MemoryConfig{
-			Backend:        memoryBackendLegacy,
+			Backend:        memoryBackendShunter,
 			ShunterDataDir: ".yard/shunter/project-memory",
 			DurableAck:     true,
 			RPC: MemoryRPCConfig{
@@ -355,7 +355,7 @@ func Default() *Config {
 		},
 		Brain: BrainConfig{
 			Enabled:                 true,
-			Backend:                 brainBackendVault,
+			Backend:                 brainBackendShunter,
 			VaultPath:               ".brain",
 			EmbeddingModel:          "nomic-embed-code",
 			ChunkAtHeadings:         true,
@@ -396,10 +396,12 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("read config %s: %w", path, err)
 		}
 	} else {
+		backendHints := configuredBackendHintsFromYAML(data)
 		cfg.ConfiguredProviders = configuredProviderNamesFromYAML(data)
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parse config %s: %w", path, err)
 		}
+		cfg.applyBackendCompatibilityDefaults(backendHints)
 	}
 
 	cfg.normalize()
@@ -411,6 +413,52 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+type backendConfigHints struct {
+	MemoryBackendSet bool
+	MemoryBackend    string
+	BrainBackendSet  bool
+	BrainBackend     string
+}
+
+func configuredBackendHintsFromYAML(data []byte) backendConfigHints {
+	var raw struct {
+		Memory *struct {
+			Backend *string `yaml:"backend"`
+		} `yaml:"memory"`
+		Brain *struct {
+			Backend *string `yaml:"backend"`
+		} `yaml:"brain"`
+	}
+	_ = yaml.Unmarshal(data, &raw)
+	hints := backendConfigHints{}
+	if raw.Memory != nil && raw.Memory.Backend != nil {
+		hints.MemoryBackendSet = true
+		hints.MemoryBackend = strings.TrimSpace(*raw.Memory.Backend)
+	}
+	if raw.Brain != nil && raw.Brain.Backend != nil {
+		hints.BrainBackendSet = true
+		hints.BrainBackend = strings.TrimSpace(*raw.Brain.Backend)
+	}
+	return hints
+}
+
+func (c *Config) applyBackendCompatibilityDefaults(hints backendConfigHints) {
+	if c == nil {
+		return
+	}
+	if !hints.MemoryBackendSet && !hints.BrainBackendSet {
+		c.Memory.Backend = memoryBackendLegacy
+		c.Brain.Backend = brainBackendVault
+		return
+	}
+	if hints.MemoryBackendSet && strings.EqualFold(strings.TrimSpace(hints.MemoryBackend), memoryBackendLegacy) && !hints.BrainBackendSet {
+		c.Brain.Backend = brainBackendVault
+	}
+	if hints.BrainBackendSet && strings.EqualFold(strings.TrimSpace(hints.BrainBackend), brainBackendVault) && !hints.MemoryBackendSet {
+		c.Memory.Backend = memoryBackendLegacy
+	}
 }
 
 func configuredProviderNamesFromYAML(data []byte) []string {

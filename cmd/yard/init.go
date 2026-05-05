@@ -17,9 +17,8 @@ func newInitCmd() *cobra.Command {
 		Short: "Initialize the current directory for railway use",
 		Long: `Bootstrap the current directory for the railway:
   - Generate yard.yaml with all 13 agent roles seeded
-  - Create .yard/ with initialized SQLite database and lancedb roots
-  - Create .brain/ vault with Obsidian config and the 8 railway section dirs
-  - Patch .gitignore with .yard/ and .brain/ entries
+  - Create .yard/ with Shunter project-memory, runtime, and lancedb roots
+  - Patch .gitignore with .yard/ and transitional .brain/ entries
 
 Safe to re-run — never overwrites existing files or data.
 
@@ -64,6 +63,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, configFilename string) err
 	_, _ = fmt.Fprintln(out, "  1. Confirm the provider block matches your auth setup")
 	_, _ = fmt.Fprintln(out, "     (default is codex; check Settings > Providers for auth status).")
 	_, _ = fmt.Fprintln(out, "  2. Run `yard index` to populate the code search index.")
-	_, _ = fmt.Fprintln(out, "  3. Run `yard chain start --task \"...\"` to start your first chain.")
+	_, _ = fmt.Fprintln(out, "  3. Run `yard brain index` after importing or writing brain documents.")
+	_, _ = fmt.Fprintln(out, "  4. Run `yard chain start --task \"...\"` to start your first chain.")
 	return nil
 }

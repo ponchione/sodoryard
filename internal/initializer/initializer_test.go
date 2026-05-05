@@ -25,20 +25,10 @@ func TestRunInitializesEmptyDirectory(t *testing.T) {
 	wantPaths := []string{
 		"yard.yaml",
 		".yard",
-		".yard/yard.db",
 		".yard/lancedb/code",
 		".yard/lancedb/brain",
-		".brain",
-		".brain/.obsidian/app.json",
-		".brain/notes",
-		".brain/specs/.gitkeep",
-		".brain/architecture/.gitkeep",
-		".brain/epics/.gitkeep",
-		".brain/tasks/.gitkeep",
-		".brain/plans/.gitkeep",
-		".brain/receipts/.gitkeep",
-		".brain/logs/.gitkeep",
-		".brain/conventions/.gitkeep",
+		".yard/shunter/project-memory",
+		".yard/run",
 		".gitignore",
 	}
 	for _, p := range wantPaths {
@@ -67,6 +57,11 @@ func TestRunInitializesEmptyDirectory(t *testing.T) {
 	if strings.Contains(got, "{{SODORYARD_AGENTS_DIR}}") {
 		t.Errorf("expected generated config to avoid {{SODORYARD_AGENTS_DIR}} placeholder")
 	}
+	for _, want := range []string{"memory:\n  backend: shunter", "brain:\n  enabled: true\n  backend: shunter"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected generated config to contain %q", want)
+		}
+	}
 	for _, want := range []string{"yard index --config yard.yaml", "yard chain start --config yard.yaml"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected generated config to contain %q", want)
@@ -86,6 +81,11 @@ func TestRunInitializesEmptyDirectory(t *testing.T) {
 	for _, role := range wantRoles {
 		if !strings.Contains(got, "  "+role) {
 			t.Errorf("expected agent_roles to contain %q", role)
+		}
+	}
+	for _, legacyPath := range []string{".yard/yard.db", ".brain"} {
+		if _, err := os.Stat(filepath.Join(projectRoot, legacyPath)); !os.IsNotExist(err) {
+			t.Errorf("expected default init not to create %s: stat err=%v", legacyPath, err)
 		}
 	}
 

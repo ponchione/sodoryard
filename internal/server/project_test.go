@@ -120,6 +120,8 @@ func TestProjectEndpointIncludesIndexMetadata(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.ProjectRoot = dir
+	cfg.Memory.Backend = "legacy"
+	cfg.Brain.Backend = "vault"
 	cfg.Brain.Enabled = false
 
 	database, err := appdb.OpenDB(context.Background(), cfg.DatabasePath())
@@ -170,6 +172,8 @@ func TestProjectEndpointIncludesBrainIndexState(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.ProjectRoot = dir
+	cfg.Memory.Backend = "legacy"
+	cfg.Brain.Backend = "vault"
 	cfg.Brain.Enabled = true
 	staleAt := time.Date(2026, 4, 9, 16, 5, 0, 0, time.UTC)
 	if err := brainindexstate.MarkStale(dir, "brain_update", staleAt); err != nil {

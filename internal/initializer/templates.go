@@ -1,5 +1,5 @@
 // Package initializer creates the on-disk artifacts a project needs to be
-// usable by the railway: yard.yaml, .yard/, .brain/, .gitignore. The
+// usable by the railway: yard.yaml, .yard/, and .gitignore. The
 // templates/init/ tree is embedded into the binary at build time so the
 // initializer has no runtime filesystem dependency.
 package initializer
@@ -31,7 +31,8 @@ func readEmbeddedFile(path string) ([]byte, error) {
 
 // listBrainSectionDirs returns the names of the railway brain section
 // directories that templates/init/brain/ declares, sorted alphabetically.
-// These are the directories `yard init` creates under `<project>/.brain/`.
+// These are the legacy vault section directories retained in the embedded
+// template tree for migration tooling and compatibility tests.
 func listBrainSectionDirs() ([]string, error) {
 	entries, err := fs.ReadDir(templateFS, "templates/init/brain")
 	if err != nil {

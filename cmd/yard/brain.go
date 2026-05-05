@@ -24,7 +24,7 @@ func newYardBrainIndexCmd(configPath *string) *cobra.Command {
 	var quiet bool
 	cmd := &cobra.Command{
 		Use:   "index",
-		Short: "Rebuild derived brain metadata from the vault",
+		Short: "Rebuild derived brain metadata from project memory",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := cmdutil.RunBrainIndexForConfig(cmd.Context(), *configPath, cmdutil.DefaultBrainIndexDeps())
 			if err != nil {
@@ -49,7 +49,7 @@ func newYardBrainServeCmd() *cobra.Command {
 	var vaultPath string
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run the project brain as a standalone MCP server over stdio",
+		Short: "Run a legacy brain vault as a standalone MCP server over stdio",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if vaultPath == "" {
 				return fmt.Errorf("--vault is required")

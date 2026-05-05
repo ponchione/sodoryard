@@ -20,15 +20,16 @@ A self-hosted AI coding harness with a unified operator CLI, headless agent runt
               +--------+-------+---------+--------+
                        |       |         |
                  +-----+--+ +--+---+ +---+----+
-                 |Provider | |Brain | | Code   |
-                 |Router   | |(MCP) | | Index  |
+                 |Provider | |Project| | Code   |
+                 |Router   | |Memory | | Index  |
                  +----+----+ +--+---+ +---+----+
                       |        |          |
               +-------+--------+----------+-------+
               |                                    |
         +-----+------+                    +--------+--------+
-        | SQLite/FTS5 |                    | LanceDB Vectors |
-        | (yard.db)   |                    | (semantic search)|
+        | Shunter     |                    | LanceDB Vectors |
+        | project     |                    | (semantic search)|
+        | memory      |                    |                 |
         +--------------+                    +-----------------+
 ```
 
@@ -36,7 +37,7 @@ The **engine harness** runs individual agent sessions: web conversations started
 
 The **chain orchestrator** composes multi-step pipelines. `yard chain start` creates a chain, runs an orchestrator agent, spawns engine subprocesses for planning/coding/auditing/resolution steps, and records receipts plus event logs in the project brain and SQLite state.
 
-Both paths share `internal/runtime/` for provider construction, database setup, brain backends, and context assembly. The `cmd/yard` package is mostly command wiring plus CLI rendering/control glue; reusable runtime behavior lives under `internal/`.
+Both paths share `internal/runtime/` for provider construction, memory setup, brain backends, and context assembly. The `cmd/yard` package is mostly command wiring plus CLI rendering/control glue; reusable runtime behavior lives under `internal/`.
 
 ## Command Reference
 
@@ -59,8 +60,8 @@ yard [--config yard.yaml]             Terminal operator console
  |   |-- pause                     Pause a running chain
  |   +-- resume                    Resume a paused chain
  |-- brain
- |   |-- index                     Rebuild brain metadata from vault
- |   +-- serve --vault <path>      Standalone brain MCP server (stdio)
+ |   |-- index                     Rebuild derived brain metadata
+ |   +-- serve --vault <path>      Legacy standalone brain MCP server (stdio)
  |-- llm
  |   |-- status                    Local LLM service health
  |   |-- up                        Start local LLM services
@@ -99,9 +100,11 @@ These roles live under `agent_roles` in `yard.yaml`. `yard init` seeds all 13 ro
 
 ### Brain
 
-The brain is an Obsidian-compatible vault (`.brain/`) that serves as structured long-term project memory. Agents read and write documents through an MCP (Model Context Protocol) interface: specs, receipts, conventions, architectural decisions, logs, and notes. Normal runtime uses an in-process MCP client/server path.
+The brain is structured long-term project memory for specs, receipts, conventions, architectural decisions, logs, and notes. New projects default to Shunter-backed project memory (`memory.backend: shunter`, `brain.backend: shunter`), so normal runtime reads and writes brain documents through Shunter rather than the legacy Obsidian/MCP vault path.
 
-`yard brain index` rebuilds relational metadata in `.yard/yard.db` and semantic chunks in `.yard/lancedb/brain`. `yard brain serve --vault <path>` exposes a standalone MCP server over stdio for external tool integration.
+`yard brain index` rebuilds derived brain metadata and semantic chunks in `.yard/lancedb/brain` from the configured brain backend. In Shunter mode, `.brain/` and `.yard/yard.db` are transitional import/export state, not canonical runtime stores. `yard brain serve --vault <path>` remains available as a legacy standalone MCP server for external vault tooling.
+
+Existing vault-backed projects can import Markdown brain documents into Shunter with `yard memory migrate`; see [docs/shunter-migration.md](docs/shunter-migration.md) for the current migration workflow and remaining planned SQLite-state migration.
 
 ### Context Assembly
 
@@ -110,7 +113,7 @@ Every agent turn starts with context assembly: a RAG pipeline that builds a focu
 - **Code search**: semantic similarity over the codebase via LanceDB embeddings
 - **Graph relationships**: structural code intelligence from tree-sitter parsing (Go, Python, TypeScript)
 - **Brain retrieval**: hybrid search (SQLite FTS5 plus LanceDB vectors) over the project brain
-- **Conventions**: project-specific coding conventions extracted from the brain vault
+- **Conventions**: project-specific coding conventions read from the configured brain backend
 
 A budget manager allocates tokens across these sources based on priority and the model's context window. The assembled context is serialized and injected into the conversation, giving agents grounded knowledge about the codebase without manually specifying files.
 
@@ -134,7 +137,7 @@ cmd/
 internal/
   runtime/        Shared runtime builders (engine + orchestrator construction)
   agent/          Agent loop, event system, turn execution
-  brain/          Brain vault, MCP client/server, indexer, parser
+  brain/          Legacy vault/MCP compatibility plus brain indexer/parser
   chain/          Chain store, step tracking, event log
   chainrun/       Chain start/resume runner used by `yard chain`
   codeintel/      Tree-sitter parsing, graph store, embedder, semantic search
@@ -201,7 +204,7 @@ yard doctor
 yard auth login codex
 ```
 
-`yard init` creates `yard.yaml`, `.yard/`, `.brain/`, LanceDB state roots, an initialized SQLite database, and `.gitignore` entries. It is safe to rerun and does not overwrite existing files.
+`yard init` creates `yard.yaml`, `.yard/` Shunter/runtime/LanceDB state roots, and `.gitignore` entries. It does not create `.brain/` or `.yard/yard.db` for new Shunter-mode projects. It is safe to rerun and does not overwrite existing files.
 
 ### Build retrieval indexes
 
@@ -302,12 +305,13 @@ For `yard index` or `yard brain index` inside the container, make sure the mount
 |-----------|-----------|
 | Language | Go 1.25.5 |
 | CLI | Cobra |
-| Database | SQLite with FTS5 full-text search |
+| Project memory | Shunter |
+| Legacy database | SQLite with FTS5 full-text search |
 | Vector store | LanceDB |
 | Code parsing | tree-sitter (Go, Python, TypeScript) |
 | TUI | Bubble Tea, Bubbles, Lip Gloss |
 | Web inspector | React, Vite, TypeScript, Tailwind CSS |
-| Brain interface | Model Context Protocol (MCP) |
+| Brain interface | Shunter project memory; legacy MCP vault server retained |
 | Container | Debian Trixie, multi-stage Docker build |
 | LLM providers | Anthropic, OpenAI-compatible, Codex |
 

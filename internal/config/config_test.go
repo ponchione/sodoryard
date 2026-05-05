@@ -34,7 +34,6 @@ func ensureDir(t *testing.T, dir string) {
 
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 	withWorkingDir(t, projectRoot)
 	missing := filepath.Join(projectRoot, "does-not-exist.yaml")
 
@@ -91,11 +90,38 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Brain.LintStaleDays != 90 {
 		t.Fatalf("Brain.LintStaleDays = %d, want 90", cfg.Brain.LintStaleDays)
 	}
+	if cfg.Memory.Backend != "shunter" {
+		t.Fatalf("Memory.Backend = %q, want shunter", cfg.Memory.Backend)
+	}
+	if cfg.Brain.Backend != "shunter" {
+		t.Fatalf("Brain.Backend = %q, want shunter", cfg.Brain.Backend)
+	}
+}
+
+func TestLoadLegacyShapedConfigDefaultsToVaultBackend(t *testing.T) {
+	projectRoot := t.TempDir()
+	ensureDir(t, filepath.Join(projectRoot, ".brain"))
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  vault_path: .brain\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
 	if cfg.Memory.Backend != "legacy" {
-		t.Fatalf("Memory.Backend = %q, want legacy", cfg.Memory.Backend)
+		t.Fatalf("Memory.Backend = %q, want legacy for legacy-shaped config", cfg.Memory.Backend)
 	}
 	if cfg.Brain.Backend != "vault" {
-		t.Fatalf("Brain.Backend = %q, want vault", cfg.Brain.Backend)
+		t.Fatalf("Brain.Backend = %q, want vault for legacy-shaped config", cfg.Brain.Backend)
+	}
+	if cfg.Brain.VaultPath != filepath.Join(projectRoot, ".brain") {
+		t.Fatalf("Brain.VaultPath = %q, want resolved .brain", cfg.Brain.VaultPath)
 	}
 }
 
@@ -331,6 +357,8 @@ func TestLoadRejectsShunterBrainWithoutShunterMemory(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
+		"memory:\n" +
+		"  backend: legacy\n" +
 		"brain:\n" +
 		"  enabled: true\n" +
 		"  backend: shunter\n"

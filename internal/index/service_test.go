@@ -84,6 +84,8 @@ func TestRunWithDependenciesIndexesIncrementallyAndDeletesRemovedFiles(t *testin
 
 	cfg := config.Default()
 	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "legacy"
+	cfg.Brain.Backend = "vault"
 	cfg.Index.Include = []string{"**/*.go"}
 	cfg.Index.Exclude = []string{"**/.git/**"}
 	cfg.Index.MaxFileSizeBytes = 1024 * 1024

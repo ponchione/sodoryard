@@ -43,6 +43,7 @@ func shouldSuppressStepOutput(line string, opts chainRenderOptions) bool {
 		"registered provider",
 		"provider failed ping() startup validation",
 		"brain backend: mcp (in-process)",
+		"brain backend: shunter",
 		"status: waiting_for_llm",
 		"status: executing_tools",
 		"status: assembling_context",

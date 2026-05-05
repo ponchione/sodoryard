@@ -219,6 +219,80 @@ func TestOpenReadOnlySkipsInjectedRuntimeBuilder(t *testing.T) {
 	}
 }
 
+func TestOpenReadOnlyUsesShunterMemoryWithoutYardDB(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	dataDir := filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend returned error: %v", err)
+	}
+	if err := backend.StartChain(ctx, projectmemory.StartChainArgs{
+		ID:          "readonly-shunter-chain",
+		SourceTask:  "inspect Shunter state",
+		CreatedAtUS: uint64(time.Now().UTC().UnixMicro()),
+	}); err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := fmt.Sprintf(`project_root: %q
+memory:
+  backend: shunter
+  shunter_data_dir: .yard/shunter/project-memory
+  durable_ack: true
+brain:
+  enabled: true
+  backend: shunter
+local_services:
+  enabled: false
+routing:
+  default:
+    provider: codex
+    model: test-model
+providers:
+  codex:
+    type: codex
+    model: test-model
+`, projectRoot)
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	svc, err := Open(ctx, Options{
+		ConfigPath: configPath,
+		ReadOnly:   true,
+		BuildRuntime: func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			t.Fatal("BuildRuntime should not be called in read-only mode")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open read-only returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+	if svc.rt.Database != nil || svc.rt.Queries != nil {
+		t.Fatalf("read-only Shunter runtime SQLite = (%v, %v), want nil", svc.rt.Database, svc.rt.Queries)
+	}
+
+	chains, err := svc.ListChains(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListChains returned error: %v", err)
+	}
+	if len(chains) != 1 || chains[0].ID != "readonly-shunter-chain" {
+		t.Fatalf("chains = %+v, want readonly-shunter-chain", chains)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".yard", "yard.db")); !os.IsNotExist(err) {
+		t.Fatalf("read-only Shunter Open touched yard.db: stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".brain")); !os.IsNotExist(err) {
+		t.Fatalf("read-only Shunter Open touched .brain: stat err=%v", err)
+	}
+}
+
 func TestRuntimeStatusIncludesReadinessMetadata(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := t.TempDir()
