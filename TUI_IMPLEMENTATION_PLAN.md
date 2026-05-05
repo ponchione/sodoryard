@@ -32,7 +32,7 @@ Primary specs:
 - Do not create a second execution model for the TUI.
 - Do not have the TUI shell out to Cobra commands for core Yard operations.
 - Do not use local HTTP as the main TUI integration path. Prefer direct internal Go services.
-- Do not churn `yard.yaml`, `.yard/`, or `.brain/` outside tests.
+- Do not churn `yard.yaml`, `.yard/`, or local runtime state outside tests.
 - Keep `tidmouth run` as the internal engine entrypoint until the spawn contract is deliberately redesigned.
 - Prefer `make test` and `make build`. If running Go directly, use `-tags sqlite_fts5`.
 
@@ -78,8 +78,8 @@ internal/server
 10. Notice-only web-inspector target handoffs for selected chains and receipts. The TUI shows `yard serve` plus the target URL and does not start a server.
 11. Constrained orchestration through `internal/operator` and `internal/chainrun`: the TUI selects allowed roles, and the existing orchestrator path receives those role constraints in the compiled work packet.
 12. Built-in TUI launch presets for common role/mode shapes. These are generated from configured roles, preserve the current task/spec draft, and do not create durable preset state.
-13. Persistent current launch drafts. The TUI saves with `s`, loads with `L`, and stores the current draft in `.yard/yard.db` through `internal/operator`.
-14. Custom TUI launch presets. The TUI saves the current role/mode shape with `B`, stores it in `.yard/yard.db`, and cycles built-in plus custom presets with `b`.
+13. Persistent current launch drafts. The TUI saves with `s`, loads with `L`, and stores the current draft in Shunter project memory through `internal/operator`.
+14. Custom TUI launch presets. The TUI saves the current role/mode shape with `B`, stores it in Shunter project memory, and cycles built-in plus custom presets with `b`.
 15. Richer TUI launch role-list controls. The TUI appends roles with `n`, removes the last manual/constrained role with `-`, and clears the active role list with `ctrl+u`.
 16. Raw TUI chat screen. The TUI starts on a chat screen that calls the configured provider/model directly through `internal/operator`, persists the transcript as a conversation, and does not apply one of the 13 role prompts, tools, or chain orchestration.
 
@@ -283,7 +283,7 @@ Implementation notes:
 Acceptance:
 
 - `yard` starts without `yard serve`.
-- It can show chain summaries and chain detail from `.yard/yard.db`.
+- It can show chain summaries and chain detail from Shunter project memory.
 - It can display receipt content.
 - It exits cleanly on `q` and handles terminal resize.
 - It does not start chains or mutate state.
@@ -751,24 +751,23 @@ Avoid:
 - launch workbench
 - browser-first command-center shell
 
-## Database Considerations
+## Project Memory Considerations
 
-Current `chains` schema does not include `launch_id` or `launch_mode`, even though newer specs mention those concepts. The persistent launch slices added `launches` and `launch_presets` tables for shared operator launch state, but they do not link started chains to launches yet.
+Current Shunter chain state does not include `launch_id` or `launch_mode`, even though newer specs mention those concepts. The persistent launch slices added Shunter `launches` and `launch_presets` state for shared operator launch state, but they do not link started chains to launches yet.
 
 When a later feature needs durable launch mode:
 
-- Add `launch_mode TEXT NOT NULL DEFAULT 'sir_topham_decides'` to `chains`.
-- Add compatibility upgrade for existing dev DBs.
-- Update `internal/db/schema.sql`, `internal/db/init.go`, sqlc queries, generated code, and data model tests.
-- Add `launch_id TEXT` only when broader launch history or cross-surface launch resumption actually needs chain-to-launch linkage.
+- Add a Shunter chain field with default launch mode `sir_topham_decides`.
+- Update the Shunter module, reducers, row mapping, and project-memory tests.
+- Add `launch_id` only when broader launch history or cross-surface launch resumption actually needs chain-to-launch linkage.
 
-The `launches` table currently stores the project-local current draft row. The `launch_presets` table stores durable custom role/mode shapes. Do not create `background_operations` tables until background operation tracking is being implemented.
+The Shunter launch state currently stores the project-local current draft row. The launch preset state stores durable custom role/mode shapes. Do not add background operation state until background operation tracking is being implemented.
 
 ## Test Strategy
 
 Use focused tests at each layer:
 
-- `internal/operator`: behavior tests with temp SQLite DB and fake process signaler.
+- `internal/operator`: behavior tests with temp Shunter project memory and fake process signaler.
 - `internal/chainrun`: mode branching, one-step execution, roster execution, status mapping.
 - `internal/spawn`: exported step runner still matches tool behavior.
 - `cmd/yard`: CLI flag parsing and output compatibility.

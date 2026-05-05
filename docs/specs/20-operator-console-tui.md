@@ -185,7 +185,7 @@ MVP behavior:
 - The current launch draft lives in memory until saved. `s` saves the current draft and `L` loads the saved draft.
 - Manual roster and constrained orchestration role lists can be adjusted in place. `n` appends the next role, `-` removes the last entry, and `ctrl+u` clears the active role list.
 - Starting compiles a deterministic work packet and calls the same internal chain start path used by `yard chain start`.
-- Persistent current drafts and custom presets are stored in `.yard/yard.db` through `internal/operator`. Broader launch history remains future work.
+- Persistent current drafts and custom presets are stored in Shunter project memory through `internal/operator`. Broader launch history remains future work.
 
 ### Chains
 
@@ -261,7 +261,7 @@ Shows:
 - auth diagnostics
 - local service settings
 - index roots
-- brain vault path
+- Shunter project-memory location and brain backend
 - command equivalents for common checks
 
 Most config editing can remain file/editor-based. The TUI should validate and explain, not become a full settings editor in the first pass.

@@ -41,8 +41,7 @@ yard [--config yard.yaml]       # terminal operator console
 │   ├── pause                   # pause a running chain
 │   └── resume                  # resume a paused chain
 ├── brain                       # brain operations group
-│   ├── index                   # brain indexing
-│   └── serve                   # standalone brain MCP server over stdio
+│   └── index                   # rebuild derived brain metadata from Shunter documents
 └── llm                         # local LLM service management
     ├── status                  # service health check
     ├── up                      # start local LLM services
@@ -70,7 +69,6 @@ yard [--config yard.yaml]       # terminal operator console
 | `tidmouth run` | internal only | retained subprocess contract for chain steps until that contract is redesigned |
 | `tidmouth index` | `yard index` | top-level, code indexing |
 | `tidmouth index brain` | `yard brain index` | brain group owns brain indexing |
-| `tidmouth brain-serve` | `yard brain serve` | brain group owns brain MCP |
 | legacy auth command | `yard auth` | top-level group |
 | legacy auth login command | `yard auth login codex` | provider login under auth group |
 | legacy auth status command | `yard auth status` | same nesting |
@@ -88,7 +86,7 @@ Commands that currently take `configPath *string` as a constructor argument will
 ### 3.4 Current command-specific flags
 
 - `yard index`: `--full` forces a full code-index rebuild, `--json` emits machine-readable results, and `--quiet` suppresses the human summary.
-- `yard brain index`: rebuilds brain relational metadata and semantic chunks from the configured vault.
+- `yard brain index`: rebuilds brain metadata and semantic chunks from Shunter project-memory documents.
 - `yard auth login codex`: starts the OpenAI Codex device-code login flow and writes credentials to Yard's private auth store. Other provider names currently fail with an unsupported-provider error.
 - `yard llm status`: accepts `--json` and reports Docker, Compose, network, service health, problems, and remediation.
 - `yard llm up`: ensures required services are healthy according to `local_services.mode`; `auto` may create networks and run `docker compose up -d`, while `manual` reports remediation.
