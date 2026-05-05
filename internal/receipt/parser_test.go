@@ -170,3 +170,35 @@ body
 		t.Fatalf("Agent = %q, want correctness-auditor", receipt.Agent)
 	}
 }
+
+func TestRewriteUsageMetricsPreservesBody(t *testing.T) {
+	updated, parsed, changed, err := RewriteUsageMetrics([]byte(`---
+agent: correctness-auditor
+chain_id: smoke-test-p5a
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 0
+tokens_used: 0
+duration_seconds: 0
+extra_field: keep-me
+---
+
+Receipt created per request.
+`), UsageMetrics{TurnsUsed: 3, TokensUsed: 99, DurationSeconds: 7})
+	if err != nil {
+		t.Fatalf("RewriteUsageMetrics returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	if parsed.TurnsUsed != 3 || parsed.TokensUsed != 99 || parsed.DurationSeconds != 7 {
+		t.Fatalf("parsed usage = %+v, want updated usage", parsed)
+	}
+	text := string(updated)
+	for _, want := range []string{"turns_used: 3", "tokens_used: 99", "duration_seconds: 7", "extra_field: keep-me", "\nReceipt created per request.\n"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("updated receipt = %q, want %q", text, want)
+		}
+	}
+}

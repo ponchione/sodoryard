@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -95,10 +96,7 @@ type stepReceiptCompleter interface {
 }
 
 func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
-	engineBinary := deps.EngineBinary
-	if strings.TrimSpace(engineBinary) == "" {
-		engineBinary = "tidmouth"
-	}
+	engineBinary := resolveEngineBinary(deps.EngineBinary)
 	return &SpawnAgentTool{
 		Store:         deps.Store,
 		Backend:       deps.Backend,
@@ -110,6 +108,25 @@ func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
 		runCommand:    RunCommand,
 		now:           time.Now,
 	}
+}
+
+func resolveEngineBinary(engineBinary string) string {
+	engineBinary = strings.TrimSpace(engineBinary)
+	if engineBinary == "" {
+		engineBinary = "tidmouth"
+	}
+	if filepath.Base(engineBinary) != engineBinary {
+		return engineBinary
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return engineBinary
+	}
+	sibling := filepath.Join(filepath.Dir(executable), engineBinary)
+	if info, err := os.Stat(sibling); err == nil && !info.IsDir() {
+		return sibling
+	}
+	return engineBinary
 }
 
 func (t *SpawnAgentTool) Name() string { return "spawn_agent" }

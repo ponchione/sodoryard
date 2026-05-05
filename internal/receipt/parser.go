@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +32,90 @@ func Parse(content []byte) (Receipt, error) {
 		return Receipt{}, err
 	}
 	return receipt, nil
+}
+
+func RewriteUsageMetrics(content []byte, usage UsageMetrics) ([]byte, Receipt, bool, error) {
+	frontmatter, body, ok := splitFrontmatter(content)
+	if !ok {
+		return nil, Receipt{}, false, ErrMissingFrontmatter
+	}
+	parsed, err := Parse(content)
+	if err != nil {
+		return nil, Receipt{}, false, err
+	}
+	changed := false
+	if usage.TurnsUsed > 0 && parsed.TurnsUsed != usage.TurnsUsed {
+		parsed.TurnsUsed = usage.TurnsUsed
+		changed = true
+	}
+	if usage.TokensUsed > 0 && parsed.TokensUsed != usage.TokensUsed {
+		parsed.TokensUsed = usage.TokensUsed
+		changed = true
+	}
+	if usage.DurationSeconds > 0 && parsed.DurationSeconds != usage.DurationSeconds {
+		parsed.DurationSeconds = usage.DurationSeconds
+		changed = true
+	}
+	if !changed {
+		return append([]byte(nil), content...), parsed, false, nil
+	}
+	frontmatter, err = rewriteUsageFrontmatter(frontmatter, parsed)
+	if err != nil {
+		return nil, Receipt{}, false, err
+	}
+	updated := bytes.NewBuffer(nil)
+	updated.WriteString("---\n")
+	updated.Write(frontmatter)
+	updated.WriteString("---\n")
+	updated.Write(body)
+	reparsed, err := Parse(updated.Bytes())
+	if err != nil {
+		return nil, Receipt{}, false, err
+	}
+	return updated.Bytes(), reparsed, true, nil
+}
+
+func rewriteUsageFrontmatter(frontmatter []byte, usage Receipt) ([]byte, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(frontmatter, &root); err != nil {
+		return nil, fmt.Errorf("receipt: decode yaml: %w", err)
+	}
+	node := &root
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		node = root.Content[0]
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil, ErrMissingFrontmatter
+	}
+	setYAMLScalar(node, "turns_used", strconv.Itoa(usage.TurnsUsed))
+	setYAMLScalar(node, "tokens_used", strconv.Itoa(usage.TokensUsed))
+	setYAMLScalar(node, "duration_seconds", strconv.Itoa(usage.DurationSeconds))
+	var out bytes.Buffer
+	encoder := yaml.NewEncoder(&out)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&root); err != nil {
+		_ = encoder.Close()
+		return nil, fmt.Errorf("receipt: encode yaml: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, fmt.Errorf("receipt: encode yaml: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+func setYAMLScalar(mapping *yaml.Node, key string, value string) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content[i+1].Kind = yaml.ScalarNode
+			mapping.Content[i+1].Tag = "!!int"
+			mapping.Content[i+1].Value = value
+			return
+		}
+	}
+	mapping.Content = append(mapping.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: value},
+	)
 }
 
 func (r Receipt) validate() error {

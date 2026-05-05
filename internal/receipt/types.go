@@ -25,3 +25,9 @@ type Receipt struct {
 	DurationSeconds int       `yaml:"duration_seconds"`
 	RawBody         string    `yaml:"-"`
 }
+
+type UsageMetrics struct {
+	TurnsUsed       int
+	TokensUsed      int
+	DurationSeconds int
+}

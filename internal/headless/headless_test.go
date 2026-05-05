@@ -128,6 +128,44 @@ Escalate.`,
 	}
 }
 
+func TestEnsureReceiptRewritesExistingReceiptUsageMetrics(t *testing.T) {
+	backend := &fakeReceiptBackend{docs: map[string]string{
+		"receipts/coder/chain-1.md": `---
+agent: coder
+chain_id: chain-1
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 0
+tokens_used: 0
+duration_seconds: 0
+---
+
+## Summary
+Done.`,
+	}}
+	turnResult := &agent.TurnResult{IterationCount: 4, Duration: 9 * time.Second}
+	turnResult.TotalUsage.InputTokens = 120
+	turnResult.TotalUsage.OutputTokens = 30
+
+	path, receipt, err := EnsureReceipt(context.Background(), backend, appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/**"}}, "coder", "chain-1", "receipts/coder/chain-1.md", "completed_no_receipt", "ignored", turnResult)
+	if err != nil {
+		t.Fatalf("EnsureReceipt returned error: %v", err)
+	}
+	if path != "receipts/coder/chain-1.md" {
+		t.Fatalf("path = %q, want receipts/coder/chain-1.md", path)
+	}
+	if receipt == nil || receipt.TurnsUsed != 4 || receipt.TokensUsed != 150 || receipt.DurationSeconds != 9 {
+		t.Fatalf("receipt usage = %#v, want turns=4 tokens=150 duration=9", receipt)
+	}
+	updated := backend.docs[path]
+	for _, want := range []string{"turns_used: 4", "tokens_used: 150", "duration_seconds: 9", "## Summary\nDone."} {
+		if !strings.Contains(updated, want) {
+			t.Fatalf("updated receipt = %q, want %q", updated, want)
+		}
+	}
+}
+
 func TestEnsureReceiptRejectsDisallowedFallbackPath(t *testing.T) {
 	backend := &fakeReceiptBackend{docs: map[string]string{}}
 	_, _, err := EnsureReceipt(context.Background(), backend, appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/coder/**"}}, "coder", "chain-1", "receipts/auditor/chain-1.md", "completed_no_receipt", "done", nil)

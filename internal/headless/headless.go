@@ -63,11 +63,16 @@ func EnsureReceipt(ctx context.Context, backend brain.Backend, brainCfg appconfi
 	}
 	content, err := backend.ReadDocument(ctx, normalizedPath)
 	if err == nil {
-		r, validateErr := ValidateReceiptContent(content)
+		updatedContent, r, changed, validateErr := receipt.RewriteUsageMetrics([]byte(content), usageMetrics(turnResult))
 		if validateErr != nil {
 			return "", nil, fmt.Errorf("invalid receipt at %s: %w", normalizedPath, validateErr)
 		}
-		return normalizedPath, r, nil
+		if changed {
+			if err := backend.WriteDocument(ctx, normalizedPath, string(updatedContent)); err != nil {
+				return "", nil, fmt.Errorf("update receipt metrics %s: %w", normalizedPath, err)
+			}
+		}
+		return normalizedPath, &r, nil
 	}
 	if !strings.Contains(err.Error(), "Document not found") {
 		return "", nil, fmt.Errorf("read receipt %s: %w", normalizedPath, err)
@@ -77,6 +82,17 @@ func EnsureReceipt(ctx context.Context, backend brain.Backend, brainCfg appconfi
 		return "", nil, fmt.Errorf("write fallback receipt %s: %w", normalizedPath, err)
 	}
 	return normalizedPath, r, nil
+}
+
+func usageMetrics(turnResult *agent.TurnResult) receipt.UsageMetrics {
+	if turnResult == nil {
+		return receipt.UsageMetrics{}
+	}
+	return receipt.UsageMetrics{
+		TurnsUsed:       turnResult.IterationCount,
+		TokensUsed:      turnResult.TotalUsage.InputTokens + turnResult.TotalUsage.OutputTokens,
+		DurationSeconds: int(turnResult.Duration.Round(time.Second) / time.Second),
+	}
 }
 
 func FormatFallbackReceipt(role string, chainID string, receiptPath string, verdict string, finalText string, turnResult *agent.TurnResult) (string, *receipt.Receipt) {
