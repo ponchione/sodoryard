@@ -1,12 +1,14 @@
 # 08 — Data Model
 
-**Status:** Draft v0.1 **Last Updated:** 2026-05-03 **Author:** Mitchell
+**Status:** Historical SQLite draft, superseded for canonical memory **Last Updated:** 2026-05-03 **Author:** Mitchell
+
+**Supersession note:** This draft is not current guidance for Shunter-mode projects. Shunter project memory is the canonical state plane; `.yard/yard.db` is not a Shunter input or supported compatibility surface. Use `SHUNTER_PROJECT_MEMORY_SPEC.md`, `README.md`, and the current operator specs for live storage behavior.
 
 ---
 
 ## Overview
 
-All structured persistence lives in SQLite. This document covers the schema for conversations, messages, tool executions, LLM sub-calls, context assembly reports, indexing state, and brain metadata. The schema supports multi-project from day one (even though v0.1 is single-project) and provides efficient queries for operator surfaces: TUI chain/status views, the web inspector's conversation list and context inspector, and metrics dashboards.
+This historical draft described the earlier SQLite persistence design for conversations, messages, tool executions, LLM sub-calls, context assembly reports, indexing state, and brain metadata. Current Shunter-mode runtime state is owned by Shunter project memory, with LanceDB and graph stores treated as derived indexes.
 
 ---
 

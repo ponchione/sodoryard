@@ -1,16 +1,18 @@
 # 16 — Yard Init
 
-**Status:** Design (ready for implementation plan)
+**Status:** Historical init design, superseded by Shunter-native `yard init`
 **Owner:** Mitchell Ponchione
 **Last Updated:** 2026-04-29
 **Roadmap phase:** 5b
 **Depends on:** Phase 1 (monorepo restructure), Phase 5a (yard paths rename)
 
+**Supersession note:** This draft predates the Shunter base design. Current `yard init` creates `yard.yaml`, `.yard/` Shunter/runtime/LanceDB roots, and `.gitignore` entries; it does not create `.brain/` or `.yard/yard.db`.
+
 ---
 
 ## 1. Goal
 
-Ship `yard init` as the canonical, top-level operator command for bootstrapping any new project for railway use. After a single `yard init` invocation in an empty (or existing) directory, the operator has a project that the railway can immediately operate against — providers, brain vault, agent role configuration, SQLite state, and `.gitignore` hygiene all in place.
+Ship `yard init` as the canonical, top-level operator command for bootstrapping any new project. In the current Shunter-native design, a single `yard init` invocation seeds providers, agent role configuration, Shunter project-memory roots, and `.gitignore` hygiene without creating legacy `.brain/` or `.yard/yard.db` state.
 
 The command lives in a new `cmd/yard` binary, not as a Tidmouth subcommand. This aligns the operator-facing CLI with the `yard` brand that Phase 5a already locked in across `yard.yaml`, `.yard/`, and `YARD_PROJECT`.
 
