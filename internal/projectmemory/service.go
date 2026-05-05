@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type RPCConfig struct {
@@ -44,8 +45,8 @@ func StartRPCServer(ctx context.Context, cfg RPCConfig, backend *BrainBackend) (
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir project memory RPC dir: %w", err)
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("remove stale project memory RPC socket: %w", err)
+	if err := removeStaleRPCSocket(path); err != nil {
+		return nil, err
 	}
 	listener, err := net.Listen("unix", path)
 	if err != nil {
@@ -71,6 +72,24 @@ func StartRPCServer(ctx context.Context, cfg RPCConfig, backend *BrainBackend) (
 		}()
 	}
 	return srv, nil
+}
+
+func removeStaleRPCSocket(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat project memory RPC socket: %w", err)
+	}
+	conn, err := net.DialTimeout("unix", path, 100*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return fmt.Errorf("project memory RPC socket is already active: %s", path)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale project memory RPC socket: %w", err)
+	}
+	return nil
 }
 
 func (s *RPCServer) Close() error {

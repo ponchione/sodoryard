@@ -59,6 +59,35 @@ func TestBrainBackendWriteReadListSearchAndRestart(t *testing.T) {
 	}
 }
 
+func TestOpenBrainBackendRejectsConcurrentDataDirOwner(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	first, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend first: %v", err)
+	}
+
+	second, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err == nil {
+		_ = second.Close()
+		_ = first.Close()
+		t.Fatal("second OpenBrainBackend succeeded, want data-dir ownership error")
+	}
+	if !strings.Contains(err.Error(), "already open") {
+		_ = first.Close()
+		t.Fatalf("second OpenBrainBackend error = %v, want already-open message", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close first: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend after close: %v", err)
+	}
+	defer reopened.Close()
+}
+
 func TestBrainBackendPatchConflictUsesExpectedHash(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
@@ -1129,5 +1158,46 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if len(parentEvents) != 1 || parentEvents[0].Sequence != 1 || parentEvents[0].EventType != "chain_started" {
 		t.Fatalf("parent events after RPC = %+v, want chain_started", parentEvents)
+	}
+}
+
+func TestStartRPCServerDoesNotReplaceActiveSocket(t *testing.T) {
+	ctx := context.Background()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	socketPath := t.TempDir() + "/memory.sock"
+	server, err := StartRPCServer(ctx, RPCConfig{Transport: "unix", Path: socketPath}, backend)
+	if err != nil {
+		t.Fatalf("StartRPCServer first: %v", err)
+	}
+	defer server.Close()
+
+	second, err := StartRPCServer(ctx, RPCConfig{Transport: "unix", Path: socketPath}, backend)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second StartRPCServer succeeded, want active-socket error")
+	}
+	if !strings.Contains(err.Error(), "already active") {
+		t.Fatalf("second StartRPCServer error = %v, want already-active message", err)
+	}
+
+	client, err := DialBrainBackend("unix:" + socketPath)
+	if err != nil {
+		t.Fatalf("DialBrainBackend after rejected second server: %v", err)
+	}
+	defer client.Close()
+	if err := client.WriteDocument(ctx, "notes/still-active.md", "# Still Active"); err != nil {
+		t.Fatalf("client WriteDocument: %v", err)
+	}
+	got, err := backend.ReadDocument(ctx, "notes/still-active.md")
+	if err != nil {
+		t.Fatalf("parent ReadDocument: %v", err)
+	}
+	if got != "# Still Active" {
+		t.Fatalf("parent content = %q, want active first server to remain connected", got)
 	}
 }

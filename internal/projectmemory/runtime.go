@@ -3,7 +3,11 @@ package projectmemory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/ponchione/shunter"
 )
@@ -16,6 +20,7 @@ type Config struct {
 type Runtime struct {
 	rt         *shunter.Runtime
 	durableAck bool
+	lockFile   *os.File
 }
 
 type SubCallRecorder interface {
@@ -62,22 +67,68 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("project memory shunter data dir is required")
 	}
+	lockFile, err := acquireDataDirLock(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
 	rt, err := shunter.Build(NewModule(), shunter.Config{DataDir: cfg.DataDir})
 	if err != nil {
+		releaseDataDirLock(lockFile)
 		return nil, fmt.Errorf("build project memory runtime: %w", err)
 	}
 	if err := rt.Start(ctx); err != nil {
 		_ = rt.Close()
+		releaseDataDirLock(lockFile)
 		return nil, fmt.Errorf("start project memory runtime: %w", err)
 	}
-	return &Runtime{rt: rt, durableAck: cfg.DurableAck}, nil
+	return &Runtime{rt: rt, durableAck: cfg.DurableAck, lockFile: lockFile}, nil
 }
 
 func (r *Runtime) Close() error {
-	if r == nil || r.rt == nil {
+	if r == nil {
 		return nil
 	}
-	return r.rt.Close()
+	var err error
+	if r.rt != nil {
+		err = r.rt.Close()
+		r.rt = nil
+	}
+	if lockErr := releaseDataDirLock(r.lockFile); err == nil {
+		err = lockErr
+	}
+	r.lockFile = nil
+	return err
+}
+
+func acquireDataDirLock(dataDir string) (*os.File, error) {
+	cleanDir := filepath.Clean(dataDir)
+	if err := os.MkdirAll(cleanDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir project memory shunter data dir: %w", err)
+	}
+	lockPath := cleanDir + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open project memory shunter lock %s: %w", lockPath, err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lockFile.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, fmt.Errorf("project memory shunter data dir is already open: %s", cleanDir)
+		}
+		return nil, fmt.Errorf("lock project memory shunter data dir %s: %w", cleanDir, err)
+	}
+	return lockFile, nil
+}
+
+func releaseDataDirLock(lockFile *os.File) error {
+	if lockFile == nil {
+		return nil
+	}
+	err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	if closeErr := lockFile.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 func (r *Runtime) callReducerJSON(ctx context.Context, name string, args any) ([]byte, error) {
