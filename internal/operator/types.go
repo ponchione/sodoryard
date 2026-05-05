@@ -83,6 +83,55 @@ type ChainDetail struct {
 	RecentEvents []chain.Event
 }
 
+type ChainMetricsReport struct {
+	ChainID              string
+	Status               string
+	Health               string
+	TotalSteps           int
+	StepRows             int
+	MaxSteps             int
+	StepBudgetPct        float64
+	CompletedSteps       int
+	RunningSteps         int
+	PendingSteps         int
+	FailedSteps          int
+	TotalTokens          int
+	StepTokenTotal       int
+	StepTurnTotal        int
+	TokenBudget          int
+	TokenBudgetPct       float64
+	TotalDurationSecs    int
+	StepDurationSecs     int
+	MaxDurationSecs      int
+	DurationBudgetPct    float64
+	ResolverLoops        int
+	MaxResolverLoops     int
+	ResolverLoopPct      float64
+	EventTotal           int
+	OutputEvents         int
+	StepFailedEvents     int
+	SafetyLimitEvents    int
+	ReindexStartedEvents int
+	ReindexDoneEvents    int
+	ProcessStartedEvents int
+	ProcessExitedEvents  int
+	Warnings             []RuntimeWarning
+	Steps                []ChainStepMetric
+}
+
+type ChainStepMetric struct {
+	SequenceNum  int
+	Role         string
+	Status       string
+	Verdict      string
+	ReceiptPath  string
+	TokensUsed   int
+	TurnsUsed    int
+	DurationSecs int
+	ExitCode     *int
+	ErrorMessage string
+}
+
 type ReceiptSummary struct {
 	Label string
 	Step  string

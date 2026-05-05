@@ -54,6 +54,7 @@ yard [--config yard.yaml]             Terminal operator console
  |-- chain
  |   |-- start                     Start a new chain execution
  |   |-- status                    Show chain status
+ |   |-- metrics                   Show chain dogfooding metrics
  |   |-- logs                      Show chain event log
  |   |-- receipt                   Show orchestrator or step receipt
  |   |-- cancel                    Cancel a running chain
@@ -75,7 +76,7 @@ yard [--config yard.yaml]             Terminal operator console
 
 A chain is a multi-agent pipeline. The orchestrator agent reads a task or spec, decomposes it into steps, and spawns engine subprocesses for each step, assigning roles like planner, coder, auditor, or resolver. Each step produces a receipt (structured markdown with frontmatter) stored in the project brain. The orchestrator tracks token budgets, step counts, and wall-clock limits across the entire chain.
 
-Chains support pause/resume semantics and can be cancelled mid-execution. The `yard chain status` command shows progress; `yard chain receipt` retrieves the structured output from any step.
+Chains support pause/resume semantics and can be cancelled mid-execution. The `yard chain status` command shows progress, `yard chain metrics` highlights dogfooding health signals, and `yard chain receipt` retrieves the structured output from any step.
 
 The shipped role set is intentionally themed around the Railway Series / Thomas universe. Commands that accept an agent role can use either the **config key** or the associated persona name, so `yard chain start --role coder` and `yard chain start --role thomas` select the same role.
 
@@ -257,6 +258,7 @@ yard chain start --watch=false --task "implement user authentication"
 # Reattach to an already-running chain
 yard chain logs --follow <chain-id>
 yard chain status
+yard chain metrics <chain-id>
 
 # Read the result
 yard chain receipt <chain-id>
@@ -340,7 +342,7 @@ First thing to address next session:
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
 - keep TUI-first docs clear about target behavior versus already-implemented commands
-- use dogfooding runs to decide the next slice; likely candidates are deeper chain metrics, richer receipt rendering, or launch-history ergonomics
+- use dogfooding runs and `yard chain metrics <chain-id>` to decide the next slice; likely candidates are richer receipt rendering, launch-history ergonomics, or deeper TUI surfacing of the same chain health report
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:
@@ -354,6 +356,7 @@ yard serve
 yard
 yard chain start --task "<real task>"
 yard chain status
+yard chain metrics <chain-id>
 yard chain logs <chain-id>
 yard chain receipt <chain-id>
 ```

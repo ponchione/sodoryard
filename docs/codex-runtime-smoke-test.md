@@ -213,6 +213,17 @@ Expected:
 - The answer is `gpt-5.5` or explicitly says the default Codex model is `gpt-5.5`.
 - No provider auth or tool-result mismatch error appears.
 
+Inspect the harness signals for that chain:
+
+```bash
+rtk ./bin/yard chain metrics <chain-id>
+```
+
+Expected:
+- `health=ok` for a clean run, or `health=attention`/`health=failing` with concrete `warning:` lines.
+- Step, token, turn, duration, resolver-loop, event, and child-process counts are visible without reading the database.
+- Completed steps show nonzero token and turn counts and a receipt path.
+
 Then open the terminal console:
 
 ```bash
@@ -277,5 +288,6 @@ Good to keep testing daily-driver use when all are true:
 - `rtk ./bin/yard serve` launches the UI.
 - Browser chat completes at least one normal turn and one repository-context turn.
 - `rtk ./bin/yard chain start --role coder --max-steps 1 ...` completes or produces an inspectable receipt.
+- `rtk ./bin/yard chain metrics <chain-id>` reports a clean chain or explains concrete harness warnings.
 - Bare `rtk ./bin/yard` opens the TUI and shows actionable readiness.
 - A follow-up turn in the same conversation works.

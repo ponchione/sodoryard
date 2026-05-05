@@ -214,6 +214,64 @@ func TestYardChainStatusCommandPrintsExistingFormats(t *testing.T) {
 	}
 }
 
+func TestYardChainMetricsCommandPrintsDogfoodingSummary(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-cli-metrics", SourceTask: "metrics", MaxSteps: 5, MaxResolverLoops: 2, MaxDuration: 100 * time.Second, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	exitZero := 0
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "accepted", DurationSecs: 3, ExitCode: &exitZero}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalDurationSecs: 3}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepProcessStarted, map[string]any{"process_id": 1111, "active_process": true}); err != nil {
+		t.Fatalf("LogEvent process start returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepOutput, map[string]any{"stream": "stdout", "line": "ok"}); err != nil {
+		t.Fatalf("LogEvent output returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepProcessExited, map[string]any{"process_id": 1111, "exit_code": 0}); err != nil {
+		t.Fatalf("LogEvent process exit returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	var out bytes.Buffer
+	cmd := newYardChainMetricsCmd(&cfgPath)
+	cmd.SetContext(ctx)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	want := "chain=chain-cli-metrics health=attention status=completed\n" +
+		"steps recorded=1 rows=1 completed=1 running=0 pending=0 failed=0 budget=5 pct=20.0\n" +
+		"tokens recorded=0 step_sum=0 budget=100 pct=0.0\n" +
+		"turns step_sum=0\n" +
+		"duration recorded=3s step_sum=3s budget=100s pct=3.0\n" +
+		"resolver_loops used=0 budget=2 pct=0.0\n" +
+		"events total=3 output=1 step_failed=0 safety_limit=0 reindex_started=0 reindex_done=0 process_started=1 process_exited=1\n" +
+		"warnings=3\n" +
+		"warning: step 1 completed without a receipt path\n" +
+		"warning: step 1 completed without token usage\n" +
+		"warning: step 1 completed without turn count\n" +
+		"step=1 role=planner status=completed verdict=accepted tokens=0 turns=0 duration=3s exit=0 receipt=<unset>\n"
+	if out.String() != want {
+		t.Fatalf("stdout = %q, want %q", out.String(), want)
+	}
+}
+
 func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 	ctx := context.Background()
 	cfgPath, projectRoot := writeYardRunConfig(t)

@@ -547,6 +547,101 @@ func TestListChainsAndDetail(t *testing.T) {
 	}
 }
 
+func TestGetChainMetricsFlagsDogfoodingWarnings(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{
+		ChainID:          "chain-metrics",
+		SourceTask:       "observe dogfood run",
+		MaxSteps:         2,
+		MaxResolverLoops: 1,
+		MaxDuration:      100 * time.Second,
+		TokenBudget:      100,
+	})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepOne, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"})
+	if err != nil {
+		t.Fatalf("StartStep one returned error: %v", err)
+	}
+	exitZero := 0
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepOne, Status: "completed", Verdict: "accepted", DurationSecs: 95, ExitCode: &exitZero}); err != nil {
+		t.Fatalf("CompleteStep one returned error: %v", err)
+	}
+	stepTwo, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 2, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep two returned error: %v", err)
+	}
+	exitOne := 1
+	if err := store.FailStep(ctx, chain.CompleteStepParams{StepID: stepTwo, Verdict: "failed", ReceiptPath: "receipts/coder/chain-metrics-step-002.md", TokensUsed: 85, TurnsUsed: 2, ExitCode: &exitOne, ErrorMessage: "agent exited"}); err != nil {
+		t.Fatalf("FailStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 2, TotalTokens: 85, TotalDurationSecs: 95, ResolverLoops: 1}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepProcessStarted, map[string]any{"process_id": 1234, "active_process": true}); err != nil {
+		t.Fatalf("LogEvent process start returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepOutput, map[string]any{"stream": "stderr", "line": "running"}); err != nil {
+		t.Fatalf("LogEvent output returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepFailed, map[string]any{"error": "agent exited"}); err != nil {
+		t.Fatalf("LogEvent step failed returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventSafetyLimitHit, map[string]any{"limit": "token_budget"}); err != nil {
+		t.Fatalf("LogEvent safety returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventReindexStarted, map[string]any{"reason": "post_step"}); err != nil {
+		t.Fatalf("LogEvent reindex start returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventReindexCompleted, map[string]any{"reason": "post_step"}); err != nil {
+		t.Fatalf("LogEvent reindex complete returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "failed", "failed"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.Health != "failing" || report.Status != "failed" {
+		t.Fatalf("health/status = %s/%s, want failing/failed", report.Health, report.Status)
+	}
+	if report.TotalSteps != 2 || report.StepRows != 2 || report.CompletedSteps != 1 || report.FailedSteps != 1 {
+		t.Fatalf("step counts = %+v, want one completed and one failed", report)
+	}
+	if report.TotalTokens != 85 || report.StepTokenTotal != 85 || report.TokenBudgetPct != 85 {
+		t.Fatalf("token metrics = recorded %d step_sum %d pct %.1f, want 85/85/85.0", report.TotalTokens, report.StepTokenTotal, report.TokenBudgetPct)
+	}
+	if report.TotalDurationSecs != 95 || report.StepDurationSecs != 95 || report.DurationBudgetPct != 95 {
+		t.Fatalf("duration metrics = recorded %d step_sum %d pct %.1f, want 95/95/95.0", report.TotalDurationSecs, report.StepDurationSecs, report.DurationBudgetPct)
+	}
+	if report.StepFailedEvents != 1 || report.SafetyLimitEvents != 1 || report.ReindexStartedEvents != 1 || report.ReindexDoneEvents != 1 || report.ProcessStartedEvents != 1 || report.ProcessExitedEvents != 0 {
+		t.Fatalf("event counts = %+v, want failed/safety/reindex/process counts", report)
+	}
+	for _, want := range []string{
+		"chain status is failed",
+		"step 1 completed without a receipt path",
+		"step 1 completed without token usage",
+		"step 1 completed without turn count",
+		"step 2 failed",
+		"step 2 exited with code 1",
+		"resolver loop budget exhausted",
+		"token budget 85.0% used",
+		"duration budget 95.0% used",
+		"chain has 1 step_failed event(s)",
+		"chain has 1 safety_limit_hit event(s)",
+		"process events show started=1 exited=0",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
 func TestListEventsAndEventsSince(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
