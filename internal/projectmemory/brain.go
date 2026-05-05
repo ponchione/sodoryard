@@ -192,6 +192,18 @@ func (b *BrainBackend) SearchConversations(ctx context.Context, projectID string
 	return b.runtime.SearchConversations(ctx, projectID, query, maxResults)
 }
 
+func (b *BrainBackend) RecordSubCall(ctx context.Context, args RecordSubCallArgs) error {
+	return b.runtime.RecordSubCall(ctx, args)
+}
+
+func (b *BrainBackend) ListSubCalls(ctx context.Context, conversationID string) ([]SubCall, error) {
+	return b.runtime.ListSubCalls(ctx, conversationID)
+}
+
+func (b *BrainBackend) ListTurnSubCalls(ctx context.Context, conversationID string, turnNumber uint32) ([]SubCall, error) {
+	return b.runtime.ListTurnSubCalls(ctx, conversationID, turnNumber)
+}
+
 func inferDocumentKind(path string) string {
 	switch {
 	case strings.HasPrefix(path, "conventions/"):

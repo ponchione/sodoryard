@@ -205,6 +205,26 @@ func (c *Client) SearchConversations(ctx context.Context, projectID string, quer
 	return resp.Hits, nil
 }
 
+func (c *Client) RecordSubCall(ctx context.Context, args RecordSubCallArgs) error {
+	return c.call(ctx, "Brain.RecordSubCall", args, &EmptyResponse{})
+}
+
+func (c *Client) ListSubCalls(ctx context.Context, conversationID string) ([]SubCall, error) {
+	var resp ListSubCallsResponse
+	if err := c.call(ctx, "Brain.ListSubCalls", ListSubCallsRequest{ConversationID: conversationID}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.SubCalls, nil
+}
+
+func (c *Client) ListTurnSubCalls(ctx context.Context, conversationID string, turnNumber uint32) ([]SubCall, error) {
+	var resp ListSubCallsResponse
+	if err := c.call(ctx, "Brain.ListTurnSubCalls", ListTurnSubCallsRequest{ConversationID: conversationID, TurnNumber: turnNumber}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.SubCalls, nil
+}
+
 func (c *Client) call(ctx context.Context, method string, args any, reply any) error {
 	if c == nil || c.rpc == nil {
 		return fmt.Errorf("project memory RPC client is closed")

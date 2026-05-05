@@ -7,6 +7,7 @@ import (
 
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
 )
@@ -14,6 +15,7 @@ import (
 type ProviderRouterOptions struct {
 	ProviderNames []string
 	LogAuthStatus bool
+	MemoryBackend any
 }
 
 func BuildProviderRouter(ctx context.Context, cfg *appconfig.Config, queries *appdb.Queries, logger *slog.Logger, opts ProviderRouterOptions) (*router.Router, error) {
@@ -24,7 +26,11 @@ func BuildProviderRouter(ctx context.Context, cfg *appconfig.Config, queries *ap
 		Default:  router.RouteTarget{Provider: cfg.Routing.Default.Provider, Model: cfg.Routing.Default.Model},
 		Fallback: router.RouteTarget{Provider: cfg.Routing.Fallback.Provider, Model: cfg.Routing.Fallback.Model},
 	}
-	provRouter, err := router.NewRouter(routerCfg, tracking.NewSQLiteSubCallStore(queries), logger)
+	subCallStore, err := buildSubCallStore(cfg, queries, opts.MemoryBackend)
+	if err != nil {
+		return nil, err
+	}
+	provRouter, err := router.NewRouter(routerCfg, subCallStore, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
@@ -53,6 +59,16 @@ func BuildProviderRouter(ctx context.Context, cfg *appconfig.Config, queries *ap
 		return nil, fmt.Errorf("validate providers: %w", err)
 	}
 	return provRouter, nil
+}
+
+func buildSubCallStore(cfg *appconfig.Config, queries *appdb.Queries, memoryBackend any) (tracking.SubCallStore, error) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		if recorder, ok := memoryBackend.(projectmemory.SubCallRecorder); ok && recorder != nil {
+			return tracking.NewProjectMemorySubCallStore(recorder), nil
+		}
+		return nil, fmt.Errorf("shunter memory backend requires a project memory sub-call recorder")
+	}
+	return tracking.NewSQLiteSubCallStore(queries), nil
 }
 
 func providerMapNames(providers map[string]appconfig.ProviderConfig) []string {

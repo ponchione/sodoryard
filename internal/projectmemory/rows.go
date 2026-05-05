@@ -98,6 +98,27 @@ type Message struct {
 	MetadataJSON   string
 }
 
+type SubCall struct {
+	ID                  string
+	ConversationID      string
+	MessageID           string
+	TurnNumber          uint32
+	Iteration           uint32
+	Provider            string
+	Model               string
+	Purpose             string
+	Status              string
+	StartedAtUS         uint64
+	CompletedAtUS       uint64
+	TokensIn            uint64
+	TokensOut           uint64
+	CacheReadTokens     uint64
+	CacheCreationTokens uint64
+	LatencyMs           uint64
+	Error               string
+	MetadataJSON        string
+}
+
 func documentRow(doc Document) types.ProductValue {
 	return types.ProductValue{
 		types.NewString(doc.Path),
@@ -310,6 +331,52 @@ func decodeMessageRow(row types.ProductValue) Message {
 	}
 }
 
+func subCallRow(subCall SubCall) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(subCall.ID),
+		types.NewString(subCall.ConversationID),
+		types.NewString(subCall.MessageID),
+		types.NewUint32(subCall.TurnNumber),
+		types.NewUint32(subCall.Iteration),
+		types.NewString(subCall.Provider),
+		types.NewString(subCall.Model),
+		types.NewString(subCall.Purpose),
+		types.NewString(subCall.Status),
+		types.NewUint64(subCall.StartedAtUS),
+		types.NewUint64(subCall.CompletedAtUS),
+		types.NewUint64(subCall.TokensIn),
+		types.NewUint64(subCall.TokensOut),
+		types.NewUint64(subCall.CacheReadTokens),
+		types.NewUint64(subCall.CacheCreationTokens),
+		types.NewUint64(subCall.LatencyMs),
+		types.NewString(subCall.Error),
+		types.NewString(defaultString(subCall.MetadataJSON, emptyJSONObject)),
+	}
+}
+
+func decodeSubCallRow(row types.ProductValue) SubCall {
+	return SubCall{
+		ID:                  row[0].AsString(),
+		ConversationID:      row[1].AsString(),
+		MessageID:           row[2].AsString(),
+		TurnNumber:          row[3].AsUint32(),
+		Iteration:           row[4].AsUint32(),
+		Provider:            row[5].AsString(),
+		Model:               row[6].AsString(),
+		Purpose:             row[7].AsString(),
+		Status:              row[8].AsString(),
+		StartedAtUS:         row[9].AsUint64(),
+		CompletedAtUS:       row[10].AsUint64(),
+		TokensIn:            row[11].AsUint64(),
+		TokensOut:           row[12].AsUint64(),
+		CacheReadTokens:     row[13].AsUint64(),
+		CacheCreationTokens: row[14].AsUint64(),
+		LatencyMs:           row[15].AsUint64(),
+		Error:               row[16].AsString(),
+		MetadataJSON:        row[17].AsString(),
+	}
+}
+
 func splitDocumentChunks(path string, content string) []documentChunk {
 	if content == "" {
 		return nil
@@ -367,6 +434,10 @@ func CodeFileIndexID(projectID string, filePath string) string {
 
 func MessageID(conversationID string, sequence uint64) string {
 	return fmt.Sprintf("%s:%020d", stableID(conversationID), sequence)
+}
+
+func SubCallID(parts ...string) string {
+	return stableID(strings.Join(parts, "\x00"))
 }
 
 func stableID(value string) string {

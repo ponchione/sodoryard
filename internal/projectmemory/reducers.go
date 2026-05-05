@@ -133,6 +133,27 @@ type DiscardTurnArgs struct {
 	TurnNumber     uint32 `json:"turn_number"`
 }
 
+type RecordSubCallArgs struct {
+	ID                  string `json:"id"`
+	ConversationID      string `json:"conversation_id"`
+	MessageID           string `json:"message_id"`
+	TurnNumber          uint32 `json:"turn_number"`
+	Iteration           uint32 `json:"iteration"`
+	Provider            string `json:"provider"`
+	Model               string `json:"model"`
+	Purpose             string `json:"purpose"`
+	Status              string `json:"status"`
+	StartedAtUS         uint64 `json:"started_at_us"`
+	CompletedAtUS       uint64 `json:"completed_at_us"`
+	TokensIn            uint64 `json:"tokens_in"`
+	TokensOut           uint64 `json:"tokens_out"`
+	CacheReadTokens     uint64 `json:"cache_read_tokens"`
+	CacheCreationTokens uint64 `json:"cache_creation_tokens"`
+	LatencyMs           uint64 `json:"latency_ms"`
+	Error               string `json:"error"`
+	MetadataJSON        string `json:"metadata_json"`
+}
+
 type reducerResult struct {
 	Path        string `json:"path,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
@@ -461,7 +482,7 @@ func appendUserMessageReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, e
 	if strings.TrimSpace(args.Content) == "" {
 		return nil, fmt.Errorf("user message content is required")
 	}
-	sequence, err := insertConversationMessage(ctx.DB, args.ConversationID, Message{
+	message, err := insertConversationMessage(ctx.DB, args.ConversationID, Message{
 		TurnNumber:  args.TurnNumber,
 		Iteration:   1,
 		Role:        "user",
@@ -475,7 +496,7 @@ func appendUserMessageReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, e
 	if err := touchConversation(ctx.DB, args.ConversationID, nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx))); err != nil {
 		return nil, err
 	}
-	return encodeReducerResult(reducerResult{Revision: uint32(sequence)})
+	return encodeReducerResult(reducerResult{Revision: uint32(message.Sequence)})
 }
 
 func persistIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
@@ -487,12 +508,13 @@ func persistIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, er
 		return nil, fmt.Errorf("persist_iteration requires at least one message")
 	}
 	nowUS := nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx))
+	assistantMessageID := ""
 	for _, msg := range args.Messages {
 		role := strings.TrimSpace(msg.Role)
 		if role != "assistant" && role != "tool" {
 			return nil, fmt.Errorf("unsupported iteration message role: %s", msg.Role)
 		}
-		if _, err := insertConversationMessage(ctx.DB, args.ConversationID, Message{
+		inserted, err := insertConversationMessage(ctx.DB, args.ConversationID, Message{
 			TurnNumber:  args.TurnNumber,
 			Iteration:   args.Iteration,
 			Role:        role,
@@ -501,7 +523,16 @@ func persistIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, er
 			ToolName:    msg.ToolName,
 			CreatedAtUS: nowUS,
 			Visible:     true,
-		}); err != nil {
+		})
+		if err != nil {
+			return nil, err
+		}
+		if role == "assistant" {
+			assistantMessageID = inserted.ID
+		}
+	}
+	if assistantMessageID != "" {
+		if err := linkIterationSubCallsToMessage(ctx.DB, args.ConversationID, args.TurnNumber, args.Iteration, assistantMessageID); err != nil {
 			return nil, err
 		}
 	}
@@ -522,6 +553,7 @@ func cancelIterationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, err
 			_ = ctx.DB.Delete(uint32(tableMessages), rowID)
 		}
 	}
+	deleteIterationSubCalls(ctx.DB, args.ConversationID, args.TurnNumber, args.Iteration)
 	return encodeReducerResult(reducerResult{})
 }
 
@@ -536,7 +568,75 @@ func discardTurnReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) 
 			_ = ctx.DB.Delete(uint32(tableMessages), rowID)
 		}
 	}
+	deleteTurnSubCalls(ctx.DB, args.ConversationID, args.TurnNumber)
 	return encodeReducerResult(reducerResult{})
+}
+
+func recordSubCallReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args RecordSubCallArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	provider := strings.TrimSpace(args.Provider)
+	if provider == "" {
+		return nil, fmt.Errorf("sub-call provider is required")
+	}
+	model := strings.TrimSpace(args.Model)
+	if model == "" {
+		return nil, fmt.Errorf("sub-call model is required")
+	}
+	purpose := strings.TrimSpace(args.Purpose)
+	if purpose == "" {
+		return nil, fmt.Errorf("sub-call purpose is required")
+	}
+	completedAtUS := nonZeroUS(args.CompletedAtUS, reducerNowUS(ctx))
+	startedAtUS := args.StartedAtUS
+	if startedAtUS == 0 {
+		latencyUS := args.LatencyMs * 1000
+		if latencyUS > 0 && completedAtUS > latencyUS {
+			startedAtUS = completedAtUS - latencyUS
+		} else {
+			startedAtUS = completedAtUS
+		}
+	}
+	status := strings.TrimSpace(args.Status)
+	if status == "" {
+		if strings.TrimSpace(args.Error) != "" {
+			status = "error"
+		} else {
+			status = "success"
+		}
+	}
+	id := strings.TrimSpace(args.ID)
+	if id == "" {
+		id = SubCallID(args.ConversationID, args.MessageID, fmt.Sprint(args.TurnNumber), fmt.Sprint(args.Iteration), provider, model, purpose, fmt.Sprint(completedAtUS), fmt.Sprint(args.TokensIn), fmt.Sprint(args.TokensOut), args.Error)
+	}
+	if _, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsPrimary), types.NewString(id))); found {
+		return nil, fmt.Errorf("sub-call already exists: %s", id)
+	}
+	if _, err := ctx.DB.Insert(uint32(tableSubCalls), subCallRow(SubCall{
+		ID:                  id,
+		ConversationID:      strings.TrimSpace(args.ConversationID),
+		MessageID:           strings.TrimSpace(args.MessageID),
+		TurnNumber:          args.TurnNumber,
+		Iteration:           args.Iteration,
+		Provider:            provider,
+		Model:               model,
+		Purpose:             purpose,
+		Status:              status,
+		StartedAtUS:         startedAtUS,
+		CompletedAtUS:       completedAtUS,
+		TokensIn:            args.TokensIn,
+		TokensOut:           args.TokensOut,
+		CacheReadTokens:     args.CacheReadTokens,
+		CacheCreationTokens: args.CacheCreationTokens,
+		LatencyMs:           args.LatencyMs,
+		Error:               args.Error,
+		MetadataJSON:        defaultString(args.MetadataJSON, emptyJSONObject),
+	})); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: id})
 }
 
 type documentMutation struct {
@@ -657,15 +757,16 @@ func deleteMessagesForConversation(db types.ReducerDB, conversationID string) {
 	for rowID := range db.SeekIndex(uint32(tableMessages), uint32(indexMessagesConversation), types.NewString(conversationID)) {
 		_ = db.Delete(uint32(tableMessages), rowID)
 	}
+	deleteSubCallsForConversation(db, conversationID)
 }
 
-func insertConversationMessage(db types.ReducerDB, conversationID string, message Message) (uint64, error) {
+func insertConversationMessage(db types.ReducerDB, conversationID string, message Message) (Message, error) {
 	if strings.TrimSpace(conversationID) == "" {
-		return 0, fmt.Errorf("conversation id is required")
+		return Message{}, fmt.Errorf("conversation id is required")
 	}
 	_, conversation, found := findConversationByID(db, conversationID)
 	if !found || conversation.Deleted {
-		return 0, fmt.Errorf("conversation not found: %s", conversationID)
+		return Message{}, fmt.Errorf("conversation not found: %s", conversationID)
 	}
 	sequence := nextMessageSequence(db, conversationID)
 	message.ConversationID = conversationID
@@ -674,9 +775,9 @@ func insertConversationMessage(db types.ReducerDB, conversationID string, messag
 	message.SummaryOfJSON = defaultString(message.SummaryOfJSON, emptyJSONArray)
 	message.MetadataJSON = defaultString(message.MetadataJSON, emptyJSONObject)
 	if _, err := db.Insert(uint32(tableMessages), messageRow(message)); err != nil {
-		return 0, err
+		return Message{}, err
 	}
-	return sequence, nil
+	return message, nil
 }
 
 func nextMessageSequence(db types.ReducerDB, conversationID string) uint64 {
@@ -703,6 +804,44 @@ func touchConversation(db types.ReducerDB, conversationID string, updatedAtUS ui
 	conversation.UpdatedAtUS = updatedAtUS
 	_, err := db.Update(uint32(tableConversations), rowID, conversationRow(conversation))
 	return err
+}
+
+func linkIterationSubCallsToMessage(db types.ReducerDB, conversationID string, turnNumber uint32, iteration uint32, messageID string) error {
+	for rowID, row := range db.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsConversation), types.NewString(conversationID)) {
+		subCall := decodeSubCallRow(row)
+		if subCall.TurnNumber != turnNumber || subCall.Iteration != iteration || subCall.Purpose != "chat" || subCall.MessageID != "" {
+			continue
+		}
+		subCall.MessageID = messageID
+		if _, err := db.Update(uint32(tableSubCalls), rowID, subCallRow(subCall)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteSubCallsForConversation(db types.ReducerDB, conversationID string) {
+	for rowID := range db.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsConversation), types.NewString(conversationID)) {
+		_ = db.Delete(uint32(tableSubCalls), rowID)
+	}
+}
+
+func deleteIterationSubCalls(db types.ReducerDB, conversationID string, turnNumber uint32, iteration uint32) {
+	for rowID, row := range db.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsConversation), types.NewString(conversationID)) {
+		subCall := decodeSubCallRow(row)
+		if subCall.TurnNumber == turnNumber && subCall.Iteration == iteration {
+			_ = db.Delete(uint32(tableSubCalls), rowID)
+		}
+	}
+}
+
+func deleteTurnSubCalls(db types.ReducerDB, conversationID string, turnNumber uint32) {
+	for rowID, row := range db.SeekIndex(uint32(tableSubCalls), uint32(indexSubCallsConversation), types.NewString(conversationID)) {
+		subCall := decodeSubCallRow(row)
+		if subCall.TurnNumber == turnNumber {
+			_ = db.Delete(uint32(tableSubCalls), rowID)
+		}
+	}
 }
 
 func firstRow(seq func(func(types.RowID, types.ProductValue) bool)) (types.RowID, types.ProductValue, bool) {

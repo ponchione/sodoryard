@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
+	"github.com/ponchione/sodoryard/internal/provider/tracking"
 )
 
 func TestBuildBrainRuntimeReturnsNilComponentsWhenDisabled(t *testing.T) {
@@ -137,6 +139,52 @@ func TestBuildConversationManagerUsesShunterMemoryBackend(t *testing.T) {
 	}
 	if len(history) != 1 || history[0].Content.String != "runtime conversation write" {
 		t.Fatalf("history = %+v, want runtime conversation write", history)
+	}
+}
+
+func TestBuildSubCallStoreUsesProjectMemoryInShunterMode(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(projectRoot, "memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	store, err := buildSubCallStore(cfg, nil, backend)
+	if err != nil {
+		t.Fatalf("buildSubCallStore: %v", err)
+	}
+	if _, ok := store.(*tracking.ProjectMemorySubCallStore); !ok {
+		t.Fatalf("store = %T, want *tracking.ProjectMemorySubCallStore", store)
+	}
+	convID := "conv-runtime"
+	turn := 1
+	iter := 1
+	if err := store.InsertSubCall(ctx, tracking.InsertSubCallParams{
+		ConversationID: &convID,
+		TurnNumber:     &turn,
+		Iteration:      &iter,
+		Provider:       "codex",
+		Model:          "gpt-5.5",
+		Purpose:        "chat",
+		TokensIn:       12,
+		TokensOut:      3,
+		LatencyMs:      25,
+		Success:        1,
+		CreatedAt:      time.Date(2026, 5, 5, 19, 0, 0, 0, time.UTC).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("InsertSubCall: %v", err)
+	}
+	subCalls, err := backend.ListSubCalls(ctx, convID)
+	if err != nil {
+		t.Fatalf("ListSubCalls: %v", err)
+	}
+	if len(subCalls) != 1 || subCalls[0].TokensIn != 12 || subCalls[0].LatencyMs != 25 {
+		t.Fatalf("subcalls = %+v, want runtime Shunter record", subCalls)
 	}
 }
 

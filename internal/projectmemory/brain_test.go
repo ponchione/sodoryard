@@ -299,6 +299,133 @@ func TestConversationHistorySearchAndRestart(t *testing.T) {
 	}
 }
 
+func TestSubCallsRecordLinkCancelAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	createdAt := time.Date(2026, 5, 5, 18, 0, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, CreateConversationArgs{
+		ID:          "conv-sub",
+		ProjectID:   "project-1",
+		Title:       "Subcall Slice",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if err := backend.AppendUserMessage(ctx, AppendUserMessageArgs{
+		ConversationID: "conv-sub",
+		TurnNumber:     1,
+		Content:        "track provider subcalls",
+		CreatedAtUS:    uint64(createdAt.Add(time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("AppendUserMessage: %v", err)
+	}
+	if err := backend.RecordSubCall(ctx, RecordSubCallArgs{
+		ID:                  "sub-1",
+		ConversationID:      "conv-sub",
+		TurnNumber:          1,
+		Iteration:           1,
+		Provider:            "codex",
+		Model:               "gpt-5.5",
+		Purpose:             "chat",
+		Status:              "success",
+		StartedAtUS:         uint64(createdAt.Add(2 * time.Second).UnixMicro()),
+		CompletedAtUS:       uint64(createdAt.Add(3 * time.Second).UnixMicro()),
+		TokensIn:            123,
+		TokensOut:           45,
+		CacheReadTokens:     7,
+		CacheCreationTokens: 8,
+		LatencyMs:           1000,
+	}); err != nil {
+		t.Fatalf("RecordSubCall: %v", err)
+	}
+	subCalls, err := backend.ListSubCalls(ctx, "conv-sub")
+	if err != nil {
+		t.Fatalf("ListSubCalls before link: %v", err)
+	}
+	if len(subCalls) != 1 || subCalls[0].MessageID != "" || subCalls[0].TokensIn != 123 {
+		t.Fatalf("subcalls before link = %+v, want one unlinked subcall", subCalls)
+	}
+	if err := backend.PersistIteration(ctx, PersistIterationArgs{
+		ConversationID: "conv-sub",
+		TurnNumber:     1,
+		Iteration:      1,
+		CreatedAtUS:    uint64(createdAt.Add(4 * time.Second).UnixMicro()),
+		Messages: []PersistIterationMessage{
+			{Role: "assistant", Content: "subcalls now live in Shunter"},
+		},
+	}); err != nil {
+		t.Fatalf("PersistIteration: %v", err)
+	}
+	messages, err := backend.ListMessages(ctx, "conv-sub", false)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(messages) != 2 || messages[1].Role != "assistant" {
+		t.Fatalf("messages = %+v, want user/assistant", messages)
+	}
+	subCalls, err = backend.ListTurnSubCalls(ctx, "conv-sub", 1)
+	if err != nil {
+		t.Fatalf("ListTurnSubCalls after link: %v", err)
+	}
+	if len(subCalls) != 1 || subCalls[0].MessageID != messages[1].ID || subCalls[0].Status != "success" {
+		t.Fatalf("subcalls after link = %+v, want linked to %s", subCalls, messages[1].ID)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	subCalls, err = reopened.ListSubCalls(ctx, "conv-sub")
+	if err != nil {
+		t.Fatalf("ListSubCalls after restart: %v", err)
+	}
+	if len(subCalls) != 1 || subCalls[0].ID != "sub-1" || subCalls[0].MessageID != messages[1].ID {
+		t.Fatalf("subcalls after restart = %+v, want linked sub-1", subCalls)
+	}
+	if err := reopened.CancelIteration(ctx, CancelIterationArgs{ConversationID: "conv-sub", TurnNumber: 1, Iteration: 1}); err != nil {
+		t.Fatalf("CancelIteration: %v", err)
+	}
+	subCalls, err = reopened.ListSubCalls(ctx, "conv-sub")
+	if err != nil {
+		t.Fatalf("ListSubCalls after cancel: %v", err)
+	}
+	if len(subCalls) != 0 {
+		t.Fatalf("subcalls after cancel = %+v, want none", subCalls)
+	}
+	if err := reopened.RecordSubCall(ctx, RecordSubCallArgs{
+		ID:             "sub-2",
+		ConversationID: "conv-sub",
+		TurnNumber:     1,
+		Iteration:      1,
+		Provider:       "codex",
+		Model:          "gpt-5.5",
+		Purpose:        "chat",
+		Status:         "error",
+		Error:          "cancelled",
+	}); err != nil {
+		t.Fatalf("RecordSubCall second: %v", err)
+	}
+	if err := reopened.DiscardTurn(ctx, DiscardTurnArgs{ConversationID: "conv-sub", TurnNumber: 1}); err != nil {
+		t.Fatalf("DiscardTurn: %v", err)
+	}
+	subCalls, err = reopened.ListSubCalls(ctx, "conv-sub")
+	if err != nil {
+		t.Fatalf("ListSubCalls after discard: %v", err)
+	}
+	if len(subCalls) != 0 {
+		t.Fatalf("subcalls after discard = %+v, want none", subCalls)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
@@ -385,5 +512,26 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if len(parentMessages) != 1 || parentMessages[0].Content != "remote conversation write" {
 		t.Fatalf("parent messages after RPC = %+v, want remote conversation write", parentMessages)
+	}
+	if err := client.RecordSubCall(ctx, RecordSubCallArgs{
+		ID:             "rpc-sub",
+		ConversationID: "rpc-conv",
+		TurnNumber:     1,
+		Iteration:      1,
+		Provider:       "codex",
+		Model:          "gpt-5.5",
+		Purpose:        "chat",
+		Status:         "success",
+		TokensIn:       10,
+		TokensOut:      5,
+	}); err != nil {
+		t.Fatalf("client RecordSubCall: %v", err)
+	}
+	parentSubCalls, err := backend.ListSubCalls(ctx, "rpc-conv")
+	if err != nil {
+		t.Fatalf("parent ListSubCalls: %v", err)
+	}
+	if len(parentSubCalls) != 1 || parentSubCalls[0].ID != "rpc-sub" || parentSubCalls[0].TokensOut != 5 {
+		t.Fatalf("parent subcalls after RPC = %+v, want rpc-sub", parentSubCalls)
 	}
 }

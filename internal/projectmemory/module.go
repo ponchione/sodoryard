@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 const (
 	tableProjectState schema.TableID = iota
@@ -20,6 +20,7 @@ const (
 	tableCodeFileIndexState
 	tableConversations
 	tableMessages
+	tableSubCalls
 )
 
 const (
@@ -70,6 +71,13 @@ const (
 	indexMessagesConversation
 )
 
+const (
+	indexSubCallsPrimary schema.IndexID = iota
+	indexSubCallsConversation
+	indexSubCallsCreated
+	indexSubCallsPurpose
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -82,6 +90,7 @@ func NewModule() *shunter.Module {
 	declareCodeFileIndexState(mod)
 	declareConversations(mod)
 	declareMessages(mod)
+	declareSubCalls(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -98,6 +107,7 @@ func NewModule() *shunter.Module {
 	mod.Reducer("persist_iteration", persistIterationReducer)
 	mod.Reducer("cancel_iteration", cancelIterationReducer)
 	mod.Reducer("discard_turn", discardTurnReducer)
+	mod.Reducer("record_sub_call", recordSubCallReducer)
 	return mod
 }
 
@@ -278,6 +288,37 @@ func declareMessages(mod *shunter.Module) {
 		},
 		Indexes: []schema.IndexDefinition{
 			{Name: "messages_conversation", Columns: []string{"conversation_id"}},
+		},
+	})
+}
+
+func declareSubCalls(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "sub_calls",
+		Columns: []schema.ColumnDefinition{
+			{Name: "id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "conversation_id", Type: schema.KindString},
+			{Name: "message_id", Type: schema.KindString},
+			{Name: "turn_number", Type: schema.KindUint32},
+			{Name: "iteration", Type: schema.KindUint32},
+			{Name: "provider", Type: schema.KindString},
+			{Name: "model", Type: schema.KindString},
+			{Name: "purpose", Type: schema.KindString},
+			{Name: "status", Type: schema.KindString},
+			{Name: "started_at_us", Type: schema.KindUint64},
+			{Name: "completed_at_us", Type: schema.KindUint64},
+			{Name: "tokens_in", Type: schema.KindUint64},
+			{Name: "tokens_out", Type: schema.KindUint64},
+			{Name: "cache_read_tokens", Type: schema.KindUint64},
+			{Name: "cache_creation_tokens", Type: schema.KindUint64},
+			{Name: "latency_ms", Type: schema.KindUint64},
+			{Name: "error", Type: schema.KindString},
+			{Name: "metadata_json", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "sub_calls_conversation", Columns: []string{"conversation_id"}},
+			{Name: "sub_calls_created", Columns: []string{"completed_at_us"}},
+			{Name: "sub_calls_purpose", Columns: []string{"purpose"}},
 		},
 	})
 }

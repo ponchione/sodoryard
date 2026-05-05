@@ -91,32 +91,44 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		return nil, fmt.Errorf("ensure project record: %w", err)
 	}
 
-	// Only register providers the YAML explicitly listed. This avoids
-	// registering Default() providers that the operator's config never asked
-	// for (TECH-DEBT R6).
-	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
-		ProviderNames: cfg.ProviderNamesForSurfaces(),
-	})
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-
 	brainBackend, closeBrainBackend, err := buildOrchestratorBrainBackend(ctx, cfg.Brain, logger)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("build brain backend: %w", err)
 	}
-	memoryEndpointEnv, closeMemoryRPC, err := buildOrchestratorMemoryRPC(ctx, cfg, brainBackend, logger)
+	memoryBackend, closeMemoryBackend, err := BuildProjectMemoryStore(ctx, cfg, brainBackend, logger)
 	if err != nil {
+		closeBrainBackend()
+		cleanup()
+		return nil, fmt.Errorf("build project memory store: %w", err)
+	}
+	memoryEndpointEnv, closeMemoryRPC, err := buildOrchestratorMemoryRPC(ctx, cfg, memoryBackend, logger)
+	if err != nil {
+		closeMemoryBackend()
 		closeBrainBackend()
 		cleanup()
 		return nil, fmt.Errorf("start project memory RPC: %w", err)
 	}
 
-	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, brainBackend, logger)
+	// Only register providers the YAML explicitly listed. This avoids
+	// registering Default() providers that the operator's config never asked
+	// for (TECH-DEBT R6).
+	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
+		ProviderNames: cfg.ProviderNamesForSurfaces(),
+		MemoryBackend: memoryBackend,
+	})
 	if err != nil {
 		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
+		cleanup()
+		return nil, err
+	}
+
+	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, memoryBackend, logger)
+	if err != nil {
+		closeMemoryRPC()
+		closeMemoryBackend()
 		closeBrainBackend()
 		cleanup()
 		return nil, err
@@ -139,6 +151,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 			provRouter.DrainTracking()
 			closeConversationManager()
 			closeMemoryRPC()
+			closeMemoryBackend()
 			closeBrainBackend()
 			cleanup()
 		},
@@ -155,16 +168,16 @@ func buildOrchestratorBrainBackend(ctx context.Context, cfg appconfig.BrainConfi
 	return BuildBrainBackend(ctx, cfg, logger)
 }
 
-func buildOrchestratorMemoryRPC(ctx context.Context, cfg *appconfig.Config, backend brain.Backend, logger *slog.Logger) ([]string, func(), error) {
-	if cfg == nil || !cfg.Brain.Enabled || cfg.Brain.Backend != "shunter" {
+func buildOrchestratorMemoryRPC(ctx context.Context, cfg *appconfig.Config, memoryBackend any, logger *slog.Logger) ([]string, func(), error) {
+	if cfg == nil || cfg.Memory.Backend != "shunter" {
 		return projectMemoryEndpointEnv(cfg), func() {}, nil
 	}
 	if strings.TrimSpace(os.Getenv(projectmemory.EnvMemoryEndpoint)) != "" {
 		return projectMemoryEndpointEnv(cfg), func() {}, nil
 	}
-	localBackend, ok := backend.(*projectmemory.BrainBackend)
+	localBackend, ok := memoryBackend.(*projectmemory.BrainBackend)
 	if !ok || localBackend == nil {
-		return nil, func() {}, fmt.Errorf("local Shunter brain backend is required to own project memory RPC")
+		return nil, func() {}, fmt.Errorf("local Shunter project memory backend is required to own project memory RPC")
 	}
 	transport, path := configuredMemoryRPC(cfg)
 	if transport == "" {
@@ -196,7 +209,7 @@ func projectMemoryEndpointEnv(cfg *appconfig.Config) []string {
 }
 
 func configuredMemoryEndpoint(cfg *appconfig.Config) string {
-	if cfg == nil || !cfg.Brain.Enabled || cfg.Brain.Backend != "shunter" {
+	if cfg == nil || cfg.Memory.Backend != "shunter" {
 		return ""
 	}
 	transport, path := configuredMemoryRPC(cfg)

@@ -10,8 +10,8 @@ import (
 )
 
 // TrackedProvider implements provider.Provider, wrapping an inner provider to
-// record every LLM invocation to the SubCallStore. Tracking failures (SQLite
-// write errors) are logged but never block inference.
+// record every LLM invocation to the SubCallStore. Tracking failures are logged
+// but never block inference.
 type TrackedProvider struct {
 	inner  provider.Provider
 	store  SubCallStore

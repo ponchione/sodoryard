@@ -372,6 +372,41 @@ func (r *Runtime) SearchConversations(ctx context.Context, projectID string, que
 	return out, nil
 }
 
+func (r *Runtime) ListSubCalls(ctx context.Context, conversationID string) ([]SubCall, error) {
+	var subCalls []SubCall
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		if strings.TrimSpace(conversationID) == "" {
+			for _, row := range view.TableScan(tableSubCalls) {
+				subCalls = append(subCalls, decodeSubCallRow(row))
+			}
+			return nil
+		}
+		for _, row := range view.SeekIndex(tableSubCalls, indexSubCallsConversation, types.NewString(conversationID)) {
+			subCalls = append(subCalls, decodeSubCallRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sortSubCalls(subCalls)
+	return subCalls, nil
+}
+
+func (r *Runtime) ListTurnSubCalls(ctx context.Context, conversationID string, turnNumber uint32) ([]SubCall, error) {
+	subCalls, err := r.ListSubCalls(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SubCall, 0, len(subCalls))
+	for _, subCall := range subCalls {
+		if subCall.TurnNumber == turnNumber {
+			out = append(out, subCall)
+		}
+	}
+	return out, nil
+}
+
 type SearchHit struct {
 	Path    string
 	Snippet string
@@ -392,6 +427,15 @@ func sortMessages(messages []Message) {
 			return messages[i].ID < messages[j].ID
 		}
 		return messages[i].Sequence < messages[j].Sequence
+	})
+}
+
+func sortSubCalls(subCalls []SubCall) {
+	sort.Slice(subCalls, func(i, j int) bool {
+		if subCalls[i].CompletedAtUS == subCalls[j].CompletedAtUS {
+			return subCalls[i].ID < subCalls[j].ID
+		}
+		return subCalls[i].CompletedAtUS < subCalls[j].CompletedAtUS
 	})
 }
 

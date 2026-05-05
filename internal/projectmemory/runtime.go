@@ -18,6 +18,10 @@ type Runtime struct {
 	durableAck bool
 }
 
+type SubCallRecorder interface {
+	RecordSubCall(ctx context.Context, args RecordSubCallArgs) error
+}
+
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("project memory shunter data dir is required")
@@ -138,5 +142,10 @@ func (r *Runtime) CancelIteration(ctx context.Context, args CancelIterationArgs)
 
 func (r *Runtime) DiscardTurn(ctx context.Context, args DiscardTurnArgs) error {
 	_, err := r.callReducerJSON(ctx, "discard_turn", args)
+	return err
+}
+
+func (r *Runtime) RecordSubCall(ctx context.Context, args RecordSubCallArgs) error {
+	_, err := r.callReducerJSON(ctx, "record_sub_call", args)
 	return err
 }

@@ -240,6 +240,19 @@ type SearchConversationsResponse struct {
 	Hits []ConversationSearchHit
 }
 
+type ListSubCallsRequest struct {
+	ConversationID string
+}
+
+type ListTurnSubCallsRequest struct {
+	ConversationID string
+	TurnNumber     uint32
+}
+
+type ListSubCallsResponse struct {
+	SubCalls []SubCall
+}
+
 type EmptyResponse struct{}
 
 func (s *brainRPCService) ReadDocument(req ReadDocumentRequest, resp *ReadDocumentResponse) error {
@@ -418,5 +431,27 @@ func (s *brainRPCService) SearchConversations(req SearchConversationsRequest, re
 		return err
 	}
 	resp.Hits = hits
+	return nil
+}
+
+func (s *brainRPCService) RecordSubCall(req RecordSubCallArgs, resp *EmptyResponse) error {
+	return s.backend.RecordSubCall(context.Background(), req)
+}
+
+func (s *brainRPCService) ListSubCalls(req ListSubCallsRequest, resp *ListSubCallsResponse) error {
+	subCalls, err := s.backend.ListSubCalls(context.Background(), req.ConversationID)
+	if err != nil {
+		return err
+	}
+	resp.SubCalls = subCalls
+	return nil
+}
+
+func (s *brainRPCService) ListTurnSubCalls(req ListTurnSubCallsRequest, resp *ListSubCallsResponse) error {
+	subCalls, err := s.backend.ListTurnSubCalls(context.Background(), req.ConversationID, req.TurnNumber)
+	if err != nil {
+		return err
+	}
+	resp.SubCalls = subCalls
 	return nil
 }

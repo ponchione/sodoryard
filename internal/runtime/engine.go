@@ -61,14 +61,6 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		return closeOnError(fmt.Errorf("ensure project record: %w", err))
 	}
 
-	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
-		ProviderNames: providerMapNames(cfg.Providers),
-		LogAuthStatus: true,
-	})
-	if err != nil {
-		return closeOnError(err)
-	}
-
 	codeStore, err := codestore.Open(ctx, cfg.CodeLanceDBPath())
 	if err != nil {
 		return closeOnError(fmt.Errorf("open code vectorstore: %w", err))
@@ -82,6 +74,20 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		return closeOnError(err)
 	}
 	cleanup = ChainCleanup(cleanup, closeBrainRuntime)
+	memoryBackend, closeMemoryBackend, err := BuildProjectMemoryStore(ctx, cfg, brainBackend, logger)
+	if err != nil {
+		return closeOnError(err)
+	}
+	cleanup = ChainCleanup(cleanup, closeMemoryBackend)
+
+	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
+		ProviderNames: providerMapNames(cfg.Providers),
+		LogAuthStatus: true,
+		MemoryBackend: memoryBackend,
+	})
+	if err != nil {
+		return closeOnError(err)
+	}
 
 	graphStore, closeGraphStore, err := BuildGraphStore(cfg)
 	if err != nil {
@@ -96,7 +102,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 	budgetManager := contextpkg.PriorityBudgetManager{}
 	budgetManager.SetBrainConfig(cfg.Brain)
 
-	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, brainBackend, logger)
+	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, memoryBackend, logger)
 	if err != nil {
 		return closeOnError(err)
 	}
@@ -215,6 +221,41 @@ func BuildConversationManager(ctx context.Context, cfg *appconfig.Config, databa
 		return nil, func() {}, err
 	}
 	return conversation.NewProjectMemoryManager(backend, nil, logger), func() { _ = backend.Close() }, nil
+}
+
+func BuildProjectMemoryStore(ctx context.Context, cfg *appconfig.Config, existing any, logger *slog.Logger) (any, func(), error) {
+	if cfg == nil || cfg.Memory.Backend != "shunter" {
+		return nil, func() {}, nil
+	}
+	if existing != nil {
+		if _, ok := existing.(projectmemory.SubCallRecorder); ok {
+			return existing, func() {}, nil
+		}
+		if _, ok := existing.(conversation.ProjectMemoryStore); ok {
+			return existing, func() {}, nil
+		}
+	}
+	if endpoint := os.Getenv(projectmemory.EnvMemoryEndpoint); endpoint != "" {
+		client, err := projectmemory.DialBrainBackend(endpoint)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		if logger != nil {
+			logger.Info("project memory store: Shunter RPC", "endpoint", endpoint)
+		}
+		return client, func() { _ = client.Close() }, nil
+	}
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+		DataDir:    cfg.Memory.ShunterDataDir,
+		DurableAck: cfg.Memory.DurableAck,
+	})
+	if err != nil {
+		return nil, func() {}, err
+	}
+	if logger != nil {
+		logger.Info("project memory store: Shunter", "data_dir", cfg.Memory.ShunterDataDir)
+	}
+	return backend, func() { _ = backend.Close() }, nil
 }
 
 // BuildGraphStore opens (or creates) the code-graph SQLite store at the path
