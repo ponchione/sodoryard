@@ -18,6 +18,7 @@ import (
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	sid "github.com/ponchione/sodoryard/internal/id"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 func TestContextSignalStreamEndpointReturnsOrderedSignalFlow(t *testing.T) {
@@ -118,6 +119,160 @@ func TestContextReportEndpointReturnsPersistedTokenBudgetAndUsageDeltas(t *testi
 	if resp.TokenBudget.InputDeltaTokens != 654 {
 		t.Fatalf("input_delta_tokens = %d, want 654", resp.TokenBudget.InputDeltaTokens)
 	}
+}
+
+func TestContextReportEndpointsUseProjectMemoryWithoutQueries(t *testing.T) {
+	ctx := context.Background()
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	conversationID := "conv-project-memory-metrics"
+	createdAt := time.Date(2026, 5, 5, 12, 30, 0, 0, time.UTC)
+	if err := backend.CreateConversation(ctx, projectmemory.CreateConversationArgs{
+		ID:          conversationID,
+		ProjectID:   "project-memory-test",
+		Title:       "Project Memory Metrics",
+		Model:       "claude-sonnet-4-6-20250514",
+		Provider:    "anthropic",
+		CreatedAtUS: uint64(createdAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	report := contextpkg.ContextAssemblyReport{
+		TurnNumber:         1,
+		AnalysisLatencyMs:  4,
+		RetrievalLatencyMs: 8,
+		TotalLatencyMs:     12,
+		Needs: contextpkg.ContextNeeds{
+			SemanticQueries:    []string{"runtime brain proof canary"},
+			PreferBrainContext: true,
+			Signals: []contextpkg.Signal{{
+				Type:   "brain_intent",
+				Source: "project brain",
+				Value:  "prefer_brain_context",
+			}},
+		},
+		BrainResults: []contextpkg.BrainHit{{
+			DocumentPath: "notes/runtime.md",
+			Title:        "Runtime",
+			MatchScore:   0.8,
+			MatchMode:    "keyword",
+			Included:     true,
+		}},
+		IncludedChunks:  []string{"notes/runtime.md"},
+		BudgetTotal:     1000,
+		BudgetUsed:      250,
+		BudgetBreakdown: map[string]int{"brain": 125},
+		TokenBudget: contextpkg.TokenBudgetReport{
+			ModelContextLimit:          200000,
+			HistoryTokens:              4096,
+			ReservedSystemPromptTokens: 3000,
+			ReservedToolSchemaTokens:   3000,
+			ReservedOutputTokens:       16000,
+			EstimatedContextTokens:     250,
+			EstimatedRequestTokens:     26346,
+		},
+	}
+	reportJSON, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	qualityJSON, err := json.Marshal(map[string]any{
+		"agent_used_search_tool": true,
+		"agent_read_files":       []string{"internal/context/retrieval.go"},
+		"context_hit_rate":       0.5,
+	})
+	if err != nil {
+		t.Fatalf("marshal quality: %v", err)
+	}
+	if err := backend.StoreContextReport(ctx, projectmemory.StoreContextReportArgs{
+		ID:             projectmemory.ContextReportID(conversationID, 1),
+		ConversationID: conversationID,
+		TurnNumber:     1,
+		CreatedAtUS:    uint64(createdAt.UnixMicro()),
+		UpdatedAtUS:    uint64(createdAt.UnixMicro()),
+		RequestJSON:    `{"conversation_id":"conv-project-memory-metrics","turn_number":1}`,
+		ReportJSON:     string(reportJSON),
+		QualityJSON:    string(qualityJSON),
+	}); err != nil {
+		t.Fatalf("StoreContextReport: %v", err)
+	}
+	if err := backend.RecordSubCall(ctx, projectmemory.RecordSubCallArgs{
+		ConversationID:      conversationID,
+		TurnNumber:          1,
+		Iteration:           2,
+		Provider:            "anthropic",
+		Model:               "claude-sonnet-4-6-20250514",
+		Purpose:             "chat",
+		Status:              "success",
+		CompletedAtUS:       uint64(createdAt.Add(time.Second).UnixMicro()),
+		TokensIn:            27000,
+		TokensOut:           1200,
+		CacheReadTokens:     300,
+		CacheCreationTokens: 400,
+		LatencyMs:           987,
+	}); err != nil {
+		t.Fatalf("RecordSubCall: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := New(Config{}, logger)
+	NewMetricsHandler(srv, nil, logger, backend)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics/conversation/"+conversationID+"/context/1", nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp contextReportResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ConversationID != conversationID || resp.TurnNumber != 1 {
+		t.Fatalf("response identity = %q/%d, want %q/1", resp.ConversationID, resp.TurnNumber, conversationID)
+	}
+	if resp.TokenBudget == nil || resp.TokenBudget.ActualInputTokens != 27000 || resp.TokenBudget.ActualOutputTokens != 1200 {
+		t.Fatalf("token_budget = %+v, want Shunter sub-call usage", resp.TokenBudget)
+	}
+	if resp.TokenBudget.ActualCacheReadTokens != 300 || resp.TokenBudget.ActualCacheCreationTokens != 400 || resp.TokenBudget.IterationCount != 2 {
+		t.Fatalf("token_budget usage detail = %+v, want cache and iteration values", resp.TokenBudget)
+	}
+	if resp.TokenBudget.InputDeltaTokens != 654 {
+		t.Fatalf("input_delta_tokens = %d, want 654", resp.TokenBudget.InputDeltaTokens)
+	}
+	if resp.AgentUsedSearch == nil || *resp.AgentUsedSearch != 1 {
+		t.Fatalf("agent_used_search_tool = %v, want 1", resp.AgentUsedSearch)
+	}
+	var brainResults []contextpkg.BrainHit
+	if err := json.Unmarshal(resp.BrainResults, &brainResults); err != nil {
+		t.Fatalf("decode brain results: %v", err)
+	}
+	if len(brainResults) != 1 || brainResults[0].DocumentPath != "notes/runtime.md" || !brainResults[0].Included {
+		t.Fatalf("brain_results = %+v, want project memory report contents", brainResults)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/metrics/conversation/"+conversationID+"/context/1/signals", nil)
+	rec = httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("signals status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var signals contextSignalStreamResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &signals); err != nil {
+		t.Fatalf("decode signals response: %v", err)
+	}
+	if len(signals.Stream) != 3 {
+		t.Fatalf("len(signal stream) = %d, want 3; stream=%+v", len(signals.Stream), signals.Stream)
+	}
+	assertSignalStreamEntry(t, signals.Stream[0], 0, "signal", "brain_intent", "project brain", "prefer_brain_context")
+	assertSignalStreamEntry(t, signals.Stream[1], 1, "semantic_query", "", "", "runtime brain proof canary")
+	assertSignalStreamEntry(t, signals.Stream[2], 2, "flag", "prefer_brain_context", "", "true")
 }
 
 func TestContextReportStoreRoundTripsPersistedTokenBudget(t *testing.T) {

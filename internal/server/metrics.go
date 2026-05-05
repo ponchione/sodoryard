@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,20 +9,44 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 // MetricsHandler serves per-conversation metrics and context report endpoints.
 type MetricsHandler struct {
-	queries *appdb.Queries
-	logger  *slog.Logger
+	queries        *appdb.Queries
+	contextReports metricsContextReportReader
+	turnSubCalls   metricsTurnSubCallReader
+	logger         *slog.Logger
+}
+
+type metricsContextReportReader interface {
+	ReadContextReport(ctx context.Context, conversationID string, turnNumber uint32) (projectmemory.ContextReport, bool, error)
+}
+
+type metricsTurnSubCallReader interface {
+	ListTurnSubCalls(ctx context.Context, conversationID string, turnNumber uint32) ([]projectmemory.SubCall, error)
 }
 
 // NewMetricsHandler creates a handler and registers routes on the server.
-func NewMetricsHandler(s *Server, queries *appdb.Queries, logger *slog.Logger) *MetricsHandler {
+func NewMetricsHandler(s *Server, queries *appdb.Queries, logger *slog.Logger, memoryBackends ...any) *MetricsHandler {
 	h := &MetricsHandler{queries: queries, logger: logger}
+	for _, backend := range memoryBackends {
+		if h.contextReports == nil {
+			if store, ok := backend.(metricsContextReportReader); ok && store != nil {
+				h.contextReports = store
+			}
+		}
+		if h.turnSubCalls == nil {
+			if store, ok := backend.(metricsTurnSubCallReader); ok && store != nil {
+				h.turnSubCalls = store
+			}
+		}
+	}
 
 	s.HandleFunc("GET /api/metrics/conversation/{id}", h.handleConversationMetrics)
 	s.HandleFunc("GET /api/metrics/conversation/{id}/context/{turn}", h.handleContextReport)
@@ -209,6 +234,30 @@ type contextSignalStreamEntry struct {
 	Value  string `json:"value,omitempty"`
 }
 
+type metricsContextReport struct {
+	ConversationID      string
+	TurnNumber          int64
+	AnalysisLatencyMs   *int64
+	RetrievalLatencyMs  *int64
+	TotalLatencyMs      *int64
+	NeedsJSON           string
+	SignalsJSON         string
+	RAGResultsJSON      string
+	BrainResultsJSON    string
+	GraphResultsJSON    string
+	ExplicitFilesJSON   string
+	BudgetTotal         *int64
+	BudgetUsed          *int64
+	BudgetBreakdownJSON string
+	TokenBudgetJSON     string
+	IncludedCount       *int64
+	ExcludedCount       *int64
+	AgentUsedSearch     *int64
+	AgentReadFilesJSON  string
+	ContextHitRate      *float64
+	CreatedAt           string
+}
+
 func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Request) {
 	report, ok := h.contextReportForRequest(w, r, "get context report", "failed to get context report")
 	if !ok {
@@ -222,15 +271,15 @@ func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Scalars — convert sql.Null* to pointer.
-	resp.AnalysisLatencyMs = nullInt64Ptr(report.AnalysisLatencyMs)
-	resp.RetrievalLatencyMs = nullInt64Ptr(report.RetrievalLatencyMs)
-	resp.TotalLatencyMs = nullInt64Ptr(report.TotalLatencyMs)
-	resp.BudgetTotal = nullInt64Ptr(report.BudgetTotal)
-	resp.BudgetUsed = nullInt64Ptr(report.BudgetUsed)
-	resp.IncludedCount = nullInt64Ptr(report.IncludedCount)
-	resp.ExcludedCount = nullInt64Ptr(report.ExcludedCount)
-	resp.AgentUsedSearch = nullInt64Ptr(report.AgentUsedSearchTool)
-	resp.ContextHitRate = nullFloat64Ptr(report.ContextHitRate)
+	resp.AnalysisLatencyMs = report.AnalysisLatencyMs
+	resp.RetrievalLatencyMs = report.RetrievalLatencyMs
+	resp.TotalLatencyMs = report.TotalLatencyMs
+	resp.BudgetTotal = report.BudgetTotal
+	resp.BudgetUsed = report.BudgetUsed
+	resp.IncludedCount = report.IncludedCount
+	resp.ExcludedCount = report.ExcludedCount
+	resp.AgentUsedSearch = report.AgentUsedSearch
+	resp.ContextHitRate = report.ContextHitRate
 	if tokenBudget, usageErr := h.buildTokenBudgetReport(r, report); usageErr == nil {
 		resp.TokenBudget = tokenBudget
 	} else {
@@ -238,14 +287,14 @@ func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Requ
 	}
 
 	// JSON columns — pass through as raw JSON.
-	resp.Needs = nullStringToJSON(report.NeedsJson)
-	resp.Signals = nullStringToJSON(report.SignalsJson)
-	resp.RAGResults = nullStringToJSON(report.RagResultsJson)
-	resp.BrainResults = nullStringToJSON(report.BrainResultsJson)
-	resp.GraphResults = nullStringToJSON(report.GraphResultsJson)
-	resp.ExplicitFiles = nullStringToJSON(report.ExplicitFilesJson)
-	resp.BudgetBreakdown = nullStringToJSON(report.BudgetBreakdownJson)
-	resp.AgentReadFiles = nullStringToJSON(report.AgentReadFilesJson)
+	resp.Needs = stringToJSON(report.NeedsJSON)
+	resp.Signals = stringToJSON(report.SignalsJSON)
+	resp.RAGResults = stringToJSON(report.RAGResultsJSON)
+	resp.BrainResults = stringToJSON(report.BrainResultsJSON)
+	resp.GraphResults = stringToJSON(report.GraphResultsJSON)
+	resp.ExplicitFiles = stringToJSON(report.ExplicitFilesJSON)
+	resp.BudgetBreakdown = stringToJSON(report.BudgetBreakdownJSON)
+	resp.AgentReadFiles = stringToJSON(report.AgentReadFilesJSON)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -256,7 +305,7 @@ func (h *MetricsHandler) handleContextSignalStream(w http.ResponseWriter, r *htt
 		return
 	}
 
-	needs, err := decodeContextNeeds(row.NeedsJson, row.SignalsJson)
+	needs, err := decodeContextNeeds(row.NeedsJSON, row.SignalsJSON)
 	if err != nil {
 		h.logger.Error("decode context signal stream", "error", err, "id", row.ConversationID, "turn", row.TurnNumber)
 		writeError(w, http.StatusInternalServerError, "failed to decode context signal stream")
@@ -270,31 +319,57 @@ func (h *MetricsHandler) handleContextSignalStream(w http.ResponseWriter, r *htt
 	})
 }
 
-func (h *MetricsHandler) contextReportForRequest(w http.ResponseWriter, r *http.Request, logMessage, clientError string) (appdb.ContextReport, bool) {
-	if !h.requireQueries(w) {
-		return appdb.ContextReport{}, false
-	}
+func (h *MetricsHandler) contextReportForRequest(w http.ResponseWriter, r *http.Request, logMessage, clientError string) (metricsContextReport, bool) {
 	convID := r.PathValue("id")
 	turn, err := strconv.ParseInt(r.PathValue("turn"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "turn must be a number")
-		return appdb.ContextReport{}, false
+		return metricsContextReport{}, false
+	}
+	if turn <= 0 || turn > maxMetricsTurnNumber {
+		writeError(w, http.StatusBadRequest, "turn must be a positive 32-bit number")
+		return metricsContextReport{}, false
 	}
 
-	report, err := h.queries.GetContextReportByTurn(r.Context(), appdb.GetContextReportByTurnParams{
-		ConversationID: convID,
-		TurnNumber:     turn,
-	})
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "context report not found")
-			return appdb.ContextReport{}, false
+	if h != nil && h.queries != nil {
+		report, err := h.queries.GetContextReportByTurn(r.Context(), appdb.GetContextReportByTurnParams{
+			ConversationID: convID,
+			TurnNumber:     turn,
+		})
+		if err != nil {
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusNotFound, "context report not found")
+				return metricsContextReport{}, false
+			}
+			h.logger.Error(logMessage, "error", err, "id", convID, "turn", turn)
+			writeError(w, http.StatusInternalServerError, clientError)
+			return metricsContextReport{}, false
 		}
-		h.logger.Error(logMessage, "error", err, "id", convID, "turn", turn)
-		writeError(w, http.StatusInternalServerError, clientError)
-		return appdb.ContextReport{}, false
+		return metricsContextReportFromSQLite(report), true
 	}
-	return report, true
+
+	if h != nil && h.contextReports != nil {
+		report, found, err := h.contextReports.ReadContextReport(r.Context(), convID, uint32(turn))
+		if err != nil {
+			h.logger.Error(logMessage, "error", err, "id", convID, "turn", turn)
+			writeError(w, http.StatusInternalServerError, clientError)
+			return metricsContextReport{}, false
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "context report not found")
+			return metricsContextReport{}, false
+		}
+		out, err := metricsContextReportFromProjectMemory(report)
+		if err != nil {
+			h.logger.Error("decode project memory context report", "error", err, "id", convID, "turn", turn)
+			writeError(w, http.StatusInternalServerError, "failed to decode context report")
+			return metricsContextReport{}, false
+		}
+		return out, true
+	}
+
+	writeError(w, http.StatusServiceUnavailable, "metrics are unavailable for this memory backend")
+	return metricsContextReport{}, false
 }
 
 func (h *MetricsHandler) requireQueries(w http.ResponseWriter) bool {
@@ -305,29 +380,46 @@ func (h *MetricsHandler) requireQueries(w http.ResponseWriter) bool {
 	return false
 }
 
-func (h *MetricsHandler) buildTokenBudgetReport(r *http.Request, report appdb.ContextReport) (*contextpkg.TokenBudgetReport, error) {
+func (h *MetricsHandler) buildTokenBudgetReport(r *http.Request, report metricsContextReport) (*contextpkg.TokenBudgetReport, error) {
 	budget := &contextpkg.TokenBudgetReport{}
-	if report.TokenBudgetJson.Valid && strings.TrimSpace(report.TokenBudgetJson.String) != "" {
-		if err := json.Unmarshal([]byte(report.TokenBudgetJson.String), budget); err != nil {
+	if strings.TrimSpace(report.TokenBudgetJSON) != "" {
+		if err := json.Unmarshal([]byte(report.TokenBudgetJSON), budget); err != nil {
 			return nil, fmt.Errorf("decode token budget: %w", err)
 		}
 	} else {
 		budget.ReservedSystemPromptTokens = 3000
 		budget.ReservedToolSchemaTokens = 3000
 		budget.ReservedOutputTokens = 16000
-		if report.BudgetUsed.Valid {
-			budget.EstimatedContextTokens = int(report.BudgetUsed.Int64)
+		if report.BudgetUsed != nil {
+			budget.EstimatedContextTokens = int(*report.BudgetUsed)
 		}
-		if report.BudgetTotal.Valid {
-			budget.EstimatedRequestTokens = int(report.BudgetUsed.Int64) + budget.ReservedSystemPromptTokens + budget.ReservedToolSchemaTokens + budget.ReservedOutputTokens
+		if report.BudgetTotal != nil {
+			budget.EstimatedRequestTokens = int(int64PtrValue(report.BudgetUsed)) + budget.ReservedSystemPromptTokens + budget.ReservedToolSchemaTokens + budget.ReservedOutputTokens
 		}
 	}
-	usage, err := h.queries.GetTurnTokenUsage(r.Context(), appdb.GetTurnTokenUsageParams{
-		ConversationID: sql.NullString{String: report.ConversationID, Valid: true},
-		TurnNumber:     sql.NullInt64{Int64: report.TurnNumber, Valid: true},
-	})
-	if err != nil {
-		return budget, err
+	usage := turnTokenUsage{IterationCount: 1}
+	if h != nil && h.queries != nil {
+		row, err := h.queries.GetTurnTokenUsage(r.Context(), appdb.GetTurnTokenUsageParams{
+			ConversationID: sql.NullString{String: report.ConversationID, Valid: true},
+			TurnNumber:     sql.NullInt64{Int64: report.TurnNumber, Valid: true},
+		})
+		if err != nil {
+			return budget, err
+		}
+		usage = turnTokenUsage{
+			TokensIn:            row.TokensIn,
+			TokensOut:           row.TokensOut,
+			CacheReadTokens:     row.CacheReadTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+			LatencyMs:           row.LatencyMs,
+			IterationCount:      row.IterationCount,
+		}
+	} else if h != nil && h.turnSubCalls != nil {
+		subCalls, err := h.turnSubCalls.ListTurnSubCalls(r.Context(), report.ConversationID, uint32(report.TurnNumber))
+		if err != nil {
+			return budget, err
+		}
+		usage = aggregateProjectMemoryTurnUsage(subCalls)
 	}
 	budget.ActualInputTokens = usage.TokensIn
 	budget.ActualOutputTokens = usage.TokensOut
@@ -341,16 +433,16 @@ func (h *MetricsHandler) buildTokenBudgetReport(r *http.Request, report appdb.Co
 	return budget, nil
 }
 
-func decodeContextNeeds(needsJSON sql.NullString, signalsJSON sql.NullString) (contextpkg.ContextNeeds, error) {
+func decodeContextNeeds(needsJSON string, signalsJSON string) (contextpkg.ContextNeeds, error) {
 	var needs contextpkg.ContextNeeds
-	if needsJSON.Valid && strings.TrimSpace(needsJSON.String) != "" {
-		if err := json.Unmarshal([]byte(needsJSON.String), &needs); err != nil {
+	if strings.TrimSpace(needsJSON) != "" {
+		if err := json.Unmarshal([]byte(needsJSON), &needs); err != nil {
 			return contextpkg.ContextNeeds{}, err
 		}
 	}
-	if signalsJSON.Valid && strings.TrimSpace(signalsJSON.String) != "" {
+	if strings.TrimSpace(signalsJSON) != "" {
 		var signals []contextpkg.Signal
-		if err := json.Unmarshal([]byte(signalsJSON.String), &signals); err != nil {
+		if err := json.Unmarshal([]byte(signalsJSON), &signals); err != nil {
 			return contextpkg.ContextNeeds{}, err
 		}
 		needs.Signals = append([]contextpkg.Signal(nil), signals...)
@@ -426,13 +518,219 @@ func nullFloat64Ptr(n sql.NullFloat64) *float64 {
 	return nil
 }
 
-func nullStringToJSON(n sql.NullString) json.RawMessage {
-	if !n.Valid || n.String == "" {
+func stringToJSON(raw string) json.RawMessage {
+	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	// Validate it's actual JSON before passing through.
-	if json.Valid([]byte(n.String)) {
-		return json.RawMessage(n.String)
+	if json.Valid([]byte(raw)) {
+		return json.RawMessage(raw)
 	}
 	return nil
 }
+
+func metricsContextReportFromSQLite(row appdb.ContextReport) metricsContextReport {
+	return metricsContextReport{
+		ConversationID:      row.ConversationID,
+		TurnNumber:          row.TurnNumber,
+		AnalysisLatencyMs:   nullInt64Ptr(row.AnalysisLatencyMs),
+		RetrievalLatencyMs:  nullInt64Ptr(row.RetrievalLatencyMs),
+		TotalLatencyMs:      nullInt64Ptr(row.TotalLatencyMs),
+		NeedsJSON:           nullStringValue(row.NeedsJson),
+		SignalsJSON:         nullStringValue(row.SignalsJson),
+		RAGResultsJSON:      nullStringValue(row.RagResultsJson),
+		BrainResultsJSON:    nullStringValue(row.BrainResultsJson),
+		GraphResultsJSON:    nullStringValue(row.GraphResultsJson),
+		ExplicitFilesJSON:   nullStringValue(row.ExplicitFilesJson),
+		BudgetTotal:         nullInt64Ptr(row.BudgetTotal),
+		BudgetUsed:          nullInt64Ptr(row.BudgetUsed),
+		BudgetBreakdownJSON: nullStringValue(row.BudgetBreakdownJson),
+		TokenBudgetJSON:     nullStringValue(row.TokenBudgetJson),
+		IncludedCount:       nullInt64Ptr(row.IncludedCount),
+		ExcludedCount:       nullInt64Ptr(row.ExcludedCount),
+		AgentUsedSearch:     nullInt64Ptr(row.AgentUsedSearchTool),
+		AgentReadFilesJSON:  nullStringValue(row.AgentReadFilesJson),
+		ContextHitRate:      nullFloat64Ptr(row.ContextHitRate),
+		CreatedAt:           row.CreatedAt,
+	}
+}
+
+type metricsContextReportQuality struct {
+	AgentUsedSearchTool *bool    `json:"agent_used_search_tool"`
+	AgentReadFiles      []string `json:"agent_read_files"`
+	ContextHitRate      *float64 `json:"context_hit_rate"`
+}
+
+func metricsContextReportFromProjectMemory(row projectmemory.ContextReport) (metricsContextReport, error) {
+	var report contextpkg.ContextAssemblyReport
+	if strings.TrimSpace(row.ReportJSON) != "" {
+		if err := json.Unmarshal([]byte(row.ReportJSON), &report); err != nil {
+			return metricsContextReport{}, fmt.Errorf("decode report_json: %w", err)
+		}
+	}
+	var quality metricsContextReportQuality
+	if strings.TrimSpace(row.QualityJSON) != "" {
+		if err := json.Unmarshal([]byte(row.QualityJSON), &quality); err != nil {
+			return metricsContextReport{}, fmt.Errorf("decode quality_json: %w", err)
+		}
+	}
+	if report.TurnNumber == 0 {
+		report.TurnNumber = int(row.TurnNumber)
+	}
+	usedSearch := report.AgentUsedSearchTool
+	if quality.AgentUsedSearchTool != nil {
+		usedSearch = *quality.AgentUsedSearchTool
+	}
+	readFiles := report.AgentReadFiles
+	if quality.AgentReadFiles != nil {
+		readFiles = append([]string(nil), quality.AgentReadFiles...)
+	}
+	hitRate := report.ContextHitRate
+	if quality.ContextHitRate != nil {
+		hitRate = *quality.ContextHitRate
+	}
+
+	needsJSON, err := marshalMetricsJSON(report.Needs)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal needs: %w", err)
+	}
+	signalsJSON, err := marshalMetricsJSON(report.Needs.Signals)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal signals: %w", err)
+	}
+	ragJSON, err := marshalMetricsJSON(report.RAGResults)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal rag results: %w", err)
+	}
+	brainJSON, err := marshalMetricsJSON(report.BrainResults)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal brain results: %w", err)
+	}
+	graphJSON, err := marshalMetricsJSON(report.GraphResults)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal graph results: %w", err)
+	}
+	explicitFilesJSON, err := marshalMetricsJSON(report.ExplicitFileResults)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal explicit file results: %w", err)
+	}
+	budgetBreakdownJSON, err := marshalMetricsJSON(report.BudgetBreakdown)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal budget breakdown: %w", err)
+	}
+	tokenBudgetJSON, err := marshalMetricsJSON(report.TokenBudget)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal token budget: %w", err)
+	}
+	readFilesJSON, err := marshalMetricsJSON(readFiles)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal agent read files: %w", err)
+	}
+
+	return metricsContextReport{
+		ConversationID:      row.ConversationID,
+		TurnNumber:          int64(row.TurnNumber),
+		AnalysisLatencyMs:   int64Ptr(report.AnalysisLatencyMs),
+		RetrievalLatencyMs:  int64Ptr(report.RetrievalLatencyMs),
+		TotalLatencyMs:      int64Ptr(report.TotalLatencyMs),
+		NeedsJSON:           needsJSON,
+		SignalsJSON:         signalsJSON,
+		RAGResultsJSON:      ragJSON,
+		BrainResultsJSON:    brainJSON,
+		GraphResultsJSON:    graphJSON,
+		ExplicitFilesJSON:   explicitFilesJSON,
+		BudgetTotal:         int64Ptr(int64(report.BudgetTotal)),
+		BudgetUsed:          int64Ptr(int64(report.BudgetUsed)),
+		BudgetBreakdownJSON: budgetBreakdownJSON,
+		TokenBudgetJSON:     tokenBudgetJSON,
+		IncludedCount:       int64Ptr(int64(len(report.IncludedChunks))),
+		ExcludedCount:       int64Ptr(int64(len(report.ExcludedChunks))),
+		AgentUsedSearch:     int64Ptr(boolAsInt64(usedSearch)),
+		AgentReadFilesJSON:  readFilesJSON,
+		ContextHitRate:      float64Ptr(hitRate),
+		CreatedAt:           unixMicroString(row.CreatedAtUS),
+	}, nil
+}
+
+type turnTokenUsage struct {
+	TokensIn            int64
+	TokensOut           int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	LatencyMs           int64
+	IterationCount      int64
+}
+
+func aggregateProjectMemoryTurnUsage(subCalls []projectmemory.SubCall) turnTokenUsage {
+	usage := turnTokenUsage{IterationCount: 1}
+	for _, subCall := range subCalls {
+		if subCall.Purpose != "chat" {
+			continue
+		}
+		usage.TokensIn += uint64ToInt64(subCall.TokensIn)
+		usage.TokensOut += uint64ToInt64(subCall.TokensOut)
+		usage.CacheReadTokens += uint64ToInt64(subCall.CacheReadTokens)
+		usage.CacheCreationTokens += uint64ToInt64(subCall.CacheCreationTokens)
+		usage.LatencyMs += uint64ToInt64(subCall.LatencyMs)
+		if int64(subCall.Iteration) > usage.IterationCount {
+			usage.IterationCount = int64(subCall.Iteration)
+		}
+	}
+	return usage
+}
+
+func marshalMetricsJSON(value any) (string, error) {
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+func nullStringValue(n sql.NullString) string {
+	if n.Valid {
+		return n.String
+	}
+	return ""
+}
+
+func int64Ptr(value int64) *int64 {
+	return &value
+}
+
+func float64Ptr(value float64) *float64 {
+	return &value
+}
+
+func int64PtrValue(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func boolAsInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func uint64ToInt64(value uint64) int64 {
+	if value > maxMetricsInt64 {
+		return int64(maxMetricsInt64)
+	}
+	return int64(value)
+}
+
+func unixMicroString(value uint64) string {
+	if value > maxMetricsInt64 {
+		value = maxMetricsInt64
+	}
+	return time.UnixMicro(int64(value)).UTC().Format(time.RFC3339)
+}
+
+const (
+	maxMetricsTurnNumber = int64(^uint32(0))
+	maxMetricsInt64      = uint64(1<<63 - 1)
+)
