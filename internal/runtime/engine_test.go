@@ -49,7 +49,6 @@ func TestBuildBrainBackendUsesShunterWithoutVault(t *testing.T) {
 	cfg := appconfig.BrainConfig{
 		Enabled:        true,
 		Backend:        "shunter",
-		VaultPath:      filepath.Join(t.TempDir(), "missing-brain"),
 		ShunterDataDir: filepath.Join(t.TempDir(), "memory"),
 		DurableAck:     true,
 	}
@@ -140,7 +139,8 @@ func TestBuildEngineRuntimeStartsShunterModeWithoutYardDB(t *testing.T) {
 	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
 		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
 	}
-	if _, err := os.Stat(cfg.Brain.VaultPath); !os.IsNotExist(err) {
+	brainDir := filepath.Join(cfg.ProjectRoot, ".brain")
+	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
 		t.Fatalf("brain vault stat err = %v, want no .brain dependency in Shunter mode", err)
 	}
 	if _, err := os.Stat(cfg.GraphDBPath()); err != nil {
@@ -457,9 +457,9 @@ func TestBuildConventionSourceUsesShunterBackendWithBrainAbsent(t *testing.T) {
 	cfg.ProjectRoot = projectRoot
 	cfg.Brain.Enabled = true
 	cfg.Brain.Backend = "shunter"
-	cfg.Brain.VaultPath = filepath.Join(projectRoot, ".brain")
 	cfg.Brain.ShunterDataDir = filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
 	cfg.Brain.DurableAck = true
+	brainDir := filepath.Join(projectRoot, ".brain")
 
 	backend, cleanup, err := BuildBrainBackend(ctx, cfg.Brain, slog.Default())
 	if err != nil {
@@ -469,7 +469,7 @@ func TestBuildConventionSourceUsesShunterBackendWithBrainAbsent(t *testing.T) {
 	if err := backend.WriteDocument(ctx, "conventions/coding.md", "# Coding\n\n- Use focused tests\n"); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
-	if _, err := os.Stat(cfg.Brain.VaultPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
 		t.Fatalf("brain vault stat err = %v, want not-exist", err)
 	}
 	text, err := BuildConventionSource(cfg, backend).Load(ctx)
@@ -486,9 +486,8 @@ func TestBuildConventionSourceReturnsNoopWhenBrainDisabled(t *testing.T) {
 	cfg := appconfig.Default()
 	cfg.ProjectRoot = projectRoot
 	cfg.Brain.Enabled = false
-	cfg.Brain.VaultPath = ".brain"
 
-	brainDir := cfg.BrainVaultPath()
+	brainDir := filepath.Join(projectRoot, ".brain")
 	if err := os.MkdirAll(filepath.Join(brainDir, "conventions"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

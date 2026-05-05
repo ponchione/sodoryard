@@ -23,7 +23,7 @@ import (
 
 func TestIndexCommandPassesFlagsToService(t *testing.T) {
 	projectRoot := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	configYAML := "project_root: " + projectRoot + "\nbrain:\n  enabled: false\n"
 	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -61,7 +61,7 @@ func TestIndexCommandPassesFlagsToService(t *testing.T) {
 
 func TestIndexCommandJSONOutput(t *testing.T) {
 	projectRoot := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	configYAML := "project_root: " + projectRoot + "\nbrain:\n  enabled: false\n"
 	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -96,9 +96,8 @@ func TestIndexCommandJSONOutput(t *testing.T) {
 
 func TestIndexBrainSubcommandPassesConfigAndPrintsSummary(t *testing.T) {
 	projectRoot := t.TempDir()
-	vaultPath := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
-	configYAML := "project_root: " + projectRoot + "\nbrain:\n  enabled: true\n  vault_path: " + vaultPath + "\n"
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	configYAML := "project_root: " + projectRoot + "\nbrain:\n  enabled: true\n"
 	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -131,9 +130,6 @@ func TestIndexBrainSubcommandPassesConfigAndPrintsSummary(t *testing.T) {
 	if !gotCfg.Brain.Enabled {
 		t.Fatal("expected Brain.Enabled=true")
 	}
-	if gotCfg.Brain.VaultPath != vaultPath {
-		t.Fatalf("Brain.VaultPath = %q, want %q", gotCfg.Brain.VaultPath, vaultPath)
-	}
 	output := buf.String()
 	for _, want := range []string{
 		"Brain reindex completed",
@@ -151,9 +147,8 @@ func TestIndexBrainSubcommandPassesConfigAndPrintsSummary(t *testing.T) {
 
 func TestIndexBrainSubcommandJSONOutput(t *testing.T) {
 	projectRoot := t.TempDir()
-	vaultPath := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
-	configYAML := "project_root: " + projectRoot + "\nbrain:\n  enabled: true\n  vault_path: " + vaultPath + "\n"
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	configYAML := "project_root: " + projectRoot + "\nbrain:\n  enabled: true\n"
 	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -281,13 +276,11 @@ func (fakeBrainIndexEmbedder) EmbedQuery(context.Context, string) ([]float32, er
 
 func TestRunBrainIndexMarksBrainIndexFresh(t *testing.T) {
 	projectRoot := t.TempDir()
-	vaultPath := t.TempDir()
 	cfg := appconfig.Default()
 	cfg.ProjectRoot = projectRoot
 	cfg.Memory.Backend = "legacy"
 	cfg.Brain.Backend = "vault"
 	cfg.Brain.Enabled = true
-	cfg.Brain.VaultPath = vaultPath
 	if err := os.MkdirAll(cfg.StateDir(), 0o755); err != nil {
 		t.Fatalf("mkdir state dir: %v", err)
 	}

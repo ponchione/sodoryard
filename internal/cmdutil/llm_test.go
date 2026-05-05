@@ -52,9 +52,6 @@ func (f *fakeLocalServicesManager) Logs(ctx context.Context, cfg *appconfig.Conf
 func writeLLMConfig(t *testing.T, localServicesYAML string) string {
 	t.Helper()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := strings.Join([]string{
 		"project_root: " + projectRoot,

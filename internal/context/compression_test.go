@@ -480,7 +480,7 @@ func seedCompressionConversation(t *testing.T, sqlDB *sql.DB) string {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 	projectID := "project-1"
 	conversationID := "conversation-1"
-	mustExecCompression(t, sqlDB, `INSERT INTO projects(id, name, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, projectID, "sirtopham", filepath.Join(t.TempDir(), "project"), createdAt, createdAt)
+	mustExecCompression(t, sqlDB, `INSERT INTO projects(id, name, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, projectID, "sodoryard", filepath.Join(t.TempDir(), "project"), createdAt, createdAt)
 	mustExecCompression(t, sqlDB, `INSERT INTO conversations(id, project_id, title, model, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, conversationID, projectID, "Compression", "claude", "anthropic", createdAt, createdAt)
 	return conversationID
 }

@@ -190,7 +190,6 @@ type ContextConfig struct {
 type BrainConfig struct {
 	Enabled                 bool     `yaml:"enabled"`
 	Backend                 string   `yaml:"backend"`
-	VaultPath               string   `yaml:"vault_path"`
 	EmbeddingModel          string   `yaml:"embedding_model"`
 	ChunkAtHeadings         bool     `yaml:"chunk_at_headings"`
 	ReindexOnStartup        bool     `yaml:"reindex_on_startup"`
@@ -354,7 +353,6 @@ func Default() *Config {
 		Brain: BrainConfig{
 			Enabled:                 true,
 			Backend:                 brainBackendShunter,
-			VaultPath:               ".brain",
 			EmbeddingModel:          "nomic-embed-code",
 			ChunkAtHeadings:         true,
 			ReindexOnStartup:        false,
@@ -448,8 +446,6 @@ func (c *Config) ApplyEnvOverrides() {
 	}
 
 	if value, ok := os.LookupEnv("SODORYARD_LOG_LEVEL"); ok {
-		c.LogLevel = value
-	} else if value, ok := os.LookupEnv("SIRTOPHAM_LOG_LEVEL"); ok {
 		c.LogLevel = value
 	}
 
@@ -565,16 +561,6 @@ func (c *Config) BrainLanceDBPath() string {
 // GraphDBPath returns the SQLite database path for the structural graph index.
 func (c *Config) GraphDBPath() string {
 	return filepath.Join(c.StateDir(), "graph.db")
-}
-
-// BrainVaultPath returns the resolved brain vault directory.
-// If the config vault_path is relative, it is resolved against ProjectRoot.
-func (c *Config) BrainVaultPath() string {
-	vp := c.Brain.VaultPath
-	if vp == "" {
-		vp = ".brain"
-	}
-	return projectRelativePath(c.ProjectRoot, vp)
 }
 
 // MemoryShunterDataDir returns the resolved Shunter project-memory directory.

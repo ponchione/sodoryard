@@ -40,7 +40,7 @@ func TestNewOpenAIProvider_DirectAPIKey(t *testing.T) {
 }
 
 func TestNewOpenAIProvider_APIKeyFromEnv(t *testing.T) {
-	const envVar = "SIRTOPHAM_TEST_OPENAI_KEY"
+	const envVar = "SODORYARD_TEST_OPENAI_KEY"
 	os.Setenv(envVar, "sk-from-env")
 	defer os.Unsetenv(envVar)
 
@@ -60,7 +60,7 @@ func TestNewOpenAIProvider_APIKeyFromEnv(t *testing.T) {
 }
 
 func TestNewOpenAIProvider_APIKeyEnvUnset(t *testing.T) {
-	const envVar = "SIRTOPHAM_TEST_OPENAI_UNSET_KEY"
+	const envVar = "SODORYARD_TEST_OPENAI_UNSET_KEY"
 	os.Unsetenv(envVar)
 
 	_, err := NewOpenAIProvider(OpenAIConfig{

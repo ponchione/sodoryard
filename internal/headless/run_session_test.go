@@ -21,10 +21,6 @@ import (
 
 func writeRunSessionConfig(t *testing.T, projectRoot string, roleYAML string) string {
 	t.Helper()
-	brainRoot := filepath.Join(projectRoot, ".brain")
-	if err := os.MkdirAll(brainRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := strings.Join([]string{
 		"project_root: " + projectRoot,
@@ -32,7 +28,6 @@ func writeRunSessionConfig(t *testing.T, projectRoot string, roleYAML string) st
 		"log_format: text",
 		"brain:",
 		"  enabled: true",
-		"  vault_path: .brain",
 		"routing:",
 		"  default:",
 		"    provider: codex",

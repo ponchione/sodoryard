@@ -1,5 +1,5 @@
 // Package router implements the provider router, the entry point for all LLM
-// inference in sirtopham. The router selects which provider handles a request
+// inference in sodoryard. The router selects which provider handles a request
 // based on configuration, per-request overrides, and fallback logic. It
 // implements the provider.Provider interface so consumers are unaware of
 // routing decisions.

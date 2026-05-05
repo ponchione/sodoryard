@@ -27,7 +27,7 @@ func TestInitCreatesTablesAndRoundTrips(t *testing.T) {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
 	mustExec(t, db, `INSERT INTO projects(id, name, root_path, language, last_indexed_commit, last_indexed_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, projectID, "sirtopham", "/tmp/sirtopham", "go", "abc123", createdAt, createdAt, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, projectID, "sodoryard", "/tmp/sodoryard", "go", "abc123", createdAt, createdAt, createdAt)
 	mustExec(t, db, `INSERT INTO conversations(id, project_id, title, model, provider, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`, conversationID, projectID, "Layer 0", "claude-sonnet-4-6", "anthropic", createdAt, createdAt)
 

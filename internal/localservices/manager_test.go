@@ -41,9 +41,6 @@ func (f *fakeRunner) Run(_ context.Context, name string, args []string, dir stri
 func newTestConfig(t *testing.T) *appconfig.Config {
 	t.Helper()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("mkdir brain: %v", err)
-	}
 	cfg := appconfig.Default()
 	cfg.ProjectRoot = projectRoot
 	cfg.Brain.Enabled = false

@@ -82,7 +82,7 @@ Expected:
 
 ## 6. Brain retrieval sanity check (only if you use brain features daily)
 
-Ask a brain-oriented question that should be answerable from your note/vault content.
+Ask a brain-oriented question that should be answerable from your Shunter brain content.
 Then inspect the same turn.
 
 Expected:

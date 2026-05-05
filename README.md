@@ -303,7 +303,7 @@ For `yard index` or `yard brain index` inside the container, make sure the mount
 | Language | Go 1.25.5 |
 | CLI | Cobra |
 | Project memory | Shunter |
-| Legacy database | SQLite with FTS5 full-text search |
+| Structured fallback stores | SQLite with FTS5 full-text search |
 | Vector store | LanceDB |
 | Code parsing | tree-sitter (Go, Python, TypeScript) |
 | TUI | Bubble Tea, Bubbles, Lip Gloss |

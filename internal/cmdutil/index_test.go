@@ -64,10 +64,10 @@ func TestRunBrainIndexShunterRebuildsFromProjectMemoryWithoutYardDB(t *testing.T
 	cfg.Memory.DurableAck = true
 	cfg.Brain.Enabled = true
 	cfg.Brain.Backend = "shunter"
-	cfg.Brain.VaultPath = filepath.Join(projectRoot, ".brain-missing")
 	cfg.Brain.MemoryBackend = cfg.Memory.Backend
 	cfg.Brain.ShunterDataDir = cfg.Memory.ShunterDataDir
 	cfg.Brain.DurableAck = cfg.Memory.DurableAck
+	brainDir := filepath.Join(projectRoot, ".brain-missing")
 
 	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: cfg.Memory.ShunterDataDir, DurableAck: true})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestRunBrainIndexShunterRebuildsFromProjectMemoryWithoutYardDB(t *testing.T
 	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
 		t.Fatalf("brain index state file stat err = %v, want no file-backed state in Shunter mode", err)
 	}
-	if _, err := os.Stat(cfg.Brain.VaultPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
 		t.Fatalf("brain vault stat err = %v, want no .brain dependency in Shunter mode", err)
 	}
 }
@@ -137,12 +137,9 @@ func TestRunBrainIndexShunterRebuildsFromProjectMemoryWithoutYardDB(t *testing.T
 func writeIndexCommandTestConfig(t *testing.T) string {
 	t.Helper()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: " + projectRoot + "\n" +
-		"brain:\n  enabled: true\n  vault_path: " + filepath.Join(projectRoot, ".brain") + "\n" +
+		"brain:\n  enabled: true\n" +
 		"local_services:\n  enabled: false\n"
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)

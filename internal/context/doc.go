@@ -7,5 +7,5 @@
 // boundary types instead.
 //
 // Project-brain fields remain in the Layer 3 contracts for report/schema
-// continuity, and proactive MCP/vault-backed keyword brain retrieval is now live.
+// continuity, and proactive Shunter-backed brain retrieval is live.
 package context

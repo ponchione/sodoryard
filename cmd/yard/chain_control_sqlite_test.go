@@ -147,9 +147,6 @@ func newYardChainControlTestDB(t *testing.T) *sql.DB {
 func writeYardChainControlConfig(t *testing.T, providerBaseURL string) (string, *appconfig.Config) {
 	t.Helper()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.brain) returned error: %v", err)
-	}
 	if err := os.WriteFile(filepath.Join(projectRoot, "orchestrator-prompt.md"), []byte("You are the orchestrator."), 0o644); err != nil {
 		t.Fatalf("WriteFile(prompt) returned error: %v", err)
 	}

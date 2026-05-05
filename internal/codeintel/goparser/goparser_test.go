@@ -12,7 +12,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/codeintel/treesitter"
 )
 
-// repoRoot returns the root of the sirtopham repository.
+// repoRoot returns the root of the sodoryard repository.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)

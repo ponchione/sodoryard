@@ -365,14 +365,10 @@ providers:
 func TestRuntimeStatusIncludesReadinessMetadata(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("create brain dir: %v", err)
-	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	config := fmt.Sprintf(`project_root: %q
 brain:
   enabled: true
-  vault_path: ".brain"
 local_services:
   enabled: true
   mode: manual

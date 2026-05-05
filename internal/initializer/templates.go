@@ -7,9 +7,6 @@ package initializer
 import (
 	"embed"
 	"fmt"
-	"io/fs"
-	"sort"
-	"strings"
 )
 
 // all: prefix is required so go:embed includes .gitkeep files (without it,
@@ -29,33 +26,6 @@ func readEmbeddedFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-// listBrainSectionDirs returns the names of the railway brain section
-// directories that templates/init/brain/ declares, sorted alphabetically.
-func listBrainSectionDirs() ([]string, error) {
-	entries, err := fs.ReadDir(templateFS, "templates/init/brain")
-	if err != nil {
-		return nil, fmt.Errorf("read embedded brain dir: %w", err)
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
 // yardYamlTemplatePath is the path to the yard.yaml template inside the
 // embedded filesystem. Centralised so callers don't string-literal it.
 const yardYamlTemplatePath = "templates/init/yard.yaml.example"
-
-// templatesPathTrimPrefix is the prefix the embed FS adds to every entry.
-// Stripped when reporting paths to the operator.
-const templatesPathTrimPrefix = "templates/init/"
-
-// stripTemplatePrefix returns the path with the templates/init/ prefix
-// removed, suitable for joining onto a destination project root.
-func stripTemplatePrefix(p string) string {
-	return strings.TrimPrefix(p, templatesPathTrimPrefix)
-}

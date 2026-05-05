@@ -71,7 +71,6 @@ var brainKeywordStopwords = map[string]struct{}{
 	// common request filler verbs
 	"explain": {}, "walk": {}, "show": {}, "tell": {}, "describe": {},
 	"summarize": {}, "summarise": {}, "cite": {},
-	// legacy/historical entries kept for continuity
 	"answer": {}, "any": {}, "help": {}, "only": {}, "phrase": {},
 	"please": {}, "reply": {},
 }
@@ -82,7 +81,7 @@ var brainKeywordStopwords = map[string]struct{}{
 // just the longest (= most distinctive) content word. That keyword almost
 // always still appears in any brain note that was written about the topic,
 // even when prose punctuation or list formatting prevents a multi-word
-// substring match against the underlying vault keyword backend.
+// substring match against the underlying brain keyword backend.
 //
 // The threshold is intentionally high so the fallback only fires for long,
 // prose-shaped turns; short specific queries like "auth middleware" keep
@@ -447,7 +446,7 @@ func brainKeywordCandidates(query string) []string {
 // deterministic. The fallback is intentionally a single word: a longest-word
 // substring is almost certain to appear in any note that discusses the same
 // topic, whereas multi-word fallbacks still lose to prose punctuation in the
-// underlying vault keyword backend.
+// underlying brain keyword backend.
 func brainKeywordDistinctiveFallback(filtered []string) string {
 	best := ""
 	for _, word := range filtered {

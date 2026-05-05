@@ -138,7 +138,6 @@ func newShunterOrchestratorTestConfig(t *testing.T) *appconfig.Config {
 	cfg.Memory.RPC.Path = filepath.Join(projectRoot, ".yard", "run", "memory.sock")
 	cfg.Brain.Enabled = true
 	cfg.Brain.Backend = "shunter"
-	cfg.Brain.VaultPath = filepath.Join(projectRoot, ".brain-missing")
 	cfg.Brain.MemoryBackend = cfg.Memory.Backend
 	cfg.Brain.ShunterDataDir = cfg.Memory.ShunterDataDir
 	cfg.Brain.DurableAck = cfg.Memory.DurableAck

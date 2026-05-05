@@ -213,7 +213,6 @@ var brainIntentPatterns = []string{
 	"project brain",
 	"brain note",
 	"brain notes",
-	"vault",
 	"brain",
 }
 
@@ -376,8 +375,8 @@ func normalizePathToken(token string) (string, string, bool) {
 	if isUnanchoredMultiSegmentPath(candidate) {
 		return "", "unanchored_multi_segment_path", false
 	}
-	if isVaultRootedNotePath(candidate) {
-		return "", "vault_rooted_note_path", false
+	if isBrainDocumentPathToken(candidate) {
+		return "", "brain_document_path", false
 	}
 	if strings.Contains(candidate, "/") {
 		if fileTokenPattern.MatchString(candidate) || isAnchoredRepoPath(candidate) {
@@ -431,7 +430,7 @@ func isUnanchoredMultiSegmentPath(candidate string) bool {
 	return true
 }
 
-func isVaultRootedNotePath(candidate string) bool {
+func isBrainDocumentPathToken(candidate string) bool {
 	trimmed := strings.TrimPrefix(candidate, "./")
 	if !strings.HasSuffix(strings.ToLower(trimmed), ".md") {
 		return false
@@ -638,10 +637,6 @@ func applyBrainIntent(message string, needs *ContextNeeds) {
 	if phrase == "brain" && !containsStandaloneWord(message, phrase) {
 		return
 	}
-	if phrase == "vault" && len(needs.ExplicitFiles) > 0 {
-		return
-	}
-
 	needs.PreferBrainContext = true
 	needs.Signals = append(needs.Signals, Signal{
 		Type:   "brain_intent",
