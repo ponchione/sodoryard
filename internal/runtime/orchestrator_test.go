@@ -35,6 +35,12 @@ func TestBuildOrchestratorRuntimeStartsMemoryRPCForShunterBrain(t *testing.T) {
 	if strings.Join(rt.MemoryEndpointEnv, "\n") != strings.Join(expectedEnv, "\n") {
 		t.Fatalf("MemoryEndpointEnv = %v, want %v", rt.MemoryEndpointEnv, expectedEnv)
 	}
+	if rt.Database != nil || rt.Queries != nil {
+		t.Fatalf("runtime SQLite = (%v, %v), want nil database and queries in Shunter mode", rt.Database, rt.Queries)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
 
 	client, err := projectmemory.DialBrainBackend("unix:" + cfg.Memory.RPC.Path)
 	if err != nil {

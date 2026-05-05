@@ -50,6 +50,13 @@ func buildRuntimeBase(ctx context.Context, cfg *appconfig.Config) (*runtimeBase,
 		return nil, fmt.Errorf("init logging: %w", err)
 	}
 
+	if cfg.Memory.Backend == "shunter" {
+		return &runtimeBase{
+			logger:  logger,
+			cleanup: func() {},
+		}, nil
+	}
+
 	database, err := appdb.OpenDB(ctx, cfg.DatabasePath())
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -111,6 +118,15 @@ func BuildAgentLoopConfig(cfg *appconfig.Config, maxIterations int, basePrompt s
 func EnsureProjectRecord(ctx context.Context, database *sql.DB, cfg *appconfig.Config) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if cfg == nil {
+		return fmt.Errorf("runtime config is required")
+	}
+	if database == nil {
+		if cfg.Memory.Backend == "shunter" {
+			return nil
+		}
+		return fmt.Errorf("database is required")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	name := filepath.Base(cfg.ProjectRoot)

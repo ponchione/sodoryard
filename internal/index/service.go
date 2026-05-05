@@ -106,20 +106,23 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 		StartedAt: startedAt,
 	}
 
-	database, err := deps.openDB(ctx, cfg.DatabasePath())
-	if err != nil {
-		return nil, fmt.Errorf("index: open database: %w", err)
-	}
-	defer database.Close()
+	var database *sql.DB
+	if cfg.Memory.Backend != "shunter" {
+		database, err = deps.openDB(ctx, cfg.DatabasePath())
+		if err != nil {
+			return nil, fmt.Errorf("index: open database: %w", err)
+		}
+		defer database.Close()
 
-	if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
-		return nil, fmt.Errorf("index: init database schema: %w", err)
-	}
-	if err := appdb.EnsureContextReportsIncludeTokenBudget(ctx, database); err != nil {
-		return nil, fmt.Errorf("index: upgrade context report token budget storage: %w", err)
-	}
-	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
-		return nil, err
+		if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
+			return nil, fmt.Errorf("index: init database schema: %w", err)
+		}
+		if err := appdb.EnsureContextReportsIncludeTokenBudget(ctx, database); err != nil {
+			return nil, fmt.Errorf("index: upgrade context report token budget storage: %w", err)
+		}
+		if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	stateStore, err := newStateStore(ctx, database, cfg)

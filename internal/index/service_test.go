@@ -207,7 +207,10 @@ func TestRunWithDependenciesUsesShunterCodeIndexState(t *testing.T) {
 	store := &fakeStore{}
 	now := time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC)
 	deps := dependencies{
-		openDB: appdb.OpenDB,
+		openDB: func(context.Context, string) (*sql.DB, error) {
+			t.Fatal("openDB should not be called for Shunter code index state")
+			return nil, nil
+		},
 		newStore: func(context.Context, string) (codeintel.Store, error) {
 			return store, nil
 		},
@@ -239,9 +242,9 @@ func TestRunWithDependenciesUsesShunterCodeIndexState(t *testing.T) {
 	if first.FilesChanged != 1 || len(first.IndexedFiles) != 1 || first.IndexedFiles[0] != "main.go" {
 		t.Fatalf("first result = %+v, want indexed main.go", first)
 	}
-	db := mustOpenDB(t, cfg.DatabasePath())
-	defer db.Close()
-	assertIndexStateMissing(t, db, cfg.ProjectRoot, "main.go")
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
 
 	backend, err := projectmemory.OpenBrainBackend(context.Background(), projectmemory.Config{DataDir: cfg.Memory.ShunterDataDir, DurableAck: true})
 	if err != nil {
@@ -271,6 +274,91 @@ func TestRunWithDependenciesUsesShunterCodeIndexState(t *testing.T) {
 	}
 	if second.FilesChanged != 0 || second.FilesDeleted != 0 {
 		t.Fatalf("second result = %+v, want no-op from Shunter state", second)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err after second run = %v, want no yard.db created in Shunter mode", err)
+	}
+}
+
+func TestRunWithDependenciesUsesMemoryEndpointForShunterCodeIndexState(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	writeTestFile(t, projectRoot, "main.go", "package main\n\nfunc Example() {}\n")
+
+	parent, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+		DataDir:    filepath.Join(projectRoot, "parent-memory"),
+		DurableAck: true,
+	})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer parent.Close()
+	socketPath := filepath.Join(projectRoot, "run", "memory.sock")
+	server, err := projectmemory.StartRPCServer(ctx, projectmemory.RPCConfig{Transport: "unix", Path: socketPath}, parent)
+	if err != nil {
+		t.Fatalf("StartRPCServer: %v", err)
+	}
+	defer server.Close()
+	t.Setenv(projectmemory.EnvMemoryEndpoint, "unix:"+socketPath)
+
+	cfg := config.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Index.Include = []string{"**/*.go"}
+	cfg.Index.Exclude = []string{"**/.git/**"}
+	cfg.Index.MaxFileSizeBytes = 1024 * 1024
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(projectRoot, "child-should-not-open")
+	cfg.Memory.DurableAck = true
+
+	now := time.Date(2026, 5, 5, 15, 0, 0, 0, time.UTC)
+	deps := dependencies{
+		openDB: func(context.Context, string) (*sql.DB, error) {
+			t.Fatal("openDB should not be called for Shunter code index state")
+			return nil, nil
+		},
+		newStore: func(context.Context, string) (codeintel.Store, error) {
+			return &fakeStore{}, nil
+		},
+		newParser: func(string) (codeintel.Parser, error) {
+			return fakeParser{}, nil
+		},
+		newEmbedder: func(config.Embedding) codeintel.Embedder {
+			return fakeEmbedder{}
+		},
+		newDescriber: func(*config.Config) codeintel.Describer {
+			return noopDescriber{}
+		},
+		ensureIndexServices: func(context.Context, *config.Config) error {
+			return nil
+		},
+		rebuildGraphIndex: func(context.Context, *config.Config) error {
+			return nil
+		},
+		now: func() time.Time {
+			now = now.Add(time.Second)
+			return now
+		},
+	}
+
+	result, err := runWithDependencies(ctx, Options{Config: cfg}, deps)
+	if err != nil {
+		t.Fatalf("runWithDependencies: %v", err)
+	}
+	if result.FilesChanged != 1 || len(result.IndexedFiles) != 1 || result.IndexedFiles[0] != "main.go" {
+		t.Fatalf("result = %+v, want indexed main.go through RPC", result)
+	}
+	state, found, err := parent.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("parent ReadCodeIndexState: %v", err)
+	}
+	if !found || state.LastIndexedAtUS == 0 || state.Dirty {
+		t.Fatalf("parent code state = %+v found=%t, want clean indexed state", state, found)
+	}
+	if _, err := os.Stat(cfg.Memory.ShunterDataDir); !os.IsNotExist(err) {
+		t.Fatalf("child Shunter data dir stat err = %v, want not-exist", err)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
 	}
 }
 
