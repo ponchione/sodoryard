@@ -24,6 +24,7 @@ func TestRunConfigPrintsResolvedSummary(t *testing.T) {
 		"config_path: " + configPath,
 		"default_provider: codex",
 		"default_model: gpt-5.5",
+		"database_path: <unused in shunter mode>",
 		"brain_enabled: true",
 		"local_services_enabled: true",
 		"local_services_mode: auto",
@@ -31,5 +32,8 @@ func TestRunConfigPrintsResolvedSummary(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q in %q", want, got)
 		}
+	}
+	if strings.Contains(got, ".yard/yard.db") {
+		t.Fatalf("output = %q, want Shunter mode not to advertise .yard/yard.db", got)
 	}
 }

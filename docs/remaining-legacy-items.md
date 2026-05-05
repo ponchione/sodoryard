@@ -2,11 +2,11 @@
 
 Last updated: 2026-05-05
 
-This is the short list of legacy-looking items intentionally left in place because removing them still has live runtime, test, or operator impact.
+This is the short list of legacy-looking items intentionally left in place after the Phase 0-6 Shunter audit because removing them still has non-Shunter fallback, test, derived-index, or operator impact.
 
 ## Not Safe To Remove Yet
 
-- SQLite/appdb stores and generated queries: conversation history, chain state/events, provider call tracking, tool execution records, context reports, metrics, and some index metadata still have SQLite-backed implementations or tests. Remove these only after Shunter-native replacements cover those interfaces.
+- SQLite/appdb stores and generated queries: Shunter-mode runtime paths use project memory for conversations, chains, provider call tracking, tool execution records, context reports, and index state. The SQLite adapters remain for non-Shunter fallback branches, sqlc/schema tests, metrics tests, and historical compatibility tests. Removing them is a separate deletion pass, not a Phase 0-6 blocker.
 - `.yard/graph.db`: the structural code graph is still a derived SQLite store used by code indexing and retrieval. It is not canonical brain memory, but deleting it would remove current graph functionality.
 - Internal `tidmouth` engine binary: chain execution still spawns `tidmouth run`/`tidmouth index` through the internal subprocess contract. Removing it requires a spawn-contract redesign, not just command cleanup.
 - Codex private auth store at `~/.sirtopham/auth.json`: provider auth docs and tests still treat this as the authoritative private store after bootstrap import. Removing or renaming it needs an auth-store migration plan to avoid breaking existing logins.

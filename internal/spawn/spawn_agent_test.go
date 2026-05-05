@@ -84,7 +84,10 @@ Done.
 	if !strings.Contains(gotTask, "do work") ||
 		!strings.Contains(gotTask, "Chain ID: "+chainID) ||
 		!strings.Contains(gotTask, "Step number: 1") ||
-		!strings.Contains(gotTask, "Receipt path: receipts/coder/"+chainID+"-step-001.md") {
+		!strings.Contains(gotTask, "Receipt path: receipts/coder/"+chainID+"-step-001.md") ||
+		!strings.Contains(gotTask, "timestamp: <current UTC time in RFC3339 format>") ||
+		!strings.Contains(gotTask, "Do not use created_at") ||
+		!strings.Contains(gotTask, "put the answer in the Summary section") {
 		t.Fatalf("spawn task missing harness context: %q", gotTask)
 	}
 	if strings.Contains(joinedArgs, "--quiet") {

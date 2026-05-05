@@ -19,7 +19,11 @@ func RunConfig(out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "default_model: %s\n", cfg.Routing.Default.Model)
 	_, _ = fmt.Fprintf(out, "fallback_provider: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Provider, "<unset>"))
 	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Model, "<unset>"))
-	_, _ = fmt.Fprintf(out, "database_path: %s\n", cfg.DatabasePath())
+	if cfg.Memory.Backend == "shunter" {
+		_, _ = fmt.Fprintln(out, "database_path: <unused in shunter mode>")
+	} else {
+		_, _ = fmt.Fprintf(out, "database_path: %s\n", cfg.DatabasePath())
+	}
 	_, _ = fmt.Fprintf(out, "code_index_path: %s\n", cfg.CodeLanceDBPath())
 	_, _ = fmt.Fprintf(out, "shunter_memory_path: %s\n", cfg.MemoryShunterDataDir())
 	_, _ = fmt.Fprintf(out, "embedding_base_url: %s\n", cfg.Embedding.BaseURL)

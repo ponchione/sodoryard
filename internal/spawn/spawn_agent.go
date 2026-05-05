@@ -562,5 +562,21 @@ Harness context:
 - Step number: %d
 - Receipt path: %s
 
-Before finishing, write your receipt to the exact brain path above. If you cannot complete the task, still write the receipt there with the appropriate verdict and concerns.`, strings.TrimSpace(task), chainID, step, receiptPath)
+Before finishing, write your receipt to the exact brain path above. If you cannot complete the task, still write the receipt there with the appropriate verdict and concerns.
+
+Receipt frontmatter must be valid YAML and include these required fields:
+---
+agent: <role name>
+chain_id: %s
+step: %d
+verdict: completed
+timestamp: <current UTC time in RFC3339 format>
+turns_used: 0
+tokens_used: 0
+duration_seconds: 0
+---
+
+Use the actual verdict and usage numbers when known. Do not use created_at; the required completion-time field is timestamp.
+
+The receipt body must include the concrete outcome of the task. If the task asks a question, put the answer in the Summary section rather than only saying that you found it.`, strings.TrimSpace(task), chainID, step, receiptPath, chainID, step)
 }
