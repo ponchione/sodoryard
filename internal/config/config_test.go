@@ -374,6 +374,28 @@ func TestLoadRejectsLegacyMemoryBackend(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsVaultBrainBackend(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"memory:\n" +
+		"  backend: shunter\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  backend: vault\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load succeeded, want validation error")
+	}
+	if !strings.Contains(err.Error(), "brain.backend") {
+		t.Fatalf("Load error = %v, want brain.backend validation", err)
+	}
+}
+
 func TestLoadAppliesPartialEmbeddingOverrides(t *testing.T) {
 	projectRoot := t.TempDir()
 	ensureDir(t, filepath.Join(projectRoot, ".brain"))

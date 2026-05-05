@@ -81,6 +81,15 @@ func (b *BrainRead) Execute(ctx context.Context, projectRoot string, input json.
 	if result := validateBrainPath(params.Path); result != nil {
 		return result, nil
 	}
+	normalizedPath, err := normalizeBrainDocumentPath(params.Path)
+	if err != nil {
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Invalid brain path: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+	params.Path = normalizedPath
 
 	content, err := b.client.ReadDocument(ctx, params.Path)
 	if err != nil {

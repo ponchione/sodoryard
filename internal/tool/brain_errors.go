@@ -33,8 +33,12 @@ func brainDisabledResult() *ToolResult {
 }
 
 func validateBrainPath(path string) *ToolResult {
-	if path == "" {
-		return requiredFieldResult("path")
+	if _, err := normalizeBrainDocumentPath(path); err != nil {
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Invalid brain path: %v", err),
+			Error:   err.Error(),
+		}
 	}
 	return nil
 }

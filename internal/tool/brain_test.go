@@ -705,6 +705,24 @@ func TestBrainReadSuccess(t *testing.T) {
 	}
 }
 
+func TestBrainReadRejectsDotBrainPath(t *testing.T) {
+	backend := newFakeBackend(map[string]string{
+		"notes/design.md": "# Design\n",
+	})
+	tool := NewBrainRead(backend, brainConfig(true))
+
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":".brain/notes/design.md"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for .brain-prefixed path")
+	}
+	if !strings.Contains(result.Content, ".brain paths are not supported") {
+		t.Fatalf("content = %q, want .brain rejection", result.Content)
+	}
+}
+
 func TestBrainReadNotFound(t *testing.T) {
 	docs := map[string]string{
 		"arch/other.md": "content",
@@ -983,6 +1001,21 @@ func TestBrainWriteEmptyContent(t *testing.T) {
 	}
 }
 
+func TestBrainWriteRejectsDotBrainPath(t *testing.T) {
+	tool := NewBrainWrite(newFakeBackend(map[string]string{}), brainConfig(true))
+
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":".brain/notes/run.md","content":"# Run"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for .brain-prefixed path")
+	}
+	if !strings.Contains(result.Content, ".brain paths are not supported") {
+		t.Fatalf("content = %q, want .brain rejection", result.Content)
+	}
+}
+
 func TestBrainWriteAllowsScopedWrite(t *testing.T) {
 	backend := newFakeBackend(map[string]string{})
 	cfg := brainConfig(true)
@@ -1153,6 +1186,24 @@ func TestBrainUpdateInvalidOperation(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "Invalid operation") {
 		t.Fatalf("content = %q, want invalid operation message", result.Content)
+	}
+}
+
+func TestBrainUpdateRejectsDotBrainPath(t *testing.T) {
+	tool := NewBrainUpdate(newFakeBackend(map[string]string{
+		"notes/journal.md": "# Journal\n",
+	}), brainConfig(true))
+
+	result, err := tool.Execute(context.Background(), "/tmp",
+		json.RawMessage(`{"path":".brain/notes/journal.md","operation":"append","content":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for .brain-prefixed path")
+	}
+	if !strings.Contains(result.Content, ".brain paths are not supported") {
+		t.Fatalf("content = %q, want .brain rejection", result.Content)
 	}
 }
 
