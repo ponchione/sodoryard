@@ -53,6 +53,26 @@ type MarkBrainIndexCleanArgs struct {
 	MetadataJSON    string `json:"metadata_json"`
 }
 
+type MarkCodeIndexDirtyArgs struct {
+	ProjectID string `json:"project_id"`
+	Reason    string `json:"reason"`
+}
+
+type MarkCodeIndexCleanArgs struct {
+	ProjectID         string             `json:"project_id"`
+	LastIndexedCommit string             `json:"last_indexed_commit"`
+	LastIndexedAtUS   uint64             `json:"last_indexed_at_us"`
+	Files             []CodeFileIndexArg `json:"files"`
+	DeletedPaths      []string           `json:"deleted_paths"`
+	MetadataJSON      string             `json:"metadata_json"`
+}
+
+type CodeFileIndexArg struct {
+	FilePath   string `json:"file_path"`
+	FileHash   string `json:"file_hash"`
+	ChunkCount uint32 `json:"chunk_count"`
+}
+
 type reducerResult struct {
 	Path        string `json:"path,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
@@ -200,6 +220,84 @@ func markBrainIndexCleanReducer(ctx *schema.ReducerContext, raw []byte) ([]byte,
 			return nil, err
 		}
 	} else if _, err := ctx.DB.Insert(uint32(tableBrainIndexState), row); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func markCodeIndexDirtyReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args MarkCodeIndexDirtyArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	projectID := firstNonEmpty(args.ProjectID, DefaultProjectID)
+	rowID, row, found := firstRow(ctx.DB.SeekIndex(uint32(tableCodeIndexState), uint32(indexCodeIndexStatePrimary), types.NewString(projectID)))
+	lastCommit := ""
+	lastIndexedAtUS := uint64(0)
+	if found {
+		state := decodeCodeIndexStateRow(row)
+		lastCommit = state.LastIndexedCommit
+		lastIndexedAtUS = state.LastIndexedAtUS
+	}
+	state := codeIndexStateRow(projectID, lastCommit, lastIndexedAtUS, true, args.Reason, emptyJSONObject)
+	if found {
+		if _, err := ctx.DB.Update(uint32(tableCodeIndexState), rowID, state); err != nil {
+			return nil, err
+		}
+	} else if _, err := ctx.DB.Insert(uint32(tableCodeIndexState), state); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{})
+}
+
+func markCodeIndexCleanReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args MarkCodeIndexCleanArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	projectID := firstNonEmpty(args.ProjectID, DefaultProjectID)
+	indexedAtUS := args.LastIndexedAtUS
+	if indexedAtUS == 0 {
+		indexedAtUS = reducerNowUS(ctx)
+	}
+	for _, deleted := range args.DeletedPaths {
+		path := strings.TrimSpace(deleted)
+		if path == "" {
+			continue
+		}
+		if rowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableCodeFileIndexState), uint32(indexCodeFileIndexStatePrimary), types.NewString(CodeFileIndexID(projectID, path)))); found {
+			_ = ctx.DB.Delete(uint32(tableCodeFileIndexState), rowID)
+		}
+	}
+	for _, file := range args.Files {
+		path := strings.TrimSpace(file.FilePath)
+		if path == "" {
+			return nil, fmt.Errorf("code file index path is required")
+		}
+		fileID := CodeFileIndexID(projectID, path)
+		row := codeFileIndexStateRow(CodeFileIndexState{
+			FileID:          fileID,
+			ProjectID:       projectID,
+			FilePath:        path,
+			FileHash:        file.FileHash,
+			ChunkCount:      file.ChunkCount,
+			LastIndexedAtUS: indexedAtUS,
+		})
+		if rowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableCodeFileIndexState), uint32(indexCodeFileIndexStatePrimary), types.NewString(fileID))); found {
+			if _, err := ctx.DB.Update(uint32(tableCodeFileIndexState), rowID, row); err != nil {
+				return nil, err
+			}
+		} else if _, err := ctx.DB.Insert(uint32(tableCodeFileIndexState), row); err != nil {
+			return nil, err
+		}
+	}
+	stateRowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableCodeIndexState), uint32(indexCodeIndexStatePrimary), types.NewString(projectID)))
+	state := codeIndexStateRow(projectID, args.LastIndexedCommit, indexedAtUS, false, "", defaultString(args.MetadataJSON, emptyJSONObject))
+	if found {
+		if _, err := ctx.DB.Update(uint32(tableCodeIndexState), stateRowID, state); err != nil {
+			return nil, err
+		}
+	} else if _, err := ctx.DB.Insert(uint32(tableCodeIndexState), state); err != nil {
 		return nil, err
 	}
 	return encodeReducerResult(reducerResult{})

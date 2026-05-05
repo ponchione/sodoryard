@@ -90,3 +90,13 @@ func (r *Runtime) MarkBrainIndexClean(ctx context.Context, args MarkBrainIndexCl
 	_, err := r.callReducerJSON(ctx, "mark_brain_index_clean", args)
 	return err
 }
+
+func (r *Runtime) MarkCodeIndexDirty(ctx context.Context, args MarkCodeIndexDirtyArgs) error {
+	_, err := r.callReducerJSON(ctx, "mark_code_index_dirty", args)
+	return err
+}
+
+func (r *Runtime) MarkCodeIndexClean(ctx context.Context, args MarkCodeIndexCleanArgs) error {
+	_, err := r.callReducerJSON(ctx, "mark_code_index_clean", args)
+	return err
+}

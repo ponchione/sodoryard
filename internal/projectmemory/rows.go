@@ -50,6 +50,24 @@ type BrainIndexState struct {
 	MetadataJSON    string
 }
 
+type CodeIndexState struct {
+	ProjectID         string
+	LastIndexedCommit string
+	LastIndexedAtUS   uint64
+	Dirty             bool
+	DirtyReason       string
+	MetadataJSON      string
+}
+
+type CodeFileIndexState struct {
+	FileID          string
+	ProjectID       string
+	FilePath        string
+	FileHash        string
+	ChunkCount      uint32
+	LastIndexedAtUS uint64
+}
+
 func documentRow(doc Document) types.ProductValue {
 	return types.ProductValue{
 		types.NewString(doc.Path),
@@ -150,6 +168,50 @@ func decodeBrainIndexStateRow(row types.ProductValue) BrainIndexState {
 	}
 }
 
+func codeIndexStateRow(projectID string, lastIndexedCommit string, lastIndexedAtUS uint64, dirty bool, dirtyReason string, metadataJSON string) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(projectID),
+		types.NewString(lastIndexedCommit),
+		types.NewUint64(lastIndexedAtUS),
+		types.NewBool(dirty),
+		types.NewString(dirtyReason),
+		types.NewString(defaultString(metadataJSON, emptyJSONObject)),
+	}
+}
+
+func decodeCodeIndexStateRow(row types.ProductValue) CodeIndexState {
+	return CodeIndexState{
+		ProjectID:         row[0].AsString(),
+		LastIndexedCommit: row[1].AsString(),
+		LastIndexedAtUS:   row[2].AsUint64(),
+		Dirty:             row[3].AsBool(),
+		DirtyReason:       row[4].AsString(),
+		MetadataJSON:      row[5].AsString(),
+	}
+}
+
+func codeFileIndexStateRow(state CodeFileIndexState) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(state.FileID),
+		types.NewString(state.ProjectID),
+		types.NewString(state.FilePath),
+		types.NewString(state.FileHash),
+		types.NewUint32(state.ChunkCount),
+		types.NewUint64(state.LastIndexedAtUS),
+	}
+}
+
+func decodeCodeFileIndexStateRow(row types.ProductValue) CodeFileIndexState {
+	return CodeFileIndexState{
+		FileID:          row[0].AsString(),
+		ProjectID:       row[1].AsString(),
+		FilePath:        row[2].AsString(),
+		FileHash:        row[3].AsString(),
+		ChunkCount:      row[4].AsUint32(),
+		LastIndexedAtUS: row[5].AsUint64(),
+	}
+}
+
 func splitDocumentChunks(path string, content string) []documentChunk {
 	if content == "" {
 		return nil
@@ -199,6 +261,10 @@ func documentRevisionID(path string, revision uint32) string {
 
 func memoryOperationID(operationType string, path string, actor string, atUS uint64, beforeHash string, afterHash string) string {
 	return stableID(strings.Join([]string{operationType, path, actor, fmt.Sprint(atUS), beforeHash, afterHash}, "\x00"))
+}
+
+func CodeFileIndexID(projectID string, filePath string) string {
+	return stableID(strings.Join([]string{projectID, filePath}, "\x00"))
 }
 
 func stableID(value string) string {

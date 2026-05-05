@@ -133,6 +133,40 @@ func (r *Runtime) ReadBrainIndexState(ctx context.Context) (BrainIndexState, boo
 	return state, found, nil
 }
 
+func (r *Runtime) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {
+	var state CodeIndexState
+	var found bool
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableCodeIndexState, indexCodeIndexStatePrimary, types.NewString(DefaultProjectID)) {
+			state = decodeCodeIndexStateRow(row)
+			found = true
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		return CodeIndexState{}, false, err
+	}
+	return state, found, nil
+}
+
+func (r *Runtime) ListCodeFileIndexStates(ctx context.Context) ([]CodeFileIndexState, error) {
+	var states []CodeFileIndexState
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableCodeFileIndexState, indexCodeFileIndexStateProject, types.NewString(DefaultProjectID)) {
+			states = append(states, decodeCodeFileIndexStateRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(states, func(i, j int) bool {
+		return states[i].FilePath < states[j].FilePath
+	})
+	return states, nil
+}
+
 type SearchHit struct {
 	Path    string
 	Snippet string

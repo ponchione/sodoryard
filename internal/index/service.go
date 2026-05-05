@@ -122,11 +122,12 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 		return nil, err
 	}
 
-	projectState, err := loadProjectState(ctx, database, cfg.ProjectRoot)
+	stateStore, err := newStateStore(ctx, database, cfg)
 	if err != nil {
 		return nil, err
 	}
-	fileStates, err := loadFileStates(ctx, database, cfg.ProjectRoot)
+	defer stateStore.Close()
+	projectState, fileStates, err := stateStore.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +211,7 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 	}
 
 	finishedAt := deps.now().UTC()
-	if err := persistState(ctx, database, cfg.ProjectRoot, currentRevision, finishedAt, indexedStates, deletedFiles); err != nil {
+	if err := stateStore.Persist(ctx, currentRevision, finishedAt, indexedStates, deletedFiles); err != nil {
 		return nil, err
 	}
 
@@ -230,7 +231,7 @@ func resolveConfig(opts Options) (*config.Config, error) {
 	return &cfg, nil
 }
 
-func persistState(ctx context.Context, db *sql.DB, projectID, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error {
+func persistSQLiteState(ctx context.Context, db *sql.DB, projectID, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("index: begin metadata transaction: %w", err)

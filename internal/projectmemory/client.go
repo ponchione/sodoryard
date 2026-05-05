@@ -90,6 +90,33 @@ func (c *Client) MarkBrainIndexClean(ctx context.Context, indexedAt time.Time, m
 	}, &EmptyResponse{})
 }
 
+func (c *Client) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {
+	var resp ReadCodeIndexStateResponse
+	if err := c.call(ctx, "Brain.ReadCodeIndexState", ReadCodeIndexStateRequest{ProjectID: DefaultProjectID}, &resp); err != nil {
+		return CodeIndexState{}, false, err
+	}
+	return resp.State, resp.Found, nil
+}
+
+func (c *Client) ListCodeFileIndexStates(ctx context.Context) ([]CodeFileIndexState, error) {
+	var resp ListCodeFileIndexStatesResponse
+	if err := c.call(ctx, "Brain.ListCodeFileIndexStates", ListCodeFileIndexStatesRequest{ProjectID: DefaultProjectID}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.States, nil
+}
+
+func (c *Client) MarkCodeIndexClean(ctx context.Context, revision string, indexedAt time.Time, files []CodeFileIndexArg, deletedPaths []string, metadataJSON string) error {
+	return c.call(ctx, "Brain.MarkCodeIndexClean", MarkCodeIndexCleanRequest{
+		ProjectID:         DefaultProjectID,
+		LastIndexedCommit: revision,
+		LastIndexedAtUS:   uint64(indexedAt.UTC().UnixMicro()),
+		Files:             files,
+		DeletedPaths:      deletedPaths,
+		MetadataJSON:      metadataJSON,
+	}, &EmptyResponse{})
+}
+
 func (c *Client) call(ctx context.Context, method string, args any, reply any) error {
 	if c == nil || c.rpc == nil {
 		return fmt.Errorf("project memory RPC client is closed")

@@ -113,6 +113,25 @@ func (b *BrainBackend) MarkBrainIndexClean(ctx context.Context, indexedAt time.T
 	})
 }
 
+func (b *BrainBackend) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {
+	return b.runtime.ReadCodeIndexState(ctx)
+}
+
+func (b *BrainBackend) ListCodeFileIndexStates(ctx context.Context) ([]CodeFileIndexState, error) {
+	return b.runtime.ListCodeFileIndexStates(ctx)
+}
+
+func (b *BrainBackend) MarkCodeIndexClean(ctx context.Context, revision string, indexedAt time.Time, files []CodeFileIndexArg, deletedPaths []string, metadataJSON string) error {
+	return b.runtime.MarkCodeIndexClean(ctx, MarkCodeIndexCleanArgs{
+		ProjectID:         DefaultProjectID,
+		LastIndexedCommit: revision,
+		LastIndexedAtUS:   uint64(indexedAt.UTC().UnixMicro()),
+		Files:             files,
+		DeletedPaths:      deletedPaths,
+		MetadataJSON:      metadataJSON,
+	})
+}
+
 func inferDocumentKind(path string) string {
 	switch {
 	case strings.HasPrefix(path, "conventions/"):

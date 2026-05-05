@@ -154,6 +154,32 @@ type MarkBrainIndexCleanRequest struct {
 	MetadataJSON    string
 }
 
+type ReadCodeIndexStateRequest struct {
+	ProjectID string
+}
+
+type ReadCodeIndexStateResponse struct {
+	State CodeIndexState
+	Found bool
+}
+
+type ListCodeFileIndexStatesRequest struct {
+	ProjectID string
+}
+
+type ListCodeFileIndexStatesResponse struct {
+	States []CodeFileIndexState
+}
+
+type MarkCodeIndexCleanRequest struct {
+	ProjectID         string
+	LastIndexedCommit string
+	LastIndexedAtUS   uint64
+	Files             []CodeFileIndexArg
+	DeletedPaths      []string
+	MetadataJSON      string
+}
+
 type EmptyResponse struct{}
 
 func (s *brainRPCService) ReadDocument(req ReadDocumentRequest, resp *ReadDocumentResponse) error {
@@ -206,5 +232,35 @@ func (s *brainRPCService) MarkBrainIndexClean(req MarkBrainIndexCleanRequest, re
 		ProjectID:       firstNonEmpty(req.ProjectID, DefaultProjectID),
 		LastIndexedAtUS: req.LastIndexedAtUS,
 		MetadataJSON:    req.MetadataJSON,
+	})
+}
+
+func (s *brainRPCService) ReadCodeIndexState(req ReadCodeIndexStateRequest, resp *ReadCodeIndexStateResponse) error {
+	state, found, err := s.backend.ReadCodeIndexState(context.Background())
+	if err != nil {
+		return err
+	}
+	resp.State = state
+	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) ListCodeFileIndexStates(req ListCodeFileIndexStatesRequest, resp *ListCodeFileIndexStatesResponse) error {
+	states, err := s.backend.ListCodeFileIndexStates(context.Background())
+	if err != nil {
+		return err
+	}
+	resp.States = states
+	return nil
+}
+
+func (s *brainRPCService) MarkCodeIndexClean(req MarkCodeIndexCleanRequest, resp *EmptyResponse) error {
+	return s.backend.runtime.MarkCodeIndexClean(context.Background(), MarkCodeIndexCleanArgs{
+		ProjectID:         firstNonEmpty(req.ProjectID, DefaultProjectID),
+		LastIndexedCommit: req.LastIndexedCommit,
+		LastIndexedAtUS:   req.LastIndexedAtUS,
+		Files:             req.Files,
+		DeletedPaths:      req.DeletedPaths,
+		MetadataJSON:      req.MetadataJSON,
 	})
 }

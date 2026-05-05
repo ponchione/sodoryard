@@ -454,6 +454,19 @@ func authStatusDisplayState(status *provider.AuthStatus) string {
 }
 
 func (s *Service) codeIndexStatus(ctx context.Context, cfg *appconfig.Config) (RuntimeIndexStatus, *RuntimeWarning) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		reader, ok := s.rt.BrainBackend.(interface {
+			ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error)
+		})
+		if !ok || reader == nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load code index state: Shunter backend unavailable"))
+		}
+		state, found, err := reader.ReadCodeIndexState(ctx)
+		if err != nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load code index state: %v", err))
+		}
+		return runtimeStatusFromShunterCodeIndexState(state, found), nil
+	}
 	if s == nil || s.rt == nil || s.rt.Database == nil {
 		return RuntimeIndexStatus{Status: "unavailable"}, nil
 	}
@@ -475,6 +488,23 @@ func (s *Service) codeIndexStatus(ctx context.Context, cfg *appconfig.Config) (R
 		status.LastIndexedCommit = commit.String
 	}
 	return status, nil
+}
+
+func runtimeStatusFromShunterCodeIndexState(state projectmemory.CodeIndexState, found bool) RuntimeIndexStatus {
+	status := RuntimeIndexStatus{Status: "never_indexed"}
+	if !found {
+		return status
+	}
+	if state.LastIndexedAtUS > 0 {
+		status.Status = "indexed"
+		status.LastIndexedAt = time.UnixMicro(int64(state.LastIndexedAtUS)).UTC().Format(time.RFC3339)
+	}
+	status.LastIndexedCommit = state.LastIndexedCommit
+	if state.Dirty {
+		status.Status = brainindexstate.StatusStale
+		status.StaleReason = state.DirtyReason
+	}
+	return status
 }
 
 func brainIndexStatus(ctx context.Context, cfg *appconfig.Config, backend any) (RuntimeIndexStatus, *RuntimeWarning) {

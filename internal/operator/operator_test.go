@@ -82,13 +82,19 @@ func (f *fakeBrainBackend) ListDocuments(ctx context.Context, directory string) 
 
 type fakeShunterIndexBrainBackend struct {
 	fakeBrainBackend
-	state projectmemory.BrainIndexState
-	found bool
-	err   error
+	brainState projectmemory.BrainIndexState
+	brainFound bool
+	codeState  projectmemory.CodeIndexState
+	codeFound  bool
+	err        error
 }
 
 func (f *fakeShunterIndexBrainBackend) ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error) {
-	return f.state, f.found, f.err
+	return f.brainState, f.brainFound, f.err
+}
+
+func (f *fakeShunterIndexBrainBackend) ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error) {
+	return f.codeState, f.codeFound, f.err
 }
 
 func TestRuntimeStatusCountsActiveChains(t *testing.T) {
@@ -143,13 +149,18 @@ func TestRuntimeStatusReadsShunterBrainIndexState(t *testing.T) {
 	store := chain.NewStore(db)
 	staleAt := time.Date(2026, 5, 1, 12, 30, 0, 0, time.UTC)
 	backend := &fakeShunterIndexBrainBackend{
-		state: projectmemory.BrainIndexState{
+		brainState: projectmemory.BrainIndexState{
 			LastIndexedAtUS: uint64(time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC).UnixMicro()),
 			Dirty:           true,
 			DirtySinceUS:    uint64(staleAt.UnixMicro()),
 			DirtyReason:     "write_document",
 		},
-		found: true,
+		brainFound: true,
+		codeState: projectmemory.CodeIndexState{
+			LastIndexedCommit: "abc123",
+			LastIndexedAtUS:   uint64(time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC).UnixMicro()),
+		},
+		codeFound: true,
 	}
 	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
 		Config:       cfg,
@@ -169,6 +180,9 @@ func TestRuntimeStatusReadsShunterBrainIndexState(t *testing.T) {
 	}
 	if status.BrainIndex.Status != brainindexstate.StatusStale || status.BrainIndex.StaleSince != staleAt.Format(time.RFC3339) || status.BrainIndex.StaleReason != "write_document" {
 		t.Fatalf("BrainIndex = %+v, want Shunter stale write_document state", status.BrainIndex)
+	}
+	if status.CodeIndex.Status != "indexed" || status.CodeIndex.LastIndexedCommit != "abc123" || status.CodeIndex.LastIndexedAt == "" {
+		t.Fatalf("CodeIndex = %+v, want Shunter indexed abc123 state", status.CodeIndex)
 	}
 	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
 		t.Fatalf("brain index state file stat err = %v, want not-exist", err)

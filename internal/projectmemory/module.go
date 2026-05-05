@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 const (
 	tableProjectState schema.TableID = iota
@@ -16,6 +16,8 @@ const (
 	tableDocumentRevisions
 	tableMemoryOperations
 	tableBrainIndexState
+	tableCodeIndexState
+	tableCodeFileIndexState
 )
 
 const (
@@ -47,6 +49,15 @@ const (
 	indexBrainIndexStatePrimary schema.IndexID = iota
 )
 
+const (
+	indexCodeIndexStatePrimary schema.IndexID = iota
+)
+
+const (
+	indexCodeFileIndexStatePrimary schema.IndexID = iota
+	indexCodeFileIndexStateProject
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -55,12 +66,16 @@ func NewModule() *shunter.Module {
 	declareDocumentRevisions(mod)
 	declareMemoryOperations(mod)
 	declareBrainIndexState(mod)
+	declareCodeIndexState(mod)
+	declareCodeFileIndexState(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
 	mod.Reducer("import_documents_batch", importDocumentsBatchReducer)
 	mod.Reducer("mark_brain_index_dirty", markBrainIndexDirtyReducer)
 	mod.Reducer("mark_brain_index_clean", markBrainIndexCleanReducer)
+	mod.Reducer("mark_code_index_dirty", markCodeIndexDirtyReducer)
+	mod.Reducer("mark_code_index_clean", markCodeIndexCleanReducer)
 	return mod
 }
 
@@ -164,6 +179,37 @@ func declareBrainIndexState(mod *shunter.Module) {
 			{Name: "dirty_since_us", Type: schema.KindUint64},
 			{Name: "dirty_reason", Type: schema.KindString},
 			{Name: "metadata_json", Type: schema.KindString},
+		},
+	})
+}
+
+func declareCodeIndexState(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "code_index_state",
+		Columns: []schema.ColumnDefinition{
+			{Name: "project_id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "last_indexed_commit", Type: schema.KindString},
+			{Name: "last_indexed_at_us", Type: schema.KindUint64},
+			{Name: "dirty", Type: schema.KindBool},
+			{Name: "dirty_reason", Type: schema.KindString},
+			{Name: "metadata_json", Type: schema.KindString},
+		},
+	})
+}
+
+func declareCodeFileIndexState(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "code_file_index_state",
+		Columns: []schema.ColumnDefinition{
+			{Name: "file_id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "project_id", Type: schema.KindString},
+			{Name: "file_path", Type: schema.KindString},
+			{Name: "file_hash", Type: schema.KindString},
+			{Name: "chunk_count", Type: schema.KindUint32},
+			{Name: "last_indexed_at_us", Type: schema.KindUint64},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "code_file_index_state_project", Columns: []string{"project_id"}},
 		},
 	})
 }

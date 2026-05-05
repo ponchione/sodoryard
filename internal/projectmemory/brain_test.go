@@ -137,6 +137,63 @@ func TestBrainIndexStateTracksDirtyAndClean(t *testing.T) {
 	}
 }
 
+func TestCodeIndexStateTracksFilesAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	indexedAt := time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC)
+	files := []CodeFileIndexArg{
+		{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 2},
+		{FilePath: "internal/app.go", FileHash: "hash-app", ChunkCount: 1},
+	}
+	if err := backend.MarkCodeIndexClean(ctx, "abc123", indexedAt, files, nil, `{"test":true}`); err != nil {
+		t.Fatalf("MarkCodeIndexClean: %v", err)
+	}
+	state, found, err := backend.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("ReadCodeIndexState: %v", err)
+	}
+	if !found || state.LastIndexedCommit != "abc123" || state.LastIndexedAtUS != uint64(indexedAt.UnixMicro()) || state.Dirty {
+		t.Fatalf("code index state = %+v found=%t, want clean abc123", state, found)
+	}
+	fileStates, err := backend.ListCodeFileIndexStates(ctx)
+	if err != nil {
+		t.Fatalf("ListCodeFileIndexStates: %v", err)
+	}
+	if len(fileStates) != 2 || fileStates[0].FilePath != "internal/app.go" || fileStates[1].FilePath != "main.go" {
+		t.Fatalf("file states = %+v, want sorted app/main", fileStates)
+	}
+	if err := backend.MarkCodeIndexClean(ctx, "def456", indexedAt.Add(time.Minute), []CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main-2", ChunkCount: 3}}, []string{"internal/app.go"}, ""); err != nil {
+		t.Fatalf("MarkCodeIndexClean update: %v", err)
+	}
+	fileStates, err = backend.ListCodeFileIndexStates(ctx)
+	if err != nil {
+		t.Fatalf("ListCodeFileIndexStates after update: %v", err)
+	}
+	if len(fileStates) != 1 || fileStates[0].FilePath != "main.go" || fileStates[0].FileHash != "hash-main-2" || fileStates[0].ChunkCount != 3 {
+		t.Fatalf("file states after update = %+v, want updated main only", fileStates)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	state, found, err = reopened.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("ReadCodeIndexState after restart: %v", err)
+	}
+	if !found || state.LastIndexedCommit != "def456" {
+		t.Fatalf("state after restart = %+v found=%t, want def456", state, found)
+	}
+}
+
 func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	ctx := context.Background()
 	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
@@ -192,5 +249,16 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if !found || parentState.Dirty || parentState.LastIndexedAtUS != uint64(indexedAt.UnixMicro()) {
 		t.Fatalf("parent state after RPC clean = %+v found=%t, want clean", parentState, found)
+	}
+	codeIndexedAt := time.Date(2026, 5, 5, 15, 0, 0, 0, time.UTC)
+	if err := client.MarkCodeIndexClean(ctx, "rpc-commit", codeIndexedAt, []CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash", ChunkCount: 1}}, nil, `{"rpc":true}`); err != nil {
+		t.Fatalf("client MarkCodeIndexClean: %v", err)
+	}
+	codeState, found, err := backend.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("parent ReadCodeIndexState: %v", err)
+	}
+	if !found || codeState.LastIndexedCommit != "rpc-commit" {
+		t.Fatalf("parent code index state after RPC = %+v found=%t, want rpc-commit", codeState, found)
 	}
 }
