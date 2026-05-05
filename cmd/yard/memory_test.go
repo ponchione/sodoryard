@@ -24,7 +24,7 @@ func TestMemoryMigrateAndVerifyDocuments(t *testing.T) {
 	if migrateResult.Documents != 2 {
 		t.Fatalf("migrated count = %d, want 2", migrateResult.Documents)
 	}
-	verifyResult, err := runMemoryVerify(ctx, configPath, "", "")
+	verifyResult, err := runMemoryVerify(ctx, configPath, "", "", "")
 	if err != nil {
 		t.Fatalf("runMemoryVerify returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestMemoryVerifyDetectsDocumentMismatch(t *testing.T) {
 		t.Fatalf("Close returned error: %v", err)
 	}
 
-	_, err = runMemoryVerify(ctx, configPath, "", "")
+	_, err = runMemoryVerify(ctx, configPath, "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "document content mismatch: notes/a.md") {
 		t.Fatalf("runMemoryVerify error = %v, want notes/a.md content mismatch", err)
 	}
@@ -94,7 +94,7 @@ func TestMemoryExportRoundTripDocuments(t *testing.T) {
 		t.Fatal("export mutated live .brain document")
 	}
 
-	verifyResult, err := runMemoryVerify(ctx, configPath, exportVault, dataDir)
+	verifyResult, err := runMemoryVerify(ctx, configPath, exportVault, "", dataDir)
 	if err != nil {
 		t.Fatalf("runMemoryVerify exported vault returned error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestMemoryExportRoundTripDocuments(t *testing.T) {
 	if roundTripResult.Documents != 2 {
 		t.Fatalf("round-trip migrated count = %d, want 2", roundTripResult.Documents)
 	}
-	if _, err := runMemoryVerify(ctx, configPath, exportVault, roundTripDataDir); err != nil {
+	if _, err := runMemoryVerify(ctx, configPath, exportVault, "", roundTripDataDir); err != nil {
 		t.Fatalf("round-trip runMemoryVerify returned error: %v", err)
 	}
 }
@@ -222,6 +222,47 @@ func TestMemoryMigrateSQLiteImportsLegacyRuntimeState(t *testing.T) {
 	}
 	if second.SQLite.Conversations != 0 || second.SQLite.Messages != 0 || second.SQLite.Skipped == 0 {
 		t.Fatalf("second SQLite result = %+v, want idempotent skip-only import", second.SQLite)
+	}
+}
+
+func TestMemoryVerifySQLiteRuntimeState(t *testing.T) {
+	ctx := context.Background()
+	configPath, dataDir := writeMemoryTestProject(t)
+	projectRoot := filepath.Dir(configPath)
+	sqlitePath := filepath.Join(projectRoot, ".yard", "yard.db")
+	writeLegacySQLiteMemoryState(t, ctx, sqlitePath, projectRoot)
+
+	if _, err := runMemoryMigrate(ctx, configPath, "", sqlitePath, ""); err != nil {
+		t.Fatalf("runMemoryMigrate returned error: %v", err)
+	}
+	verifyResult, err := runMemoryVerify(ctx, configPath, "", sqlitePath, "")
+	if err != nil {
+		t.Fatalf("runMemoryVerify returned error: %v", err)
+	}
+	if verifyResult.Verified != 0 {
+		t.Fatalf("document verify count = %d, want 0 for SQLite-only verify", verifyResult.Verified)
+	}
+	if verifyResult.SQLite.Conversations != 1 || verifyResult.SQLite.Messages != 2 || verifyResult.SQLite.Chains != 1 || verifyResult.SQLite.Steps != 1 || verifyResult.SQLite.Events != 1 {
+		t.Fatalf("SQLite verify core counts = %+v, want one conversation/two messages/one chain/one step/one event", verifyResult.SQLite)
+	}
+	if verifyResult.SQLite.ToolExecutions != 1 || verifyResult.SQLite.SubCalls != 1 || verifyResult.SQLite.ContextReports != 1 || verifyResult.SQLite.Launches != 1 || verifyResult.SQLite.LaunchPresets != 1 {
+		t.Fatalf("SQLite verify detail counts = %+v, want one of each detail row", verifyResult.SQLite)
+	}
+
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend returned error: %v", err)
+	}
+	if err := backend.SetConversationTitle(ctx, projectmemory.SetConversationTitleArgs{ID: "conv-sqlite", Title: "Drifted", UpdatedAtUS: 99}); err != nil {
+		t.Fatalf("SetConversationTitle returned error: %v", err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	_, err = runMemoryVerify(ctx, configPath, "", sqlitePath, "")
+	if err == nil || !strings.Contains(err.Error(), "sqlite conversation mismatch conv-sqlite") {
+		t.Fatalf("runMemoryVerify error = %v, want conversation mismatch", err)
 	}
 }
 

@@ -370,7 +370,7 @@ That index includes things like:
 - parsed links between notes
 - semantic chunks for vector search
 
-Those derived pieces are stored in SQLite and LanceDB.
+In Shunter mode, parsed metadata and link helpers are rebuilt from Shunter documents, and semantic chunks are stored in LanceDB. Legacy vault mode used SQLite metadata tables for the same kind of derived helper state.
 
 This means the brain can support more than raw keyword search.
 
@@ -420,7 +420,7 @@ That report includes things like:
 
 So if someone asks "where does the system remember what context it assembled?" the answer is:
 
-- in SQLite, as a per-turn context report
+- in the configured memory backend, as a per-turn context report; new Shunter-mode projects store that report in Shunter
 
 ## Budgeting: how it decides what actually fits
 
@@ -519,7 +519,7 @@ The inspector can show things like:
 
 So if someone asks "how do we know whether context assembly is working well?" the answer is:
 
-- the system stores a detailed report in SQLite
+- the system stores a detailed report in the configured memory backend
 - the web inspector reads that report and visualizes it
 - post-turn quality metrics tell us whether the proactive context was actually sufficient
 
@@ -538,7 +538,7 @@ There is also a live event path for `context_debug`, so the newest turn can show
 
 So the UI view is a combination of:
 
-- durable per-turn report data from SQLite
+- durable per-turn report data from the configured memory backend
 - live per-turn updates from the websocket event stream
 
 ## The simplest way to explain the whole system to someone else
@@ -575,19 +575,23 @@ Code:
 - actual implementation in the repository
 - functions, files, symbols, dependencies
 
-### Vault/LanceDB/SQLite
+### Brain Backend/LanceDB/Legacy SQLite
+
+Brain backend:
+
+- source of truth for brain notes; Shunter is the default backend for new projects
 
 Vault:
 
-- source of truth for brain notes
+- legacy Markdown source or explicit import/export target; not the live Shunter-mode source of truth
 
 LanceDB:
 
 - vector storage for semantic retrieval
 
-SQLite:
+Legacy SQLite:
 
-- operational database for reports, metadata, links, analytics, and app state
+- legacy operational database and migration source; not the live project-memory store in Shunter mode
 
 ### Proactive vs reactive retrieval
 

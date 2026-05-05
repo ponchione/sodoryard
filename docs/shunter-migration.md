@@ -18,7 +18,6 @@ For an existing vault-backed project, first keep a copy of the current `.brain/`
 ```bash
 yard memory migrate --from-vault .brain --to .yard/shunter/project-memory
 yard memory verify --from-vault .brain --to .yard/shunter/project-memory
-yard brain index
 ```
 
 `yard memory migrate` imports brain documents from `.brain/` into Shunter and preserves vault-relative paths and document content. It does not modify `.brain/`.
@@ -27,6 +26,7 @@ To import the highest-value legacy runtime history from SQLite, run:
 
 ```bash
 yard memory migrate --from-sqlite .yard/yard.db --to .yard/shunter/project-memory
+yard memory verify --from-sqlite .yard/yard.db --to .yard/shunter/project-memory
 ```
 
 The SQLite import is explicit and one-way. It reads the source database during migration only, then stores conversations, messages, chains, steps, events, launch drafts, launch presets, context reports, tool executions, and provider subcalls in Shunter. It does not make `.yard/yard.db` a live runtime dependency in Shunter mode.
@@ -35,6 +35,10 @@ If you want both Markdown documents and SQLite runtime state in one pass, provid
 
 ```bash
 yard memory migrate \
+  --from-vault .brain \
+  --from-sqlite .yard/yard.db \
+  --to .yard/shunter/project-memory
+yard memory verify \
   --from-vault .brain \
   --from-sqlite .yard/yard.db \
   --to .yard/shunter/project-memory
@@ -50,6 +54,17 @@ yard memory verify --from-vault ./backup/brain-markdown --to .yard/shunter/proje
 ```
 
 Export writes Markdown documents to the requested vault path. It does not make that path the live write target unless the project is separately configured for the legacy vault backend.
+
+## Rebuild Derived Indexes
+
+Derived legacy rows such as `index_state`, `brain_documents`, and `brain_links` are not imported. They are disposable caches for the old design. Rebuild the current derived state from Shunter after migration:
+
+```bash
+yard brain index
+yard index
+```
+
+`yard brain index` parses Shunter brain documents for titles, tags, and links, then rebuilds semantic chunks in `.yard/lancedb/brain`. `yard index` rebuilds the code index. Neither command makes `.brain/` or `.yard/yard.db` a live Shunter-mode dependency.
 
 ## Configure Shunter Mode
 
@@ -72,6 +87,6 @@ brain:
 
 `brain.vault_path` remains useful for explicit migration/export commands, but it is not the live write target in Shunter mode.
 
-## Remaining Gaps
+## Clean Up Legacy State
 
-The SQLite import covers the legacy runtime history listed above. It does not import derived index rows such as legacy `index_state`, `brain_documents`, or `brain_links`; those should be rebuilt from Shunter documents with `yard brain index` and `yard index` as needed. Keep old `.brain/` and `.yard/yard.db` backups until you have verified the migration and no longer need legacy-only derived metadata.
+After `yard memory verify`, `yard brain index`, and `yard index` succeed, archive or remove the old `.brain/` and `.yard/yard.db` stores according to your backup policy. They are not part of the Shunter-mode base design. Keep copies only when you need an external audit trail or manual rollback point.

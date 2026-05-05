@@ -68,20 +68,34 @@ func newYardMemoryMigrateCmd(configPath *string) *cobra.Command {
 
 func newYardMemoryVerifyCmd(configPath *string) *cobra.Command {
 	var fromVault string
+	var fromSQLite string
 	var toDataDir string
 	cmd := &cobra.Command{
 		Use:   "verify",
-		Short: "Verify Shunter project-memory documents against a brain vault",
+		Short: "Verify imported project-memory state against Shunter",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := runMemoryVerify(cmd.Context(), *configPath, fromVault, toDataDir)
+			result, err := runMemoryVerify(cmd.Context(), *configPath, fromVault, fromSQLite, toDataDir)
 			if err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified brain documents: %d\n", result.Verified)
+			if strings.TrimSpace(fromSQLite) != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite conversations: %d\n", result.SQLite.Conversations)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite messages: %d\n", result.SQLite.Messages)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite chains: %d\n", result.SQLite.Chains)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite steps: %d\n", result.SQLite.Steps)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite events: %d\n", result.SQLite.Events)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite tool executions: %d\n", result.SQLite.ToolExecutions)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite provider subcalls: %d\n", result.SQLite.SubCalls)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite context reports: %d\n", result.SQLite.ContextReports)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite launch drafts: %d\n", result.SQLite.Launches)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Verified SQLite launch presets: %d\n", result.SQLite.LaunchPresets)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&fromVault, "from-vault", "", "Source brain vault path (default: configured brain.vault_path)")
+	cmd.Flags().StringVar(&fromSQLite, "from-sqlite", "", "Source legacy SQLite database path (for example .yard/yard.db)")
 	cmd.Flags().StringVar(&toDataDir, "to", "", "Shunter data dir to verify (default: configured memory.shunter_data_dir)")
 	return cmd
 }
@@ -162,55 +176,67 @@ func migrateMemoryVaultDocuments(ctx context.Context, source *vault.Client, targ
 
 type memoryVerifyResult struct {
 	Verified int
+	SQLite   projectmemory.ImportSQLiteStateResult
 }
 
-func runMemoryVerify(ctx context.Context, configPath string, fromVault string, toDataDir string) (memoryVerifyResult, error) {
-	source, target, closeTarget, err := openMemoryVaultAndTarget(ctx, configPath, fromVault, toDataDir)
+func runMemoryVerify(ctx context.Context, configPath string, fromVault string, fromSQLite string, toDataDir string) (memoryVerifyResult, error) {
+	cfg, target, closeTarget, err := openMemoryTarget(ctx, configPath, toDataDir)
 	if err != nil {
 		return memoryVerifyResult{}, err
 	}
 	defer closeTarget()
 
+	result := memoryVerifyResult{}
+	if strings.TrimSpace(fromVault) != "" || strings.TrimSpace(fromSQLite) == "" {
+		source, err := openMemorySourceVault(cfg.ProjectRoot, cfg.BrainVaultPath(), fromVault)
+		if err != nil {
+			return memoryVerifyResult{}, err
+		}
+		count, err := verifyMemoryVaultDocuments(ctx, source, target)
+		if err != nil {
+			return memoryVerifyResult{}, err
+		}
+		result.Verified = count
+	}
+	if strings.TrimSpace(fromSQLite) != "" {
+		sqlitePath := resolveMemoryCLIPath(cfg.ProjectRoot, fromSQLite)
+		sqliteResult, err := verifySQLiteProjectMemory(ctx, sqlitePath, target)
+		if err != nil {
+			return memoryVerifyResult{}, err
+		}
+		result.SQLite = sqliteResult
+	}
+	return result, nil
+}
+
+func verifyMemoryVaultDocuments(ctx context.Context, source *vault.Client, target *projectmemory.BrainBackend) (int, error) {
 	sourcePaths, err := source.ListDocuments(ctx, "")
 	if err != nil {
-		return memoryVerifyResult{}, fmt.Errorf("list source vault documents: %w", err)
+		return 0, fmt.Errorf("list source vault documents: %w", err)
 	}
 	targetPaths, err := target.ListDocuments(ctx, "")
 	if err != nil {
-		return memoryVerifyResult{}, fmt.Errorf("list Shunter documents: %w", err)
+		return 0, fmt.Errorf("list Shunter documents: %w", err)
 	}
 	sort.Strings(sourcePaths)
 	sort.Strings(targetPaths)
 	if !equalStringSlices(sourcePaths, targetPaths) {
-		return memoryVerifyResult{}, fmt.Errorf("document path mismatch: source=%d Shunter=%d first_diff=%s", len(sourcePaths), len(targetPaths), firstPathDiff(sourcePaths, targetPaths))
+		return 0, fmt.Errorf("document path mismatch: source=%d Shunter=%d first_diff=%s", len(sourcePaths), len(targetPaths), firstPathDiff(sourcePaths, targetPaths))
 	}
 	for _, path := range sourcePaths {
 		sourceContent, err := source.ReadDocument(ctx, path)
 		if err != nil {
-			return memoryVerifyResult{}, fmt.Errorf("read source document %s: %w", path, err)
+			return 0, fmt.Errorf("read source document %s: %w", path, err)
 		}
 		targetContent, err := target.ReadDocument(ctx, path)
 		if err != nil {
-			return memoryVerifyResult{}, fmt.Errorf("read Shunter document %s: %w", path, err)
+			return 0, fmt.Errorf("read Shunter document %s: %w", path, err)
 		}
 		if sourceContent != targetContent {
-			return memoryVerifyResult{}, fmt.Errorf("document content mismatch: %s", path)
+			return 0, fmt.Errorf("document content mismatch: %s", path)
 		}
 	}
-	return memoryVerifyResult{Verified: len(sourcePaths)}, nil
-}
-
-func openMemoryVaultAndTarget(ctx context.Context, configPath string, fromVault string, toDataDir string) (*vault.Client, *projectmemory.BrainBackend, func(), error) {
-	cfg, target, closeTarget, err := openMemoryTarget(ctx, configPath, toDataDir)
-	if err != nil {
-		return nil, nil, closeTarget, err
-	}
-	source, err := openMemorySourceVault(cfg.ProjectRoot, cfg.BrainVaultPath(), fromVault)
-	if err != nil {
-		closeTarget()
-		return nil, nil, func() {}, err
-	}
-	return source, target, closeTarget, nil
+	return len(sourcePaths), nil
 }
 
 func openMemoryTarget(ctx context.Context, configPath string, toDataDir string) (*appconfig.Config, *projectmemory.BrainBackend, func(), error) {

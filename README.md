@@ -35,7 +35,7 @@ A self-hosted AI coding harness with a unified operator CLI, headless agent runt
 
 The **engine harness** runs individual agent sessions: web conversations started by `yard serve` and internal `tidmouth run` subprocesses spawned by chains. Autonomous operator work is represented as chains, including one-step chains for single-agent work. Each session gets tools, context assembly, conversation persistence, and provider routing.
 
-The **chain orchestrator** composes multi-step pipelines. `yard chain start` creates a chain, runs an orchestrator agent, spawns engine subprocesses for planning/coding/auditing/resolution steps, and records receipts plus event logs in the project brain and SQLite state.
+The **chain orchestrator** composes multi-step pipelines. `yard chain start` creates a chain, runs an orchestrator agent, spawns engine subprocesses for planning/coding/auditing/resolution steps, and records receipts plus event logs in project memory.
 
 Both paths share `internal/runtime/` for provider construction, memory setup, brain backends, and context assembly. The `cmd/yard` package is mostly command wiring plus CLI rendering/control glue; reusable runtime behavior lives under `internal/`.
 
@@ -64,7 +64,7 @@ yard [--config yard.yaml]             Terminal operator console
  |   +-- serve --vault <path>      Legacy standalone brain MCP server (stdio)
  |-- memory
  |   |-- migrate                   Import Markdown/SQLite legacy state into Shunter
- |   |-- verify                    Compare Markdown vault documents with Shunter
+ |   |-- verify                    Compare imported Markdown/SQLite state with Shunter
  |   +-- export                    Export Shunter documents to a Markdown vault
  |-- llm
  |   |-- status                    Local LLM service health
@@ -108,7 +108,7 @@ The brain is structured long-term project memory for specs, receipts, convention
 
 `yard brain index` rebuilds derived brain metadata and semantic chunks in `.yard/lancedb/brain` from the configured brain backend. In Shunter mode, `.brain/` and `.yard/yard.db` are transitional import/export state, not canonical runtime stores. `yard brain serve --vault <path>` remains available as a legacy standalone MCP server for external vault tooling.
 
-Existing vault-backed projects can import Markdown brain documents and legacy SQLite runtime history into Shunter with `yard memory migrate`, then export Shunter documents back to Markdown with `yard memory export`; see [docs/shunter-migration.md](docs/shunter-migration.md) for the current migration workflow.
+Existing vault-backed projects can import Markdown brain documents and legacy SQLite runtime history into Shunter with `yard memory migrate`, verify the import with `yard memory verify`, then export Shunter documents back to Markdown with `yard memory export`; see [docs/shunter-migration.md](docs/shunter-migration.md) for the current migration workflow. After verification and reindexing, old `.brain/` and `.yard/yard.db` stores can be archived or removed because Shunter is the base project-memory design.
 
 ### Context Assembly
 
@@ -116,7 +116,7 @@ Every agent turn starts with context assembly: a RAG pipeline that builds a focu
 
 - **Code search**: semantic similarity over the codebase via LanceDB embeddings
 - **Graph relationships**: structural code intelligence from tree-sitter parsing (Go, Python, TypeScript)
-- **Brain retrieval**: hybrid search (SQLite FTS5 plus LanceDB vectors) over the project brain
+- **Brain retrieval**: hybrid keyword and semantic search over the configured project brain backend
 - **Conventions**: project-specific coding conventions read from the configured brain backend
 
 A budget manager allocates tokens across these sources based on priority and the model's context window. The assembled context is serialized and injected into the conversation, giving agents grounded knowledge about the codebase without manually specifying files.
