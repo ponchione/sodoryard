@@ -46,7 +46,7 @@ func (b *BrainUpdate) Schema() json.RawMessage {
 			"properties": {
 				"path": {
 					"type": "string",
-					"description": "Vault-relative path to the document"
+					"description": "Brain document path"
 				},
 				"operation": {
 					"type": "string",

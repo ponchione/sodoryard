@@ -11,7 +11,6 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
-	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
 	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
@@ -205,8 +204,6 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 	if cfg.Backend == "" {
 		if strings.EqualFold(strings.TrimSpace(cfg.MemoryBackend), "shunter") || strings.TrimSpace(cfg.ShunterDataDir) != "" {
 			cfg.Backend = "shunter"
-		} else {
-			cfg.Backend = "vault"
 		}
 	}
 	if cfg.Backend == "shunter" {
@@ -232,20 +229,7 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 		}
 		return backend, func() { _ = backend.Close() }, nil
 	}
-	if cfg.Backend != "vault" {
-		return nil, func() {}, fmt.Errorf("unsupported brain backend %q", cfg.Backend)
-	}
-	if strings.TrimSpace(cfg.MemoryBackend) != "" && cfg.MemoryBackend != "legacy" {
-		return nil, func() {}, fmt.Errorf("vault brain backend requires memory.backend: legacy")
-	}
-	client, err := mcpclient.Connect(ctx, cfg.VaultPath)
-	if err != nil {
-		return nil, func() {}, err
-	}
-	if logger != nil {
-		logger.Info("brain backend: MCP (in-process)", "vault", cfg.VaultPath)
-	}
-	return client, func() { _ = client.Close() }, nil
+	return nil, func() {}, fmt.Errorf("unsupported brain backend %q", cfg.Backend)
 }
 
 func BuildConversationManager(ctx context.Context, cfg *appconfig.Config, database *sql.DB, memoryBackend any, logger *slog.Logger) (*conversation.Manager, func(), error) {
@@ -356,10 +340,8 @@ func BuildGraphStore(cfg *appconfig.Config) (*codegraph.Store, func(), error) {
 	return store, func() { _ = store.Close() }, nil
 }
 
-// BuildConventionSource constructs a ConventionSource for the configured brain
-// backend. Shunter mode reads conventions through project memory; legacy vault
-// mode reads .brain/conventions directly. Disabled-brain mode returns a no-op
-// source.
+// BuildConventionSource constructs a ConventionSource from Shunter project
+// memory. Disabled-brain mode returns a no-op source.
 func BuildConventionSource(cfg *appconfig.Config, backend ...brain.Backend) contextpkg.ConventionSource {
 	if cfg == nil || !cfg.Brain.Enabled {
 		return contextpkg.NoopConventionSource{}
@@ -370,5 +352,5 @@ func BuildConventionSource(cfg *appconfig.Config, backend ...brain.Backend) cont
 		}
 		return contextpkg.NoopConventionSource{}
 	}
-	return contextpkg.NewBrainConventionSource(cfg.BrainVaultPath())
+	return contextpkg.NoopConventionSource{}
 }

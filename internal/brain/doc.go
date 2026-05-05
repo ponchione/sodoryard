@@ -1,2 +1,2 @@
-// Package brain provides the project knowledge base backed by Obsidian and LanceDB.
+// Package brain defines interfaces and helpers for Shunter-backed project knowledge.
 package brain

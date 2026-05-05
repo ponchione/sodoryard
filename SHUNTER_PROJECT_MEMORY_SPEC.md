@@ -139,15 +139,11 @@ type IndexedReducerDB interface {
 
 ### Sodoryard
 
-The current memory seams are uneven:
+The earlier memory seams were uneven:
 
 - Brain operations already have an interface at `internal/brain.Backend`.
-- The live brain backend is still MCP backed, but the MCP server is just a local
-  wrapper around `internal/brain/vault.Client`.
-- `BuildConventionSource` bypasses `brain.Backend` and reads `.brain/conventions`
-  directly.
 - Brain indexing already consumes `brain.Backend`, so a Shunter backend can feed
-  the existing LanceDB path during migration. The current SQLite
+  the existing LanceDB path. The current SQLite
   `brain_documents`/`brain_links` materialization must also become Shunter-backed
   before the default flip.
 - Conversations, chains, context reports, tool execution logging, and several
@@ -186,7 +182,7 @@ internal/projectmemory/
 ```
 
 Top-level commands own the memory runtime. This includes `yard`, `yard serve`,
-`yard chain start`, `yard index`, `yard brain index`, and `yard memory ...`
+`yard chain start`, `yard index`, and `yard brain index`
 commands when they run without `SODORYARD_MEMORY_ENDPOINT`. Spawned child
 processes use a local RPC endpoint:
 
@@ -209,7 +205,7 @@ views.
 
 ### Configuration
 
-Add memory configuration separate from the old brain vault setting:
+Add Shunter memory configuration:
 
 ```yaml
 memory:
@@ -223,14 +219,11 @@ memory:
 brain:
   enabled: true
   backend: shunter
-  vault_path: .brain # import/export only when backend is shunter
   embedding_model: ...
 ```
 
 Validation changes:
 
-- `brain.vault_path` is required only for `brain.backend: vault` or explicit
-  import/export commands.
 - `memory.shunter_data_dir` is required for `memory.backend: shunter`.
 - `memory.shunter_data_dir` and `memory.rpc.path` resolve relative to
   `project_root` when not absolute.
@@ -262,17 +255,7 @@ Derived and rebuildable:
 - LanceDB brain/document embeddings
 - code graph database
 - lexical search materializations
-- exported Markdown vaults
 - exported JSON snapshots
-
-Transitional only:
-
-- `.yard/yard.db`
-- `.brain`
-- MCP brain server
-
-The transitional stores may exist during migration, but the target runtime path
-must not consult them for live brain or harness state.
 
 ## Shunter Module Shape
 
@@ -606,12 +589,6 @@ make the refactor reviewable, but the default target is Shunter.
 
 ## Brain Replacement
 
-The current path:
-
-```text
-runtime -> brain/mcpclient -> local MCP server -> vault.Client -> .brain files
-```
-
 Target path:
 
 ```text
@@ -625,8 +602,6 @@ Required changes:
 - Replace `buildOrchestratorBrainBackend` the same way.
 - Replace `BuildConventionSource` so conventions are read through the memory
   backend, not `.brain/conventions`.
-- Keep `yard brain serve --vault` only as a legacy/export compatibility command,
-  not as the live runtime brain.
 - Make `yard brain index` read Shunter documents through `brain.Backend`, then
   rebuild LanceDB and any lexical derived tables.
 - Make receipt writes go through `write_document` or `complete_step_with_receipt`,
@@ -709,34 +684,23 @@ This avoids the dangerous model where each spawned agent opens the same Shunter
 data dir. It also keeps reducer names and row schemas private to the parent
 process.
 
-## Migration Commands
+## Fresh Brain Baseline
 
-Add explicit one-way migration commands:
+Shunter project memory is the base design, not a compatibility wrapper around
+the prior vault/SQLite shape. Existing projects should be cleansed or rebuilt
+onto Shunter state instead of carrying `.brain` or `.yard/yard.db` migration
+commands forward as supported product behavior.
 
-```text
-yard memory migrate \
-  --from-vault .brain \
-  --from-sqlite .yard/yard.db \
-  --to .yard/shunter/project-memory
+Rules:
 
-yard memory verify
-yard memory backup --to ./backup/project-memory-YYYYMMDD
-yard brain export --to ./backup/brain-markdown
-```
-
-Migration rules:
-
-- Sort source documents, messages, chains, and events before import for
-  deterministic transactions.
-- Preserve existing ids where possible.
-- Preserve message turn numbers and timestamps.
-- Import receipts as normal documents with `kind = "receipt"`.
-- Import conventions as normal documents with `kind = "convention"`.
-- Import `.brain` links and tags into Shunter document metadata.
-- Import SQLite conversations, messages, tool executions, subcalls, context
-  reports, chains, steps, events, launches, and presets.
-- Do not modify `.brain` during migration.
-- Make migration idempotent by checking ids, hashes, and source fingerprints.
+- Do not add public `yard memory migrate`, `verify`, `backup`, or export
+  commands for legacy stores.
+- Do not add Shunter reducers whose only purpose is importing old SQLite or
+  vault rows.
+- Derived brain metadata, semantic chunks, and code index state are rebuilt
+  from Shunter documents and source files.
+- Receipts and conventions are normal Shunter documents with native `kind`
+  metadata.
 
 Backup rules:
 
@@ -782,7 +746,6 @@ Deliverables:
 - route convention loading through brain backend
 - write receipts through Shunter
 - make `yard brain index` read Shunter documents
-- leave `yard brain serve --vault` as legacy compatibility only
 
 Exit criteria:
 
@@ -834,9 +797,8 @@ Deliverables:
 - move brain index state from SQLite to Shunter
 - update `yard index` and retrieval freshness checks
 - stop opening `.yard/yard.db` in `buildRuntimeBase` for Shunter mode
-- keep `.yard/yard.db` only for explicit migration or legacy mode. The derived
-  code graph SQLite database (`.yard/graph.db`) may remain because it is not
-  canonical memory.
+- keep the derived code graph SQLite database (`.yard/graph.db`) only as
+  rebuildable index state, not canonical memory.
 
 Exit criteria:
 
@@ -849,10 +811,8 @@ Exit criteria:
 Deliverables:
 
 - default new projects to `memory.backend: shunter`
-- add migration documentation
 - add failure-mode tests for crash/restart/durable ack
-- remove MCP brain from the live runtime path
-- remove `.brain` as an active write target
+- remove MCP brain and `.brain` from the runtime path
 
 Exit criteria:
 
@@ -869,13 +829,11 @@ Required tests:
 - Shunter reducer tests for each atomic operation
 - restart recovery after committed document, message, and chain writes
 - durable ack behavior for writes that must survive process exit
-- migration import from `.brain` and `.yard/yard.db`
-- export round trip from Shunter to Markdown
 - brain index rebuild from Shunter documents
 - code index freshness update after workspace changes
 - parent/child chain run where only the parent owns Shunter
 - spawned reindex commands in a chain use the parent memory endpoint
-- convention lookup with `.brain` absent or renamed
+- convention lookup from Shunter documents
 - conversation reconstruction after compression
 - operator/server list views for conversations, chains, events, launches
 
@@ -938,9 +896,8 @@ The first implementation slice should be small but should prove the architecture
    limited to development/test use.
 4. Implement `brain.Backend` on Shunter.
 5. Route `BuildBrainBackend` and `BuildConventionSource` through that backend.
-6. Add `yard memory migrate --from-vault .brain` for documents only.
-7. Rebuild the existing LanceDB brain index from Shunter documents.
-8. Prove restart recovery and absence of live `.brain` reads in Shunter mode.
+6. Rebuild the existing LanceDB brain index from Shunter documents.
+7. Prove restart recovery and absence of live `.brain` reads in Shunter mode.
 
 That slice removes the MCP/vault brain from the live path and establishes the
 pattern for moving conversations, chains, and index state next.

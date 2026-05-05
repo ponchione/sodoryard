@@ -165,31 +165,37 @@ func openRuntime(ctx context.Context, cfg *appconfig.Config, opts Options, build
 
 func buildReadOnlyRuntime(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
 	if cfg != nil && cfg.Memory.Backend == "shunter" {
-		logger := slog.New(slog.DiscardHandler)
-		brainBackend, closeBrain, err := rtpkg.BuildBrainBackend(ctx, cfg.Brain, logger)
-		if err != nil {
-			return nil, fmt.Errorf("build brain backend: %w", err)
-		}
-		memoryBackend, closeMemory, err := rtpkg.BuildProjectMemoryStore(ctx, cfg, brainBackend, logger)
-		if err != nil {
-			closeBrain()
-			return nil, fmt.Errorf("build project memory store: %w", err)
-		}
-		chainStore, err := rtpkg.BuildChainStore(cfg, nil, memoryBackend)
-		if err != nil {
-			closeMemory()
-			closeBrain()
-			return nil, fmt.Errorf("build chain store: %w", err)
-		}
-		return &rtpkg.OrchestratorRuntime{
-			Config:        cfg,
-			BrainBackend:  brainBackend,
-			MemoryBackend: memoryBackend,
-			ChainStore:    chainStore,
-			Cleanup: rtpkg.ChainCleanup(closeBrain, func() {
+		if _, err := os.Stat(cfg.Memory.ShunterDataDir); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("stat project memory %q: %w", cfg.Memory.ShunterDataDir, err)
+			}
+		} else {
+			logger := slog.New(slog.DiscardHandler)
+			brainBackend, closeBrain, err := rtpkg.BuildBrainBackend(ctx, cfg.Brain, logger)
+			if err != nil {
+				return nil, fmt.Errorf("build brain backend: %w", err)
+			}
+			memoryBackend, closeMemory, err := rtpkg.BuildProjectMemoryStore(ctx, cfg, brainBackend, logger)
+			if err != nil {
+				closeBrain()
+				return nil, fmt.Errorf("build project memory store: %w", err)
+			}
+			chainStore, err := rtpkg.BuildChainStore(cfg, nil, memoryBackend)
+			if err != nil {
 				closeMemory()
-			}),
-		}, nil
+				closeBrain()
+				return nil, fmt.Errorf("build chain store: %w", err)
+			}
+			return &rtpkg.OrchestratorRuntime{
+				Config:        cfg,
+				BrainBackend:  brainBackend,
+				MemoryBackend: memoryBackend,
+				ChainStore:    chainStore,
+				Cleanup: rtpkg.ChainCleanup(closeBrain, func() {
+					closeMemory()
+				}),
+			}, nil
+		}
 	}
 
 	dbPath := cfg.DatabasePath()

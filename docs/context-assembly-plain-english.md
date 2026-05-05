@@ -231,7 +231,7 @@ The project brain is the long-term project knowledge layer.
 
 This is not the codebase itself. It is the notes layer.
 
-The source of truth is the configured brain backend. In current Shunter-mode projects, that backend is Shunter project memory; the legacy Markdown vault is an explicit import/export format rather than the live store.
+The source of truth is Shunter project memory.
 
 Those notes can contain things like:
 
@@ -341,23 +341,18 @@ So code retrieval is not just one naive nearest-neighbor lookup. It is a small r
 
 The easiest honest explanation is:
 
-- Shunter project memory is the source of truth in current Shunter-mode projects
-- Markdown vaults are legacy/import/export stores unless the project is explicitly configured for the legacy vault backend
+- Shunter project memory is the source of truth
 - vector indexes and other retrieval metadata are derived helper layers
 
 ### Project memory documents
 
-The real brain content lives in the configured brain backend.
+The real brain content lives in Shunter project memory.
 
 The brain backend reads, writes, patches, lists, and keyword-searches those documents.
 
-So if someone asks "where is the brain stored?", the current default answer is:
+So if someone asks "where is the brain stored?", the answer is:
 
 - in Shunter project memory under `.yard/shunter/project-memory`
-
-For legacy vault-backed projects, the answer can still be:
-
-- in Markdown notes in the configured project brain vault
 
 ### Derived metadata and graph
 
@@ -370,7 +365,7 @@ That index includes things like:
 - parsed links between notes
 - semantic chunks for vector search
 
-In Shunter mode, parsed metadata and link helpers are rebuilt from Shunter documents, and semantic chunks are stored in LanceDB. Legacy vault mode used SQLite metadata tables for the same kind of derived helper state.
+Parsed metadata and link helpers are rebuilt from Shunter documents, and semantic chunks are stored in LanceDB.
 
 This means the brain can support more than raw keyword search.
 
@@ -400,7 +395,7 @@ There are really two different kinds of storage involved here.
 
 ### B. The memory backend holds operational and observability data
 
-In Shunter mode, Shunter project memory stores the app's canonical internal state and reporting data. In legacy mode, SQLite still stores that operational state.
+Shunter project memory stores the app's canonical internal state and reporting data.
 
 For context assembly specifically, the configured memory backend stores the context assembly report for each turn.
 
@@ -575,23 +570,15 @@ Code:
 - actual implementation in the repository
 - functions, files, symbols, dependencies
 
-### Brain Backend/LanceDB/Legacy SQLite
+### Shunter/LanceDB
 
-Brain backend:
+Shunter:
 
-- source of truth for brain notes; Shunter is the default backend for new projects
-
-Vault:
-
-- legacy Markdown source or explicit import/export target; not the live Shunter-mode source of truth
+- source of truth for brain notes and project memory
 
 LanceDB:
 
 - vector storage for semantic retrieval
-
-Legacy SQLite:
-
-- legacy operational database and migration source; not the live project-memory store in Shunter mode
 
 ### Proactive vs reactive retrieval
 

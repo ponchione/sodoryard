@@ -110,7 +110,7 @@ rtk ./bin/yard brain index
 
 Expected:
 - `yard index --full` completes without embedding or LanceDB errors.
-- `yard brain index` completes from the configured brain backend. In Shunter mode it reads Shunter project-memory documents; `.brain/` is only needed for explicit legacy vault import/export workflows.
+- `yard brain index` completes from Shunter project-memory documents.
 
 If indexing fails with an embedding connection error, run:
 

@@ -13,8 +13,8 @@ import (
 	"github.com/ponchione/sodoryard/internal/config"
 )
 
-// BrainWrite implements the brain_write tool — create or overwrite a brain
-// document in the Obsidian vault.
+// BrainWrite implements the brain_write tool: create or overwrite a Shunter
+// brain document.
 type BrainWrite struct {
 	client brain.Backend
 	config config.BrainConfig
@@ -32,20 +32,20 @@ type brainWriteInput struct {
 
 func (b *BrainWrite) Name() string { return "brain_write" }
 func (b *BrainWrite) Description() string {
-	return "Create or overwrite a brain document in the Obsidian vault"
+	return "Create or overwrite a brain document in Shunter project memory"
 }
 func (b *BrainWrite) ToolPurity() Purity { return Mutating }
 
 func (b *BrainWrite) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"name": "brain_write",
-		"description": "Create a new document or overwrite an existing one in the project brain (Obsidian vault). Content should be Obsidian-native markdown with YAML frontmatter, [[wikilinks]], and #tags.",
+		"description": "Create a new document or overwrite an existing one in the project brain. Content should be markdown with YAML frontmatter, [[wikilinks]], and #tags.",
 		"input_schema": {
 			"type": "object",
 			"properties": {
 				"path": {
 					"type": "string",
-					"description": "Vault-relative path for the document (e.g., 'debugging/auth-race.md')"
+					"description": "Brain document path (e.g., 'debugging/auth-race.md')"
 				},
 				"content": {
 					"type": "string",

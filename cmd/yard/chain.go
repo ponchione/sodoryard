@@ -40,7 +40,6 @@ type yardChainFlags struct {
 	Task             string
 	Role             string
 	ChainID          string
-	Brain            string
 	MaxSteps         int
 	MaxResolverLoops int
 	MaxDuration      time.Duration
@@ -100,7 +99,6 @@ func newYardChainStartCmd(configPath *string) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Task, "task", "", "Free-form task description")
 	cmd.Flags().StringVar(&flags.Role, "role", "", "Run a one-step chain with the selected role instead of the orchestrator")
 	cmd.Flags().StringVar(&flags.ProjectRoot, "project", "", "Override project root")
-	cmd.Flags().StringVar(&flags.Brain, "brain", "", "Override brain vault path")
 	cmd.Flags().StringVar(&flags.ChainID, "chain-id", "", "Chain execution identifier")
 	cmd.Flags().IntVar(&flags.MaxSteps, "max-steps", 100, "Maximum total agent invocations")
 	cmd.Flags().IntVar(&flags.MaxResolverLoops, "max-resolver-loops", 3, "Maximum fix-audit cycles per task")

@@ -31,9 +31,6 @@ func applyYardChainOverrides(cfg *appconfig.Config, flags yardChainFlags) {
 	if strings.TrimSpace(flags.ProjectRoot) != "" {
 		cfg.ProjectRoot = strings.TrimSpace(flags.ProjectRoot)
 	}
-	if strings.TrimSpace(flags.Brain) != "" {
-		cfg.Brain.VaultPath = strings.TrimSpace(flags.Brain)
-	}
 }
 
 func yardParseSpecs(specs string) []string {

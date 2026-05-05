@@ -2753,7 +2753,7 @@ func TestRunTurnNoToolDefinitions(t *testing.T) {
 
 func TestWithDefaultConfigIncludesBrainNoteRoutingGuidance(t *testing.T) {
 	cfg := withDefaultConfig(AgentLoopConfig{})
-	for _, want := range []string{"notes/...md", ".brain/notes/...md", "brain_read", "brain_search", "Never use file_read or search_text for .brain paths", "Do not double-check project-brain answers with search_text or file_read"} {
+	for _, want := range []string{"notes/...md", "brain_read", "brain_search", "Brain notes live in Shunter project memory", "Do not double-check project-brain answers with search_text or file_read"} {
 		if !strings.Contains(cfg.BasePrompt, want) {
 			t.Fatalf("BasePrompt = %q, want substring %q", cfg.BasePrompt, want)
 		}

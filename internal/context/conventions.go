@@ -3,8 +3,6 @@ package context
 import (
 	stdctx "context"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -25,30 +23,8 @@ func (NoopConventionSource) Load(stdctx.Context) (string, error) {
 	return "", nil
 }
 
-// BrainConventionSource loads project conventions from the Obsidian-style brain
-// vault under conventions/*.md.
-type BrainConventionSource struct {
-	vaultPath   string
-	bulletLimit int
-	readFile    func(string) ([]byte, error)
-	walkDir     func(string, fs.WalkDirFunc) error
-	stat        func(string) (os.FileInfo, error)
-}
-
-// NewBrainConventionSource creates a convention loader rooted at the provided
-// vault path. Missing convention documents are treated as an empty cache.
-func NewBrainConventionSource(vaultPath string) *BrainConventionSource {
-	return &BrainConventionSource{
-		vaultPath:   vaultPath,
-		bulletLimit: defaultConventionBulletLimit,
-		readFile:    os.ReadFile,
-		walkDir:     filepath.WalkDir,
-		stat:        os.Stat,
-	}
-}
-
-// BrainBackendConventionSource loads project conventions through the configured
-// brain backend instead of reading a vault directory directly.
+// BrainBackendConventionSource loads project conventions through Shunter
+// project memory.
 type BrainBackendConventionSource struct {
 	backend     brain.Backend
 	bulletLimit int
@@ -90,80 +66,6 @@ func (s *BrainBackendConventionSource) Load(ctx stdctx.Context) (string, error) 
 			return "", fmt.Errorf("read convention document %s: %w", filepath.Base(path), err)
 		}
 		for _, bullet := range extractConventionBullets(filepath.Base(path), content) {
-			bullet = strings.TrimSpace(bullet)
-			if bullet == "" {
-				continue
-			}
-			if _, ok := seen[bullet]; ok {
-				continue
-			}
-			seen[bullet] = struct{}{}
-			bullets = append(bullets, bullet)
-			if len(bullets) >= limit {
-				return strings.Join(bullets, "\n"), nil
-			}
-		}
-	}
-	return strings.Join(bullets, "\n"), nil
-}
-
-// Load returns a short bullet list derived from markdown documents inside the
-// vault's conventions/ directory.
-func (s *BrainConventionSource) Load(ctx stdctx.Context) (string, error) {
-	if s == nil || strings.TrimSpace(s.vaultPath) == "" {
-		return "", nil
-	}
-	conventionsDir := filepath.Join(s.vaultPath, "conventions")
-	if _, err := s.stat(conventionsDir); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("stat conventions dir: %w", err)
-	}
-
-	var docs []string
-	err := s.walkDir(conventionsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if strings.EqualFold(filepath.Ext(d.Name()), ".md") {
-			docs = append(docs, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("walk conventions dir: %w", err)
-	}
-	if len(docs) == 0 {
-		return "", nil
-	}
-	sort.Strings(docs)
-
-	limit := s.bulletLimit
-	if limit <= 0 {
-		limit = defaultConventionBulletLimit
-	}
-	bullets := make([]string, 0, limit)
-	seen := make(map[string]struct{}, limit)
-	for _, path := range docs {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-		}
-		data, err := s.readFile(path)
-		if err != nil {
-			return "", fmt.Errorf("read convention document %s: %w", filepath.Base(path), err)
-		}
-		for _, bullet := range extractConventionBullets(filepath.Base(path), string(data)) {
 			bullet = strings.TrimSpace(bullet)
 			if bullet == "" {
 				continue

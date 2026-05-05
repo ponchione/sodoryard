@@ -645,7 +645,7 @@ func withDefaultConfig(cfg AgentLoopConfig) AgentLoopConfig {
 		cfg.LoopDetectionThreshold = defaultLoopDetectThreshold
 	}
 	if cfg.BasePrompt == "" {
-		cfg.BasePrompt = "You are a helpful AI assistant. Use file tools for project-root files. Use brain_read and brain_search for vault-relative brain notes like notes/...md or .brain/notes/...md. Never use file_read or search_text for .brain paths or vault-relative note paths; those belong to brain tools. If the user asks about project brain notes, prefer brain_read/brain_search first and only use repo file/search tools for project-root code and files outside the vault. Do not double-check project-brain answers with search_text or file_read once a brain tool already found the relevant note or content."
+		cfg.BasePrompt = "You are a helpful AI assistant. Use file tools for project-root files. Use brain_read and brain_search for project-brain notes like notes/...md. Brain notes live in Shunter project memory, so do not use file_read or search_text to inspect them. If the user asks about project brain notes, prefer brain_read/brain_search first and only use repo file/search tools for project-root code and files outside the brain. Do not double-check project-brain answers with search_text or file_read once a brain tool already found the relevant note or content."
 	}
 	if cfg.MaxToolResultsPerMessageChars <= 0 {
 		cfg.MaxToolResultsPerMessageChars = defaultMaxToolResultsPerMessageChars

@@ -27,9 +27,7 @@ const (
 	defaultLocalServicesNetwork = "llm-net"
 	defaultLocalStartupTimeout  = 180
 	defaultLocalHealthInterval  = 2
-	memoryBackendLegacy         = "legacy"
 	memoryBackendShunter        = "shunter"
-	brainBackendVault           = "vault"
 	brainBackendShunter         = "shunter"
 	memoryRPCTransportUnix      = "unix"
 )
@@ -141,7 +139,7 @@ type IndexConfig struct {
 	MaxTotalFileSizeBytes int      `yaml:"max_total_file_size_bytes"`
 }
 
-var requiredIndexExcludePatterns = []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**"}
+var requiredIndexExcludePatterns = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**"}
 
 // Embedding configures the local embedding service used for semantic search.
 type Embedding struct {
@@ -396,12 +394,10 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("read config %s: %w", path, err)
 		}
 	} else {
-		backendHints := configuredBackendHintsFromYAML(data)
 		cfg.ConfiguredProviders = configuredProviderNamesFromYAML(data)
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parse config %s: %w", path, err)
 		}
-		cfg.applyBackendCompatibilityDefaults(backendHints)
 	}
 
 	cfg.normalize()
@@ -413,52 +409,6 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-type backendConfigHints struct {
-	MemoryBackendSet bool
-	MemoryBackend    string
-	BrainBackendSet  bool
-	BrainBackend     string
-}
-
-func configuredBackendHintsFromYAML(data []byte) backendConfigHints {
-	var raw struct {
-		Memory *struct {
-			Backend *string `yaml:"backend"`
-		} `yaml:"memory"`
-		Brain *struct {
-			Backend *string `yaml:"backend"`
-		} `yaml:"brain"`
-	}
-	_ = yaml.Unmarshal(data, &raw)
-	hints := backendConfigHints{}
-	if raw.Memory != nil && raw.Memory.Backend != nil {
-		hints.MemoryBackendSet = true
-		hints.MemoryBackend = strings.TrimSpace(*raw.Memory.Backend)
-	}
-	if raw.Brain != nil && raw.Brain.Backend != nil {
-		hints.BrainBackendSet = true
-		hints.BrainBackend = strings.TrimSpace(*raw.Brain.Backend)
-	}
-	return hints
-}
-
-func (c *Config) applyBackendCompatibilityDefaults(hints backendConfigHints) {
-	if c == nil {
-		return
-	}
-	if !hints.MemoryBackendSet && !hints.BrainBackendSet {
-		c.Memory.Backend = memoryBackendLegacy
-		c.Brain.Backend = brainBackendVault
-		return
-	}
-	if hints.MemoryBackendSet && strings.EqualFold(strings.TrimSpace(hints.MemoryBackend), memoryBackendLegacy) && !hints.BrainBackendSet {
-		c.Brain.Backend = brainBackendVault
-	}
-	if hints.BrainBackendSet && strings.EqualFold(strings.TrimSpace(hints.BrainBackend), brainBackendVault) && !hints.MemoryBackendSet {
-		c.Memory.Backend = memoryBackendLegacy
-	}
 }
 
 func configuredProviderNamesFromYAML(data []byte) []string {
@@ -709,7 +659,7 @@ func (c *Config) normalize() {
 
 func (c *Config) normalizeMemory() {
 	if c.Memory.Backend == "" {
-		c.Memory.Backend = memoryBackendLegacy
+		c.Memory.Backend = memoryBackendShunter
 	}
 	if c.Memory.ShunterDataDir == "" {
 		c.Memory.ShunterDataDir = ".yard/shunter/project-memory"
@@ -721,7 +671,7 @@ func (c *Config) normalizeMemory() {
 		c.Memory.RPC.Path = ".yard/run/memory.sock"
 	}
 	if c.Brain.Backend == "" {
-		c.Brain.Backend = brainBackendVault
+		c.Brain.Backend = brainBackendShunter
 	}
 }
 
@@ -883,36 +833,19 @@ func (c *Config) validatePaths() error {
 	if !c.Brain.Enabled {
 		return nil
 	}
-	brainBackend, err := validateEnumValue("brain.backend", c.Brain.Backend, "vault or shunter", brainBackendVault, brainBackendShunter)
+	brainBackend, err := validateEnumValue("brain.backend", c.Brain.Backend, "shunter", brainBackendShunter)
 	if err != nil {
 		return err
 	}
 	c.Brain.Backend = brainBackend
-	if c.Brain.Backend == brainBackendShunter {
-		if c.Memory.Backend != memoryBackendShunter {
-			return fmt.Errorf("invalid field brain.backend=%q (requires memory.backend: shunter)", c.Brain.Backend)
-		}
-		return nil
+	if c.Memory.Backend != memoryBackendShunter {
+		return fmt.Errorf("invalid field brain.backend=%q (requires memory.backend: shunter)", c.Brain.Backend)
 	}
-
-	vaultPath, err := resolveProjectRelativePath(c.ProjectRoot, c.Brain.VaultPath)
-	if err != nil {
-		return fmt.Errorf("invalid field brain.vault_path=%q: %w", c.Brain.VaultPath, err)
-	}
-	info, err = os.Stat(vaultPath)
-	if err != nil {
-		return fmt.Errorf("invalid field brain.vault_path=%q: %w", c.Brain.VaultPath, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("invalid field brain.vault_path=%q (must be an existing directory)", c.Brain.VaultPath)
-	}
-	c.Brain.VaultPath = vaultPath
-
 	return nil
 }
 
 func (c *Config) resolveMemoryPaths() error {
-	memoryBackend, err := validateEnumValue("memory.backend", c.Memory.Backend, "legacy or shunter", memoryBackendLegacy, memoryBackendShunter)
+	memoryBackend, err := validateEnumValue("memory.backend", c.Memory.Backend, "shunter", memoryBackendShunter)
 	if err != nil {
 		return err
 	}
@@ -922,9 +855,6 @@ func (c *Config) resolveMemoryPaths() error {
 		return err
 	}
 	c.Memory.RPC.Transport = rpcTransport
-	if c.Memory.Backend != memoryBackendShunter {
-		return nil
-	}
 	if strings.TrimSpace(c.Memory.ShunterDataDir) == "" {
 		return errors.New("invalid field memory.shunter_data_dir=\"\" (must be set when memory.backend is shunter)")
 	}

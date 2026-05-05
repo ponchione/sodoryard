@@ -31,8 +31,6 @@ func readEmbeddedFile(path string) ([]byte, error) {
 
 // listBrainSectionDirs returns the names of the railway brain section
 // directories that templates/init/brain/ declares, sorted alphabetically.
-// These are the legacy vault section directories retained in the embedded
-// template tree for migration tooling and compatibility tests.
 func listBrainSectionDirs() ([]string, error) {
 	entries, err := fs.ReadDir(templateFS, "templates/init/brain")
 	if err != nil {

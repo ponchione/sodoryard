@@ -287,7 +287,7 @@ func TestBrainSearchNoResults(t *testing.T) {
 	}
 }
 
-func TestBrainToolDefinitionsSteerVaultNotePathsToBrainTools(t *testing.T) {
+func TestBrainToolDefinitionsSteerBrainNotePathsToBrainTools(t *testing.T) {
 	reg := NewRegistry()
 	RegisterBrainTools(reg, newFakeBackend(map[string]string{}), brainConfig(true))
 
@@ -301,7 +301,7 @@ func TestBrainToolDefinitionsSteerVaultNotePathsToBrainTools(t *testing.T) {
 	if !ok {
 		t.Fatal("brain_read definition missing")
 	}
-	for _, want := range []string{"notes/...md", "file_read", "vault-relative", ".brain paths"} {
+	for _, want := range []string{"notes/...md", "file_read", "brain note paths"} {
 		if !strings.Contains(brainRead.Description, want) {
 			t.Fatalf("brain_read description = %q, want substring %q", brainRead.Description, want)
 		}
@@ -311,7 +311,7 @@ func TestBrainToolDefinitionsSteerVaultNotePathsToBrainTools(t *testing.T) {
 	if !ok {
 		t.Fatal("brain_search definition missing")
 	}
-	for _, want := range []string{"notes/...md", "search_text", "brain_read", ".brain paths", "do not double-check a successful brain hit"} {
+	for _, want := range []string{"notes/...md", "search_text", "brain_read", "brain note paths", "do not double-check a successful brain hit"} {
 		if !strings.Contains(brainSearch.Description, want) {
 			t.Fatalf("brain_search description = %q, want substring %q", brainSearch.Description, want)
 		}
@@ -983,13 +983,13 @@ func TestBrainWriteEmptyContent(t *testing.T) {
 	}
 }
 
-func TestBrainWriteNormalizesPathAndAllowsScopedWrite(t *testing.T) {
+func TestBrainWriteAllowsScopedWrite(t *testing.T) {
 	backend := newFakeBackend(map[string]string{})
 	cfg := brainConfig(true)
 	cfg.BrainWritePaths = []string{"receipts/**"}
 	tool := NewBrainWrite(backend, cfg)
 
-	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":".brain/receipts/reviewer/run.md","content":"---\nagent: reviewer\n---\n# Receipt"}`))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"receipts/reviewer/run.md","content":"---\nagent: reviewer\n---\n# Receipt"}`))
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
@@ -997,7 +997,7 @@ func TestBrainWriteNormalizesPathAndAllowsScopedWrite(t *testing.T) {
 		t.Fatalf("Success = false, content = %q", result.Content)
 	}
 	if _, ok := backend.docs["receipts/reviewer/run.md"]; !ok {
-		t.Fatalf("docs = %#v, want normalized receipts/reviewer/run.md", backend.docs)
+		t.Fatalf("docs = %#v, want receipts/reviewer/run.md", backend.docs)
 	}
 }
 

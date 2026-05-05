@@ -11,11 +11,6 @@ func RunConfig(out io.Writer, configPath string) error {
 		return err
 	}
 
-	brainVaultPath := "<disabled>"
-	if cfg.Brain.Enabled {
-		brainVaultPath = cfg.BrainVaultPath()
-	}
-
 	_, _ = fmt.Fprintln(out, "config: valid")
 	_, _ = fmt.Fprintf(out, "config_path: %s\n", configPath)
 	_, _ = fmt.Fprintf(out, "project_root: %s\n", cfg.ProjectRoot)
@@ -26,7 +21,7 @@ func RunConfig(out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Model, "<unset>"))
 	_, _ = fmt.Fprintf(out, "database_path: %s\n", cfg.DatabasePath())
 	_, _ = fmt.Fprintf(out, "code_index_path: %s\n", cfg.CodeLanceDBPath())
-	_, _ = fmt.Fprintf(out, "brain_vault_path: %s\n", brainVaultPath)
+	_, _ = fmt.Fprintf(out, "shunter_memory_path: %s\n", cfg.MemoryShunterDataDir())
 	_, _ = fmt.Fprintf(out, "embedding_base_url: %s\n", cfg.Embedding.BaseURL)
 	_, _ = fmt.Fprintf(out, "brain_enabled: %t\n", cfg.Brain.Enabled)
 	_, _ = fmt.Fprintf(out, "local_services_enabled: %t\n", cfg.LocalServices.Enabled)

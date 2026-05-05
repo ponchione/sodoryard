@@ -148,7 +148,6 @@ func NewModule() *shunter.Module {
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
 	mod.Reducer("import_documents_batch", importDocumentsBatchReducer)
-	mod.Reducer("import_sqlite_state", importSQLiteStateReducer)
 	mod.Reducer("mark_brain_index_dirty", markBrainIndexDirtyReducer)
 	mod.Reducer("mark_brain_index_clean", markBrainIndexCleanReducer)
 	mod.Reducer("mark_code_index_dirty", markCodeIndexDirtyReducer)

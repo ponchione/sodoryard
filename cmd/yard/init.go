@@ -18,7 +18,7 @@ func newInitCmd() *cobra.Command {
 		Long: `Bootstrap the current directory for the railway:
   - Generate yard.yaml with all 13 agent roles seeded
   - Create .yard/ with Shunter project-memory, runtime, and lancedb roots
-  - Patch .gitignore with .yard/ and transitional .brain/ entries
+  - Patch .gitignore with .yard/
 
 Safe to re-run — never overwrites existing files or data.
 

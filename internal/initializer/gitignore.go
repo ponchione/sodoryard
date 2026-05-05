@@ -14,12 +14,10 @@ import (
 // .gitignore.
 var gitignoreEntries = []string{
 	appconfig.StateDirName + "/", // ".yard/"
-	".brain/",
 }
 
 // EnsureGitignoreEntries appends the yard state entries to the project's
-// .gitignore file if they're not already present. .brain/ is retained for
-// legacy imports/exports, but default init no longer creates it.
+// .gitignore file if they're not already present.
 func EnsureGitignoreEntries(projectRoot string) ([]string, error) {
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 

@@ -31,7 +31,6 @@ type RunRequest struct {
 	Task        string
 	TaskFile    string
 	ChainID     string
-	Brain       string
 	MaxTurns    int
 	MaxTokens   int
 	Timeout     time.Duration
@@ -197,9 +196,6 @@ func prepareRunRequest(configPath string, req RunRequest, newChainID func() stri
 	}
 	if strings.TrimSpace(req.ProjectRoot) != "" {
 		cfg.ProjectRoot = strings.TrimSpace(req.ProjectRoot)
-	}
-	if strings.TrimSpace(req.Brain) != "" {
-		cfg.Brain.VaultPath = strings.TrimSpace(req.Brain)
 	}
 	if err := cfg.Validate(); err != nil {
 		return "", nil, "", appconfig.AgentRoleConfig{}, "", "", err

@@ -116,9 +116,6 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := cmd.Flags().Lookup("role"); flag == nil {
 		t.Fatal("expected role flag")
 	}
-	if flag := cmd.Flags().Lookup("brain"); flag == nil {
-		t.Fatal("expected brain flag")
-	}
 	if flag := cmd.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
 		t.Fatalf("watch flag = %#v, want default true", flag)
 	}
@@ -250,15 +247,12 @@ func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 
 func TestApplyYardChainOverrides(t *testing.T) {
 	cfg := &appconfig.Config{ProjectRoot: "/old/project"}
-	flags := yardChainFlags{ProjectRoot: "/new/project", Brain: "/new/brain"}
+	flags := yardChainFlags{ProjectRoot: "/new/project"}
 
 	applyYardChainOverrides(cfg, flags)
 
 	if cfg.ProjectRoot != "/new/project" {
 		t.Fatalf("ProjectRoot = %q, want /new/project", cfg.ProjectRoot)
-	}
-	if cfg.Brain.VaultPath != "/new/brain" {
-		t.Fatalf("Brain.VaultPath = %q, want /new/brain", cfg.Brain.VaultPath)
 	}
 }
 

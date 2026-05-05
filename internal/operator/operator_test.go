@@ -30,6 +30,8 @@ import (
 type fakeBrainBackend struct {
 	docs      map[string]string
 	readPaths []string
+	launches  map[string]projectmemory.Launch
+	presets   map[string]projectmemory.LaunchPreset
 }
 
 type fakeAuthProvider struct {
@@ -78,6 +80,73 @@ func (f *fakeBrainBackend) SearchKeyword(ctx context.Context, query string) ([]b
 
 func (f *fakeBrainBackend) ListDocuments(ctx context.Context, directory string) ([]string, error) {
 	return nil, nil
+}
+
+func (f *fakeBrainBackend) SaveLaunch(ctx context.Context, args projectmemory.SaveLaunchArgs) error {
+	if f.launches == nil {
+		f.launches = map[string]projectmemory.Launch{}
+	}
+	id := projectmemory.ProjectLaunchID(args.ProjectID, args.LaunchID)
+	current := f.launches[id]
+	createdAtUS := current.CreatedAtUS
+	if createdAtUS == 0 {
+		createdAtUS = args.UpdatedAtUS
+	}
+	f.launches[id] = projectmemory.Launch{
+		ID:               id,
+		ProjectID:        args.ProjectID,
+		LaunchID:         args.LaunchID,
+		Status:           args.Status,
+		Mode:             args.Mode,
+		Role:             args.Role,
+		AllowedRolesJSON: args.AllowedRolesJSON,
+		RosterJSON:       args.RosterJSON,
+		SourceTask:       args.SourceTask,
+		SourceSpecsJSON:  args.SourceSpecsJSON,
+		CreatedAtUS:      createdAtUS,
+		UpdatedAtUS:      args.UpdatedAtUS,
+	}
+	return nil
+}
+
+func (f *fakeBrainBackend) ReadLaunch(ctx context.Context, projectID string, launchID string) (projectmemory.Launch, bool, error) {
+	launch, found := f.launches[projectmemory.ProjectLaunchID(projectID, launchID)]
+	return launch, found, nil
+}
+
+func (f *fakeBrainBackend) SaveLaunchPreset(ctx context.Context, args projectmemory.SaveLaunchPresetArgs) error {
+	if f.presets == nil {
+		f.presets = map[string]projectmemory.LaunchPreset{}
+	}
+	id := projectmemory.ProjectLaunchPresetID(args.ProjectID, args.Name)
+	current := f.presets[id]
+	createdAtUS := current.CreatedAtUS
+	if createdAtUS == 0 {
+		createdAtUS = args.UpdatedAtUS
+	}
+	f.presets[id] = projectmemory.LaunchPreset{
+		ID:               id,
+		ProjectID:        args.ProjectID,
+		PresetID:         "custom:" + args.Name,
+		Name:             args.Name,
+		Mode:             args.Mode,
+		Role:             args.Role,
+		AllowedRolesJSON: args.AllowedRolesJSON,
+		RosterJSON:       args.RosterJSON,
+		CreatedAtUS:      createdAtUS,
+		UpdatedAtUS:      args.UpdatedAtUS,
+	}
+	return nil
+}
+
+func (f *fakeBrainBackend) ListLaunchPresets(ctx context.Context, projectID string) ([]projectmemory.LaunchPreset, error) {
+	var presets []projectmemory.LaunchPreset
+	for _, preset := range f.presets {
+		if preset.ProjectID == projectID {
+			presets = append(presets, preset)
+		}
+	}
+	return presets, nil
 }
 
 type fakeShunterIndexBrainBackend struct {
@@ -333,7 +402,27 @@ agent_roles:
 	if err := brainindexstate.MarkStale(projectRoot, "brain_update", staleAt); err != nil {
 		t.Fatalf("mark brain index stale: %v", err)
 	}
+	indexedTime, err := time.Parse(time.RFC3339, indexedAt)
+	if err != nil {
+		t.Fatalf("parse indexedAt: %v", err)
+	}
 	store := chain.NewStore(db)
+	indexBackend := &fakeShunterIndexBrainBackend{
+		brainState: projectmemory.BrainIndexState{
+			ProjectID:       projectmemory.DefaultProjectID,
+			LastIndexedAtUS: uint64(staleAt.Add(-time.Hour).UnixMicro()),
+			Dirty:           true,
+			DirtySinceUS:    uint64(staleAt.UnixMicro()),
+			DirtyReason:     "brain_update",
+		},
+		brainFound: true,
+		codeState: projectmemory.CodeIndexState{
+			ProjectID:         projectmemory.DefaultProjectID,
+			LastIndexedCommit: "abc123",
+			LastIndexedAtUS:   uint64(indexedTime.UnixMicro()),
+		},
+		codeFound: true,
+	}
 	providerRouter := newOperatorTestRouter(t, &provider.AuthStatus{
 		Provider:       "codex",
 		Mode:           "oauth",
@@ -348,7 +437,7 @@ agent_roles:
 				Database:       db,
 				ProviderRouter: providerRouter,
 				ChainStore:     store,
-				BrainBackend:   &fakeBrainBackend{},
+				BrainBackend:   indexBackend,
 				Cleanup:        func() {},
 			}, nil
 		},

@@ -36,14 +36,14 @@ type brainLintInput struct {
 
 func (b *BrainLint) Name() string { return "brain_lint" }
 func (b *BrainLint) Description() string {
-	return "Run deterministic health checks over brain documents in the Obsidian vault"
+	return "Run deterministic health checks over Shunter brain documents"
 }
 func (b *BrainLint) ToolPurity() Purity { return Mutating }
 
 func (b *BrainLint) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"name": "brain_lint",
-		"description": "Run deterministic lint checks over the project brain (Obsidian vault). Supports full-vault, path-prefix, #tag, or combined path+tag scope like 'notes/+#architecture', plus optional check subsets. The contradictions check is model-assisted and only runs when explicitly opted in.",
+		"description": "Run deterministic lint checks over the project brain. Supports full-brain, path-prefix, #tag, or combined path+tag scope like 'notes/+#architecture', plus optional check subsets. The contradictions check is model-assisted and only runs when explicitly opted in.",
 		"input_schema": {
 			"type": "object",
 			"properties": {

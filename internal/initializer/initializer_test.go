@@ -93,10 +93,13 @@ func TestRunInitializesEmptyDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile .gitignore: %v", err)
 	}
-	for _, want := range []string{".yard/", ".brain/"} {
+	for _, want := range []string{".yard/"} {
 		if !strings.Contains(string(gitignoreData), want) {
 			t.Errorf("expected .gitignore to contain %q", want)
 		}
+	}
+	if strings.Contains(string(gitignoreData), ".brain/") {
+		t.Errorf("expected .gitignore not to contain .brain/")
 	}
 }
 

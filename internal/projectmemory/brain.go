@@ -113,10 +113,6 @@ func (b *BrainBackend) MarkBrainIndexClean(ctx context.Context, indexedAt time.T
 	})
 }
 
-func (b *BrainBackend) ImportSQLiteState(ctx context.Context, args ImportSQLiteStateArgs) (ImportSQLiteStateResult, error) {
-	return b.runtime.ImportSQLiteState(ctx, args)
-}
-
 func (b *BrainBackend) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {
 	return b.runtime.ReadCodeIndexState(ctx)
 }

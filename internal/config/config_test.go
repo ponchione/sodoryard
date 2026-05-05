@@ -98,9 +98,8 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadLegacyShapedConfigDefaultsToVaultBackend(t *testing.T) {
+func TestLoadBackendlessConfigDefaultsToShunter(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"brain:\n" +
@@ -114,14 +113,14 @@ func TestLoadLegacyShapedConfigDefaultsToVaultBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if cfg.Memory.Backend != "legacy" {
-		t.Fatalf("Memory.Backend = %q, want legacy for legacy-shaped config", cfg.Memory.Backend)
+	if cfg.Memory.Backend != "shunter" {
+		t.Fatalf("Memory.Backend = %q, want shunter", cfg.Memory.Backend)
 	}
-	if cfg.Brain.Backend != "vault" {
-		t.Fatalf("Brain.Backend = %q, want vault for legacy-shaped config", cfg.Brain.Backend)
+	if cfg.Brain.Backend != "shunter" {
+		t.Fatalf("Brain.Backend = %q, want shunter", cfg.Brain.Backend)
 	}
-	if cfg.Brain.VaultPath != filepath.Join(projectRoot, ".brain") {
-		t.Fatalf("Brain.VaultPath = %q, want resolved .brain", cfg.Brain.VaultPath)
+	if want := filepath.Join(projectRoot, ".yard", "shunter", "project-memory"); cfg.Memory.ShunterDataDir != want {
+		t.Fatalf("Memory.ShunterDataDir = %q, want %q", cfg.Memory.ShunterDataDir, want)
 	}
 }
 
@@ -264,7 +263,7 @@ func TestLoadAppendsRequiredIndexExcludesWhenCustomListOmitsThem(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	wantPatterns := []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"}
+	wantPatterns := []string{"**/.git/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"}
 	for _, pattern := range wantPatterns {
 		if !slices.Contains(cfg.Index.Exclude, pattern) {
 			t.Fatalf("Index.Exclude = %#v, want to contain %q", cfg.Index.Exclude, pattern)
@@ -353,7 +352,7 @@ func TestLoadShunterMemoryResolvesPathsAndDoesNotRequireVault(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsShunterBrainWithoutShunterMemory(t *testing.T) {
+func TestLoadRejectsLegacyMemoryBackend(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
@@ -370,7 +369,7 @@ func TestLoadRejectsShunterBrainWithoutShunterMemory(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load succeeded, want validation error")
 	}
-	if !strings.Contains(err.Error(), "requires memory.backend: shunter") {
+	if !strings.Contains(err.Error(), "memory.backend") {
 		t.Fatalf("Load error = %v, want memory.backend validation", err)
 	}
 }
@@ -567,7 +566,7 @@ func TestNormalizeKeepsUniversalRequiredExcludes(t *testing.T) {
 
 	cfg.normalize()
 
-	for _, want := range []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"} {
+	for _, want := range []string{"**/.git/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"} {
 		if !slices.Contains(cfg.Index.Exclude, want) {
 			t.Fatalf("Index.Exclude = %#v, want %q", cfg.Index.Exclude, want)
 		}
