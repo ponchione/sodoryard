@@ -9,7 +9,7 @@ Choose the exact config you intend to use daily.
 Confirm before starting:
 - provider credentials for the model path you actually want to use are already working
 - local embedding service is available if you want indexing/retrieval
-- any brain/vault backend you depend on is already running and pointed at the right vault/project
+- the configured brain backend is ready for the project
 
 ## 1. Clean build and startup
 
@@ -17,8 +17,8 @@ From repo root:
 
 1. `make test`
 2. `make build`
-3. `./bin/sirtopham index --config <your-config>.yaml`
-4. `./bin/sirtopham serve --config <your-config>.yaml`
+3. `./bin/yard index --config <your-config>.yaml`
+4. `./bin/yard serve --config <your-config>.yaml`
 5. Open the served app URL in the browser
 
 Expected:
