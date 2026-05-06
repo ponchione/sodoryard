@@ -2,11 +2,9 @@ package cmdutil
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 	"time"
 
 	appconfig "github.com/ponchione/sodoryard/internal/config"
@@ -41,13 +39,11 @@ func RunProviderDiagnostics(ctx context.Context, out io.Writer, configPath strin
 		}
 	}
 	if jsonOutput {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
 		payload := map[string]any{"providers": reports}
 		if llmStatus != nil {
 			payload["local_services"] = llmStatus
 		}
-		return enc.Encode(payload)
+		return WriteJSON(out, payload)
 	}
 	PrintProviderAuthReports(out, reports)
 	if llmStatus != nil {
@@ -152,7 +148,7 @@ func PrintProviderAuthReports(out io.Writer, reports []ProviderAuthReport) {
 		if report.AuthState != "" {
 			_, _ = fmt.Fprintf(out, "  auth_state: %s\n", report.AuthState)
 		}
-		_, _ = fmt.Fprintf(out, "  auth_mode: %s\n", reportValueOrDefault(report.Auth.Mode, "unknown"))
+		_, _ = fmt.Fprintf(out, "  auth_mode: %s\n", valueOrDefault(report.Auth.Mode, "unknown"))
 		if report.Auth.Source != "" {
 			_, _ = fmt.Fprintf(out, "  source: %s\n", report.Auth.Source)
 		}
@@ -200,11 +196,4 @@ func providerReportStatus(report ProviderAuthReport) string {
 	default:
 		return report.AuthState
 	}
-}
-
-func reportValueOrDefault(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
 }

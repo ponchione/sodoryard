@@ -18,10 +18,10 @@ func RunConfig(out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "default_provider: %s\n", cfg.Routing.Default.Provider)
 	_, _ = fmt.Fprintf(out, "default_model: %s\n", cfg.Routing.Default.Model)
 	if provider, ok := cfg.Providers[cfg.Routing.Default.Provider]; ok {
-		_, _ = fmt.Fprintf(out, "default_reasoning_effort: %s\n", reportValueOrDefault(provider.ReasoningEffort, "<unset>"))
+		_, _ = fmt.Fprintf(out, "default_reasoning_effort: %s\n", valueOrDefault(provider.ReasoningEffort, "<unset>"))
 	}
-	_, _ = fmt.Fprintf(out, "fallback_provider: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Provider, "<unset>"))
-	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", reportValueOrDefault(cfg.Routing.Fallback.Model, "<unset>"))
+	_, _ = fmt.Fprintf(out, "fallback_provider: %s\n", valueOrDefault(cfg.Routing.Fallback.Provider, "<unset>"))
+	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", valueOrDefault(cfg.Routing.Fallback.Model, "<unset>"))
 	if cfg.Memory.Backend == "shunter" {
 		_, _ = fmt.Fprintln(out, "database_path: <unused in shunter mode>")
 	} else {

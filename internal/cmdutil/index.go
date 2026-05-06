@@ -344,8 +344,8 @@ func PrintCodeIndexSummary(out io.Writer, result *appindex.Result) {
 		return
 	}
 	fmt.Fprintf(out, "Mode: %s\n", result.Mode)
-	fmt.Fprintf(out, "Previous revision: %s\n", displayValue(result.PreviousRevision))
-	fmt.Fprintf(out, "Current revision: %s\n", displayValue(result.CurrentRevision))
+	fmt.Fprintf(out, "Previous revision: %s\n", valueOrDefault(result.PreviousRevision, "<none>"))
+	fmt.Fprintf(out, "Current revision: %s\n", valueOrDefault(result.CurrentRevision, "<none>"))
 	fmt.Fprintf(out, "Changed files: %d\n", result.FilesChanged)
 	fmt.Fprintf(out, "Deleted files: %d\n", result.FilesDeleted)
 	fmt.Fprintf(out, "Skipped files: %d\n", result.FilesSkipped)
@@ -372,9 +372,9 @@ func WriteJSON(out io.Writer, value any) error {
 	return enc.Encode(value)
 }
 
-func displayValue(value string) string {
+func valueOrDefault(value string, fallback string) string {
 	if strings.TrimSpace(value) == "" {
-		return "<none>"
+		return fallback
 	}
 	return value
 }
