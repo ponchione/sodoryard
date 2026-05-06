@@ -82,27 +82,16 @@ func (tp *TrackedProvider) Complete(ctx context.Context, req *provider.Request) 
 	resp, err := tp.inner.Complete(ctx, req)
 	latencyMs := time.Since(start).Milliseconds()
 
-	params := tp.buildParams(req, latencyMs)
-
-	if err != nil {
-		// Failed call.
-		params.Success = 0
-		errMsg := err.Error()
-		params.ErrorMessage = &errMsg
-		params.Model = req.Model // Use requested model since there's no response.
-
-		// If a partial response is available, extract usage from it.
-		if resp != nil {
-			applyUsage(&params, resp.Usage)
+	model := req.Model
+	var usage provider.Usage
+	if resp != nil {
+		usage = resp.Usage
+		if err == nil {
+			model = resp.Model
 		}
-	} else {
-		// Successful call.
-		params.Success = 1
-		params.Model = resp.Model
-		applyUsage(&params, resp.Usage)
 	}
 
-	tp.recordSubCall(ctx, params, "failed to record sub-call")
+	tp.recordSubCall(ctx, tp.callParams(req, latencyMs, model, usage, err == nil, err), "failed to record sub-call")
 
 	return resp, err
 }
@@ -117,13 +106,7 @@ func (tp *TrackedProvider) Stream(ctx context.Context, req *provider.Request) (<
 	if err != nil {
 		// Inner Stream call failed immediately.
 		latencyMs := time.Since(start).Milliseconds()
-		params := tp.buildParams(req, latencyMs)
-		params.Success = 0
-		params.Model = req.Model
-		errMsg := err.Error()
-		params.ErrorMessage = &errMsg
-
-		tp.recordSubCall(ctx, params, "failed to record sub-call for stream setup error")
+		tp.recordSubCall(ctx, tp.callParams(req, latencyMs, req.Model, provider.Usage{}, false, err), "failed to record sub-call for stream setup error")
 
 		return nil, err
 	}
@@ -165,20 +148,7 @@ func (tp *TrackedProvider) Stream(ctx context.Context, req *provider.Request) (<
 		}
 
 		latencyMs := time.Since(start).Milliseconds()
-		params := tp.buildParams(req, latencyMs)
-		params.Model = req.Model
-		applyUsage(&params, finalUsage)
-
-		if success {
-			params.Success = 1
-		} else {
-			params.Success = 0
-		}
-
-		if streamErr != nil {
-			errMsg := streamErr.Error()
-			params.ErrorMessage = &errMsg
-		}
+		params := tp.callParams(req, latencyMs, req.Model, finalUsage, success, streamErr)
 
 		// Use context.Background() because the request ctx may be cancelled.
 		tp.recordSubCall(context.Background(), params, "failed to record sub-call for stream")
@@ -187,13 +157,6 @@ func (tp *TrackedProvider) Stream(ctx context.Context, req *provider.Request) (<
 	}()
 
 	return out, nil
-}
-
-func applyUsage(params *InsertSubCallParams, usage provider.Usage) {
-	params.TokensIn = usage.InputTokens
-	params.TokensOut = usage.OutputTokens
-	params.CacheReadTokens = usage.CacheReadTokens
-	params.CacheCreationTokens = usage.CacheCreationTokens
 }
 
 func (tp *TrackedProvider) recordSubCall(ctx context.Context, params InsertSubCallParams, message string) {
@@ -210,6 +173,25 @@ func (tp *TrackedProvider) recordSubCall(ctx context.Context, params InsertSubCa
 			"latency_ms", params.LatencyMs,
 		)
 	}
+}
+
+func (tp *TrackedProvider) callParams(req *provider.Request, latencyMs int64, model string, usage provider.Usage, success bool, err error) InsertSubCallParams {
+	params := tp.buildParams(req, latencyMs)
+	params.Model = model
+	params.TokensIn = usage.InputTokens
+	params.TokensOut = usage.OutputTokens
+	params.CacheReadTokens = usage.CacheReadTokens
+	params.CacheCreationTokens = usage.CacheCreationTokens
+	if success {
+		params.Success = 1
+	} else {
+		params.Success = 0
+	}
+	if err != nil {
+		errMsg := err.Error()
+		params.ErrorMessage = &errMsg
+	}
+	return params
 }
 
 // buildParams creates a base InsertSubCallParams with common fields populated
