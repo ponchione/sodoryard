@@ -51,6 +51,13 @@ func NewHybridBrainSearcher(keywordBackend brain.Backend, semanticStore codeinte
 	}
 }
 
+func (s *HybridBrainSearcher) ReadDocument(ctx stdctx.Context, docPath string) (string, error) {
+	if s == nil || s.keywordBackend == nil {
+		return "", fmt.Errorf("brain document reader unavailable")
+	}
+	return s.keywordBackend.ReadDocument(ctx, docPath)
+}
+
 func (s *HybridBrainSearcher) Search(ctx stdctx.Context, request BrainSearchRequest) ([]BrainSearchResult, error) {
 	if s == nil {
 		return nil, nil

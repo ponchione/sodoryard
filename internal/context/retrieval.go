@@ -108,6 +108,7 @@ type RetrievalOrchestrator struct {
 	graph                codeintel.GraphStore
 	conventions          ConventionSource
 	brain                BrainSearcher
+	brainReader          BrainDocumentReader
 	brainCfg             config.BrainConfig
 	projectRoot          string
 	fileReader           fileReaderFunc
@@ -123,11 +124,16 @@ func NewRetrievalOrchestrator(searcher codeintel.Searcher, graph codeintel.Graph
 	if conventions == nil {
 		conventions = NoopConventionSource{}
 	}
+	var brainReader BrainDocumentReader
+	if reader, ok := brain.(BrainDocumentReader); ok {
+		brainReader = reader
+	}
 	return &RetrievalOrchestrator{
 		searcher:             searcher,
 		graph:                graph,
 		conventions:          conventions,
 		brain:                brain,
+		brainReader:          brainReader,
 		projectRoot:          projectRoot,
 		fileReader:           readFileBounded,
 		gitRunner:            defaultGitRunner,
@@ -151,6 +157,13 @@ func (o *RetrievalOrchestrator) SetBrainConfig(cfg config.BrainConfig) {
 	o.brainCfg = cfg
 }
 
+func (o *RetrievalOrchestrator) SetBrainDocumentReader(reader BrainDocumentReader) {
+	if o == nil {
+		return
+	}
+	o.brainReader = reader
+}
+
 // Retrieve runs all eligible v0.1 retrieval paths concurrently and returns the
 // merged pre-budget retrieval payload.
 func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds, queries []string, cfg config.ContextConfig) (*RetrievalResults, error) {
@@ -162,13 +175,21 @@ func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds
 	}
 
 	var (
-		ragHits        []RAGHit
-		graphHits      []GraphHit
-		brainHits      []BrainHit
-		fileResults    []FileResult
-		conventionText string
-		gitContext     string
+		ragHits           []RAGHit
+		graphHits         []GraphHit
+		explicitBrainHits []BrainHit
+		searchBrainHits   []BrainHit
+		fileResults       []FileResult
+		conventionText    string
+		gitContext        string
 	)
+	explicitBrainPaths := []string(nil)
+	explicitFilePaths := append([]string(nil), needs.ExplicitFiles...)
+	explicitSymbols := append([]string(nil), needs.ExplicitSymbols...)
+	if o.brainReader != nil {
+		explicitBrainPaths, explicitFilePaths = splitExplicitBrainAndRepoPaths(needs.ExplicitFiles)
+		explicitSymbols = filterBrainDocumentSymbols(needs.ExplicitSymbols)
+	}
 
 	var wg sync.WaitGroup
 	runPath := func(label string, enabled bool, fn func(stdctx.Context) error) {
@@ -194,16 +215,24 @@ func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds
 		return err
 	})
 
-	runPath("explicit files", len(needs.ExplicitFiles) > 0, func(pathCtx stdctx.Context) error {
-		results, err := o.retrieveExplicitFiles(pathCtx, needs.ExplicitFiles, cfg)
+	runPath("explicit files", len(explicitFilePaths) > 0, func(pathCtx stdctx.Context) error {
+		results, err := o.retrieveExplicitFiles(pathCtx, explicitFilePaths, cfg)
 		if err == nil {
 			fileResults = results
 		}
 		return err
 	})
 
-	runPath("structural graph", len(needs.ExplicitSymbols) > 0 && o.graph != nil, func(pathCtx stdctx.Context) error {
-		hits, err := o.retrieveStructuralGraph(pathCtx, needs.ExplicitSymbols, cfg)
+	runPath("explicit brain documents", len(explicitBrainPaths) > 0 && o.brainReader != nil, func(pathCtx stdctx.Context) error {
+		hits, err := o.retrieveExplicitBrainDocuments(pathCtx, explicitBrainPaths, cfg)
+		if err == nil {
+			explicitBrainHits = hits
+		}
+		return err
+	})
+
+	runPath("structural graph", len(explicitSymbols) > 0 && o.graph != nil, func(pathCtx stdctx.Context) error {
+		hits, err := o.retrieveStructuralGraph(pathCtx, explicitSymbols, cfg)
 		if err == nil {
 			graphHits = hits
 		}
@@ -213,7 +242,7 @@ func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds
 	runPath("brain search", len(queries) > 0 && o.brain != nil, func(pathCtx stdctx.Context) error {
 		hits, err := o.retrieveBrainSearch(pathCtx, queries, cfg)
 		if err == nil {
-			brainHits = hits
+			searchBrainHits = hits
 		}
 		return err
 	})
@@ -238,7 +267,7 @@ func (o *RetrievalOrchestrator) Retrieve(ctx stdctx.Context, needs *ContextNeeds
 
 	results := &RetrievalResults{
 		RAGHits:        ragHits,
-		BrainHits:      brainHits,
+		BrainHits:      mergeBrainHits(explicitBrainHits, searchBrainHits),
 		GraphHits:      graphHits,
 		FileResults:    fileResults,
 		ConventionText: conventionText,
@@ -377,6 +406,55 @@ func (o *RetrievalOrchestrator) retrieveBrainSearch(ctx stdctx.Context, queries 
 	return results, nil
 }
 
+func (o *RetrievalOrchestrator) retrieveExplicitBrainDocuments(ctx stdctx.Context, paths []string, cfg config.ContextConfig) ([]BrainHit, error) {
+	if o.brainReader == nil || len(paths) == 0 {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = stdctx.Background()
+	}
+	limit := cfg.MaxExplicitFiles
+	if limit <= 0 {
+		limit = defaultMaxExplicitFiles
+	}
+	maxBytes := o.maxExplicitFileBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxExplicitFileBytes
+	}
+
+	results := make([]BrainHit, 0, min(limit, len(paths)))
+	for i, requested := range paths {
+		if i >= limit {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		docPath, ok := normalizeExplicitBrainDocumentPath(requested)
+		if !ok || brain.IsOperationalDocument(docPath) {
+			continue
+		}
+		content, err := o.brainReader.ReadDocument(ctx, docPath)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			slog.Debug("context retrieval brain document read skipped", "path", docPath, "error", err)
+			continue
+		}
+		content = trimBrainDocumentContent(content, maxBytes)
+		results = append(results, BrainHit{
+			DocumentPath: docPath,
+			Title:        brainDocumentTitle(docPath, content),
+			Snippet:      strings.TrimSpace(content),
+			MatchScore:   1,
+			MatchMode:    "explicit_path",
+			MatchSources: []string{"explicit_path"},
+		})
+	}
+	return results, nil
+}
+
 // brainKeywordCandidates converts a raw semantic query into an ordered list
 // of keyword-search candidates that are tried against the brain backend in
 // sequence. The orchestrator stops at the first candidate that yields at least
@@ -468,6 +546,159 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func splitExplicitBrainAndRepoPaths(paths []string) ([]string, []string) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	brainPaths := make([]string, 0)
+	repoPaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if brainPath, ok := normalizeExplicitBrainDocumentPath(path); ok {
+			brainPaths = append(brainPaths, brainPath)
+			continue
+		}
+		repoPaths = append(repoPaths, path)
+	}
+	return uniqueStringsPreserveOrder(brainPaths), repoPaths
+}
+
+func filterBrainDocumentSymbols(symbols []string) []string {
+	if len(symbols) == 0 {
+		return nil
+	}
+	filtered := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		if _, ok := normalizeExplicitBrainDocumentPath(symbol); ok {
+			continue
+		}
+		filtered = append(filtered, symbol)
+	}
+	return filtered
+}
+
+func normalizeExplicitBrainDocumentPath(path string) (string, bool) {
+	path = strings.TrimSpace(path)
+	path = strings.Trim(path, "`'\".,:;()[]{}<>")
+	path = filepath.ToSlash(path)
+	path = strings.TrimPrefix(path, "./")
+	path = strings.Trim(path, "/")
+	if path == "" || filepath.IsAbs(filepath.FromSlash(path)) || strings.Contains(path, "../") {
+		return "", false
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	if cleaned == "." || cleaned == "" || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+	root, _, _ := strings.Cut(cleaned, "/")
+	switch root {
+	case "architecture", "conventions", "decisions", "notes", "plans", "receipts", "specs", "tasks":
+		return cleaned, true
+	default:
+		return "", false
+	}
+}
+
+func uniqueStringsPreserveOrder(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func trimBrainDocumentContent(content string, maxBytes int) string {
+	content = strings.TrimSpace(content)
+	if maxBytes <= 0 || len(content) <= maxBytes {
+		return content
+	}
+	return strings.TrimSpace(content[:maxBytes]) + "\n\n[truncated]"
+}
+
+func brainDocumentTitle(path string, content string) string {
+	lines := strings.Split(content, "\n")
+	inFrontmatter := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if i == 0 && trimmed == "---" {
+			inFrontmatter = true
+			continue
+		}
+		if inFrontmatter {
+			if trimmed == "---" {
+				inFrontmatter = false
+				continue
+			}
+			if title, ok := strings.CutPrefix(trimmed, "title:"); ok {
+				title = strings.Trim(strings.TrimSpace(title), `"'`)
+				if title != "" {
+					return title
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "# ") {
+			title := strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+			if title != "" {
+				return title
+			}
+		}
+	}
+	return filepath.Base(path)
+}
+
+func mergeBrainHits(groups ...[]BrainHit) []BrainHit {
+	bestByPath := make(map[string]BrainHit)
+	order := make([]string, 0)
+	for _, group := range groups {
+		for _, hit := range group {
+			path := strings.TrimSpace(hit.DocumentPath)
+			if path == "" || brain.IsOperationalDocument(path) {
+				continue
+			}
+			hit.DocumentPath = path
+			if len(hit.MatchSources) == 0 && strings.TrimSpace(hit.MatchMode) != "" {
+				hit.MatchSources = []string{hit.MatchMode}
+			}
+			existing, ok := bestByPath[path]
+			if !ok {
+				bestByPath[path] = hit
+				order = append(order, path)
+				continue
+			}
+			if hit.MatchScore > existing.MatchScore {
+				for _, source := range existing.MatchSources {
+					appendUnique(&hit.MatchSources, source)
+				}
+				bestByPath[path] = hit
+				continue
+			}
+			for _, source := range hit.MatchSources {
+				appendUnique(&existing.MatchSources, source)
+			}
+			bestByPath[path] = existing
+		}
+	}
+	results := make([]BrainHit, 0, len(order))
+	for _, path := range order {
+		results = append(results, bestByPath[path])
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].MatchScore != results[j].MatchScore {
+			return results[i].MatchScore > results[j].MatchScore
+		}
+		return results[i].DocumentPath < results[j].DocumentPath
+	})
+	return results
 }
 
 func (o *RetrievalOrchestrator) retrieveExplicitFiles(ctx stdctx.Context, explicitFiles []string, cfg config.ContextConfig) ([]FileResult, error) {
