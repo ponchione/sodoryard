@@ -38,6 +38,11 @@ const (
 	ModeManualRoster Mode = "manual_roster"
 )
 
+const (
+	headlessExitSafetyLimit = 2
+	headlessExitEscalation  = 3
+)
+
 type StepRunner interface {
 	RunStep(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error)
 }
@@ -272,8 +277,12 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 	if stored.Status == "running" {
 		status := oneStepTerminalStatus(stepResult)
 		summary := fmt.Sprintf("one-step chain %s finished with verdict %s", chainID, stepResult.Verdict)
-		if status == "failed" && stepResult.Verdict == receipt.VerdictSafetyLimit {
-			_ = rt.ChainStore.LogEvent(ctx, chainID, stepResult.StepID, chain.EventSafetyLimitHit, map[string]any{"role": opts.Role, "limit": "receipt verdict safety_limit"})
+		if status == "failed" && stepResultSafetyLimited(stepResult) {
+			limit := "receipt verdict safety_limit"
+			if stepResult.Verdict != receipt.VerdictSafetyLimit {
+				limit = "headless exit safety_limit"
+			}
+			_ = rt.ChainStore.LogEvent(ctx, chainID, stepResult.StepID, chain.EventSafetyLimitHit, map[string]any{"role": opts.Role, "limit": limit, "exit_code": stepResult.ExitCode})
 		}
 		if err := chain.ApplyTerminalChainClosure(ctx, rt.ChainStore, chainID, chain.TerminalChainClosure{
 			Status:    status,
@@ -684,6 +693,12 @@ func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
 	if result.Status == "failed" {
 		return "failed"
 	}
+	if stepResultSafetyLimited(result) {
+		return "failed"
+	}
+	if result.ExitCode == headlessExitEscalation {
+		return "partial"
+	}
 	switch result.Verdict {
 	case receipt.VerdictCompleted, receipt.VerdictCompletedWithConcerns, receipt.VerdictCompletedNoReceipt:
 		return "completed"
@@ -696,8 +711,12 @@ func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
 	}
 }
 
+func stepResultSafetyLimited(result spawnpkg.AgentStepResult) bool {
+	return result.Verdict == receipt.VerdictSafetyLimit || result.ExitCode == headlessExitSafetyLimit
+}
+
 func shouldStopManualRoster(result spawnpkg.AgentStepResult) bool {
-	return !manualRosterVerdictCanContinue(result) || result.Status == "failed"
+	return oneStepTerminalStatus(result) != "completed" || !manualRosterVerdictCanContinue(result)
 }
 
 func manualRosterVerdictCanContinue(result spawnpkg.AgentStepResult) bool {
@@ -731,6 +750,11 @@ func manualRosterTerminalStatus(results []spawnpkg.AgentStepResult) string {
 
 func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, results []spawnpkg.AgentStepResult, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
 	status := manualRosterTerminalStatus(results)
+	for _, result := range results {
+		if stepResultSafetyLimited(result) {
+			_ = store.LogEvent(ctx, chainID, result.StepID, chain.EventSafetyLimitHit, map[string]any{"limit": "headless exit safety_limit", "exit_code": result.ExitCode, "step": result.Sequence})
+		}
+	}
 	summary := manualRosterSummary(chainID, status, results)
 	extra := map[string]any{"summary": summary, "mode": string(ModeManualRoster), "steps": len(results)}
 	if len(results) > 0 {

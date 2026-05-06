@@ -41,6 +41,38 @@ func TestExitCodeMapsSpecStatuses(t *testing.T) {
 	}
 }
 
+func TestOneStepTerminalStatusHonorsHeadlessExitCodes(t *testing.T) {
+	tests := []struct {
+		name   string
+		result spawnpkg.AgentStepResult
+		want   string
+	}{
+		{
+			name:   "completed receipt with ok process completes",
+			result: spawnpkg.AgentStepResult{Status: "completed", Verdict: receipt.VerdictCompleted, ExitCode: 0},
+			want:   "completed",
+		},
+		{
+			name:   "completed receipt with safety-limit process fails",
+			result: spawnpkg.AgentStepResult{Status: "completed", Verdict: receipt.VerdictCompleted, ExitCode: headlessExitSafetyLimit},
+			want:   "failed",
+		},
+		{
+			name:   "completed receipt with escalation process is partial",
+			result: spawnpkg.AgentStepResult{Status: "completed", Verdict: receipt.VerdictCompleted, ExitCode: headlessExitEscalation},
+			want:   "partial",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := oneStepTerminalStatus(tc.result); got != tc.want {
+				t.Fatalf("oneStepTerminalStatus() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaultStepRunnerPassesMemoryEndpointEnv(t *testing.T) {
 	expectedEnv := []string{"SODORYARD_MEMORY_ENDPOINT=unix:/tmp/memory.sock"}
 	cfg := appconfig.Default()
