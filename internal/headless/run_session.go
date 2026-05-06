@@ -268,9 +268,12 @@ func determineExitStatus(ctx context.Context, turnResult *agent.TurnResult, turn
 		if errors.Is(turnErr, agent.ErrTurnCancelled) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "safety_limit", ExitSafetyLimit, nil
 		}
+		if errors.Is(turnErr, agent.ErrMaxIterationsExceeded) {
+			return "safety_limit", ExitSafetyLimit, nil
+		}
 		return "", ExitInfrastructure, turnErr
 	}
-	if (loopMaxTurns > 0 && turnResult.IterationCount >= loopMaxTurns) || ExceededMaxTokens(turnResult, maxTokens) {
+	if ExceededMaxTokens(turnResult, maxTokens) {
 		receiptVerdict = "safety_limit"
 		exitCode = ExitSafetyLimit
 	}

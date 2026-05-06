@@ -9,10 +9,12 @@ import (
 )
 
 type iterationExecution struct {
-	number       int
-	history      []db.Message
-	disableTools bool
-	promptReq    *provider.Request
+	number             int
+	history            []db.Message
+	toolDefinitions    []provider.ToolDefinition
+	disableTools       bool
+	completeAfterTools bool
+	promptReq          *provider.Request
 }
 
 func (l *AgentLoop) historyForIteration(ctx stdctx.Context, turnExec *turnExecution) ([]db.Message, error) {
@@ -39,17 +41,21 @@ func (l *AgentLoop) prepareIteration(ctx stdctx.Context, turnExec *turnExecution
 	}
 
 	iterExec := &iterationExecution{
-		number:       iteration,
-		history:      history,
-		disableTools: l.cfg.MaxIterations > 0 && iteration >= l.cfg.MaxIterations,
+		number:          iteration,
+		history:         history,
+		toolDefinitions: l.toolDefinitions,
 	}
-	if iterExec.disableTools {
+	if l.cfg.MaxIterations > 0 && iteration >= l.cfg.MaxIterations {
+		iterExec.toolDefinitions = completionToolDefinitions(l.toolDefinitions)
+		iterExec.disableTools = len(iterExec.toolDefinitions) == 0
+		iterExec.completeAfterTools = len(iterExec.toolDefinitions) > 0
 		turnExec.currentTurnMessages = append(turnExec.currentTurnMessages, provider.NewUserMessage(loopDirectiveMessage))
-		l.logger.Warn("final iteration reached, disabling tools",
+		l.logger.Warn("final iteration reached, limiting tools",
 			"conversation_id", turnExec.req.ConversationID,
 			"turn", turnExec.req.TurnNumber,
 			"iteration", iteration,
 			"max_iterations", l.cfg.MaxIterations,
+			"completion_tools", toolDefinitionNames(iterExec.toolDefinitions),
 		)
 	}
 
@@ -67,6 +73,7 @@ func (l *AgentLoop) buildIterationRequest(ctx stdctx.Context, turnExec *turnExec
 			turnExec.turnCtx.ContextPackage,
 			iterExec.history,
 			turnExec.currentTurnMessages,
+			iterExec.toolDefinitions,
 			turnExec.effectiveProvider,
 			turnExec.effectiveModel,
 			turnExec.req.ModelContextLimit,
@@ -142,6 +149,7 @@ func (l *AgentLoop) normalizeOverflowRecovery(
 		ctx,
 		turnExec,
 		iterExec.number,
+		iterExec.toolDefinitions,
 		iterExec.disableTools,
 	)
 	if retryResult == nil && retryErr == nil {
@@ -182,4 +190,31 @@ func assistantContentJSONForCleanup(result *streamResult) string {
 	}
 	assistantContentJSON, _ := contentBlocksToJSON(sanitizeContentBlocks(result.ContentBlocks))
 	return assistantContentJSON
+}
+
+func completionToolDefinitions(defs []provider.ToolDefinition) []provider.ToolDefinition {
+	filtered := make([]provider.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if isCompletionTool(def.Name) {
+			filtered = append(filtered, def)
+		}
+	}
+	return filtered
+}
+
+func isCompletionTool(name string) bool {
+	switch name {
+	case "brain_write", "brain_update":
+		return true
+	default:
+		return false
+	}
+}
+
+func toolDefinitionNames(defs []provider.ToolDefinition) []string {
+	names := make([]string, 0, len(defs))
+	for _, def := range defs {
+		names = append(names, def.Name)
+	}
+	return names
 }

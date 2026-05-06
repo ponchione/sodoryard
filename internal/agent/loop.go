@@ -20,6 +20,10 @@ import (
 // Cancel() or context cancellation.
 var ErrTurnCancelled = errors.New("agent loop: turn cancelled")
 
+// ErrMaxIterationsExceeded is returned when a turn exhausts its iteration
+// budget without reaching a terminal assistant response.
+var ErrMaxIterationsExceeded = errors.New("agent loop: exceeded max iterations")
+
 const (
 	defaultMaxIterations                 = 50
 	defaultLoopDetectThreshold           = 3
@@ -30,8 +34,8 @@ const (
 	loopNudgeMessage = "You appear to be repeating the same action. Please try a different approach or explain what you're trying to accomplish."
 
 	// loopDirectiveMessage is injected as a user message on the final
-	// iteration (when tools are disabled) to guide the LLM toward a summary.
-	loopDirectiveMessage = "You have reached the maximum number of tool calls for this turn. Please provide a text summary of your progress and any remaining work."
+	// iteration to guide the LLM toward completion instead of exploration.
+	loopDirectiveMessage = "You have reached the maximum number of exploratory tool calls for this turn. Use any remaining completion tool only to write required brain documents or receipts; otherwise provide a final text summary of your progress and any remaining work."
 )
 
 // ContextAssembler is the narrow Layer 3 boundary the agent loop needs at turn
@@ -463,6 +467,7 @@ func (l *AgentLoop) tryEmergencyCompression(
 	ctx stdctx.Context,
 	turnExec *turnExecution,
 	iteration int,
+	toolDefinitions []provider.ToolDefinition,
 	disableTools bool,
 ) (*streamResult, error) {
 	if l.compressionEngine == nil {
@@ -518,7 +523,7 @@ func (l *AgentLoop) tryEmergencyCompression(
 		emerProvider = turnExec.req.Provider
 	}
 
-	promptReq, err := l.promptBuilder.BuildPrompt(l.buildPromptConfig(turnExec.turnCtx.ContextPackage, history, turnExec.currentTurnMessages, emerProvider, emerModel, turnExec.req.ModelContextLimit, disableTools, turnExec.req.ConversationID, turnExec.req.TurnNumber, iteration))
+	promptReq, err := l.promptBuilder.BuildPrompt(l.buildPromptConfig(turnExec.turnCtx.ContextPackage, history, turnExec.currentTurnMessages, toolDefinitions, emerProvider, emerModel, turnExec.req.ModelContextLimit, disableTools, turnExec.req.ConversationID, turnExec.req.TurnNumber, iteration))
 	if err != nil {
 		return nil, fmt.Errorf("agent loop: rebuild prompt after emergency compression in iteration %d: %w", iteration, err)
 	}
@@ -532,13 +537,13 @@ func (l *AgentLoop) tryEmergencyCompression(
 	return result, nil
 }
 
-func (l *AgentLoop) buildPromptConfig(contextPackage *contextpkg.FullContextPackage, history []db.Message, currentTurnMessages []provider.Message, providerName, modelName string, contextLimit int, disableTools bool, conversationID string, turnNumber, iteration int) PromptConfig {
+func (l *AgentLoop) buildPromptConfig(contextPackage *contextpkg.FullContextPackage, history []db.Message, currentTurnMessages []provider.Message, toolDefinitions []provider.ToolDefinition, providerName, modelName string, contextLimit int, disableTools bool, conversationID string, turnNumber, iteration int) PromptConfig {
 	return PromptConfig{
 		BasePrompt:                 l.cfg.BasePrompt,
 		ContextPackage:             contextPackage,
 		History:                    history,
 		CurrentTurnMessages:        currentTurnMessages,
-		ToolDefinitions:            l.toolDefinitions,
+		ToolDefinitions:            toolDefinitions,
 		ProviderName:               providerName,
 		ModelName:                  modelName,
 		ContextLimit:               contextLimit,

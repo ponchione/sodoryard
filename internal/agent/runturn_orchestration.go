@@ -42,7 +42,7 @@ func (l *AgentLoop) runSingleIteration(ctx stdctx.Context, turnExec *turnExecuti
 	l.emit(StatusEvent{State: StateExecutingTools, Time: l.now()})
 
 	inflight := newInflightToolTurn(turnExec.req, iteration, turnExec.completedIterations, result, assistantContentJSON)
-	validated := l.validateToolCalls(ctx, turnExec, iteration, result, &inflight)
+	validated := l.validateToolCalls(ctx, turnExec, iteration, result, &inflight, iterExec.promptReq.Tools)
 	if validated.toolsCancelled {
 		return nil, l.handleTurnCancellation(inflight, ctx.Err())
 	}
@@ -53,6 +53,14 @@ func (l *AgentLoop) runSingleIteration(ctx stdctx.Context, turnExec *turnExecuti
 	}
 	if earlyResult != nil {
 		return &iterationOutcome{done: true, result: earlyResult}, nil
+	}
+
+	if iterExec.completeAfterTools {
+		finalResult, err := l.completeFinalToolIteration(ctx, turnExec, iteration, result, assistantContentJSON, result.ToolCalls, toolResults)
+		if err != nil {
+			return nil, err
+		}
+		return &iterationOutcome{done: true, result: finalResult}, nil
 	}
 
 	if err := l.completeToolIteration(ctx, turnExec, iteration, assistantContentJSON, result.ToolCalls, toolResults); err != nil {
@@ -71,5 +79,5 @@ func (l *AgentLoop) runTurnIterations(ctx stdctx.Context, turnExec *turnExecutio
 			return outcome.result, nil
 		}
 	}
-	return nil, fmt.Errorf("agent loop: exceeded max iterations (%d)", l.cfg.MaxIterations)
+	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, l.cfg.MaxIterations)
 }

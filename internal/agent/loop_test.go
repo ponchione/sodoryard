@@ -1220,7 +1220,7 @@ func TestRunTurnFinalIterationInjectsDirective(t *testing.T) {
 		if msg.Role == provider.RoleUser {
 			var text string
 			_ = json.Unmarshal(msg.Content, &text)
-			if strings.Contains(text, "maximum number of tool calls") {
+			if strings.Contains(text, "maximum number of exploratory tool calls") {
 				found = true
 				break
 			}
@@ -2648,6 +2648,86 @@ func TestRunTurnToolDefinitionsOmittedOnFinalIteration(t *testing.T) {
 	// Second request (final iteration) should have NO tools.
 	if len(router.requests[1].Tools) != 0 {
 		t.Fatalf("request 2 (final iteration) has %d tools, want 0", len(router.requests[1].Tools))
+	}
+}
+
+func TestRunTurnFinalIterationAllowsCompletionBrainWrite(t *testing.T) {
+	assembler := &loopContextAssemblerStub{
+		pkg: &contextpkg.FullContextPackage{Content: "ctx", Frozen: true},
+	}
+	conversations := &loopConversationManagerStub{
+		history: []db.Message{},
+		seen:    loopSeenFilesStub{},
+	}
+
+	brainWriteInput := json.RawMessage(`{"path":"receipts/coder/chain-step-001.md","content":"---\nverdict: completed\n---\n"}`)
+	router := &capturingRouterStub{
+		streamEvents: [][]provider.StreamEvent{
+			{
+				provider.TokenDelta{Text: "Writing the receipt."},
+				provider.ToolCallStart{ID: "call_receipt", Name: "brain_write"},
+				provider.ToolCallEnd{ID: "call_receipt", Input: brainWriteInput},
+				provider.StreamDone{
+					StopReason: provider.StopReasonToolUse,
+					Usage:      provider.Usage{InputTokens: 80, OutputTokens: 20},
+				},
+			},
+		},
+	}
+	executor := &toolExecutorStub{
+		results: map[string]*provider.ToolResult{
+			"call_receipt": {ToolUseID: "call_receipt", Content: "Brain document written"},
+		},
+	}
+	toolDefs := []provider.ToolDefinition{
+		{
+			Name:        "file_read",
+			Description: "Read file contents",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+		{
+			Name:        "brain_write",
+			Description: "Write a brain document",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+	}
+
+	loop := NewAgentLoop(AgentLoopDeps{
+		ContextAssembler:    assembler,
+		ConversationManager: conversations,
+		ProviderRouter:      router,
+		ToolExecutor:        executor,
+		ToolDefinitions:     toolDefs,
+		PromptBuilder:       NewPromptBuilder(nil),
+		Config: AgentLoopConfig{
+			MaxIterations: 1,
+		},
+	})
+	loop.now = func() time.Time { return time.Unix(1700000800, 0).UTC() }
+
+	result, err := loop.RunTurn(stdctx.Background(), RunTurnRequest{
+		ConversationID:    "conv-final-write",
+		TurnNumber:        1,
+		Message:           "write receipt",
+		ModelContextLimit: 200000,
+	})
+	if err != nil {
+		t.Fatalf("RunTurn error: %v", err)
+	}
+	if result.IterationCount != 1 {
+		t.Fatalf("IterationCount = %d, want 1", result.IterationCount)
+	}
+	if result.FinalText != "Writing the receipt." {
+		t.Fatalf("FinalText = %q, want assistant text", result.FinalText)
+	}
+	if len(router.requests) != 1 {
+		t.Fatalf("router received %d requests, want 1", len(router.requests))
+	}
+	if len(router.requests[0].Tools) != 1 || router.requests[0].Tools[0].Name != "brain_write" {
+		t.Fatalf("final iteration tools = %#v, want only brain_write", router.requests[0].Tools)
+	}
+	if len(executor.calls) != 1 || executor.calls[0].Name != "brain_write" {
+		t.Fatalf("executor calls = %#v, want brain_write", executor.calls)
 	}
 }
 

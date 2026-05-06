@@ -245,6 +245,46 @@ func TestRunSessionReturnsSafetyLimitExitAndReceiptPath(t *testing.T) {
 	}
 }
 
+func TestRunSessionAllowsCompletedTurnAtMaxTurns(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
+		"  coder:",
+		"    system_prompt: agents/coder.md",
+		"    tools:",
+		"      - brain",
+		"    brain_write_paths:",
+		"      - receipts/coder/**",
+		"    max_turns: 3",
+	}, "\n"))
+	promptDir := filepath.Join(projectRoot, "agents")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("prompt"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	loopResult := &agent.TurnResult{FinalText: "finished at the cap", IterationCount: 3}
+	deps := stubRunSessionDeps(
+		&rtpkg.EngineRuntime{BrainBackend: backend, Logger: slog.Default(), Cleanup: func() {}},
+		tool.NewRegistry(),
+		appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/coder/**"}},
+		&conversation.Conversation{ID: "conv-1"},
+		&fakeRunSessionLoop{result: loopResult},
+	)
+
+	result, err := RunSession(context.Background(), nil, configPath, RunRequest{Role: "coder", Task: "work", ChainID: "chain-max", Timeout: time.Minute}, deps)
+	if err != nil {
+		t.Fatalf("RunSession returned error: %v", err)
+	}
+	if result == nil || result.ExitCode != ExitOK {
+		t.Fatalf("result=%#v, want ok exit", result)
+	}
+	if !strings.Contains(backend.docs[result.ReceiptPath], "verdict: completed_no_receipt") {
+		t.Fatalf("receipt content = %q, want completed_no_receipt verdict", backend.docs[result.ReceiptPath])
+	}
+}
+
 func TestRunSessionReturnsEscalationExitWhenReceiptSaysEscalate(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
