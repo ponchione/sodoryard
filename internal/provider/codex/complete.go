@@ -118,7 +118,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 
 		var respBody []byte
 		if p.usesChatGPTCodexEndpoint() && resp.StatusCode == 200 {
-			contentBlocks, usage, stopReason, err := readStreamedResponse(resp.Body)
+			contentBlocks, usage, stopReason, err := readStreamedResponse(ctx, resp.Body)
 			resp.Body.Close()
 			if err != nil {
 				return nil, &provider.ProviderError{
@@ -216,12 +216,12 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 
 // parseOutputItems converts Responses API output items to unified ContentBlock
 // values and determines the stop reason.
-func readStreamedResponse(body io.Reader) ([]provider.ContentBlock, provider.Usage, provider.StopReason, error) {
+func readStreamedResponse(ctx context.Context, body io.Reader) ([]provider.ContentBlock, provider.Usage, provider.StopReason, error) {
 	reader := providersse.NewReader(body, maxSSEScannerTokenSize)
 	accumulator := newResponsesSSEAccumulator()
 
 	for {
-		event, ok, err := reader.Next(context.Background())
+		event, ok, err := reader.Next(ctx)
 		if err != nil {
 			return nil, provider.Usage{}, "", err
 		}

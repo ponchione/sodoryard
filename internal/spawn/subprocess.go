@@ -43,8 +43,10 @@ func RunCommand(ctx context.Context, in RunCommandInput) RunResult {
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, in.Name, in.Args...)
 	cmd.Stdin = in.Stdin
-	cmd.Stdout = composeOutputWriter(in.Stdout, in.OnStdoutLine)
-	cmd.Stderr = composeOutputWriter(in.Stderr, in.OnStderrLine)
+	stdout, flushStdout := composeOutputWriter(in.Stdout, in.OnStdoutLine)
+	stderr, flushStderr := composeOutputWriter(in.Stderr, in.OnStderrLine)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if len(in.Env) > 0 {
 		cmd.Env = append(os.Environ(), in.Env...)
 	}
@@ -62,7 +64,10 @@ func RunCommand(ctx context.Context, in RunCommandInput) RunResult {
 	if in.OnStart != nil && cmd.Process != nil {
 		in.OnStart(cmd.Process.Pid)
 	}
-	if err := cmd.Wait(); err != nil {
+	err := cmd.Wait()
+	flushStdout()
+	flushStderr()
+	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return RunResult{ExitCode: exitErr.ExitCode()}
 		}
@@ -71,15 +76,15 @@ func RunCommand(ctx context.Context, in RunCommandInput) RunResult {
 	return RunResult{ExitCode: 0}
 }
 
-func composeOutputWriter(base io.Writer, onLine func(string)) io.Writer {
+func composeOutputWriter(base io.Writer, onLine func(string)) (io.Writer, func()) {
 	if onLine == nil {
-		return base
+		return base, func() {}
 	}
 	lineWriter := &lineEmitter{onLine: onLine}
 	if base == nil {
-		return lineWriter
+		return lineWriter, lineWriter.Flush
 	}
-	return io.MultiWriter(base, lineWriter)
+	return io.MultiWriter(base, lineWriter), lineWriter.Flush
 }
 
 type lineEmitter struct {
@@ -114,4 +119,14 @@ func (w *lineEmitter) Write(p []byte) (int, error) {
 	}
 	w.pending = append(w.pending[:0], remaining...)
 	return len(p), nil
+}
+
+func (w *lineEmitter) Flush() {
+	if len(w.pending) == 0 {
+		return
+	}
+	if w.onLine != nil {
+		w.onLine(string(w.pending))
+	}
+	w.pending = w.pending[:0]
 }

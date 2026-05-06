@@ -114,6 +114,33 @@ func TestRunCommandEmitsStdoutAndStderrLines(t *testing.T) {
 	}
 }
 
+func TestRunCommandFlushesFinalPartialStdoutAndStderrLines(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell test")
+	}
+	var stdoutLines, stderrLines []string
+	res := RunCommand(context.Background(), RunCommandInput{
+		Name:    "/bin/sh",
+		Args:    []string{"-c", "printf ok; printf warn >&2"},
+		Timeout: 5 * time.Second,
+		OnStdoutLine: func(line string) {
+			stdoutLines = append(stdoutLines, line)
+		},
+		OnStderrLine: func(line string) {
+			stderrLines = append(stderrLines, line)
+		},
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	if got, want := strings.Join(stdoutLines, "|"), "ok"; got != want {
+		t.Fatalf("stdout lines = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(stderrLines, "|"), "warn"; got != want {
+		t.Fatalf("stderr lines = %q, want %q", got, want)
+	}
+}
+
 func TestLineEmitterCapsPendingLineWithoutNewline(t *testing.T) {
 	var lines []string
 	emitter := &lineEmitter{onLine: func(line string) {
