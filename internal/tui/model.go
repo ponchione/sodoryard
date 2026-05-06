@@ -650,7 +650,7 @@ func (m Model) handleChatEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = "chat message is empty"
 			return m, nil
 		}
-		if m.loading {
+		if m.chatRunning {
 			m.notice = "chat turn already running"
 			return m, nil
 		}
@@ -807,12 +807,25 @@ func (m Model) handleConfirmationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "n", "N", "esc":
-		m.notice = "cancel aborted"
-		m.appendConsoleEntry(consoleEntrySystem, "CONFIRM", "cancel aborted")
+		notice := confirmationAbortMessage(m.confirm)
+		m.notice = notice
+		m.appendConsoleEntry(consoleEntrySystem, "CONFIRM", notice)
 		m.confirm = pendingConfirmation{}
 		return m, nil
 	default:
 		return m, nil
+	}
+}
+
+func confirmationAbortMessage(confirm pendingConfirmation) string {
+	action := strings.TrimSpace(confirm.Action)
+	switch action {
+	case "launch":
+		return "launch aborted"
+	case "cancel", "":
+		return "cancel aborted"
+	default:
+		return action + " aborted"
 	}
 }
 

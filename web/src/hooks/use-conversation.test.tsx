@@ -30,6 +30,16 @@ function tokenEvent(token: string): ServerEvent {
   } as ServerEvent;
 }
 
+function conversationCreatedEvent(conversationId: string): ServerEvent {
+  return {
+    type: "conversation_created",
+    timestamp: new Date().toISOString(),
+    data: {
+      conversation_id: conversationId,
+    },
+  } as ServerEvent;
+}
+
 describe("useConversation", () => {
   beforeEach(() => {
     wsState.status = "connected";
@@ -77,5 +87,52 @@ describe("useConversation", () => {
     expect(result.current.messages).toHaveLength(0);
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.error).toBe("Disconnected. Reconnecting to the server.");
+  });
+
+  it("clears stale messages when the routed conversation changes", () => {
+    const { result, rerender } = renderHook(({ id }) => useConversation(id), {
+      initialProps: { id: "conv-1" as string | undefined },
+    });
+
+    act(() => {
+      result.current.loadHistory([{ role: "user", content: "old message", blocks: [] }]);
+    });
+
+    expect(result.current.conversationId).toBe("conv-1");
+    expect(result.current.messages).toHaveLength(1);
+
+    act(() => {
+      rerender({ id: "conv-2" });
+    });
+
+    expect(result.current.conversationId).toBe("conv-2");
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.error).toBeNull();
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("keeps optimistic messages when a new conversation receives its route id", () => {
+    const { result, rerender } = renderHook(({ id }) => useConversation(id), {
+      initialProps: { id: undefined as string | undefined },
+    });
+
+    act(() => {
+      expect(result.current.sendMessage("new message")).toBe(true);
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+
+    act(() => {
+      wsState.eventQueue.current.push(conversationCreatedEvent("conv-new"));
+      wsState.eventTick += 1;
+      rerender({ id: undefined });
+    });
+    act(() => {
+      rerender({ id: "conv-new" });
+    });
+
+    expect(result.current.conversationId).toBe("conv-new");
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].content).toBe("new message");
   });
 });

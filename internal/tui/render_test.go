@@ -159,6 +159,19 @@ func TestChainRenderShowsHealthBudgetsAndCurrentStep(t *testing.T) {
 	}
 }
 
+func TestChainDetailHealthTreatsDryRunAsOK(t *testing.T) {
+	detail := &operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-dry", Status: "dry_run"},
+		Steps: []chain.Step{
+			{SequenceNum: 1, Role: "coder", Status: "completed", ReceiptPath: "receipts/coder/chain-dry-step-001.md"},
+		},
+	}
+
+	if got := chainDetailHealth(detail); got != readinessOK {
+		t.Fatalf("chainDetailHealth = %v, want readinessOK", got)
+	}
+}
+
 func TestReceiptRenderIncludesContent(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	model.screen = screenReceipts

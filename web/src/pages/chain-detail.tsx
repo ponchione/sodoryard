@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
+import { chainStatusClass } from "@/lib/chain-status";
 import type { ChainDetail, ReceiptSummary, ReceiptView } from "@/types/chains";
 
 function formatDate(value?: string): string {
@@ -8,13 +9,6 @@ function formatDate(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
-}
-
-function statusClass(status: string): string {
-  if (status === "running" || status === "paused" || status.endsWith("_requested")) return "text-warning";
-  if (status === "completed") return "text-accent";
-  if (status === "failed" || status === "cancelled") return "text-destructive";
-  return "text-muted-foreground";
 }
 
 export function ChainDetailPage() {
@@ -33,6 +27,9 @@ export function ChainDetailPage() {
       try {
         setLoading(true);
         setError(null);
+        setDetail(null);
+        setReceipt(null);
+        setSelectedReceipt(null);
         const chain = await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`);
         if (cancelled) return;
         setDetail(chain);
@@ -88,7 +85,7 @@ export function ChainDetailPage() {
           </Link>
           <h1 className="mt-2 break-all font-mono text-xl font-bold text-primary text-glow-cyan">{id}</h1>
           {detail && (
-            <p className={`mt-1 text-xs font-medium ${statusClass(detail.chain.status)}`}>{detail.chain.status}</p>
+            <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>{detail.chain.status}</p>
           )}
         </div>
 
@@ -139,7 +136,7 @@ export function ChainDetailPage() {
                       <tr key={step.id || `${step.sequence_num}-${step.role}`} className="border-b border-border/70">
                         <td className="px-3 py-2 tabular-nums">{step.sequence_num}</td>
                         <td className="px-3 py-2">{step.role}</td>
-                        <td className={`px-3 py-2 ${statusClass(step.status)}`}>{step.status}</td>
+                        <td className={`px-3 py-2 ${chainStatusClass(step.status)}`}>{step.status}</td>
                         <td className="px-3 py-2 text-muted-foreground">{step.verdict || "none"}</td>
                         <td className="px-3 py-2 font-mono text-muted-foreground">{step.receipt_path || "none"}</td>
                       </tr>

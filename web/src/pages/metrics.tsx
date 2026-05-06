@@ -1,13 +1,7 @@
 import { useMemo } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
+import { chainStatusGroup } from "@/lib/chain-status";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
-
-function statusGroup(status: string): "active" | "success" | "failed" | "other" {
-  if (status === "running" || status === "paused" || status.endsWith("_requested")) return "active";
-  if (status === "completed") return "success";
-  if (status === "failed" || status === "cancelled") return "failed";
-  return "other";
-}
 
 export function MetricsPage() {
   const { data: chains, loading, error } = useApiResource<ChainSummary[]>("/api/chains?limit=200", []);
@@ -17,7 +11,7 @@ export function MetricsPage() {
     let tokens = 0;
     let steps = 0;
     for (const chain of chains) {
-      groups[statusGroup(chain.status)] += 1;
+      groups[chainStatusGroup(chain.status)] += 1;
       tokens += chain.total_tokens;
       steps += chain.total_steps;
     }

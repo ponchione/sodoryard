@@ -17,7 +17,7 @@ func chainDetailHealth(detail *operator.ChainDetail) readinessState {
 	fail := false
 	attention := false
 	switch detail.Chain.Status {
-	case "completed":
+	case "completed", "dry_run":
 	case "failed", "cancelled":
 		fail = true
 	case "partial", "paused", "pause_requested", "cancel_requested", "running":
@@ -33,7 +33,7 @@ func chainDetailHealth(detail *operator.ChainDetail) readinessState {
 			fail = true
 		case "running", "pending":
 			attention = true
-		case "completed":
+		case "completed", "dry_run":
 			if strings.TrimSpace(step.ReceiptPath) == "" {
 				attention = true
 			}

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
+import { chainStatusClass } from "@/lib/chain-status";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
 
 function formatDate(value?: string): string {
@@ -8,15 +9,6 @@ function formatDate(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
-}
-
-function statusClass(status: string): string {
-  if (status === "running" || status === "paused" || status.endsWith("_requested")) {
-    return "text-warning";
-  }
-  if (status === "completed") return "text-accent";
-  if (status === "failed" || status === "cancelled") return "text-destructive";
-  return "text-muted-foreground";
 }
 
 function taskLabel(chain: ChainSummary): string {
@@ -111,7 +103,7 @@ export function ChainsPage() {
                     </Link>
                     <div className="mt-1 truncate text-muted-foreground">{taskLabel(chain)}</div>
                   </td>
-                  <td className={`px-3 py-2 font-medium ${statusClass(chain.status)}`}>{chain.status}</td>
+                  <td className={`px-3 py-2 font-medium ${chainStatusClass(chain.status)}`}>{chain.status}</td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {chain.current_step
                       ? `${chain.current_step.sequence_num} ${chain.current_step.role} ${chain.current_step.status}`

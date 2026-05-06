@@ -10,22 +10,29 @@ export function useApiResource<T>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+  const requestSeq = useRef(0);
+  const fallbackRef = useRef(fallback);
+  const normalizeRef = useRef(normalize);
 
-  const normalizeResponse = useCallback(
-    (value: T | null | undefined) => normalize?.(value) ?? value ?? fallback,
-    [fallback, normalize],
-  );
+  fallbackRef.current = fallback;
+  normalizeRef.current = normalize;
+
+  const normalizeResponse = useCallback((value: T | null | undefined) => {
+    return normalizeRef.current?.(value) ?? value ?? fallbackRef.current;
+  }, []);
 
   const refresh = useCallback(async () => {
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
     try {
       setLoading(true);
       setError(null);
       const response = await api.get<T>(path);
-      if (mounted.current) setData(normalizeResponse(response));
+      if (mounted.current && seq === requestSeq.current) setData(normalizeResponse(response));
     } catch (err) {
-      if (mounted.current) setError(err instanceof Error ? err.message : "Failed");
+      if (mounted.current && seq === requestSeq.current) setError(err instanceof Error ? err.message : "Failed");
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && seq === requestSeq.current) setLoading(false);
     }
   }, [normalizeResponse, path]);
 

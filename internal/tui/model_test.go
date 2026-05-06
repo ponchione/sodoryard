@@ -331,6 +331,34 @@ func TestModelChatEditsAndSendsRawMessage(t *testing.T) {
 	}
 }
 
+func TestModelChatSendsWhileGeneralRefreshIsLoading(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	got = updated.(Model)
+	got = typeChatText(t, got, "send during refresh")
+	got.loading = true
+	got.chatRunning = false
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("chat enter returned nil command while general loading was true")
+	}
+	if got.notice == "chat turn already running" {
+		t.Fatalf("notice = %q, want chat send allowed while only general loading", got.notice)
+	}
+
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.chatRequest.Message != "send during refresh" {
+		t.Fatalf("chat request message = %q, want send during refresh", fake.chatRequest.Message)
+	}
+}
+
 func TestModelChatComposerSupportsNewlines(t *testing.T) {
 	fake := newFakeOperator()
 	model := NewModel(fake, Options{RefreshInterval: -1})
@@ -1403,6 +1431,45 @@ func TestModelStartsPreviewedLaunchAfterConfirmation(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("launch start did not trigger refresh/follow batch")
+	}
+}
+
+func TestModelDecliningLaunchConfirmationUsesLaunchNotice(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "ship launch"
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("preview returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("start confirmation returned command before confirmation")
+	}
+	if got.confirm.Action != "launch" {
+		t.Fatalf("confirm action = %q, want launch", got.confirm.Action)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("declining launch returned command")
+	}
+	if got.notice != "launch aborted" {
+		t.Fatalf("notice = %q, want launch aborted", got.notice)
+	}
+	if got.confirm.Action != "" {
+		t.Fatalf("confirm = %+v, want cleared", got.confirm)
+	}
+	if len(got.consoleEntries) == 0 || got.consoleEntries[len(got.consoleEntries)-1].Body != "launch aborted" {
+		t.Fatalf("last console entry = %+v, want launch aborted", got.consoleEntries)
 	}
 }
 
