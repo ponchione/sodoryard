@@ -22,7 +22,7 @@ const (
 	localServicesModeManual     = "manual"
 	localServicesModeAuto       = "auto"
 	localServicesProviderDocker = "docker-compose"
-	defaultLocalServicesCompose = "./ops/llm/docker-compose.yml"
+	defaultLocalServicesCompose = "docker-compose.yml"
 	defaultLocalServicesProject = "./ops/llm"
 	defaultLocalServicesNetwork = "llm-net"
 	defaultLocalStartupTimeout  = 180
@@ -711,19 +711,19 @@ func (c *Config) resolveLocalServicePaths() error {
 	if !c.LocalServices.Enabled {
 		return nil
 	}
-	if strings.TrimSpace(c.LocalServices.ComposeFile) != "" {
-		resolved, err := resolveProjectRelativePath(c.ProjectRoot, c.LocalServices.ComposeFile)
-		if err != nil {
-			return fmt.Errorf("invalid field local_services.compose_file=%q: %w", c.LocalServices.ComposeFile, err)
-		}
-		c.LocalServices.ComposeFile = resolved
-	}
 	if strings.TrimSpace(c.LocalServices.ProjectDir) != "" {
 		resolved, err := resolveProjectRelativePath(c.ProjectRoot, c.LocalServices.ProjectDir)
 		if err != nil {
 			return fmt.Errorf("invalid field local_services.project_dir=%q: %w", c.LocalServices.ProjectDir, err)
 		}
 		c.LocalServices.ProjectDir = resolved
+	}
+	if strings.TrimSpace(c.LocalServices.ComposeFile) != "" {
+		resolved, err := resolveLocalServiceComposePath(c.ProjectRoot, c.LocalServices.ProjectDir, c.LocalServices.ComposeFile)
+		if err != nil {
+			return fmt.Errorf("invalid field local_services.compose_file=%q: %w", c.LocalServices.ComposeFile, err)
+		}
+		c.LocalServices.ComposeFile = resolved
 	}
 	return nil
 }
@@ -767,6 +767,42 @@ func projectRelativePath(projectRoot, path string) string {
 
 func resolveProjectRelativePath(projectRoot, path string) (string, error) {
 	return expandPath(projectRelativePath(projectRoot, path))
+}
+
+func resolveLocalServiceComposePath(projectRoot, projectDir, composeFile string) (string, error) {
+	if filepath.IsAbs(composeFile) || strings.HasPrefix(strings.TrimSpace(composeFile), "~") {
+		return expandPath(composeFile)
+	}
+
+	rootCandidate, err := resolveProjectRelativePath(projectRoot, composeFile)
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Stat(rootCandidate); statErr == nil && !info.IsDir() {
+		return rootCandidate, nil
+	}
+
+	if strings.TrimSpace(projectDir) == "" {
+		return rootCandidate, nil
+	}
+	resolvedProjectDir := projectDir
+	if !filepath.IsAbs(resolvedProjectDir) {
+		resolvedProjectDir, err = resolveProjectRelativePath(projectRoot, resolvedProjectDir)
+		if err != nil {
+			return "", err
+		}
+	}
+	dirCandidate, err := expandPath(filepath.Join(resolvedProjectDir, composeFile))
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Stat(dirCandidate); statErr == nil && !info.IsDir() {
+		return dirCandidate, nil
+	}
+	if filepath.Base(composeFile) == composeFile {
+		return dirCandidate, nil
+	}
+	return rootCandidate, nil
 }
 
 func (c *Config) validateLogLevel() error {

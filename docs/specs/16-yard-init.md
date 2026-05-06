@@ -317,7 +317,7 @@ local_services:
   enabled: true
   mode: manual
   provider: docker-compose
-  compose_file: ./ops/llm/docker-compose.yml
+  compose_file: docker-compose.yml
   project_dir: ./ops/llm
   required_networks:
     - llm-net

@@ -263,6 +263,12 @@ func TestLoadAppendsRequiredIndexExcludesWhenCustomListOmitsThem(t *testing.T) {
 func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	projectRoot := t.TempDir()
 	withWorkingDir(t, projectRoot)
+	if err := os.MkdirAll(filepath.Join(projectRoot, "ops", "llm"), 0o755); err != nil {
+		t.Fatalf("MkdirAll ops/llm returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile compose returned error: %v", err)
+	}
 	missing := filepath.Join(projectRoot, "does-not-exist.yaml")
 
 	cfg, err := Load(missing)
@@ -275,6 +281,9 @@ func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	}
 	if cfg.LocalServices.Mode != "manual" {
 		t.Fatalf("LocalServices.Mode = %q, want manual", cfg.LocalServices.Mode)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"); cfg.LocalServices.ComposeFile != want {
+		t.Fatalf("LocalServices.ComposeFile = %q, want %q", cfg.LocalServices.ComposeFile, want)
 	}
 	if got := cfg.LocalServices.Services["qwen-coder"].BaseURL; got != "http://localhost:12434" {
 		t.Fatalf("LocalServices.Services[qwen-coder].BaseURL = %q, want http://localhost:12434", got)
@@ -296,6 +305,63 @@ func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	}
 	if cfg.Embedding.QueryPrefix != "Represent this query for searching relevant code: " {
 		t.Fatalf("Embedding.QueryPrefix = %q, want default prefix", cfg.Embedding.QueryPrefix)
+	}
+}
+
+func TestLoadResolvesLocalServiceComposeFileRelativeToProjectDir(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, "ops", "llm"), 0o755); err != nil {
+		t.Fatalf("MkdirAll ops/llm returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile compose returned error: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"local_services:\n" +
+		"  enabled: true\n" +
+		"  compose_file: docker-compose.yml\n" +
+		"  project_dir: ./ops/llm\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile config returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"); cfg.LocalServices.ComposeFile != want {
+		t.Fatalf("LocalServices.ComposeFile = %q, want %q", cfg.LocalServices.ComposeFile, want)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm"); cfg.LocalServices.ProjectDir != want {
+		t.Fatalf("LocalServices.ProjectDir = %q, want %q", cfg.LocalServices.ProjectDir, want)
+	}
+}
+
+func TestLoadKeepsProjectRelativeLocalServiceComposeFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, "ops", "llm"), 0o755); err != nil {
+		t.Fatalf("MkdirAll ops/llm returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile compose returned error: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"local_services:\n" +
+		"  enabled: true\n" +
+		"  compose_file: ./ops/llm/docker-compose.yml\n" +
+		"  project_dir: ./ops/llm\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile config returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"); cfg.LocalServices.ComposeFile != want {
+		t.Fatalf("LocalServices.ComposeFile = %q, want %q", cfg.LocalServices.ComposeFile, want)
 	}
 }
 
