@@ -22,7 +22,11 @@ func (m Model) renderChains() string {
 		chainLines = append(chainLines, m.styles.subtle.Render(message))
 	} else {
 		for i, ch := range visibleChains {
-			line := fmt.Sprintf("%s  %-16s  steps=%d tokens=%d  %s", ch.ID, ch.Status, ch.TotalSteps, ch.TotalTokens, trimOneLine(ch.SourceTask, 48))
+			current := "idle"
+			if ch.CurrentStep != nil {
+				current = fmt.Sprintf("%s/%s", valueOrUnknown(ch.CurrentStep.Role), valueOrUnknown(ch.CurrentStep.Status))
+			}
+			line := fmt.Sprintf("%s  %-16s  steps=%d tokens=%d  current=%s  %s", ch.ID, ch.Status, ch.TotalSteps, ch.TotalTokens, current, trimOneLine(ch.SourceTask, 48))
 			if i == m.chainCursor {
 				line = m.styles.selected.Render("> " + line)
 			} else {
@@ -40,8 +44,16 @@ func (m Model) renderChains() string {
 		detailLines = append(detailLines,
 			fmt.Sprintf("chain: %s", ch.ID),
 			fmt.Sprintf("status: %s", ch.Status),
+			fmt.Sprintf("health: %s", renderChainHealth(m.styles, chainDetailHealth(m.detail))),
+			fmt.Sprintf("budgets: %s", renderChainBudgetLine(ch, len(m.detail.Steps))),
+			fmt.Sprintf("current: %s", renderCurrentStep(currentStepSummary(m.detail.Steps))),
 			"controls: "+controls,
 			fmt.Sprintf("summary: %s", trimOneLine(ch.Summary, 90)),
+		)
+		if len(ch.SourceSpecs) > 0 {
+			detailLines = append(detailLines, fmt.Sprintf("specs: %s", trimOneLine(strings.Join(ch.SourceSpecs, ", "), 90)))
+		}
+		detailLines = append(detailLines,
 			"",
 			m.styles.title.Render("Steps"),
 		)
@@ -49,7 +61,7 @@ func (m Model) renderChains() string {
 			detailLines = append(detailLines, m.styles.subtle.Render("No steps recorded."))
 		} else {
 			for _, step := range m.detail.Steps {
-				detailLines = append(detailLines, fmt.Sprintf("%d  %-18s %-12s verdict=%s receipt=%s", step.SequenceNum, step.Role, step.Status, step.Verdict, step.ReceiptPath))
+				detailLines = append(detailLines, renderStepLine(step))
 			}
 		}
 		eventTitle := "Recent events"

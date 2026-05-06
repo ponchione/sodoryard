@@ -242,7 +242,7 @@ make dev-frontend
 yard
 ```
 
-The TUI uses the shared operator runtime directly. It opens on a raw chat screen for talking to the configured provider/model without an agent role prompt, tools, or chain orchestration. It also shows readiness metadata, recent chains, chain details, chain and receipt filters, receipt content, live event following, pause/cancel controls, receipt handoff to `$PAGER` or `$EDITOR`, web-inspector target handoffs that do not start `yard serve`, and launch preview/start flows for one-step, manual-roster, and orchestrated chains.
+The TUI uses the shared operator runtime directly. It opens on a Codex-style command console: normal text sends raw chat to the configured provider/model without an agent role prompt, and slash commands run Yard operations inline. Useful commands include `/help`, `/new`, `/status`, `/model`, `/effort [low|medium|high|xhigh]`, `/chains`, `/chain <id>`, `/events <id>`, `/follow <id>`, `/receipt <id> [step]`, `/preview ...`, `/start ...`, `/pause <id>`, `/resume <id>`, `/cancel <id>`, and `/web <id>`. Command results, chain events, receipts, launch previews, and confirmations render back into the same transcript. Use PageUp/PageDown/Home/End to scroll the console transcript.
 
 ### Run a chain
 
@@ -322,7 +322,7 @@ Current repo state:
 - `tidmouth` remains only as the internal engine binary required by the current spawn contract.
 - Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
 - The active UI direction is terminal-first: bare `yard` now starts the daily-driver operator console, while `yard serve` remains the browser/API surface for rich inspection. This direction is specified in `docs/specs/20-operator-console-tui.md` and `docs/specs/21-web-inspector.md`.
-- Implemented TUI/operator work includes raw provider/model chat, readiness metadata, recent chain and detail views, chain and receipt filtering, receipt summaries/content, event following, pause/cancel controls, receipt opening through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
+- Implemented TUI/operator work includes a Codex-style slash-command console, `/new` session reset, `/effort` reasoning-effort switching for Codex providers, raw provider/model chat, readiness metadata, recent chain and detail output, receipt content, scrollable console history, event following, pause/resume/cancel controls, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
 - Daily-driver final touches now include actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and read-only browser inspector routes for chains and metrics. The TUI intentionally does not grow a project file browser; code review stays in the operator's IDE.
 - The remaining active docs are the README, current specs, `NEXT_SESSION_HANDOFF.md`, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
 

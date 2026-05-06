@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/operator"
 )
 
@@ -19,6 +20,28 @@ func TestDashboardRenderIncludesStableFragments(t *testing.T) {
 	for _, want := range []string{"Dashboard", "project: project", "provider: codex", "auth: ready (oauth, private_store)", "code index: indexed at 2026-05-01T12:00:00Z commit abc123", "brain index: disabled", "local services: disabled", "chain-1"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dashboard view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardRenderShowsReadinessActions(t *testing.T) {
+	fake := newFakeOperator()
+	fake.status.AuthStatus = "missing credentials"
+	fake.status.CodeIndex = operator.RuntimeIndexStatus{Status: "never_indexed"}
+	fake.status.BrainIndex = operator.RuntimeIndexStatus{Status: "stale", StaleReason: "brain_update"}
+	fake.status.Warnings = []operator.RuntimeWarning{
+		{Message: "code index has not been built; run `yard index` before retrieval/runtime validation"},
+		{Message: "brain index is stale; run `yard brain index`"},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenDashboard
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"readiness:", "Readiness", "FAIL", "code index", "fix: yard index", "fix: yard brain index", "Next actions", "yard auth status", "yard doctor"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dashboard readiness view missing %q:\n%s", want, view)
 		}
 	}
 }
@@ -49,7 +72,7 @@ func TestChatRenderIncludesTranscriptAndComposer(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"Chat", "runtime codex:test-model", "YOU", "draft a spec", "ASSISTANT", "Here is a spec outline.", "next step"} {
+	for _, want := range []string{"Yard Console", "runtime codex:test-model", "YOU", "draft a spec", "ASSISTANT", "Here is a spec outline.", "next step"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chat view missing %q:\n%s", want, view)
 		}
@@ -114,6 +137,28 @@ func TestFooterHelpIsScreenSpecific(t *testing.T) {
 	}
 }
 
+func TestChainRenderShowsHealthBudgetsAndCurrentStep(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: "running", SourceTask: "first task", TotalSteps: 1, TotalTokens: 85, TotalDurationSecs: 9, MaxSteps: 2, TokenBudget: 100, MaxDurationSecs: 20, MaxResolverLoops: 2},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md", TokensUsed: 85, TurnsUsed: 3, DurationSecs: 9}},
+		Receipts: []operator.ReceiptSummary{
+			{Label: "step 1 coder", Step: "1", Path: "receipts/coder/chain-1-step-001.md"},
+		},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"health: attention", "budgets: steps 1/2 (50%)", "tokens 85/100 (85%)", "current: #1 coder completed verdict=completed", "turns=3", "duration=9s"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain polish view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestReceiptRenderIncludesContent(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	model.screen = screenReceipts
@@ -124,6 +169,40 @@ func TestReceiptRenderIncludesContent(t *testing.T) {
 	for _, want := range []string{"Receipts", "chain: chain-1", "orchestrator", "orchestrator receipt"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("receipt view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestReceiptRenderParsesFrontmatter(t *testing.T) {
+	fake := newFakeOperator()
+	fake.receipts["chain-1:"] = operator.ReceiptView{
+		ChainID: "chain-1",
+		Path:    "receipts/orchestrator/chain-1.md",
+		Content: `---
+agent: coder
+chain_id: chain-1
+step: 1
+verdict: completed
+timestamp: 2026-05-01T12:00:00Z
+turns_used: 3
+tokens_used: 99
+duration_seconds: 7
+---
+
+# Summary
+
+- Changed code.
+`,
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenReceipts
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"Metadata", "agent: coder  verdict: completed  step: 1", "turns: 3  tokens: 99  duration: 7s", "Body", "Summary", "- Changed code."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("receipt parsed view missing %q:\n%s", want, view)
 		}
 	}
 }

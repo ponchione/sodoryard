@@ -26,7 +26,7 @@ All three surfaces should converge on shared internal runtime services. The TUI 
 
 Implementation status as of 2026-05-03:
 
-- Landed: bare `yard` starts the TUI, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, chain and receipt filtering, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
+- Landed: bare `yard` starts a Codex-style command console, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, `/new` resets the visible console session, `/effort` switches Codex reasoning effort for the active runtime, slash commands call shared `internal/operator` reads and controls, dashboard/readiness output, chain/detail output, receipt content, scrollable console history, live event follow, pause/resume/cancel, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
 - Daily-driver final touches landed: actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and read-only browser inspector routes for chains and metrics.
 
 ---
@@ -98,28 +98,47 @@ The app should degrade at narrower sizes by hiding secondary panes and showing a
 Default full-screen layout:
 
 ```text
-+ Yard: project / provider:model / auth / indexes / active chains ------------+
-| Nav        | Main workspace                                      | Detail   |
-| Dashboard  | Tables, forms, chain list, receipt list, etc.        | Logs,    |
-| Launch     |                                                       | preview, |
-| Chains     |                                                       | help     |
-| Receipts   |                                                       |          |
-| Agents     |                                                       |          |
-| Settings   |                                                       |          |
-+------------+-------------------------------------------------------+----------+
-| ? help  / search  enter open  tab focus  esc back  q quit                     |
++ Yard: project / provider:model / readiness / active chains -----------------+
+| Yard Console                                                                 |
+| > Raw provider/model chat, slash commands, command results, receipts, events |
+| > /status                                                                    |
+| yard: readiness, indexes, auth, next actions                                  |
+| > /follow chain-abc123                                                       |
+| yard: live chain events append here                                           |
+|                                                                              |
+| Message composer                                                             |
++------------------------------------------------------------------------------+
+| /help commands  /new clear  enter send/run  ctrl+c quit                      |
 +------------------------------------------------------------------------------+
 ```
 
 Navigation rules:
 
-- Left nav stays visible unless the terminal is too narrow.
+- The command console is the default daily-driver surface; the old pane renderers are implementation fallbacks, not the primary navigation model.
 - Top status bar is always visible.
-- Bottom key-hint bar reflects the focused pane.
+- Bottom key-hint bar reflects the console command model.
 - Long content scrolls inside panes, not through terminal scrollback.
 - Forms should show dirty/saving/error state near the field that needs attention.
 - Destructive actions require confirmation.
 - When an action has a CLI equivalent, the TUI can display that equivalent for learnability.
+
+Primary slash commands:
+
+| Command | Behavior |
+|---|---|
+| `/new` | Clear the visible console session, reset raw chat state, and stop event follow without changing project state. |
+| `/status` | Show readiness, auth, indexes, local services, warnings, and next commands. |
+| `/model` | Show configured provider, model, reasoning effort, and auth state. |
+| `/effort [low\|medium\|high\|xhigh]` | Show or set Codex reasoning effort for subsequent TUI runtime calls. |
+| `/chains [filter]` | List recent chains inline. |
+| `/chain <id>` | Show chain health, budget use, steps, receipts, and recent events. |
+| `/events <id> [limit]` | Show recent chain events. |
+| `/follow <id>` / `/unfollow` | Append live chain events to the console or stop following. |
+| `/receipt <id> [step]` | Read a chain or step receipt inline. |
+| `/preview ...` | Validate launch flags and show the compiled work packet. |
+| `/start ...` | Start a chain and follow it. |
+| `/pause <id>` / `/resume <id>` / `/cancel <id>` | Control chain state; cancel requires confirmation. |
+| `/web <id>` | Show the `yard serve` handoff target. |
 
 ---
 

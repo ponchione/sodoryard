@@ -15,36 +15,38 @@ import (
 )
 
 type fakeOperator struct {
-	status         operator.RuntimeStatus
-	roles          []operator.AgentRoleSummary
-	chains         []operator.ChainSummary
-	details        map[string]operator.ChainDetail
-	receipts       map[string]operator.ReceiptView
-	eventsSince    map[string][]chain.Event
-	launchRequest  operator.LaunchRequest
-	startRequest   operator.LaunchRequest
-	savedDraft     operator.LaunchDraft
-	loadDraft      operator.LaunchDraft
-	loadDraftFound bool
-	customPresets  []operator.LaunchPreset
-	savedPreset    operator.LaunchPreset
-	chatRequest    operator.ChatTurnRequest
-	chatResult     operator.ChatTurnResult
-	chatWaitCancel bool
-	pausedChain    string
-	resumedChain   string
-	cancelledChain string
+	status          operator.RuntimeStatus
+	roles           []operator.AgentRoleSummary
+	chains          []operator.ChainSummary
+	details         map[string]operator.ChainDetail
+	receipts        map[string]operator.ReceiptView
+	eventsSince     map[string][]chain.Event
+	launchRequest   operator.LaunchRequest
+	startRequest    operator.LaunchRequest
+	savedDraft      operator.LaunchDraft
+	loadDraft       operator.LaunchDraft
+	loadDraftFound  bool
+	customPresets   []operator.LaunchPreset
+	savedPreset     operator.LaunchPreset
+	chatRequest     operator.ChatTurnRequest
+	chatResult      operator.ChatTurnResult
+	chatWaitCancel  bool
+	pausedChain     string
+	resumedChain    string
+	cancelledChain  string
+	reasoningEffort string
 }
 
 func newFakeOperator() *fakeOperator {
 	started := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	return &fakeOperator{
 		status: operator.RuntimeStatus{
-			ProjectRoot: "/tmp/project",
-			ProjectName: "project",
-			Provider:    "codex",
-			Model:       "test-model",
-			AuthStatus:  "ready (oauth, private_store)",
+			ProjectRoot:     "/tmp/project",
+			ProjectName:     "project",
+			Provider:        "codex",
+			Model:           "test-model",
+			ReasoningEffort: "medium",
+			AuthStatus:      "ready (oauth, private_store)",
 			CodeIndex: operator.RuntimeIndexStatus{
 				Status:            "indexed",
 				LastIndexedAt:     "2026-05-01T12:00:00Z",
@@ -97,6 +99,12 @@ func newFakeOperator() *fakeOperator {
 }
 
 func (f *fakeOperator) RuntimeStatus(context.Context) (operator.RuntimeStatus, error) {
+	return f.status, nil
+}
+
+func (f *fakeOperator) SetReasoningEffort(_ context.Context, effort string) (operator.RuntimeStatus, error) {
+	f.reasoningEffort = effort
+	f.status.ReasoningEffort = effort
 	return f.status, nil
 }
 
@@ -453,6 +461,143 @@ func TestModelChatCancelRequestsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestSlashStatusRendersConsoleEntry(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, _ = runConsoleInput(t, got, "/status")
+	got.height = 80
+	view := got.View()
+	for _, want := range []string{"Yard Console", "YOU", "/status", "STATUS", "Readiness", "provider: codex", "code index: indexed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("slash status view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSlashNewClearsConsoleSessionAndFollow(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+	got.consoleEntries = []consoleEntry{{Kind: consoleEntryCommand, Title: "OLD", Body: "old output"}}
+	got.chatConversationID = "chat-1"
+	got.chatMessages = []operator.ChatMessage{{Role: "user", Content: "old chat"}}
+	got.chatInputTokens = 12
+	got.chatOutputTokens = 34
+	got.chatStopReason = "stop"
+	got.follow = true
+	got.followID = "chain-1"
+	got.followAfter = 99
+	got.followLog = []chain.Event{{ID: 99}}
+
+	got, _ = runConsoleInput(t, got, "/new")
+	view := got.View()
+	if got.chatConversationID != "" || len(got.chatMessages) != 0 || got.chatInputTokens != 0 || got.chatOutputTokens != 0 || got.chatStopReason != "" {
+		t.Fatalf("chat state after /new = id:%q messages:%d tokens:%d/%d stop:%q", got.chatConversationID, len(got.chatMessages), got.chatInputTokens, got.chatOutputTokens, got.chatStopReason)
+	}
+	if got.follow || got.followID != "" || got.followAfter != 0 || len(got.followLog) != 0 {
+		t.Fatalf("follow state after /new = follow:%v id:%q after:%d log:%d", got.follow, got.followID, got.followAfter, len(got.followLog))
+	}
+	if strings.Contains(view, "old output") || !strings.Contains(view, "NEW SESSION") || !strings.Contains(view, "New Yard console session") {
+		t.Fatalf("/new view did not clear old transcript or show new session:\n%s", view)
+	}
+}
+
+func TestSlashStartLaunchesChainAndFollows(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1, FollowInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, `/start --role coder --task "ship console"`)
+	if cmd == nil {
+		t.Fatal("/start returned nil command")
+	}
+	updated, batch := got.Update(cmd())
+	got = updated.(Model)
+	if fake.startRequest.SourceTask != "ship console" || fake.startRequest.Role != "coder" {
+		t.Fatalf("start request = %+v, want coder ship console", fake.startRequest)
+	}
+	if !got.follow || got.followID != "chain-started" {
+		t.Fatalf("follow after /start = %v %q, want chain-started", got.follow, got.followID)
+	}
+	view := got.View()
+	for _, want := range []string{"STARTED", "chain: chain-started", "summary: started"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/start view missing %q:\n%s", want, view)
+		}
+	}
+	if batch == nil {
+		t.Fatal("/start result returned nil batch command")
+	}
+}
+
+func TestSlashEffortSetsReasoningEffort(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/effort xhigh")
+	if cmd == nil {
+		t.Fatal("/effort returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.reasoningEffort != "xhigh" || got.status.ReasoningEffort != "xhigh" {
+		t.Fatalf("reasoning effort = fake:%q status:%q, want xhigh", fake.reasoningEffort, got.status.ReasoningEffort)
+	}
+	view := got.View()
+	for _, want := range []string{"EFFORT", "reasoning effort set to xhigh"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/effort view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSlashReceiptLoadsContent(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/receipt chain-1 1")
+	if cmd == nil {
+		t.Fatal("/receipt returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"RECEIPT chain-1 step 1", "receipts/coder/chain-1-step-001.md", "step receipt"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/receipt view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestConsoleViewportScrollsTranscript(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	model.screen = screenChat
+	model.height = 18
+	model.width = 100
+	model.resizeChatComposer()
+	model.resizeConsoleViewport()
+	for i := 0; i < 30; i++ {
+		model.appendConsoleEntry(consoleEntryCommand, fmt.Sprintf("ENTRY %02d", i), fmt.Sprintf("body %02d", i))
+	}
+	bottom := model.View()
+	if !strings.Contains(bottom, "ENTRY 29") {
+		t.Fatalf("bottom console view missing newest entry:\n%s", bottom)
+	}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	got := updated.(Model)
+	up := got.View()
+	if strings.Contains(up, "ENTRY 29") && !strings.Contains(up, "ENTRY 20") {
+		t.Fatalf("page up did not move transcript viewport:\n%s", up)
+	}
+}
+
 func typeChatText(t *testing.T, model Model, text string) Model {
 	t.Helper()
 	for _, r := range text {
@@ -464,6 +609,15 @@ func typeChatText(t *testing.T, model Model, text string) Model {
 		model = updated.(Model)
 	}
 	return model
+}
+
+func runConsoleInput(t *testing.T, model Model, input string) (Model, tea.Cmd) {
+	t.Helper()
+	model.screen = screenChat
+	model.chatEdit = true
+	model.chatComposer.SetValue(input)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	return updated.(Model), cmd
 }
 
 func TestModelMovesChainSelectionAndReloadsDetail(t *testing.T) {

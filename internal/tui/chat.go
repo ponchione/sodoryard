@@ -18,8 +18,8 @@ func newChatComposer(styles styles) textarea.Model {
 	composer.EndOfBufferCharacter = ' '
 	composer.KeyMap.InsertNewline.SetKeys("alt+enter", "ctrl+j")
 	composer.KeyMap.InsertNewline.SetHelp("alt+enter", "newline")
-	composer.FocusedStyle.Base = styles.composer.BorderForeground(lipgloss.Color("28"))
-	composer.BlurredStyle.Base = styles.composer
+	composer.FocusedStyle.Base = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	composer.BlurredStyle.Base = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	composer.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	composer.BlurredStyle.CursorLine = lipgloss.NewStyle()
 	composer.FocusedStyle.Placeholder = styles.subtle
@@ -30,33 +30,7 @@ func newChatComposer(styles styles) textarea.Model {
 }
 
 func (m Model) renderChat() string {
-	lines := []string{
-		m.styles.title.Render("Chat"),
-		m.styles.chatMeta.Render(fmt.Sprintf("project %s  runtime %s:%s", valueOrUnknown(m.status.ProjectName), valueOrUnknown(m.status.Provider), valueOrUnknown(m.status.Model))),
-	}
-	if m.notice != "" {
-		lines = append(lines, m.styles.subtle.Render(m.notice))
-	}
-	if m.chatConversationID != "" {
-		lines = append(lines, m.styles.chatMeta.Render(fmt.Sprintf("conversation %s", m.chatConversationID)))
-	}
-	if m.chatRunning {
-		lines = append(lines, m.styles.chatMeta.Render("generating response  ctrl+g cancels"))
-	} else if usage := m.chatUsageLine(); usage != "" {
-		lines = append(lines, m.styles.chatMeta.Render(usage))
-	}
-	lines = append(lines, "")
-	if len(m.chatMessages) == 0 {
-		lines = append(lines, renderEmptyChat(m.contentWidth())...)
-	} else {
-		lines = append(lines, m.renderChatMessages(maxInt(24, m.contentWidth()-4), maxInt(8, m.height-13))...)
-	}
-	lines = append(lines, "", m.styles.section.Render("Message"))
-	lines = append(lines, m.chatComposer.View())
-	if m.err != nil {
-		lines = append(lines, "", m.styles.error.Render(m.err.Error()))
-	}
-	return strings.Join(lines, "\n")
+	return m.renderConsole()
 }
 
 func (m Model) chatUsageLine() string {

@@ -118,6 +118,46 @@ func (r *Router) RegisterProvider(p provider.Provider) error {
 	return nil
 }
 
+// ReplaceProvider swaps a registered provider by name. It is used for
+// operator-scoped runtime changes, such as changing Codex reasoning effort,
+// without rebuilding the full runtime.
+func (r *Router) ReplaceProvider(p provider.Provider) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if p == nil {
+		return errors.New("cannot replace with nil provider")
+	}
+	name := p.Name()
+	if name == "" {
+		return errors.New("cannot replace provider with empty name")
+	}
+	if existing, ok := r.providers[name]; ok {
+		if tracked, ok := existing.(*tracking.TrackedProvider); ok {
+			tracked.Wait()
+		}
+	}
+	if r.store != nil {
+		p = tracking.NewTrackedProvider(p, r.store, r.logger)
+	}
+	r.providers[name] = p
+	r.health[name] = &ProviderHealth{Healthy: true}
+	r.rebuildModelIndexLocked()
+	r.logger.Info("provider replaced", "provider", name)
+	return nil
+}
+
+func (r *Router) rebuildModelIndexLocked() {
+	r.modelIndex = make(map[string]string)
+	for name, p := range r.providers {
+		if models, err := p.Models(context.Background()); err == nil {
+			for _, m := range models {
+				r.modelIndex[m.ID] = name
+			}
+		}
+	}
+}
+
 // DrainTracking waits for all in-flight async sub-call writes (from
 // TrackedProvider stream goroutines) to complete. Call before closing
 // the database to avoid "sql: database is closed" errors.

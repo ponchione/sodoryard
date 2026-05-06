@@ -368,6 +368,7 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 		ProjectName:         cfg.ProjectName(),
 		Provider:            cfg.Routing.Default.Provider,
 		Model:               cfg.Routing.Default.Model,
+		ReasoningEffort:     defaultProviderReasoningEffort(cfg),
 		AuthStatus:          authStatus,
 		CodeIndex:           codeIndex,
 		BrainIndex:          brainIndex,
@@ -375,6 +376,42 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 		ActiveChains:        activeChains,
 		Warnings:            warnings,
 	}, nil
+}
+
+func (s *Service) SetReasoningEffort(ctx context.Context, effort string) (RuntimeStatus, error) {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	switch effort {
+	case "low", "medium", "high", "xhigh":
+	default:
+		return RuntimeStatus{}, fmt.Errorf("reasoning effort must be low, medium, high, or xhigh")
+	}
+	cfg, err := s.config()
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	providerName := strings.TrimSpace(cfg.Routing.Default.Provider)
+	if providerName == "" {
+		return RuntimeStatus{}, fmt.Errorf("routing.default.provider is not configured")
+	}
+	providerCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return RuntimeStatus{}, fmt.Errorf("default provider %s is not configured", providerName)
+	}
+	if providerCfg.Type != "codex" {
+		return RuntimeStatus{}, fmt.Errorf("reasoning effort is only supported for codex providers; default provider %s is %s", providerName, providerCfg.Type)
+	}
+	providerCfg.ReasoningEffort = effort
+	cfg.Providers[providerName] = providerCfg
+	if s.rt != nil && s.rt.ProviderRouter != nil {
+		prov, err := rtpkg.BuildProvider(providerName, providerCfg)
+		if err != nil {
+			return RuntimeStatus{}, fmt.Errorf("build provider %s: %w", providerName, err)
+		}
+		if err := s.rt.ProviderRouter.ReplaceProvider(prov); err != nil {
+			return RuntimeStatus{}, fmt.Errorf("replace provider %s: %w", providerName, err)
+		}
+	}
+	return s.RuntimeStatus(ctx)
 }
 
 func (s *Service) authStatus(ctx context.Context, cfg *appconfig.Config) (string, *RuntimeWarning) {
@@ -617,6 +654,25 @@ func localServicesStatus(cfg *appconfig.Config) string {
 		return "enabled"
 	}
 	return mode
+}
+
+func defaultProviderReasoningEffort(cfg *appconfig.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	providerName := strings.TrimSpace(cfg.Routing.Default.Provider)
+	if providerName == "" {
+		return ""
+	}
+	providerCfg, ok := cfg.Providers[providerName]
+	if !ok || providerCfg.Type != "codex" {
+		return ""
+	}
+	effort := strings.ToLower(strings.TrimSpace(providerCfg.ReasoningEffort))
+	if effort == "" {
+		return "medium"
+	}
+	return effort
 }
 
 func (s *Service) config() (*appconfig.Config, error) {

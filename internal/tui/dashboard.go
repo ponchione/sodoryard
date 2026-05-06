@@ -10,6 +10,7 @@ import (
 func (m Model) renderDashboard() string {
 	lines := []string{
 		m.styles.title.Render("Dashboard"),
+		fmt.Sprintf("readiness: %s", renderReadinessBadge(m.styles, runtimeReadinessSummary(m.status))),
 		fmt.Sprintf("project: %s", valueOrUnknown(m.status.ProjectName)),
 		fmt.Sprintf("root: %s", valueOrUnknown(m.status.ProjectRoot)),
 		fmt.Sprintf("provider: %s", valueOrUnknown(m.status.Provider)),
@@ -20,8 +21,19 @@ func (m Model) renderDashboard() string {
 		fmt.Sprintf("local services: %s", valueOrUnknown(m.status.LocalServicesStatus)),
 		fmt.Sprintf("active chains: %d", m.status.ActiveChains),
 		"",
-		m.styles.title.Render("Recent chains"),
+		m.styles.title.Render("Readiness"),
 	}
+	lines = append(lines, renderReadinessRows(m.styles, runtimeReadinessRows(m.status))...)
+	if actions := dashboardActionLines(m.status); len(actions) > 0 {
+		lines = append(lines, "", m.styles.title.Render("Next actions"))
+		for _, action := range actions {
+			lines = append(lines, "  "+action)
+		}
+	}
+	lines = append(lines,
+		"",
+		m.styles.title.Render("Recent chains"),
+	)
 	if len(m.chains) == 0 {
 		lines = append(lines, m.styles.subtle.Render("No chains found."))
 	} else {
@@ -33,7 +45,11 @@ func (m Model) renderDashboard() string {
 			if task == "" && len(ch.SourceSpecs) > 0 {
 				task = strings.Join(ch.SourceSpecs, ", ")
 			}
-			lines = append(lines, fmt.Sprintf("%s  %s  steps=%d tokens=%d  %s", ch.ID, ch.Status, ch.TotalSteps, ch.TotalTokens, trimOneLine(task, 48)))
+			current := "idle"
+			if ch.CurrentStep != nil {
+				current = fmt.Sprintf("%s/%s", valueOrUnknown(ch.CurrentStep.Role), valueOrUnknown(ch.CurrentStep.Status))
+			}
+			lines = append(lines, fmt.Sprintf("%s  %-14s  steps=%d tokens=%d  current=%s  %s", ch.ID, ch.Status, ch.TotalSteps, ch.TotalTokens, current, trimOneLine(task, 48)))
 		}
 	}
 	if len(m.status.Warnings) > 0 {

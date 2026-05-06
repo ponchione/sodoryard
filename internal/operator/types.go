@@ -15,6 +15,7 @@ type RuntimeStatus struct {
 	ProjectName         string
 	Provider            string
 	Model               string
+	ReasoningEffort     string
 	AuthStatus          string
 	CodeIndex           RuntimeIndexStatus
 	BrainIndex          RuntimeIndexStatus

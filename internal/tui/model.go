@@ -74,6 +74,8 @@ type Model struct {
 	receiptCursor      int
 	receipt            *operator.ReceiptView
 	viewport           viewport.Model
+	consoleViewport    viewport.Model
+	consoleEntries     []consoleEntry
 	chatConversationID string
 	chatMessages       []operator.ChatMessage
 	chatComposer       textarea.Model
@@ -81,6 +83,7 @@ type Model struct {
 	chatEdit           bool
 	chatRunning        bool
 	chatCancel         context.CancelFunc
+	chatPendingPrompt  string
 	chatInputTokens    int
 	chatOutputTokens   int
 	chatStopReason     string
@@ -124,9 +127,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeViewport()
+		m.resizeConsoleViewport()
 		m.resizeChatComposer()
 		return m, nil
 	case tea.KeyMsg:
+		if m.screen == screenChat {
+			if updated, cmd, ok := m.handleConsoleScrollKey(msg); ok {
+				return updated, cmd
+			}
+		}
 		return m.handleKey(msg)
 	case dataLoadedMsg:
 		m.loading = false
@@ -164,11 +173,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.err = msg.Err
 			m.notice = ""
+			m.appendConsoleEntry(consoleEntryError, "ERROR", msg.Err.Error())
 			return m, nil
 		}
 		m.err = nil
 		m.confirm = pendingConfirmation{}
 		m.notice = fmt.Sprintf("chain %s %s", msg.Result.ChainID, msg.Result.Message)
+		m.appendConsoleEntry(consoleEntryCommand, strings.ToUpper(msg.Action), renderControlResult(msg.Result))
 		m.loading = true
 		return m, m.refreshCmd()
 	case followEventsMsg:
@@ -180,6 +191,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
+		if len(msg.Events) > 0 {
+			m.appendConsoleEntry(consoleEntryCommand, "EVENTS "+msg.ChainID, renderConsoleEvents(msg.Events, 0))
+		}
 		m.followLog = append(m.followLog, msg.Events...)
 		m.followLog = trimEvents(m.followLog, 200)
 		m.followAfter = maxEventID(m.followLog, m.followAfter)
@@ -188,6 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !followStatusActive(msg.Status) {
 			m.stopFollowingCompletedChain(msg.ChainID, msg.Status)
+			m.appendConsoleEntry(consoleEntrySystem, "FOLLOW", m.notice)
 			return m, nil
 		}
 		return m, m.followTickCmd()
@@ -282,16 +297,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chatEdit = true
 				cmd := m.chatComposer.Focus()
 				m.notice = "chat turn canceled"
+				m.chatPendingPrompt = ""
+				m.appendConsoleEntry(consoleEntrySystem, "CHAT", "chat turn canceled")
 				return m, cmd
 			}
 			m.err = msg.Err
 			m.notice = ""
 			m.chatEdit = true
+			m.chatPendingPrompt = ""
+			m.appendConsoleEntry(consoleEntryError, "ERROR", msg.Err.Error())
 			return m, m.chatComposer.Focus()
 		}
 		m.err = nil
+		oldLen := len(m.chatMessages)
 		m.chatConversationID = msg.Result.ConversationID
 		m.chatMessages = append([]operator.ChatMessage(nil), msg.Result.Messages...)
+		if oldLen < len(msg.Result.Messages) {
+			m.appendChatMessages(msg.Result.Messages[oldLen:])
+		}
+		m.chatPendingPrompt = ""
 		m.chatInput = ""
 		m.chatComposer.SetValue("")
 		m.chatInputTokens = msg.Result.InputTokens
@@ -301,6 +325,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.chatComposer.Focus()
 		m.notice = fmt.Sprintf("chat response from %s:%s", msg.Result.Provider, msg.Result.Model)
 		return m, cmd
+	case consoleCommandMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.err = nil
+			m.appendConsoleEntry(consoleEntryError, "ERROR", msg.Err.Error())
+			return m, m.chatComposer.Focus()
+		}
+		if msg.Status != nil {
+			m.status = *msg.Status
+		}
+		if msg.Entry.Kind != "" || strings.TrimSpace(msg.Entry.Body) != "" || strings.TrimSpace(msg.Entry.Title) != "" {
+			kind := msg.Entry.Kind
+			if kind == "" {
+				kind = consoleEntryCommand
+			}
+			m.appendConsoleEntry(kind, msg.Entry.Title, msg.Entry.Body)
+		}
+		var cmds []tea.Cmd
+		cmds = append(cmds, m.chatComposer.Focus())
+		if strings.TrimSpace(msg.FollowChainID) != "" {
+			m.follow = true
+			m.followID = msg.FollowChainID
+			m.followAfter = 0
+			m.followLog = nil
+			cmds = append(cmds, m.followCmd())
+		}
+		if msg.Refresh {
+			m.loading = true
+			cmds = append(cmds, m.refreshCmd())
+		}
+		return m, tea.Batch(cmds...)
 	case tickMsg:
 		m.loading = true
 		return m, tea.Batch(m.refreshCmd(), m.tickCmd())
@@ -376,6 +431,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		if m.screen == screenHelp {
 			m.screen = m.previousScreen
+		} else if m.screen == screenChat {
+			m.notice = "use /help for Yard commands"
 		} else {
 			m.screen = nextScreen(m.screen)
 			m.receiptCursor = clampCursor(m.receiptCursor, len(m.visibleReceiptItems()))
@@ -396,20 +453,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshCmd()
 	case "N":
 		if m.screen == screenChat {
-			m.chatConversationID = ""
-			m.chatMessages = nil
-			m.chatInput = ""
-			m.chatComposer.SetValue("")
-			m.chatEdit = true
-			m.chatInputTokens = 0
-			m.chatOutputTokens = 0
-			m.chatStopReason = ""
+			m.resetConsoleSession("")
 			cmd := m.chatComposer.Focus()
-			m.notice = "new chat"
-			m.err = nil
 			return m, cmd
 		}
 	case "/":
+		if m.screen == screenChat {
+			m.chatEdit = true
+			m.chatComposer.SetValue("/")
+			m.chatInput = "/"
+			m.notice = "editing command"
+			return m, m.chatComposer.Focus()
+		}
 		if !m.filterAvailable() {
 			m.notice = "filter is available on chains and receipts"
 			return m, nil
@@ -533,14 +588,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.moveSelection(-1)
 	case "l":
+		if m.screen == screenChat {
+			m.notice = "use /start or /preview from the console"
+			return m, nil
+		}
 		m.screen = screenLaunch
 	case "a":
 		m.screen = screenChat
 	case "d":
+		if m.screen == screenChat {
+			m.notice = "use /status from the console"
+			return m, nil
+		}
 		m.screen = screenDashboard
 	case "c":
+		if m.screen == screenChat {
+			m.notice = "use /chains from the console"
+			return m, nil
+		}
 		m.screen = screenChains
 	case "p":
+		if m.screen == screenChat {
+			m.notice = "use /receipt <chain-id> [step] from the console"
+			return m, nil
+		}
 		m.screen = screenReceipts
 		m.loading = true
 		return m, m.refreshCmd()
@@ -573,7 +644,8 @@ func (m Model) handleChatEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.Alt {
 			return m.updateChatComposer(msg)
 		}
-		prompt := strings.TrimSpace(m.chatComposer.Value())
+		rawInput := m.chatComposer.Value()
+		prompt := strings.TrimSpace(rawInput)
 		if prompt == "" {
 			m.notice = "chat message is empty"
 			return m, nil
@@ -582,14 +654,20 @@ func (m Model) handleChatEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = "chat turn already running"
 			return m, nil
 		}
-		m.chatInput = m.chatComposer.Value()
+		m.chatInput = rawInput
 		m.chatEdit = false
 		m.chatComposer.Blur()
+		m.chatComposer.SetValue("")
+		if strings.HasPrefix(prompt, "/") {
+			return m.handleSlashInput(prompt)
+		}
 		m.loading = true
 		m.chatRunning = true
 		m.chatInputTokens = 0
 		m.chatOutputTokens = 0
 		m.chatStopReason = ""
+		m.chatPendingPrompt = prompt
+		m.appendConsoleEntry(consoleEntryUser, "YOU", rawInput)
 		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Minute)
 		m.chatCancel = cancel
 		m.notice = "chat turn running"
@@ -730,6 +808,7 @@ func (m Model) handleConfirmationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n", "N", "esc":
 		m.notice = "cancel aborted"
+		m.appendConsoleEntry(consoleEntrySystem, "CONFIRM", "cancel aborted")
 		m.confirm = pendingConfirmation{}
 		return m, nil
 	default:
@@ -1076,6 +1155,23 @@ func (m Model) beginChatEdit(notice string) (tea.Model, tea.Cmd) {
 	return m, m.chatComposer.Focus()
 }
 
+func (m Model) handleConsoleScrollKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch msg.String() {
+	case "pgup", "pgdown":
+		var cmd tea.Cmd
+		m.consoleViewport, cmd = m.consoleViewport.Update(msg)
+		return m, cmd, true
+	case "home":
+		m.consoleViewport.GotoTop()
+		return m, nil, true
+	case "end":
+		m.consoleViewport.GotoBottom()
+		return m, nil, true
+	default:
+		return m, nil, false
+	}
+}
+
 func (m *Model) resizeViewport() {
 	width := maxInt(20, m.contentWidth()-2)
 	height := maxInt(4, m.height-10)
@@ -1084,8 +1180,24 @@ func (m *Model) resizeViewport() {
 	m.updateReceiptViewport()
 }
 
+func (m *Model) resizeConsoleViewport() {
+	m.consoleViewport.Width = maxInt(24, m.contentWidth()-2)
+	m.consoleViewport.Height = m.consoleViewportHeight()
+	m.consoleViewport.SetContent(m.consoleTranscriptContent())
+	m.consoleViewport.SetYOffset(m.consoleViewport.YOffset)
+}
+
+func (m Model) consoleViewportHeight() int {
+	return maxInt(4, m.height-m.chatComposerDisplayHeight()-11)
+}
+
 func (m *Model) resizeChatComposer() {
-	m.chatComposer.SetWidth(maxInt(24, m.contentWidth()-6))
+	m.chatComposer.SetWidth(maxInt(20, m.contentWidth()-10))
+	height := m.chatComposerDisplayHeight()
+	m.chatComposer.SetHeight(height)
+}
+
+func (m Model) chatComposerDisplayHeight() int {
 	height := 4
 	if m.height <= 22 {
 		height = 3
@@ -1093,25 +1205,28 @@ func (m *Model) resizeChatComposer() {
 	if m.height >= 42 {
 		height = 5
 	}
-	m.chatComposer.SetHeight(height)
+	return height
 }
 
 func (m *Model) updateReceiptViewport() {
 	if m.viewport.Width == 0 {
 		m.viewport = viewport.New(maxInt(20, m.contentWidth()-2), maxInt(4, m.height-10))
 	}
-	content := ""
-	if m.receipt != nil {
-		content = m.receipt.Content
-	} else if m.screen == screenReceipts {
-		content = "No receipt loaded."
+	if m.receipt != nil || m.screen == screenReceipts {
+		m.viewport.SetContent(renderReceiptViewportContent(m.styles, m.receipt, m.viewport.Width))
+		return
 	}
-	m.viewport.SetContent(content)
+	m.viewport.SetContent("")
 }
 
 func (m Model) renderFrame(body string) string {
 	width := maxInt(80, m.width)
 	top := m.styles.status.Width(width).Render(m.statusLine())
+	if m.screen == screenChat {
+		bodyView := m.styles.panel.Width(m.contentWidth()).Render(body)
+		footer := m.styles.footer.Width(width).Render(m.footerHelp())
+		return lipgloss.JoinVertical(lipgloss.Left, top, bodyView, footer)
+	}
 	navAndBody := lipgloss.JoinHorizontal(lipgloss.Top, m.renderNav(), m.styles.panel.Width(m.contentWidth()).Render(body))
 	footer := m.styles.footer.Width(width).Render(m.footerHelp())
 	return lipgloss.JoinVertical(lipgloss.Left, top, navAndBody, footer)
@@ -1137,7 +1252,8 @@ func (m Model) statusLine() string {
 	if len(m.status.Warnings) > 0 {
 		warnings = fmt.Sprintf(" warnings:%d", len(m.status.Warnings))
 	}
-	return fmt.Sprintf("Yard  %s  %s  chains:%d%s%s", project, provider, m.status.ActiveChains, warnings, updated)
+	readiness := runtimeReadinessSummary(m.status)
+	return fmt.Sprintf("Yard  %s  %s  readiness:%s  chains:%d%s%s", project, provider, readiness, m.status.ActiveChains, warnings, updated)
 }
 
 func (m Model) renderNav() string {
@@ -1160,6 +1276,9 @@ func navLine(s styles, label string, active bool) string {
 }
 
 func (m Model) contentWidth() int {
+	if m.screen == screenChat {
+		return maxInt(40, m.width-4)
+	}
 	return maxInt(40, m.width-24)
 }
 
