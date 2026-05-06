@@ -498,10 +498,19 @@ export function useConversation(conversationId?: string) {
 
   const sendMessage = useCallback(
     (content: string) => {
+      if (!wsSend(content, state.conversationId ?? undefined)) {
+        dispatch({
+          type: "error",
+          message: status === "connecting"
+            ? "Still connecting. Try again when the connection is ready."
+            : "Disconnected. Reconnecting to the server.",
+        });
+        return false;
+      }
       dispatch({ type: "user_message", content });
-      wsSend(content, state.conversationId ?? undefined);
+      return true;
     },
-    [wsSend, state.conversationId],
+    [wsSend, state.conversationId, status],
   );
 
   const cancel = useCallback(() => {

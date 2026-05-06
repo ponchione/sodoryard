@@ -24,7 +24,7 @@ export interface UseWebSocketReturn {
   /** Increments once per received event. Use as a useEffect dependency. */
   eventTick: number;
   /** Send a user message. Creates a new conversation if conversationId is omitted. */
-  sendMessage: (content: string, conversationId?: string) => void;
+  sendMessage: (content: string, conversationId?: string) => boolean;
   /** Cancel the in-progress turn. */
   cancel: () => void;
 }
@@ -108,12 +108,14 @@ export function useWebSocket(): UseWebSocketReturn {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }, []);
 
   const sendMessage = useCallback(
     (content: string, conversationId?: string) => {
-      send({
+      return send({
         type: "message",
         content,
         conversation_id: conversationId,

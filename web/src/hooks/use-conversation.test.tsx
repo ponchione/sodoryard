@@ -1,10 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ServerEvent } from "@/hooks/use-websocket";
+import type { ConnectionStatus, ServerEvent } from "@/hooks/use-websocket";
 
 const { wsState } = vi.hoisted(() => ({
   wsState: {
-    status: "connected" as const,
+    status: "connected" as ConnectionStatus,
     eventQueue: { current: [] as ServerEvent[] },
     eventTick: 0,
     sendMessage: vi.fn(),
@@ -32,9 +32,10 @@ function tokenEvent(token: string): ServerEvent {
 
 describe("useConversation", () => {
   beforeEach(() => {
+    wsState.status = "connected";
     wsState.eventQueue.current = [];
     wsState.eventTick = 0;
-    wsState.sendMessage.mockReset();
+    wsState.sendMessage.mockReset().mockReturnValue(true);
     wsState.cancel.mockReset();
   });
 
@@ -60,5 +61,21 @@ describe("useConversation", () => {
     expect(wsState.eventQueue.current).toHaveLength(0);
     expect(result.current.messages[0].content).toBe("abcd");
     expect(result.current.streamingText).toBe("1");
+  });
+
+  it("does not append a local user message when websocket send fails", () => {
+    wsState.status = "disconnected";
+    wsState.sendMessage.mockReturnValue(false);
+
+    const { result } = renderHook(() => useConversation("conv-1"));
+
+    act(() => {
+      expect(result.current.sendMessage("hello")).toBe(false);
+    });
+
+    expect(wsState.sendMessage).toHaveBeenCalledWith("hello", "conv-1");
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.error).toBe("Disconnected. Reconnecting to the server.");
   });
 });
