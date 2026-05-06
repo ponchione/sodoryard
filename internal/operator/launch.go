@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
@@ -183,8 +182,8 @@ func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
 	req.Role = strings.TrimSpace(req.Role)
 	req.SourceTask = strings.TrimSpace(req.SourceTask)
 	req.SourceSpecs = chaininput.NormalizeSpecs(req.SourceSpecs)
-	req.AllowedRoles = normalizeRoster(req.AllowedRoles)
-	req.Roster = normalizeRoster(req.Roster)
+	req.AllowedRoles = chaininput.NormalizeRoleSet(req.AllowedRoles)
+	req.Roster = chaininput.NormalizeRoleList(req.Roster)
 	if req.Mode == "" {
 		if len(req.Roster) > 0 {
 			req.Mode = LaunchModeManualRoster
@@ -200,20 +199,16 @@ func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
 }
 
 func withLaunchDefaults(req LaunchRequest) LaunchRequest {
-	if req.MaxSteps <= 0 {
-		req.MaxSteps = 100
-	}
-	if req.MaxResolverLoops < 0 {
-		req.MaxResolverLoops = 0
-	} else if req.MaxResolverLoops == 0 {
-		req.MaxResolverLoops = 3
-	}
-	if req.MaxDuration <= 0 {
-		req.MaxDuration = 4 * time.Hour
-	}
-	if req.TokenBudget <= 0 {
-		req.TokenBudget = 5_000_000
-	}
+	limits := chaininput.NormalizeLimits(chaininput.Limits{
+		MaxSteps:         req.MaxSteps,
+		MaxResolverLoops: req.MaxResolverLoops,
+		MaxDuration:      req.MaxDuration,
+		TokenBudget:      req.TokenBudget,
+	})
+	req.MaxSteps = limits.MaxSteps
+	req.MaxResolverLoops = limits.MaxResolverLoops
+	req.MaxDuration = limits.MaxDuration
+	req.TokenBudget = limits.TokenBudget
 	return req
 }
 
@@ -253,9 +248,9 @@ func launchWarnings(req LaunchRequest) []RuntimeWarning {
 }
 
 func resolveLaunchRoster(cfg *appconfig.Config, req LaunchRequest) ([]string, error) {
-	roster := normalizeRoster(req.Roster)
+	roster := chaininput.NormalizeRoleList(req.Roster)
 	if len(roster) == 0 && strings.TrimSpace(req.Role) != "" {
-		roster = normalizeRoster(strings.Split(req.Role, ","))
+		roster = chaininput.ParseRoleList(req.Role)
 	}
 	if len(roster) == 0 {
 		return nil, fmt.Errorf("manual roster requires at least one role")
@@ -271,9 +266,9 @@ func resolveLaunchRoster(cfg *appconfig.Config, req LaunchRequest) ([]string, er
 }
 
 func resolveLaunchAllowedRoles(cfg *appconfig.Config, req LaunchRequest) ([]string, error) {
-	roles := normalizeAllowedRoles(req.AllowedRoles)
+	roles := chaininput.NormalizeRoleSet(req.AllowedRoles)
 	if len(roles) == 0 && strings.TrimSpace(req.Role) != "" && req.Role != "orchestrator" {
-		roles = normalizeAllowedRoles(strings.Split(req.Role, ","))
+		roles = chaininput.ParseRoleSet(req.Role)
 	}
 	if len(roles) == 0 {
 		return nil, fmt.Errorf("constrained orchestration requires at least one allowed role")
@@ -286,36 +281,6 @@ func resolveLaunchAllowedRoles(cfg *appconfig.Config, req LaunchRequest) ([]stri
 		roles[i] = roleName
 	}
 	return roles, nil
-}
-
-func normalizeAllowedRoles(roles []string) []string {
-	normalized := make([]string, 0, len(roles))
-	seen := make(map[string]struct{}, len(roles))
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
-		key := strings.ToLower(role)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		normalized = append(normalized, role)
-	}
-	return normalized
-}
-
-func normalizeRoster(roles []string) []string {
-	normalized := make([]string, 0, len(roles))
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
-		normalized = append(normalized, role)
-	}
-	return normalized
 }
 
 func chainrunRoster(roles []string) []chainrun.StepRequest {

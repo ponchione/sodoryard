@@ -14,6 +14,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
@@ -87,7 +88,7 @@ func newYardChainCmd(configPath *string) *cobra.Command {
 }
 
 func newYardChainStartCmd(configPath *string) *cobra.Command {
-	flags := yardChainFlags{MaxSteps: 100, MaxResolverLoops: 3, MaxDuration: 4 * time.Hour, TokenBudget: 5_000_000, Watch: true, Verbosity: chainVerbosityNormal}
+	flags := defaultYardChainFlags()
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a new chain execution",
@@ -103,10 +104,10 @@ func newYardChainStartCmd(configPath *string) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Role, "role", "", "Run a one-step chain with the selected role instead of the orchestrator")
 	cmd.Flags().StringVar(&flags.ProjectRoot, "project", "", "Override project root")
 	cmd.Flags().StringVar(&flags.ChainID, "chain-id", "", "Chain execution identifier")
-	cmd.Flags().IntVar(&flags.MaxSteps, "max-steps", 100, "Maximum total agent invocations")
-	cmd.Flags().IntVar(&flags.MaxResolverLoops, "max-resolver-loops", 3, "Maximum fix-audit cycles per task")
-	cmd.Flags().DurationVar(&flags.MaxDuration, "max-duration", 4*time.Hour, "Wall-clock timeout for entire chain")
-	cmd.Flags().IntVar(&flags.TokenBudget, "token-budget", 5_000_000, "Total token ceiling across all agents")
+	cmd.Flags().IntVar(&flags.MaxSteps, "max-steps", flags.MaxSteps, "Maximum total agent invocations")
+	cmd.Flags().IntVar(&flags.MaxResolverLoops, "max-resolver-loops", flags.MaxResolverLoops, "Maximum fix-audit cycles per task")
+	cmd.Flags().DurationVar(&flags.MaxDuration, "max-duration", flags.MaxDuration, "Wall-clock timeout for entire chain")
+	cmd.Flags().IntVar(&flags.TokenBudget, "token-budget", flags.TokenBudget, "Total token ceiling across all agents")
 	cmd.Flags().IntVar(&flags.StepMaxTurns, "step-max-turns", 0, "Optional maximum model iterations for each spawned headless step")
 	cmd.Flags().IntVar(&flags.StepMaxTokens, "step-max-tokens", 0, "Optional total token ceiling for each spawned headless step")
 	cmd.Flags().BoolVar(&flags.DryRun, "dry-run", false, "Create the chain row but do not run the orchestrator")
@@ -171,7 +172,7 @@ func newYardChainPauseCmd(configPath *string) *cobra.Command {
 }
 
 func newYardChainResumeCmd(configPath *string) *cobra.Command {
-	flags := yardChainFlags{MaxSteps: 100, MaxResolverLoops: 3, MaxDuration: 4 * time.Hour, TokenBudget: 5_000_000, Watch: true, Verbosity: chainVerbosityNormal}
+	flags := defaultYardChainFlags()
 	cmd := &cobra.Command{Use: "resume <chain-id>", Short: "Resume a paused chain", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		flags.ChainID = args[0]
 		return yardRunChain(cmd.Context(), *configPath, flags, cmd)
@@ -179,4 +180,16 @@ func newYardChainResumeCmd(configPath *string) *cobra.Command {
 	cmd.Flags().BoolVar(&flags.Watch, "watch", true, "Stream live chain progress to stderr while the command runs")
 	cmd.Flags().StringVar(&flags.Verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")
 	return cmd
+}
+
+func defaultYardChainFlags() yardChainFlags {
+	limits := chaininput.DefaultLimits()
+	return yardChainFlags{
+		MaxSteps:         limits.MaxSteps,
+		MaxResolverLoops: limits.MaxResolverLoops,
+		MaxDuration:      limits.MaxDuration,
+		TokenBudget:      limits.TokenBudget,
+		Watch:            true,
+		Verbosity:        chainVerbosityNormal,
+	}
 }

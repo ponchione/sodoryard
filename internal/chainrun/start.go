@@ -11,6 +11,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/chaininput"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
@@ -431,9 +432,9 @@ func resolveStepRoles(cfg *appconfig.Config, opts Options, mode Mode) (Options, 
 }
 
 func resolveAllowedRoles(cfg *appconfig.Config, opts Options) (Options, error) {
-	roles := normalizeRoleNames(opts.AllowedRoles)
+	roles := chaininput.NormalizeRoleSet(opts.AllowedRoles)
 	if len(roles) == 0 && strings.TrimSpace(opts.Role) != "" && opts.Role != "orchestrator" {
-		roles = normalizeRoleNames(strings.Split(opts.Role, ","))
+		roles = chaininput.ParseRoleSet(opts.Role)
 	}
 	if len(roles) == 0 {
 		return opts, fmt.Errorf("chain start: constrained orchestration requires at least one allowed role")
@@ -823,24 +824,6 @@ func existingReceiptPaths(steps []chain.Step) []string {
 		paths = append(paths, path)
 	}
 	return paths
-}
-
-func normalizeRoleNames(roles []string) []string {
-	normalized := make([]string, 0, len(roles))
-	seen := make(map[string]struct{}, len(roles))
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
-		key := strings.ToLower(role)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		normalized = append(normalized, role)
-	}
-	return normalized
 }
 
 func exitCode(status string, events []chain.Event) int {

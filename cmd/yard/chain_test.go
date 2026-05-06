@@ -17,6 +17,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
@@ -107,8 +108,8 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag == nil {
 		t.Fatal("expected max-resolver-loops flag")
 	}
-	if flag.DefValue != "3" {
-		t.Fatalf("default max-resolver-loops = %q, want 3", flag.DefValue)
+	if flag.DefValue != fmt.Sprint(chaininput.DefaultMaxResolverLoops) {
+		t.Fatalf("default max-resolver-loops = %q, want %d", flag.DefValue, chaininput.DefaultMaxResolverLoops)
 	}
 	if flag := cmd.Flags().Lookup("project"); flag == nil {
 		t.Fatal("expected project flag")
@@ -338,8 +339,8 @@ func TestValidateYardChainFlagsRejectsInvalidNumericFlags(t *testing.T) {
 		{name: "negative resolver loops", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: -1, MaxDuration: time.Second, TokenBudget: 1}, wantErr: "--max-resolver-loops must be >= 0"},
 		{name: "nonpositive max duration", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: 0, TokenBudget: 1}, wantErr: "--max-duration must be > 0"},
 		{name: "nonpositive token budget", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 0}, wantErr: "--token-budget must be > 0"},
-		{name: "negative step max turns", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTurns: -1}, wantErr: "--step-max-turns must be > 0 when supplied"},
-		{name: "negative step max tokens", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTokens: -1}, wantErr: "--step-max-tokens must be > 0 when supplied"},
+		{name: "negative step max turns", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTurns: -1}, wantErr: "--step-max-turns must not be negative"},
+		{name: "negative step max tokens", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTokens: -1}, wantErr: "--step-max-tokens must not be negative"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

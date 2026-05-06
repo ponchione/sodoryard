@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/chaininput"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/id"
 )
@@ -140,22 +141,16 @@ func (s *Store) StartChain(ctx context.Context, spec ChainSpec) (string, error) 
 	if chainID == "" {
 		chainID = id.New()
 	}
-	maxDurationSecs := int(spec.MaxDuration / time.Second)
-	if maxDurationSecs <= 0 {
-		maxDurationSecs = 4 * 60 * 60
-	}
-	maxSteps := spec.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = 100
-	}
-	maxResolverLoops := spec.MaxResolverLoops
-	if maxResolverLoops <= 0 {
-		maxResolverLoops = 3
-	}
-	tokenBudget := spec.TokenBudget
-	if tokenBudget <= 0 {
-		tokenBudget = 5_000_000
-	}
+	limits := chaininput.NormalizeLimits(chaininput.Limits{
+		MaxSteps:         spec.MaxSteps,
+		MaxResolverLoops: spec.MaxResolverLoops,
+		MaxDuration:      spec.MaxDuration,
+		TokenBudget:      spec.TokenBudget,
+	})
+	maxDurationSecs := int(limits.MaxDuration / time.Second)
+	maxSteps := limits.MaxSteps
+	maxResolverLoops := limits.MaxResolverLoops
+	tokenBudget := limits.TokenBudget
 	if s != nil && s.memory != nil {
 		spec.ChainID = chainID
 		spec.MaxSteps = maxSteps

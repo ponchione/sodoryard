@@ -25,10 +25,10 @@ func validateYardChainFlags(flags yardChainFlags) error {
 		return fmt.Errorf("--token-budget must be > 0")
 	}
 	if flags.StepMaxTurns < 0 {
-		return fmt.Errorf("--step-max-turns must be > 0 when supplied")
+		return fmt.Errorf("--step-max-turns must not be negative")
 	}
 	if flags.StepMaxTokens < 0 {
-		return fmt.Errorf("--step-max-tokens must be > 0 when supplied")
+		return fmt.Errorf("--step-max-tokens must not be negative")
 	}
 	return nil
 }
