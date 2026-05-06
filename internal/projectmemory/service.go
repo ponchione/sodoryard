@@ -168,9 +168,11 @@ type ReadBrainIndexStateResponse struct {
 }
 
 type MarkBrainIndexCleanRequest struct {
-	ProjectID       string
-	LastIndexedAtUS uint64
-	MetadataJSON    string
+	ProjectID               string
+	LastIndexedAtUS         uint64
+	MetadataJSON            string
+	ReplaceBrainIndexChunks bool
+	BrainIndexChunks        []BrainIndexChunkArg
 }
 
 type ReadCodeIndexStateRequest struct {
@@ -413,9 +415,11 @@ func (s *brainRPCService) ReadBrainIndexState(req ReadBrainIndexStateRequest, re
 
 func (s *brainRPCService) MarkBrainIndexClean(req MarkBrainIndexCleanRequest, resp *EmptyResponse) error {
 	return s.backend.runtime.MarkBrainIndexClean(context.Background(), MarkBrainIndexCleanArgs{
-		ProjectID:       firstNonEmpty(req.ProjectID, DefaultProjectID),
-		LastIndexedAtUS: req.LastIndexedAtUS,
-		MetadataJSON:    req.MetadataJSON,
+		ProjectID:               firstNonEmpty(req.ProjectID, DefaultProjectID),
+		LastIndexedAtUS:         req.LastIndexedAtUS,
+		MetadataJSON:            req.MetadataJSON,
+		ReplaceBrainIndexChunks: req.ReplaceBrainIndexChunks,
+		BrainIndexChunks:        req.BrainIndexChunks,
 	})
 }
 
@@ -715,6 +719,10 @@ func (s *brainRPCService) ReadLaunch(req ReadLaunchRequest, resp *ReadLaunchResp
 	resp.Launch = launch
 	resp.Found = found
 	return nil
+}
+
+func (s *brainRPCService) DeleteLaunch(req DeleteLaunchArgs, resp *EmptyResponse) error {
+	return s.backend.DeleteLaunch(context.Background(), req)
 }
 
 func (s *brainRPCService) SaveLaunchPreset(req SaveLaunchPresetArgs, resp *EmptyResponse) error {

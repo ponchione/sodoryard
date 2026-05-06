@@ -123,6 +123,16 @@ func TestRunBrainIndexShunterRebuildsFromProjectMemoryWithoutYardDB(t *testing.T
 	if metadata.Source != "brain_index" || !reflect.DeepEqual(metadata.DocumentPaths, []string{"notes/current.md"}) {
 		t.Fatalf("state metadata = %+v, want current Shunter document path", metadata)
 	}
+	chunks, err := backend.ListBrainIndexChunks(ctx, "notes/current.md")
+	if err != nil {
+		t.Fatalf("ListBrainIndexChunks: %v", err)
+	}
+	if len(chunks) != len(store.upserted) || len(chunks) == 0 {
+		t.Fatalf("brain index chunks = %+v, semantic upserts = %+v, want matching non-empty Shunter chunk state", chunks, store.upserted)
+	}
+	if chunks[0].ChunkID != store.upserted[0].ID || chunks[0].DocumentHash != store.upserted[0].ContentHash || chunks[0].ChunkHash == "" || chunks[0].EmbeddingModel != cfg.Embedding.Model {
+		t.Fatalf("brain index chunk = %+v, semantic chunk = %+v, want matching id/document hash/model and chunk hash", chunks[0], store.upserted[0])
+	}
 	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
 		t.Fatalf("yard database stat err = %v, want no yard.db created in Shunter mode", err)
 	}

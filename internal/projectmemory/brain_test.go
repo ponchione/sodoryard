@@ -59,6 +59,73 @@ func TestBrainBackendWriteReadListSearchAndRestart(t *testing.T) {
 	}
 }
 
+func TestBrainBackendTracksDocumentLinks(t *testing.T) {
+	ctx := context.Background()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	const sourcePath = "notes/source.md"
+	if err := backend.WriteDocument(ctx, sourcePath, "# Source\n\nSee [[notes/target|Target]] and [[debugging/auth-race]].\nAgain [[notes/target|Target]]."); err != nil {
+		t.Fatalf("WriteDocument: %v", err)
+	}
+	links, err := backend.ListDocumentLinks(ctx, sourcePath, "")
+	if err != nil {
+		t.Fatalf("ListDocumentLinks source: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("links = %+v, want 2 deduped links", links)
+	}
+	if links[0].SourcePath != sourcePath || links[0].TargetPath != "debugging/auth-race" || links[0].LinkText != "" {
+		t.Fatalf("first link = %+v, want debugging/auth-race without display", links[0])
+	}
+	if links[1].SourcePath != sourcePath || links[1].TargetPath != "notes/target" || links[1].LinkText != "Target" {
+		t.Fatalf("second link = %+v, want notes/target with Target display", links[1])
+	}
+	targetLinks, err := backend.ListDocumentLinks(ctx, "", "notes/target")
+	if err != nil {
+		t.Fatalf("ListDocumentLinks target: %v", err)
+	}
+	if len(targetLinks) != 1 || targetLinks[0].SourcePath != sourcePath {
+		t.Fatalf("target links = %+v, want one inbound source", targetLinks)
+	}
+
+	doc, _, err := backend.runtime.ReadDocument(ctx, sourcePath)
+	if err != nil {
+		t.Fatalf("ReadDocument metadata: %v", err)
+	}
+	if err := backend.PatchDocumentWithExpectedHash(ctx, sourcePath, "replace_section", doc.ContentHash, "# Source\n\nNow see [[notes/replacement]]."); err != nil {
+		t.Fatalf("PatchDocumentWithExpectedHash: %v", err)
+	}
+	links, err = backend.ListDocumentLinks(ctx, sourcePath, "")
+	if err != nil {
+		t.Fatalf("ListDocumentLinks after patch: %v", err)
+	}
+	if len(links) != 1 || links[0].TargetPath != "notes/replacement" {
+		t.Fatalf("links after patch = %+v, want only notes/replacement", links)
+	}
+	oldTargetLinks, err := backend.ListDocumentLinks(ctx, "", "notes/target")
+	if err != nil {
+		t.Fatalf("ListDocumentLinks old target after patch: %v", err)
+	}
+	if len(oldTargetLinks) != 0 {
+		t.Fatalf("old target links after patch = %+v, want none", oldTargetLinks)
+	}
+
+	if err := backend.runtime.DeleteDocument(ctx, DeleteDocumentArgs{Path: sourcePath, Actor: "test"}); err != nil {
+		t.Fatalf("DeleteDocument: %v", err)
+	}
+	links, err = backend.ListDocumentLinks(ctx, sourcePath, "")
+	if err != nil {
+		t.Fatalf("ListDocumentLinks after delete: %v", err)
+	}
+	if len(links) != 0 {
+		t.Fatalf("links after delete = %+v, want none", links)
+	}
+}
+
 func TestOpenBrainBackendRejectsConcurrentDataDirOwner(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -166,6 +233,81 @@ func TestBrainIndexStateTracksDirtyAndClean(t *testing.T) {
 	}
 }
 
+func TestBrainIndexChunksTrackCleanStateAndRestart(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+
+	indexedAt := time.Date(2026, 5, 5, 12, 30, 0, 0, time.UTC)
+	if err := backend.MarkBrainIndexCleanWithChunks(ctx, indexedAt, `{"source":"test"}`, []BrainIndexChunkArg{
+		{
+			ChunkID:        "chunk-b",
+			DocumentPath:   "notes/b.md",
+			DocumentHash:   "doc-b",
+			ChunkHash:      "hash-b",
+			IndexedAtUS:    uint64(indexedAt.Add(time.Minute).UnixMicro()),
+			EmbeddingModel: "model-b",
+			MetadataJSON:   `{"line_start":2}`,
+		},
+		{
+			ChunkID:        "chunk-a",
+			DocumentPath:   "notes/a.md",
+			DocumentHash:   "doc-a",
+			ChunkHash:      "hash-a",
+			EmbeddingModel: "model-a",
+			MetadataJSON:   `{"line_start":1}`,
+		},
+	}); err != nil {
+		t.Fatalf("MarkBrainIndexCleanWithChunks: %v", err)
+	}
+	chunks, err := backend.ListBrainIndexChunks(ctx, "")
+	if err != nil {
+		t.Fatalf("ListBrainIndexChunks: %v", err)
+	}
+	if len(chunks) != 2 || chunks[0].ChunkID != "chunk-a" || chunks[1].ChunkID != "chunk-b" {
+		t.Fatalf("chunks = %+v, want sorted chunk-a/chunk-b", chunks)
+	}
+	if chunks[0].IndexedAtUS != uint64(indexedAt.UnixMicro()) || chunks[0].DocumentHash != "doc-a" || chunks[0].ChunkHash != "hash-a" || chunks[0].EmbeddingModel != "model-a" {
+		t.Fatalf("chunk-a = %+v, want fallback index timestamp and hashes", chunks[0])
+	}
+	docChunks, err := backend.ListBrainIndexChunks(ctx, "notes/b.md")
+	if err != nil {
+		t.Fatalf("ListBrainIndexChunks document: %v", err)
+	}
+	if len(docChunks) != 1 || docChunks[0].ChunkID != "chunk-b" || docChunks[0].IndexedAtUS != uint64(indexedAt.Add(time.Minute).UnixMicro()) {
+		t.Fatalf("doc chunks = %+v, want chunk-b with explicit timestamp", docChunks)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := OpenBrainBackend(ctx, Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("reopen OpenBrainBackend: %v", err)
+	}
+	defer reopened.Close()
+	chunks, err = reopened.ListBrainIndexChunks(ctx, "")
+	if err != nil {
+		t.Fatalf("ListBrainIndexChunks after restart: %v", err)
+	}
+	if len(chunks) != 2 || chunks[0].ChunkID != "chunk-a" || chunks[1].ChunkID != "chunk-b" {
+		t.Fatalf("chunks after restart = %+v, want persisted chunks", chunks)
+	}
+	if err := reopened.MarkBrainIndexCleanWithChunks(ctx, indexedAt.Add(time.Hour), `{"source":"empty"}`, nil); err != nil {
+		t.Fatalf("MarkBrainIndexCleanWithChunks empty: %v", err)
+	}
+	chunks, err = reopened.ListBrainIndexChunks(ctx, "")
+	if err != nil {
+		t.Fatalf("ListBrainIndexChunks after replace empty: %v", err)
+	}
+	if len(chunks) != 0 {
+		t.Fatalf("chunks after replace empty = %+v, want none", chunks)
+	}
+}
+
 func TestCodeIndexStateTracksFilesAndRestart(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -220,6 +362,43 @@ func TestCodeIndexStateTracksFilesAndRestart(t *testing.T) {
 	}
 	if !found || state.LastIndexedCommit != "def456" {
 		t.Fatalf("state after restart = %+v found=%t, want def456", state, found)
+	}
+}
+
+func TestCodeIndexFileReducersUpsertAndRemove(t *testing.T) {
+	ctx := context.Background()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	indexedAt := time.Date(2026, 5, 5, 15, 30, 0, 0, time.UTC)
+	if err := backend.runtime.UpsertCodeIndexFile(ctx, UpsertCodeIndexFileArgs{
+		ProjectID:       DefaultProjectID,
+		FilePath:        "internal/app.go",
+		FileHash:        "hash-app",
+		ChunkCount:      2,
+		LastIndexedAtUS: uint64(indexedAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("UpsertCodeIndexFile: %v", err)
+	}
+	states, err := backend.ListCodeFileIndexStates(ctx)
+	if err != nil {
+		t.Fatalf("ListCodeFileIndexStates: %v", err)
+	}
+	if len(states) != 1 || states[0].FilePath != "internal/app.go" || states[0].FileHash != "hash-app" || states[0].ChunkCount != 2 {
+		t.Fatalf("states after upsert = %+v, want internal/app.go hash-app", states)
+	}
+	if err := backend.runtime.RemoveCodeIndexFile(ctx, RemoveCodeIndexFileArgs{ProjectID: DefaultProjectID, FilePath: "internal/app.go"}); err != nil {
+		t.Fatalf("RemoveCodeIndexFile: %v", err)
+	}
+	states, err = backend.ListCodeFileIndexStates(ctx)
+	if err != nil {
+		t.Fatalf("ListCodeFileIndexStates after remove: %v", err)
+	}
+	if len(states) != 0 {
+		t.Fatalf("states after remove = %+v, want none", states)
 	}
 }
 
@@ -875,6 +1054,77 @@ func TestChainsStepsEventsStoreAndRestart(t *testing.T) {
 	}
 }
 
+func TestSpecReducerNamesForChainState(t *testing.T) {
+	ctx := context.Background()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	startedAt := time.Date(2026, 5, 6, 12, 30, 0, 0, time.UTC)
+	if _, err := backend.runtime.callReducerJSON(ctx, "create_chain", StartChainArgs{
+		ID:          "spec-chain",
+		SourceTask:  "spec reducer aliases",
+		CreatedAtUS: uint64(startedAt.UnixMicro()),
+	}); err != nil {
+		t.Fatalf("create_chain reducer: %v", err)
+	}
+	if err := backend.StartStep(ctx, StartStepArgs{ID: "spec-step", ChainID: "spec-chain", Sequence: 1, Role: "coder", Task: "fail through spec reducer"}); err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	if _, err := backend.runtime.callReducerJSON(ctx, "mark_step_running", StepRunningArgs{ID: "spec-step", StartedAtUS: uint64(startedAt.Add(time.Second).UnixMicro())}); err != nil {
+		t.Fatalf("mark_step_running reducer: %v", err)
+	}
+	if _, err := backend.runtime.callReducerJSON(ctx, "fail_step", CompleteStepArgs{
+		ID:            "spec-step",
+		Verdict:       "escalate",
+		Error:         "boom",
+		CompletedAtUS: uint64(startedAt.Add(2 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("fail_step reducer: %v", err)
+	}
+	if _, err := backend.runtime.callReducerJSON(ctx, "append_chain_event", LogChainEventArgs{
+		ChainID:     "spec-chain",
+		StepID:      "spec-step",
+		EventType:   "step_failed",
+		PayloadJSON: `{"verdict":"escalate"}`,
+		CreatedAtUS: uint64(startedAt.Add(3 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("append_chain_event reducer: %v", err)
+	}
+	if _, err := backend.runtime.callReducerJSON(ctx, "request_chain_control", RequestChainControlArgs{
+		ID:          "spec-chain",
+		Status:      "pause_requested",
+		ControlJSON: `{"requested":"pause"}`,
+		UpdatedAtUS: uint64(startedAt.Add(4 * time.Second).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("request_chain_control reducer: %v", err)
+	}
+
+	step, found, err := backend.ReadStep(ctx, "spec-step")
+	if err != nil {
+		t.Fatalf("ReadStep: %v", err)
+	}
+	if !found || step.Status != "failed" || step.Verdict != "escalate" || step.Error != "boom" {
+		t.Fatalf("step after fail_step = %+v found=%t, want failed/escalate", step, found)
+	}
+	chain, found, err := backend.ReadChain(ctx, "spec-chain")
+	if err != nil {
+		t.Fatalf("ReadChain: %v", err)
+	}
+	if !found || chain.Status != "pause_requested" || !strings.Contains(chain.ControlJSON, `"requested":"pause"`) {
+		t.Fatalf("chain after request control = %+v found=%t, want pause control", chain, found)
+	}
+	events, err := backend.ListChainEvents(ctx, "spec-chain")
+	if err != nil {
+		t.Fatalf("ListChainEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "step_failed" || !strings.Contains(events[0].PayloadJSON, "escalate") {
+		t.Fatalf("events = %+v, want step_failed event", events)
+	}
+}
+
 func TestCompleteStepWithReceiptIsAtomicChainAndBrainWrite(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -1046,6 +1296,16 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 	}
 	if len(presets) != 1 || presets[0].PresetID != "custom:audit pair" || presets[0].Name != "audit pair" || !strings.Contains(presets[0].RosterJSON, "orchestrator") {
 		t.Fatalf("presets = %+v, want saved audit pair", presets)
+	}
+	if err := reopened.DeleteLaunch(ctx, DeleteLaunchArgs{ProjectID: "project-launch", LaunchID: "current"}); err != nil {
+		t.Fatalf("DeleteLaunch: %v", err)
+	}
+	_, found, err = reopened.ReadLaunch(ctx, "project-launch", "current")
+	if err != nil {
+		t.Fatalf("ReadLaunch after delete: %v", err)
+	}
+	if found {
+		t.Fatal("ReadLaunch after delete found launch, want missing")
 	}
 }
 

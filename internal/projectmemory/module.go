@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 8
+const schemaVersion = 9
 
 const (
 	tableProjectState schema.TableID = iota
@@ -28,6 +28,8 @@ const (
 	tableEvents
 	tableLaunches
 	tableLaunchPresets
+	tableDocumentLinks
+	tableBrainIndexChunks
 )
 
 const (
@@ -124,6 +126,17 @@ const (
 	indexLaunchPresetsProject
 )
 
+const (
+	indexDocumentLinksPrimary schema.IndexID = iota
+	indexDocumentLinksSource
+	indexDocumentLinksTarget
+)
+
+const (
+	indexBrainIndexChunksPrimary schema.IndexID = iota
+	indexBrainIndexChunksDocument
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -144,14 +157,19 @@ func NewModule() *shunter.Module {
 	declareEvents(mod)
 	declareLaunches(mod)
 	declareLaunchPresets(mod)
+	declareDocumentLinks(mod)
+	declareBrainIndexChunks(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
 	mod.Reducer("import_documents_batch", importDocumentsBatchReducer)
+	mod.Reducer("record_memory_operation", recordMemoryOperationReducer)
 	mod.Reducer("mark_brain_index_dirty", markBrainIndexDirtyReducer)
 	mod.Reducer("mark_brain_index_clean", markBrainIndexCleanReducer)
 	mod.Reducer("mark_code_index_dirty", markCodeIndexDirtyReducer)
 	mod.Reducer("mark_code_index_clean", markCodeIndexCleanReducer)
+	mod.Reducer("upsert_brain_index_chunk", upsertBrainIndexChunkReducer)
+	mod.Reducer("remove_brain_index_chunk", removeBrainIndexChunkReducer)
 	mod.Reducer("create_conversation", createConversationReducer)
 	mod.Reducer("delete_conversation", deleteConversationReducer)
 	mod.Reducer("set_conversation_title", setConversationTitleReducer)
@@ -166,16 +184,26 @@ func NewModule() *shunter.Module {
 	mod.Reducer("store_context_report", storeContextReportReducer)
 	mod.Reducer("update_context_report_quality", updateContextReportQualityReducer)
 	mod.Reducer("start_chain", startChainReducer)
+	mod.Reducer("create_chain", startChainReducer)
 	mod.Reducer("start_step", startStepReducer)
 	mod.Reducer("step_running", stepRunningReducer)
+	mod.Reducer("mark_step_running", stepRunningReducer)
 	mod.Reducer("complete_step", completeStepReducer)
+	mod.Reducer("fail_step", failStepReducer)
 	mod.Reducer("complete_step_with_receipt", completeStepWithReceiptReducer)
 	mod.Reducer("complete_chain", completeChainReducer)
 	mod.Reducer("update_chain_metrics", updateChainMetricsReducer)
 	mod.Reducer("set_chain_status", setChainStatusReducer)
+	mod.Reducer("request_chain_control", requestChainControlReducer)
 	mod.Reducer("log_chain_event", logChainEventReducer)
+	mod.Reducer("append_chain_event", logChainEventReducer)
 	mod.Reducer("save_launch", saveLaunchReducer)
+	mod.Reducer("upsert_launch", saveLaunchReducer)
+	mod.Reducer("delete_launch", deleteLaunchReducer)
 	mod.Reducer("save_launch_preset", saveLaunchPresetReducer)
+	mod.Reducer("upsert_launch_preset", saveLaunchPresetReducer)
+	mod.Reducer("upsert_code_index_file", upsertCodeIndexFileReducer)
+	mod.Reducer("remove_code_index_file", removeCodeIndexFileReducer)
 	return mod
 }
 
@@ -550,6 +578,41 @@ func declareLaunchPresets(mod *shunter.Module) {
 		},
 		Indexes: []schema.IndexDefinition{
 			{Name: "launch_presets_project", Columns: []string{"project_id"}},
+		},
+	})
+}
+
+func declareDocumentLinks(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "document_links",
+		Columns: []schema.ColumnDefinition{
+			{Name: "link_id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "source_path", Type: schema.KindString},
+			{Name: "target_path", Type: schema.KindString},
+			{Name: "link_text", Type: schema.KindString},
+			{Name: "created_at_us", Type: schema.KindUint64},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "document_links_source", Columns: []string{"source_path"}},
+			{Name: "document_links_target", Columns: []string{"target_path"}},
+		},
+	})
+}
+
+func declareBrainIndexChunks(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "brain_index_chunks",
+		Columns: []schema.ColumnDefinition{
+			{Name: "chunk_id", Type: schema.KindString, PrimaryKey: true},
+			{Name: "document_path", Type: schema.KindString},
+			{Name: "document_hash", Type: schema.KindString},
+			{Name: "chunk_hash", Type: schema.KindString},
+			{Name: "indexed_at_us", Type: schema.KindUint64},
+			{Name: "embedding_model", Type: schema.KindString},
+			{Name: "metadata_json", Type: schema.KindString},
+		},
+		Indexes: []schema.IndexDefinition{
+			{Name: "brain_index_chunks_document", Columns: []string{"document_path"}},
 		},
 	})
 }

@@ -90,6 +90,16 @@ func (c *Client) MarkBrainIndexClean(ctx context.Context, indexedAt time.Time, m
 	}, &EmptyResponse{})
 }
 
+func (c *Client) MarkBrainIndexCleanWithChunks(ctx context.Context, indexedAt time.Time, metadataJSON string, chunks []BrainIndexChunkArg) error {
+	return c.call(ctx, "Brain.MarkBrainIndexClean", MarkBrainIndexCleanRequest{
+		ProjectID:               DefaultProjectID,
+		LastIndexedAtUS:         uint64(indexedAt.UTC().UnixMicro()),
+		MetadataJSON:            metadataJSON,
+		ReplaceBrainIndexChunks: true,
+		BrainIndexChunks:        chunks,
+	}, &EmptyResponse{})
+}
+
 func (c *Client) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {
 	var resp ReadCodeIndexStateResponse
 	if err := c.call(ctx, "Brain.ReadCodeIndexState", ReadCodeIndexStateRequest{ProjectID: DefaultProjectID}, &resp); err != nil {
@@ -363,6 +373,10 @@ func (c *Client) ReadLaunch(ctx context.Context, projectID string, launchID stri
 		return Launch{}, false, err
 	}
 	return resp.Launch, resp.Found, nil
+}
+
+func (c *Client) DeleteLaunch(ctx context.Context, args DeleteLaunchArgs) error {
+	return c.call(ctx, "Brain.DeleteLaunch", args, &EmptyResponse{})
 }
 
 func (c *Client) SaveLaunchPreset(ctx context.Context, args SaveLaunchPresetArgs) error {

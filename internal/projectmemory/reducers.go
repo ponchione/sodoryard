@@ -3,6 +3,8 @@ package projectmemory
 import (
 	"encoding/json"
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 
 	"github.com/ponchione/shunter/schema"
@@ -42,15 +44,42 @@ type ImportDocumentsBatchArgs struct {
 	Actor     string              `json:"actor"`
 }
 
+type RecordMemoryOperationArgs struct {
+	OperationID   string `json:"operation_id"`
+	OperationType string `json:"operation_type"`
+	Path          string `json:"path"`
+	Actor         string `json:"actor"`
+	CreatedAtUS   uint64 `json:"created_at_us"`
+	BeforeHash    string `json:"before_hash"`
+	AfterHash     string `json:"after_hash"`
+	PayloadJSON   string `json:"payload_json"`
+}
+
 type MarkBrainIndexDirtyArgs struct {
 	ProjectID string `json:"project_id"`
 	Reason    string `json:"reason"`
 }
 
 type MarkBrainIndexCleanArgs struct {
-	ProjectID       string `json:"project_id"`
-	LastIndexedAtUS uint64 `json:"last_indexed_at_us"`
-	MetadataJSON    string `json:"metadata_json"`
+	ProjectID               string               `json:"project_id"`
+	LastIndexedAtUS         uint64               `json:"last_indexed_at_us"`
+	MetadataJSON            string               `json:"metadata_json"`
+	ReplaceBrainIndexChunks bool                 `json:"replace_brain_index_chunks,omitempty"`
+	BrainIndexChunks        []BrainIndexChunkArg `json:"brain_index_chunks,omitempty"`
+}
+
+type BrainIndexChunkArg struct {
+	ChunkID        string `json:"chunk_id"`
+	DocumentPath   string `json:"document_path"`
+	DocumentHash   string `json:"document_hash"`
+	ChunkHash      string `json:"chunk_hash"`
+	IndexedAtUS    uint64 `json:"indexed_at_us"`
+	EmbeddingModel string `json:"embedding_model"`
+	MetadataJSON   string `json:"metadata_json"`
+}
+
+type RemoveBrainIndexChunkArgs struct {
+	ChunkID string `json:"chunk_id"`
 }
 
 type MarkCodeIndexDirtyArgs struct {
@@ -71,6 +100,19 @@ type CodeFileIndexArg struct {
 	FilePath   string `json:"file_path"`
 	FileHash   string `json:"file_hash"`
 	ChunkCount uint32 `json:"chunk_count"`
+}
+
+type UpsertCodeIndexFileArgs struct {
+	ProjectID       string `json:"project_id"`
+	FilePath        string `json:"file_path"`
+	FileHash        string `json:"file_hash"`
+	ChunkCount      uint32 `json:"chunk_count"`
+	LastIndexedAtUS uint64 `json:"last_indexed_at_us"`
+}
+
+type RemoveCodeIndexFileArgs struct {
+	ProjectID string `json:"project_id"`
+	FilePath  string `json:"file_path"`
 }
 
 type CreateConversationArgs struct {
@@ -283,6 +325,7 @@ func deleteDocumentReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, erro
 	beforeHash := current.ContentHash
 	operationID := memoryOperationID("delete_document", path, args.Actor, nowUS, beforeHash, "")
 	deleteChunksForPath(ctx.DB, path)
+	deleteLinksForSource(ctx.DB, path)
 	current.Deleted = true
 	current.UpdatedAtUS = nowUS
 	current.ContentHash = ""
@@ -329,6 +372,37 @@ func importDocumentsBatchReducer(ctx *schema.ReducerContext, raw []byte) ([]byte
 	return encodeReducerResult(reducerResult{})
 }
 
+func recordMemoryOperationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args RecordMemoryOperationArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	operationType := strings.TrimSpace(args.OperationType)
+	if operationType == "" {
+		return nil, fmt.Errorf("memory operation type is required")
+	}
+	operationPath := strings.TrimSpace(args.Path)
+	if operationPath != "" {
+		normalized, err := normalizeDocumentPath(operationPath)
+		if err != nil {
+			return nil, err
+		}
+		operationPath = normalized
+	}
+	nowUS := nonZeroUS(args.CreatedAtUS, reducerNowUS(ctx))
+	operationID := strings.TrimSpace(args.OperationID)
+	if operationID == "" {
+		operationID = memoryOperationID(operationType, operationPath, args.Actor, nowUS, args.BeforeHash, args.AfterHash)
+	}
+	if _, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableMemoryOperations), uint32(indexMemoryOperationsPrimary), types.NewString(operationID))); found {
+		return nil, fmt.Errorf("memory operation already exists: %s", operationID)
+	}
+	if _, err := ctx.DB.Insert(uint32(tableMemoryOperations), operationRow(operationID, operationType, operationPath, args.Actor, nowUS, args.BeforeHash, args.AfterHash, defaultString(args.PayloadJSON, emptyJSONObject))); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: operationID})
+}
+
 func markBrainIndexDirtyReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
 	var args MarkBrainIndexDirtyArgs
 	if err := decodeReducerArgs(raw, &args); err != nil {
@@ -347,9 +421,10 @@ func markBrainIndexCleanReducer(ctx *schema.ReducerContext, raw []byte) ([]byte,
 		return nil, err
 	}
 	projectID := firstNonEmpty(args.ProjectID, DefaultProjectID)
+	indexedAtUS := nonZeroUS(args.LastIndexedAtUS, reducerNowUS(ctx))
 	metadataJSON := defaultString(args.MetadataJSON, emptyJSONObject)
 	rowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableBrainIndexState), uint32(indexBrainIndexStatePrimary), types.NewString(projectID)))
-	row := brainIndexStateRow(projectID, args.LastIndexedAtUS, false, 0, "", metadataJSON)
+	row := brainIndexStateRow(projectID, indexedAtUS, false, 0, "", metadataJSON)
 	if found {
 		if _, err := ctx.DB.Update(uint32(tableBrainIndexState), rowID, row); err != nil {
 			return nil, err
@@ -357,7 +432,42 @@ func markBrainIndexCleanReducer(ctx *schema.ReducerContext, raw []byte) ([]byte,
 	} else if _, err := ctx.DB.Insert(uint32(tableBrainIndexState), row); err != nil {
 		return nil, err
 	}
+	if args.ReplaceBrainIndexChunks {
+		if err := replaceBrainIndexChunks(ctx.DB, args.BrainIndexChunks, indexedAtUS); err != nil {
+			return nil, err
+		}
+	}
 	return encodeReducerResult(reducerResult{})
+}
+
+func upsertBrainIndexChunkReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args BrainIndexChunkArg
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	if err := upsertBrainIndexChunk(ctx.DB, args, nonZeroUS(args.IndexedAtUS, reducerNowUS(ctx))); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: args.ChunkID})
+}
+
+func removeBrainIndexChunkReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args RemoveBrainIndexChunkArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	chunkID := strings.TrimSpace(args.ChunkID)
+	if chunkID == "" {
+		return nil, fmt.Errorf("brain index chunk id is required")
+	}
+	rowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableBrainIndexChunks), uint32(indexBrainIndexChunksPrimary), types.NewString(chunkID)))
+	if !found {
+		return encodeReducerResult(reducerResult{OperationID: chunkID})
+	}
+	if err := ctx.DB.Delete(uint32(tableBrainIndexChunks), rowID); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: chunkID})
 }
 
 func markCodeIndexDirtyReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
@@ -436,6 +546,55 @@ func markCodeIndexCleanReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, 
 		return nil, err
 	}
 	return encodeReducerResult(reducerResult{})
+}
+
+func upsertCodeIndexFileReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args UpsertCodeIndexFileArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	projectID := firstNonEmpty(args.ProjectID, DefaultProjectID)
+	path := strings.TrimSpace(args.FilePath)
+	if path == "" {
+		return nil, fmt.Errorf("code file index path is required")
+	}
+	indexedAtUS := nonZeroUS(args.LastIndexedAtUS, reducerNowUS(ctx))
+	fileID := CodeFileIndexID(projectID, path)
+	row := codeFileIndexStateRow(CodeFileIndexState{
+		FileID:          fileID,
+		ProjectID:       projectID,
+		FilePath:        path,
+		FileHash:        args.FileHash,
+		ChunkCount:      args.ChunkCount,
+		LastIndexedAtUS: indexedAtUS,
+	})
+	if rowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableCodeFileIndexState), uint32(indexCodeFileIndexStatePrimary), types.NewString(fileID))); found {
+		if _, err := ctx.DB.Update(uint32(tableCodeFileIndexState), rowID, row); err != nil {
+			return nil, err
+		}
+	} else if _, err := ctx.DB.Insert(uint32(tableCodeFileIndexState), row); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: fileID})
+}
+
+func removeCodeIndexFileReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args RemoveCodeIndexFileArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	projectID := firstNonEmpty(args.ProjectID, DefaultProjectID)
+	path := strings.TrimSpace(args.FilePath)
+	if path == "" {
+		return nil, fmt.Errorf("code file index path is required")
+	}
+	fileID := CodeFileIndexID(projectID, path)
+	if rowID, _, found := firstRow(ctx.DB.SeekIndex(uint32(tableCodeFileIndexState), uint32(indexCodeFileIndexStatePrimary), types.NewString(fileID))); found {
+		if err := ctx.DB.Delete(uint32(tableCodeFileIndexState), rowID); err != nil {
+			return nil, err
+		}
+	}
+	return encodeReducerResult(reducerResult{OperationID: fileID})
 }
 
 func createConversationReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
@@ -969,8 +1128,14 @@ func upsertDocument(ctx *schema.ReducerContext, mutation documentMutation) ([]by
 		createdAtUS = current.CreatedAtUS
 		deleteChunksForPath(ctx.DB, path)
 	}
+	deleteLinksForSource(ctx.DB, path)
 	for _, chunk := range chunks {
 		if _, err := ctx.DB.Insert(uint32(tableDocumentChunks), chunkRow(chunk)); err != nil {
+			return nil, err
+		}
+	}
+	for _, link := range extractDocumentLinks(path, mutation.Content, nowUS) {
+		if _, err := ctx.DB.Insert(uint32(tableDocumentLinks), documentLinkRow(link)); err != nil {
 			return nil, err
 		}
 	}
@@ -1022,6 +1187,12 @@ func deleteChunksForPath(db types.ReducerDB, path string) {
 	}
 }
 
+func deleteLinksForSource(db types.ReducerDB, sourcePath string) {
+	for rowID := range db.SeekIndex(uint32(tableDocumentLinks), uint32(indexDocumentLinksSource), types.NewString(sourcePath)) {
+		_ = db.Delete(uint32(tableDocumentLinks), rowID)
+	}
+}
+
 func nextRevision(db types.ReducerDB, path string) uint32 {
 	var maxRevision uint32
 	for _, row := range db.SeekIndex(uint32(tableDocumentRevisions), uint32(indexDocumentRevisionsPath), types.NewString(path)) {
@@ -1046,6 +1217,109 @@ func markBrainIndexDirty(db types.ReducerDB, projectID string, reason string, no
 	}
 	_, err := db.Insert(uint32(tableBrainIndexState), state)
 	return err
+}
+
+func replaceBrainIndexChunks(db types.ReducerDB, chunks []BrainIndexChunkArg, indexedAtUS uint64) error {
+	for rowID := range db.ScanTable(uint32(tableBrainIndexChunks)) {
+		if err := db.Delete(uint32(tableBrainIndexChunks), rowID); err != nil {
+			return err
+		}
+	}
+	for _, chunk := range chunks {
+		if err := upsertBrainIndexChunk(db, chunk, indexedAtUS); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func upsertBrainIndexChunk(db types.ReducerDB, args BrainIndexChunkArg, fallbackIndexedAtUS uint64) error {
+	chunkID := strings.TrimSpace(args.ChunkID)
+	if chunkID == "" {
+		return fmt.Errorf("brain index chunk id is required")
+	}
+	documentPath, err := normalizeDocumentPath(args.DocumentPath)
+	if err != nil {
+		return fmt.Errorf("brain index chunk document path: %w", err)
+	}
+	indexedAtUS := nonZeroUS(args.IndexedAtUS, fallbackIndexedAtUS)
+	row := brainIndexChunkRow(BrainIndexChunk{
+		ChunkID:        chunkID,
+		DocumentPath:   documentPath,
+		DocumentHash:   args.DocumentHash,
+		ChunkHash:      args.ChunkHash,
+		IndexedAtUS:    indexedAtUS,
+		EmbeddingModel: args.EmbeddingModel,
+		MetadataJSON:   defaultString(args.MetadataJSON, emptyJSONObject),
+	})
+	if rowID, _, found := firstRow(db.SeekIndex(uint32(tableBrainIndexChunks), uint32(indexBrainIndexChunksPrimary), types.NewString(chunkID))); found {
+		_, err := db.Update(uint32(tableBrainIndexChunks), rowID, row)
+		return err
+	}
+	_, err = db.Insert(uint32(tableBrainIndexChunks), row)
+	return err
+}
+
+var documentWikilinkRegexp = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+
+func extractDocumentLinks(sourcePath string, content string, createdAtUS uint64) []DocumentLink {
+	matches := documentWikilinkRegexp.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(matches))
+	links := make([]DocumentLink, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		raw := strings.TrimSpace(match[1])
+		if raw == "" {
+			continue
+		}
+		targetPart := raw
+		linkText := ""
+		if idx := strings.Index(targetPart, "|"); idx >= 0 {
+			linkText = strings.TrimSpace(targetPart[idx+1:])
+			targetPart = targetPart[:idx]
+		}
+		targetPath := normalizeLinkTarget(targetPart)
+		if targetPath == "" {
+			continue
+		}
+		key := targetPath + "\x00" + linkText
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		links = append(links, DocumentLink{
+			LinkID:      documentLinkID(sourcePath, targetPath, linkText),
+			SourcePath:  sourcePath,
+			TargetPath:  targetPath,
+			LinkText:    linkText,
+			CreatedAtUS: createdAtUS,
+		})
+	}
+	return links
+}
+
+func normalizeLinkTarget(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ""
+	}
+	if idx := strings.Index(target, "#"); idx >= 0 {
+		target = target[:idx]
+	}
+	target = strings.TrimSpace(strings.ReplaceAll(target, `\`, "/"))
+	if target == "" {
+		return ""
+	}
+	cleaned := path.Clean(target)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return ""
+	}
+	return cleaned
 }
 
 func findConversationByID(db types.ReducerDB, id string) (types.RowID, Conversation, bool) {

@@ -69,6 +69,56 @@ func (r *Runtime) ListDocuments(ctx context.Context, directory string) ([]string
 	return paths, nil
 }
 
+func (r *Runtime) ListDocumentLinks(ctx context.Context, sourcePath string, targetPath string) ([]DocumentLink, error) {
+	sourcePath = strings.TrimSpace(sourcePath)
+	targetPath = strings.TrimSpace(targetPath)
+	if sourcePath != "" {
+		normalized, err := normalizeDocumentPath(sourcePath)
+		if err != nil {
+			return nil, err
+		}
+		sourcePath = normalized
+	}
+	if targetPath != "" {
+		targetPath = normalizeLinkTarget(targetPath)
+	}
+	var links []DocumentLink
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		switch {
+		case sourcePath != "":
+			for _, row := range view.SeekIndex(tableDocumentLinks, indexDocumentLinksSource, types.NewString(sourcePath)) {
+				link := decodeDocumentLinkRow(row)
+				if targetPath != "" && link.TargetPath != targetPath {
+					continue
+				}
+				links = append(links, link)
+			}
+		case targetPath != "":
+			for _, row := range view.SeekIndex(tableDocumentLinks, indexDocumentLinksTarget, types.NewString(targetPath)) {
+				links = append(links, decodeDocumentLinkRow(row))
+			}
+		default:
+			for _, row := range view.TableScan(tableDocumentLinks) {
+				links = append(links, decodeDocumentLinkRow(row))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(links, func(i, j int) bool {
+		if links[i].SourcePath == links[j].SourcePath {
+			if links[i].TargetPath == links[j].TargetPath {
+				return links[i].LinkText < links[j].LinkText
+			}
+			return links[i].TargetPath < links[j].TargetPath
+		}
+		return links[i].SourcePath < links[j].SourcePath
+	})
+	return links, nil
+}
+
 func (r *Runtime) SearchDocuments(ctx context.Context, query string, maxResults int) ([]SearchHit, error) {
 	if maxResults <= 0 {
 		maxResults = 10
@@ -131,6 +181,40 @@ func (r *Runtime) ReadBrainIndexState(ctx context.Context) (BrainIndexState, boo
 		return BrainIndexState{}, false, err
 	}
 	return state, found, nil
+}
+
+func (r *Runtime) ListBrainIndexChunks(ctx context.Context, documentPath string) ([]BrainIndexChunk, error) {
+	documentPath = strings.TrimSpace(documentPath)
+	if documentPath != "" {
+		normalized, err := normalizeDocumentPath(documentPath)
+		if err != nil {
+			return nil, err
+		}
+		documentPath = normalized
+	}
+	var chunks []BrainIndexChunk
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		if documentPath != "" {
+			for _, row := range view.SeekIndex(tableBrainIndexChunks, indexBrainIndexChunksDocument, types.NewString(documentPath)) {
+				chunks = append(chunks, decodeBrainIndexChunkRow(row))
+			}
+			return nil
+		}
+		for _, row := range view.TableScan(tableBrainIndexChunks) {
+			chunks = append(chunks, decodeBrainIndexChunkRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(chunks, func(i, j int) bool {
+		if chunks[i].DocumentPath == chunks[j].DocumentPath {
+			return chunks[i].ChunkID < chunks[j].ChunkID
+		}
+		return chunks[i].DocumentPath < chunks[j].DocumentPath
+	})
+	return chunks, nil
 }
 
 func (r *Runtime) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {

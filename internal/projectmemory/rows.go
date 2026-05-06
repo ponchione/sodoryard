@@ -41,6 +41,14 @@ type documentChunk struct {
 	BodyHash   string
 }
 
+type DocumentLink struct {
+	LinkID      string
+	SourcePath  string
+	TargetPath  string
+	LinkText    string
+	CreatedAtUS uint64
+}
+
 type BrainIndexState struct {
 	ProjectID       string
 	LastIndexedAtUS uint64
@@ -48,6 +56,16 @@ type BrainIndexState struct {
 	DirtySinceUS    uint64
 	DirtyReason     string
 	MetadataJSON    string
+}
+
+type BrainIndexChunk struct {
+	ChunkID        string
+	DocumentPath   string
+	DocumentHash   string
+	ChunkHash      string
+	IndexedAtUS    uint64
+	EmbeddingModel string
+	MetadataJSON   string
 }
 
 type CodeIndexState struct {
@@ -200,6 +218,26 @@ func decodeChunkRow(row types.ProductValue) documentChunk {
 	}
 }
 
+func documentLinkRow(link DocumentLink) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(link.LinkID),
+		types.NewString(link.SourcePath),
+		types.NewString(link.TargetPath),
+		types.NewString(link.LinkText),
+		types.NewUint64(link.CreatedAtUS),
+	}
+}
+
+func decodeDocumentLinkRow(row types.ProductValue) DocumentLink {
+	return DocumentLink{
+		LinkID:      row[0].AsString(),
+		SourcePath:  row[1].AsString(),
+		TargetPath:  row[2].AsString(),
+		LinkText:    row[3].AsString(),
+		CreatedAtUS: row[4].AsUint64(),
+	}
+}
+
 func revisionRow(revisionID string, path string, revision uint32, contentHash string, operationID string, createdAtUS uint64, summary string, actor string) types.ProductValue {
 	return types.ProductValue{
 		types.NewString(revisionID),
@@ -245,6 +283,30 @@ func decodeBrainIndexStateRow(row types.ProductValue) BrainIndexState {
 		DirtySinceUS:    row[3].AsUint64(),
 		DirtyReason:     row[4].AsString(),
 		MetadataJSON:    row[5].AsString(),
+	}
+}
+
+func brainIndexChunkRow(chunk BrainIndexChunk) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(chunk.ChunkID),
+		types.NewString(chunk.DocumentPath),
+		types.NewString(chunk.DocumentHash),
+		types.NewString(chunk.ChunkHash),
+		types.NewUint64(chunk.IndexedAtUS),
+		types.NewString(chunk.EmbeddingModel),
+		types.NewString(defaultString(chunk.MetadataJSON, emptyJSONObject)),
+	}
+}
+
+func decodeBrainIndexChunkRow(row types.ProductValue) BrainIndexChunk {
+	return BrainIndexChunk{
+		ChunkID:        row[0].AsString(),
+		DocumentPath:   row[1].AsString(),
+		DocumentHash:   row[2].AsString(),
+		ChunkHash:      row[3].AsString(),
+		IndexedAtUS:    row[4].AsUint64(),
+		EmbeddingModel: row[5].AsString(),
+		MetadataJSON:   row[6].AsString(),
 	}
 }
 
@@ -521,6 +583,10 @@ func documentRevisionID(path string, revision uint32) string {
 
 func memoryOperationID(operationType string, path string, actor string, atUS uint64, beforeHash string, afterHash string) string {
 	return stableID(strings.Join([]string{operationType, path, actor, fmt.Sprint(atUS), beforeHash, afterHash}, "\x00"))
+}
+
+func documentLinkID(sourcePath string, targetPath string, linkText string) string {
+	return stableID(strings.Join([]string{sourcePath, targetPath, linkText}, "\x00"))
 }
 
 func CodeFileIndexID(projectID string, filePath string) string {

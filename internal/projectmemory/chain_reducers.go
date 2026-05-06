@@ -98,6 +98,13 @@ type SetChainStatusArgs struct {
 	UpdatedAtUS uint64 `json:"updated_at_us"`
 }
 
+type RequestChainControlArgs struct {
+	ID          string `json:"id"`
+	Status      string `json:"status"`
+	ControlJSON string `json:"control_json"`
+	UpdatedAtUS uint64 `json:"updated_at_us"`
+}
+
 type LogChainEventArgs struct {
 	ID          string `json:"id"`
 	ChainID     string `json:"chain_id"`
@@ -223,6 +230,21 @@ func completeStepReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error)
 	if err := decodeReducerArgs(raw, &args); err != nil {
 		return nil, err
 	}
+	return completeStep(ctx, args)
+}
+
+func failStepReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args CompleteStepArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.Status) == "" {
+		args.Status = "failed"
+	}
+	return completeStep(ctx, args)
+}
+
+func completeStep(ctx *schema.ReducerContext, args CompleteStepArgs) ([]byte, error) {
 	rowID, step, found := findStepByID(ctx.DB, strings.TrimSpace(args.ID))
 	if !found {
 		return nil, fmt.Errorf("step not found: %s", args.ID)
@@ -365,6 +387,27 @@ func setChainStatusReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, erro
 		return nil, fmt.Errorf("chain status is required")
 	}
 	chain.Status = status
+	chain.UpdatedAtUS = nonZeroUS(args.UpdatedAtUS, reducerNowUS(ctx))
+	if _, err := ctx.DB.Update(uint32(tableChains), rowID, chainRow(chain)); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: chain.ID})
+}
+
+func requestChainControlReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args RequestChainControlArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	rowID, chain, found := findChainByID(ctx.DB, strings.TrimSpace(args.ID))
+	if !found {
+		return nil, fmt.Errorf("chain not found: %s", args.ID)
+	}
+	status := strings.TrimSpace(args.Status)
+	if status != "" {
+		chain.Status = status
+	}
+	chain.ControlJSON = defaultString(args.ControlJSON, emptyJSONObject)
 	chain.UpdatedAtUS = nonZeroUS(args.UpdatedAtUS, reducerNowUS(ctx))
 	if _, err := ctx.DB.Update(uint32(tableChains), rowID, chainRow(chain)); err != nil {
 		return nil, err

@@ -182,6 +182,16 @@ func (r *Runtime) MarkBrainIndexClean(ctx context.Context, args MarkBrainIndexCl
 	return err
 }
 
+func (r *Runtime) UpsertBrainIndexChunk(ctx context.Context, args BrainIndexChunkArg) error {
+	_, err := r.callReducerJSON(ctx, "upsert_brain_index_chunk", args)
+	return err
+}
+
+func (r *Runtime) RemoveBrainIndexChunk(ctx context.Context, args RemoveBrainIndexChunkArgs) error {
+	_, err := r.callReducerJSON(ctx, "remove_brain_index_chunk", args)
+	return err
+}
+
 func (r *Runtime) MarkCodeIndexDirty(ctx context.Context, args MarkCodeIndexDirtyArgs) error {
 	_, err := r.callReducerJSON(ctx, "mark_code_index_dirty", args)
 	return err
@@ -189,6 +199,16 @@ func (r *Runtime) MarkCodeIndexDirty(ctx context.Context, args MarkCodeIndexDirt
 
 func (r *Runtime) MarkCodeIndexClean(ctx context.Context, args MarkCodeIndexCleanArgs) error {
 	_, err := r.callReducerJSON(ctx, "mark_code_index_clean", args)
+	return err
+}
+
+func (r *Runtime) UpsertCodeIndexFile(ctx context.Context, args UpsertCodeIndexFileArgs) error {
+	_, err := r.callReducerJSON(ctx, "upsert_code_index_file", args)
+	return err
+}
+
+func (r *Runtime) RemoveCodeIndexFile(ctx context.Context, args RemoveCodeIndexFileArgs) error {
+	_, err := r.callReducerJSON(ctx, "remove_code_index_file", args)
 	return err
 }
 
@@ -299,6 +319,11 @@ func (r *Runtime) SetChainStatus(ctx context.Context, args SetChainStatusArgs) e
 
 func (r *Runtime) LogChainEvent(ctx context.Context, args LogChainEventArgs) error {
 	_, err := r.callReducerJSON(ctx, "log_chain_event", args)
+	return err
+}
+
+func (r *Runtime) DeleteLaunch(ctx context.Context, args DeleteLaunchArgs) error {
+	_, err := r.callReducerJSON(ctx, "delete_launch", args)
 	return err
 }
 

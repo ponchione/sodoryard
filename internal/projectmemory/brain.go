@@ -101,6 +101,10 @@ func (b *BrainBackend) ListDocuments(ctx context.Context, directory string) ([]s
 	return b.runtime.ListDocuments(ctx, directory)
 }
 
+func (b *BrainBackend) ListDocumentLinks(ctx context.Context, sourcePath string, targetPath string) ([]DocumentLink, error) {
+	return b.runtime.ListDocumentLinks(ctx, sourcePath, targetPath)
+}
+
 func (b *BrainBackend) ReadBrainIndexState(ctx context.Context) (BrainIndexState, bool, error) {
 	return b.runtime.ReadBrainIndexState(ctx)
 }
@@ -111,6 +115,20 @@ func (b *BrainBackend) MarkBrainIndexClean(ctx context.Context, indexedAt time.T
 		LastIndexedAtUS: uint64(indexedAt.UTC().UnixMicro()),
 		MetadataJSON:    metadataJSON,
 	})
+}
+
+func (b *BrainBackend) MarkBrainIndexCleanWithChunks(ctx context.Context, indexedAt time.Time, metadataJSON string, chunks []BrainIndexChunkArg) error {
+	return b.runtime.MarkBrainIndexClean(ctx, MarkBrainIndexCleanArgs{
+		ProjectID:               DefaultProjectID,
+		LastIndexedAtUS:         uint64(indexedAt.UTC().UnixMicro()),
+		MetadataJSON:            metadataJSON,
+		ReplaceBrainIndexChunks: true,
+		BrainIndexChunks:        chunks,
+	})
+}
+
+func (b *BrainBackend) ListBrainIndexChunks(ctx context.Context, documentPath string) ([]BrainIndexChunk, error) {
+	return b.runtime.ListBrainIndexChunks(ctx, documentPath)
 }
 
 func (b *BrainBackend) ReadCodeIndexState(ctx context.Context) (CodeIndexState, bool, error) {
@@ -302,6 +320,10 @@ func (b *BrainBackend) SaveLaunch(ctx context.Context, args SaveLaunchArgs) erro
 
 func (b *BrainBackend) ReadLaunch(ctx context.Context, projectID string, launchID string) (Launch, bool, error) {
 	return b.runtime.ReadLaunch(ctx, projectID, launchID)
+}
+
+func (b *BrainBackend) DeleteLaunch(ctx context.Context, args DeleteLaunchArgs) error {
+	return b.runtime.DeleteLaunch(ctx, args)
 }
 
 func (b *BrainBackend) SaveLaunchPreset(ctx context.Context, args SaveLaunchPresetArgs) error {

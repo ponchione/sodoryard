@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
+	brainchunks "github.com/ponchione/sodoryard/internal/brain/chunks"
 	brainindexer "github.com/ponchione/sodoryard/internal/brain/indexer"
 	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	brainparser "github.com/ponchione/sodoryard/internal/brain/parser"
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	"github.com/ponchione/sodoryard/internal/codeintel/embedder"
 	"github.com/ponchione/sodoryard/internal/codestore"
@@ -37,6 +39,10 @@ type shunterBrainIndexCleaner interface {
 	MarkBrainIndexClean(context.Context, time.Time, string) error
 }
 
+type shunterBrainIndexChunkCleaner interface {
+	MarkBrainIndexCleanWithChunks(context.Context, time.Time, string, []projectmemory.BrainIndexChunkArg) error
+}
+
 type shunterBrainIndexStateReader interface {
 	ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error)
 }
@@ -44,6 +50,12 @@ type shunterBrainIndexStateReader interface {
 type brainIndexStateMetadata struct {
 	Source        string   `json:"source"`
 	DocumentPaths []string `json:"document_paths,omitempty"`
+}
+
+type brainIndexChunkMetadata struct {
+	LineStart      int    `json:"line_start,omitempty"`
+	LineEnd        int    `json:"line_end,omitempty"`
+	SectionHeading string `json:"section_heading,omitempty"`
 }
 
 func DefaultBrainIndexDeps() BrainIndexDeps {
@@ -197,7 +209,15 @@ func RunBrainIndex(ctx context.Context, cfg *appconfig.Config, deps BrainIndexDe
 		if err != nil {
 			return brainindexer.Result{}, fmt.Errorf("brain index: encode Shunter index metadata: %w", err)
 		}
-		if err := cleaner.MarkBrainIndexClean(ctx, indexedAt, metadataJSON); err != nil {
+		if chunkCleaner, ok := backend.(shunterBrainIndexChunkCleaner); ok && chunkCleaner != nil {
+			chunks, err := buildBrainIndexChunkState(ctx, backend, currentPaths, cfg.Embedding.Model)
+			if err != nil {
+				return brainindexer.Result{}, err
+			}
+			if err := chunkCleaner.MarkBrainIndexCleanWithChunks(ctx, indexedAt, metadataJSON, chunks); err != nil {
+				return brainindexer.Result{}, fmt.Errorf("brain index: mark Shunter index clean: %w", err)
+			}
+		} else if err := cleaner.MarkBrainIndexClean(ctx, indexedAt, metadataJSON); err != nil {
 			return brainindexer.Result{}, fmt.Errorf("brain index: mark Shunter index clean: %w", err)
 		}
 	} else if err := deps.MarkFresh(cfg.ProjectRoot, indexedAt); err != nil {
@@ -206,6 +226,52 @@ func RunBrainIndex(ctx context.Context, cfg *appconfig.Config, deps BrainIndexDe
 	result.SemanticChunksIndexed = semanticResult.SemanticChunksIndexed
 	result.SemanticDocumentsDeleted = semanticResult.SemanticDocumentsDeleted
 	return result, nil
+}
+
+func buildBrainIndexChunkState(ctx context.Context, backend brain.Backend, paths []string, embeddingModel string) ([]projectmemory.BrainIndexChunkArg, error) {
+	paths = normalizeBrainIndexPaths(paths)
+	chunks := make([]projectmemory.BrainIndexChunkArg, 0, len(paths))
+	for _, docPath := range paths {
+		if brain.IsOperationalDocument(docPath) {
+			continue
+		}
+		content, err := backend.ReadDocument(ctx, docPath)
+		if err != nil {
+			return nil, fmt.Errorf("brain index: read document %s for Shunter chunk state: %w", docPath, err)
+		}
+		doc, err := brainparser.ParseDocument(docPath, content)
+		if err != nil {
+			return nil, fmt.Errorf("brain index: parse document %s for Shunter chunk state: %w", docPath, err)
+		}
+		for _, chunk := range brainchunks.BuildDocument(doc) {
+			metadataJSON, err := encodeBrainIndexChunkMetadata(chunk)
+			if err != nil {
+				return nil, fmt.Errorf("brain index: encode chunk metadata for %s: %w", chunk.ID, err)
+			}
+			chunks = append(chunks, projectmemory.BrainIndexChunkArg{
+				ChunkID:        chunk.ID,
+				DocumentPath:   chunk.DocumentPath,
+				DocumentHash:   chunk.DocumentContentHash,
+				ChunkHash:      codeintel.ContentHash(chunk.Text),
+				EmbeddingModel: embeddingModel,
+				MetadataJSON:   metadataJSON,
+			})
+		}
+	}
+	return chunks, nil
+}
+
+func encodeBrainIndexChunkMetadata(chunk brainchunks.Chunk) (string, error) {
+	metadata := brainIndexChunkMetadata{
+		LineStart:      chunk.LineStart,
+		LineEnd:        chunk.LineEnd,
+		SectionHeading: strings.TrimSpace(chunk.SectionHeading),
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func previousShunterBrainIndexPaths(ctx context.Context, backend brain.Backend) ([]string, error) {

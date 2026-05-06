@@ -31,6 +31,11 @@ type SaveLaunchPresetArgs struct {
 	UpdatedAtUS      uint64 `json:"updated_at_us"`
 }
 
+type DeleteLaunchArgs struct {
+	ProjectID string `json:"project_id"`
+	LaunchID  string `json:"launch_id"`
+}
+
 func saveLaunchReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
 	var args SaveLaunchArgs
 	if err := decodeReducerArgs(raw, &args); err != nil {
@@ -122,6 +127,30 @@ func saveLaunchPresetReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, er
 			return nil, err
 		}
 	} else if _, err := ctx.DB.Insert(uint32(tableLaunchPresets), row); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: id})
+}
+
+func deleteLaunchReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args DeleteLaunchArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	projectID := strings.TrimSpace(args.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("launch project id is required")
+	}
+	launchID := strings.TrimSpace(args.LaunchID)
+	if launchID == "" {
+		return nil, fmt.Errorf("launch id is required")
+	}
+	id := ProjectLaunchID(projectID, launchID)
+	rowID, _, found := findLaunchByID(ctx.DB, id)
+	if !found {
+		return encodeReducerResult(reducerResult{OperationID: id})
+	}
+	if err := ctx.DB.Delete(uint32(tableLaunches), rowID); err != nil {
 		return nil, err
 	}
 	return encodeReducerResult(reducerResult{OperationID: id})
