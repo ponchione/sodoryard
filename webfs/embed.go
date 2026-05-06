@@ -1,12 +1,8 @@
 // Package webfs provides the embedded frontend filesystem.
 //
-// The go:embed directive references web/dist/ relative to the project root.
-// Since this package sits at <root>/webfs/, the path is ../web/dist — but
-// go:embed does not support ".." paths. Instead, we place a symlink or use
-// the Makefile to copy web/dist/ into webfs/dist/ before go build.
-//
-// Alternative approach: this file is at the project root level, so we can
-// use a relative path directly.
+// make build copies web/dist into webfs/dist before compiling the binaries.
+// A tracked placeholder keeps this package buildable before frontend assets
+// have been generated.
 package webfs
 
 import (

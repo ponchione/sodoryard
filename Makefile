@@ -1,8 +1,9 @@
 BIN_DIR             := bin
 WEB_DIR             := web
-WEBFS_DIST          := webfs/dist
 GO_TAGS             := sqlite_fts5
 GOFLAGS_DB          := -tags '$(GO_TAGS)'
+WEBFS_DIST          := webfs/dist
+GO_PACKAGES         = $$(go list $(GOFLAGS_DB) ./... | awk '$$0 !~ /\/web\/node_modules\//')
 LANCEDB_LIB_DIR     := $(CURDIR)/lib/linux_amd64
 LANCEDB_CGO_LDFLAGS := -L$(LANCEDB_LIB_DIR) -llancedb_go -lm -ldl -lpthread
 CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIBRARY_PATH="$(LANCEDB_LIB_DIR)"
@@ -40,7 +41,7 @@ install-user-bin:
 	bash ./scripts/install-user-bin.sh
 
 test:
-	$(CGO_TEST_ENV) go test $(GOFLAGS_DB) ./...
+	$(CGO_TEST_ENV) go test $(GOFLAGS_DB) $(GO_PACKAGES)
 
 # -- Development ------------------------------------------------------
 # Two-terminal workflow:
@@ -70,4 +71,5 @@ frontend-typecheck:
 clean:
 	rm -rf $(BIN_DIR)
 	rm -rf $(WEB_DIR)/dist
-	rm -rf $(WEBFS_DIST)
+	mkdir -p $(WEBFS_DIST)
+	find $(WEBFS_DIST) -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +
