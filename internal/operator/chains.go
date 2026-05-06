@@ -138,7 +138,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	attentionHealth := false
 
 	switch ch.Status {
-	case "completed":
+	case "completed", "dry_run":
 	case "failed", "cancelled":
 		failHealth = true
 		report.addWarning(fmt.Sprintf("chain status is %s", ch.Status))
@@ -302,7 +302,7 @@ func isActiveChainStatus(status string) bool {
 
 func isTerminalChainStatus(status string) bool {
 	switch status {
-	case "completed", "failed", "cancelled":
+	case "completed", "failed", "cancelled", "dry_run":
 		return true
 	default:
 		return false

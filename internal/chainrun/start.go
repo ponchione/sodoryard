@@ -41,6 +41,8 @@ const (
 const (
 	headlessExitSafetyLimit = 2
 	headlessExitEscalation  = 3
+	dryRunStatus            = "dry_run"
+	dryRunSummary           = "dry run: orchestrator not started"
 )
 
 type StepRunner interface {
@@ -158,7 +160,12 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 		opts.OnChainID(chainID)
 	}
 	if opts.DryRun {
-		return &Result{ChainID: chainID, Status: "running"}, nil
+		if isNew {
+			if err := markDryRunChain(ctx, rt.ChainStore, chainID); err != nil {
+				return nil, err
+			}
+		}
+		return &Result{ChainID: chainID, Status: dryRunStatus}, nil
 	}
 
 	executionRegistered := false
@@ -456,6 +463,9 @@ func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID s
 			return opts, false, false, err
 		}
 		resumed = existing.Status == "paused"
+		if opts.DryRun {
+			return opts, isNew, false, nil
+		}
 		if err := prepareExistingChainForExecution(ctx, store, existing); err != nil {
 			return opts, false, false, err
 		}
@@ -465,11 +475,27 @@ func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID s
 		return opts, false, false, err
 	}
 	payload := map[string]any{"specs": opts.SourceSpecs, "task": opts.SourceTask, "mode": string(opts.Mode)}
+	if opts.DryRun {
+		payload["dry_run"] = true
+	}
 	if len(opts.AllowedRoles) > 0 {
 		payload["allowed_roles"] = opts.AllowedRoles
 	}
 	_ = store.LogEvent(ctx, chainID, "", chain.EventChainStarted, payload)
 	return opts, isNew, resumed, nil
+}
+
+func markDryRunChain(ctx context.Context, store *chain.Store, chainID string) error {
+	summary := dryRunSummary
+	return chain.ApplyTerminalChainClosure(ctx, store, chainID, chain.TerminalChainClosure{
+		Status:    dryRunStatus,
+		EventType: chain.EventChainCompleted,
+		Summary:   &summary,
+		Extra: map[string]any{
+			"dry_run": true,
+			"summary": summary,
+		},
+	})
 }
 
 func resolveExistingChain(ctx context.Context, store *chain.Store, chainID string) (*chain.Chain, error) {

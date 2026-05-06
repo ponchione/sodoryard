@@ -397,6 +397,64 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	}
 }
 
+func TestStartDryRunMarksNewChainNonRunning(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"coder": {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			t.Fatalf("NewStepRunner called during dry run")
+			return nil
+		},
+		NewChainID: func() string { return "dry-run-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "preview only", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100, DryRun: true}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != dryRunStatus {
+		t.Fatalf("result status = %q, want %q", result.Status, dryRunStatus)
+	}
+	stored, err := store.GetChain(ctx, "dry-run-chain")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != dryRunStatus || stored.Summary != dryRunSummary || stored.CompletedAt == nil {
+		t.Fatalf("stored chain = %+v, want completed dry-run chain", stored)
+	}
+	steps, err := store.ListSteps(ctx, "dry-run-chain")
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %+v, want none for dry run", steps)
+	}
+	events, err := store.ListEvents(ctx, "dry-run-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %+v, want chain_started and chain_completed", events)
+	}
+	if !strings.Contains(events[0].EventData, `"dry_run":true`) || !strings.Contains(events[1].EventData, `"status":"dry_run"`) {
+		t.Fatalf("events = %+v, want dry-run payloads", events)
+	}
+	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false", exec, ok)
+	}
+}
+
 func TestStartOneStepMapsFixRequiredReceiptToPartialExit(t *testing.T) {
 	ctx := context.Background()
 	cfg := appconfig.Default()
