@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ponchione/sodoryard/internal/provider"
@@ -161,8 +162,40 @@ func TestBuildResponsesRequest_ToolResultMessage(t *testing.T) {
 	if item.CallID != "tc_1" {
 		t.Errorf("expected CallID %q, got %q", "tc_1", item.CallID)
 	}
-	if item.Output != "package auth..." {
-		t.Errorf("expected Output %q, got %q", "package auth...", item.Output)
+	if item.Output == nil || *item.Output != "package auth..." {
+		t.Errorf("expected Output %q, got %#v", "package auth...", item.Output)
+	}
+}
+
+func TestBuildResponsesRequest_EmptyToolResultIncludesOutputField(t *testing.T) {
+	req := &provider.Request{
+		Messages: []provider.Message{
+			provider.NewToolResultMessage("tc_empty", "shell", ""),
+		},
+	}
+	rr := buildResponsesRequest("o3", req, false)
+
+	if len(rr.Input) != 1 {
+		t.Fatalf("expected 1 input item, got %d", len(rr.Input))
+	}
+	item := rr.Input[0]
+	if item.Type != "function_call_output" {
+		t.Fatalf("expected type %q, got %q", "function_call_output", item.Type)
+	}
+	if item.Output == nil || *item.Output != "" {
+		t.Fatalf("expected empty output pointer, got %#v", item.Output)
+	}
+
+	data, err := json.Marshal(rr)
+	if err != nil {
+		t.Fatalf("marshal responses request: %v", err)
+	}
+	if !json.Valid(data) {
+		t.Fatalf("marshaled request is invalid JSON: %s", string(data))
+	}
+	body := string(data)
+	if !strings.Contains(body, `"type":"function_call_output"`) || !strings.Contains(body, `"call_id":"tc_empty"`) || !strings.Contains(body, `"output":""`) {
+		t.Fatalf("marshaled request missing required empty output field: %s", string(data))
 	}
 }
 

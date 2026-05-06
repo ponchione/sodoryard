@@ -557,6 +557,9 @@ func TestSpawnAgentFailsWhenReceiptMissing(t *testing.T) {
 	if len(steps) != 1 || steps[0].Status != "failed" {
 		t.Fatalf("unexpected failed step: %+v", steps)
 	}
+	if steps[0].ReceiptPath != "receipts/coder/"+chainID+"-step-001.md" {
+		t.Fatalf("ReceiptPath = %q, want synthetic safety receipt path", steps[0].ReceiptPath)
+	}
 	safetyReceipt := backend.docs["receipts/coder/"+chainID+"-step-001.md"]
 	if !strings.Contains(safetyReceipt, "verdict: safety_limit") || !strings.Contains(safetyReceipt, "missing receipt") {
 		t.Fatalf("safety receipt = %q, want safety_limit receipt explaining missing receipt", safetyReceipt)

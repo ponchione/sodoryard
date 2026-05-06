@@ -39,7 +39,7 @@ type responsesInput struct {
 	CallID           string                           `json:"call_id,omitempty"`
 	Name             string                           `json:"name,omitempty"`
 	Arguments        string                           `json:"arguments,omitempty"`
-	Output           string                           `json:"output,omitempty"`
+	Output           *string                          `json:"output,omitempty"`
 	EncryptedContent string                           `json:"encrypted_content,omitempty"`
 	Summary          []provider.ReasoningSummaryBlock `json:"summary,omitempty"`
 }
@@ -152,7 +152,7 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 			rr.Input = append(rr.Input, responsesInput{
 				Type:   "function_call_output",
 				CallID: msg.ToolUseID,
-				Output: text,
+				Output: stringPtr(text),
 			})
 		}
 	}
@@ -177,4 +177,8 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 	rr.Include = []string{"reasoning.encrypted_content"}
 
 	return rr
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
