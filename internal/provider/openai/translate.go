@@ -54,10 +54,7 @@ type chatFunction struct {
 // buildChatRequest translates a unified Request into the OpenAI chat
 // completions request body. The model parameter comes from the provider config.
 func buildChatRequest(model string, req *provider.Request, stream bool) chatRequest {
-	cr := chatRequest{
-		Model:  model,
-		Stream: stream,
-	}
+	cr := chatRequest{Model: model, Stream: stream}
 
 	// Temperature.
 	if req.Temperature != nil {
@@ -86,14 +83,9 @@ func buildChatRequest(model string, req *provider.Request, stream bool) chatRequ
 	for _, msg := range req.Messages {
 		switch msg.Role {
 		case provider.RoleUser:
-			var text string
-			if err := json.Unmarshal(msg.Content, &text); err != nil {
-				// Fallback: use raw content as string.
-				text = string(msg.Content)
-			}
 			cr.Messages = append(cr.Messages, chatMessage{
 				Role:    "user",
-				Content: text,
+				Content: rawContentText(msg.Content),
 			})
 
 		case provider.RoleAssistant:
@@ -101,13 +93,7 @@ func buildChatRequest(model string, req *provider.Request, stream bool) chatRequ
 			// Parse content blocks from the assistant message.
 			blocks, err := provider.ContentBlocksFromRaw(msg.Content)
 			if err != nil {
-				// Fallback: try to unmarshal as plain string.
-				var text string
-				if err2 := json.Unmarshal(msg.Content, &text); err2 == nil {
-					cm.Content = text
-				} else {
-					cm.Content = string(msg.Content)
-				}
+				cm.Content = rawContentText(msg.Content)
 			} else {
 				var textParts []string
 				for _, block := range blocks {
@@ -132,14 +118,10 @@ func buildChatRequest(model string, req *provider.Request, stream bool) chatRequ
 			cr.Messages = append(cr.Messages, cm)
 
 		case provider.RoleTool:
-			var text string
-			if err := json.Unmarshal(msg.Content, &text); err != nil {
-				text = string(msg.Content)
-			}
 			cr.Messages = append(cr.Messages, chatMessage{
 				Role:       "tool",
 				ToolCallID: msg.ToolUseID,
-				Content:    text,
+				Content:    rawContentText(msg.Content),
 			})
 		}
 	}
@@ -160,4 +142,12 @@ func buildChatRequest(model string, req *provider.Request, stream bool) chatRequ
 	}
 
 	return cr
+}
+
+func rawContentText(raw json.RawMessage) string {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	return string(raw)
 }

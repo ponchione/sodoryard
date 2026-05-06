@@ -3,6 +3,7 @@ package localservices
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	appconfig "github.com/ponchione/sodoryard/internal/config"
@@ -95,20 +96,11 @@ func NewManagerWithDeps(runner CommandRunner, client HealthHTTPClient, sleep sle
 	return &Manager{runner: runner, client: client, sleep: sleep}
 }
 
-func RequiredServiceNames(cfg appconfig.LocalServicesConfig) []string {
-	names := make([]string, 0, len(cfg.Services))
-	for name, service := range cfg.Services {
-		if service.Required {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
 func ConfiguredServiceNames(cfg appconfig.LocalServicesConfig) []string {
 	names := make([]string, 0, len(cfg.Services))
 	for name := range cfg.Services {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }

@@ -279,15 +279,7 @@ func (s *Store) ListChains(ctx context.Context, limit int) ([]Chain, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list chains: %w", err)
 	}
-	chains := make([]Chain, 0, len(rows))
-	for _, row := range rows {
-		mapped, err := mapChain(row)
-		if err != nil {
-			return nil, fmt.Errorf("list chains: %w", err)
-		}
-		chains = append(chains, mapped)
-	}
-	return chains, nil
+	return mapRows(rows, "list chains", mapChain)
 }
 
 func (s *Store) GetStep(ctx context.Context, stepID string) (*Step, error) {
@@ -313,15 +305,7 @@ func (s *Store) ListSteps(ctx context.Context, chainID string) ([]Step, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list steps: %w", err)
 	}
-	steps := make([]Step, 0, len(rows))
-	for _, row := range rows {
-		mapped, err := mapStep(row)
-		if err != nil {
-			return nil, fmt.Errorf("list steps: %w", err)
-		}
-		steps = append(steps, mapped)
-	}
-	return steps, nil
+	return mapRows(rows, "list steps", mapStep)
 }
 
 func (s *Store) SetChainStatus(ctx context.Context, chainID, status string) error {
@@ -353,15 +337,19 @@ func (s *Store) ListEvents(ctx context.Context, chainID string) ([]Event, error)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
-	events := make([]Event, 0, len(rows))
+	return mapRows(rows, "list events", mapEvent)
+}
+
+func mapRows[In any, Out any](rows []In, label string, mapper func(In) (Out, error)) ([]Out, error) {
+	mapped := make([]Out, 0, len(rows))
 	for _, row := range rows {
-		mapped, err := mapEvent(row)
+		value, err := mapper(row)
 		if err != nil {
-			return nil, fmt.Errorf("list events: %w", err)
+			return nil, fmt.Errorf("%s: %w", label, err)
 		}
-		events = append(events, mapped)
+		mapped = append(mapped, value)
 	}
-	return events, nil
+	return mapped, nil
 }
 
 func mapChain(row appdb.Chain) (Chain, error) {

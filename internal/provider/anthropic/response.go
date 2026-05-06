@@ -42,6 +42,15 @@ type apiUsage struct {
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
+func (u apiUsage) toProviderUsage() provider.Usage {
+	return provider.Usage{
+		InputTokens:         u.InputTokens,
+		OutputTokens:        u.OutputTokens,
+		CacheReadTokens:     u.CacheReadInputTokens,
+		CacheCreationTokens: u.CacheCreationInputTokens,
+	}
+}
+
 // Complete executes a non-streaming LLM call to the Anthropic Messages API.
 func (p *AnthropicProvider) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
 	start := time.Now()
@@ -118,22 +127,11 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req *provider.Request)
 		}
 	}
 
-	// Map stop reason.
-	stopReason := mapStopReason(apiResp.StopReason)
-
-	// Map usage.
-	usage := provider.Usage{
-		InputTokens:         apiResp.Usage.InputTokens,
-		OutputTokens:        apiResp.Usage.OutputTokens,
-		CacheReadTokens:     apiResp.Usage.CacheReadInputTokens,
-		CacheCreationTokens: apiResp.Usage.CacheCreationInputTokens,
-	}
-
 	return &provider.Response{
 		Content:    contentBlocks,
-		Usage:      usage,
+		Usage:      apiResp.Usage.toProviderUsage(),
 		Model:      apiResp.Model,
-		StopReason: stopReason,
+		StopReason: mapStopReason(apiResp.StopReason),
 		LatencyMs:  latencyMs,
 	}, nil
 }

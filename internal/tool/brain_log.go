@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
+	"github.com/ponchione/sodoryard/internal/config"
 )
 
 type BrainLogEntry struct {
@@ -51,4 +53,36 @@ func appendBrainLog(ctx context.Context, backend brain.Backend, entry BrainLogEn
 		content = strings.TrimRight(existing, "\n") + "\n\n" + addition
 	}
 	return backend.WriteDocument(ctx, "_log.md", content)
+}
+
+func appendBrainOperationLog(ctx context.Context, backend brain.Backend, operation string, target string, summary string) error {
+	return appendBrainLog(ctx, backend, BrainLogEntry{
+		Timestamp: time.Now().UTC(),
+		Operation: operation,
+		Target:    target,
+		Summary:   summary,
+		Session:   sessionIDFromContext(ctx),
+	})
+}
+
+func finishBrainMutation(ctx context.Context, backend brain.Backend, cfg config.BrainConfig, projectRoot string, staleReason string, completedVerb string, operation string, target string, summary string) *ToolResult {
+	if cfg.Backend != "shunter" {
+		if err := brainindexstate.MarkStale(projectRoot, staleReason, time.Now().UTC()); err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: fmt.Sprintf("Brain document %s but failed to record stale brain index state: %v", completedVerb, err),
+				Error:   err.Error(),
+			}
+		}
+	}
+	if cfg.LogBrainOperations {
+		if err := appendBrainOperationLog(ctx, backend, operation, target, summary); err != nil {
+			return &ToolResult{
+				Success: false,
+				Content: fmt.Sprintf("Brain document %s but failed to append operation log: %v", completedVerb, err),
+				Error:   err.Error(),
+			}
+		}
+	}
+	return nil
 }

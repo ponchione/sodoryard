@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/config"
@@ -347,11 +346,5 @@ func (b *BrainSearch) appendQueryLog(ctx context.Context, query string, resultCo
 		return nil
 	}
 	summary := fmt.Sprintf("Returned %d %s via keyword search.", resultCount, pluralizeBrainSearchResults(resultCount))
-	return appendBrainLog(ctx, b.client, BrainLogEntry{
-		Timestamp: time.Now().UTC(),
-		Operation: "query",
-		Target:    strings.Join(strings.Fields(query), " "),
-		Summary:   summary,
-		Session:   sessionIDFromContext(ctx),
-	})
+	return appendBrainOperationLog(ctx, b.client, "query", strings.Join(strings.Fields(query), " "), summary)
 }

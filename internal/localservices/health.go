@@ -53,34 +53,20 @@ func ProbeService(ctx context.Context, client HealthHTTPClient, name string, ser
 }
 
 func requireHTTP200(ctx context.Context, client HealthHTTPClient, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := doHTTP200(ctx, client, url, "health")
 	if err != nil {
-		return fmt.Errorf("build health request: %w", err)
+		return err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("health endpoint not reachable: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health endpoint returned HTTP %d", resp.StatusCode)
-	}
+	resp.Body.Close()
 	return nil
 }
 
 func requireModelsEndpoint(ctx context.Context, client HealthHTTPClient, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := doHTTP200(ctx, client, url, "models")
 	if err != nil {
-		return fmt.Errorf("build models request: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("models endpoint not reachable: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("models endpoint returned HTTP %d", resp.StatusCode)
-	}
 	var models modelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&models); err != nil {
 		return fmt.Errorf("decode models response: %w", err)
@@ -89,4 +75,20 @@ func requireModelsEndpoint(ctx context.Context, client HealthHTTPClient, url str
 		return fmt.Errorf("models endpoint returned no models")
 	}
 	return nil
+}
+
+func doHTTP200(ctx context.Context, client HealthHTTPClient, url string, kind string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build %s request: %w", kind, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s endpoint not reachable: %w", kind, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%s endpoint returned HTTP %d", kind, resp.StatusCode)
+	}
+	return resp, nil
 }

@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
-	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/config"
 )
 
@@ -77,10 +75,8 @@ func (b *BrainUpdate) Execute(ctx context.Context, projectRoot string, input jso
 		return invalidInputResult(err), nil
 	}
 
-	if result := validateBrainPath(params.Path); result != nil {
-		return result, nil
-	}
-	if result := validateBrainContent(params.Content); result != nil {
+	normalizedPath, result := validateBrainMutationInput(b.config, params.Path, params.Content)
+	if result != nil {
 		return result, nil
 	}
 
@@ -95,14 +91,6 @@ func (b *BrainUpdate) Execute(ctx context.Context, projectRoot string, input jso
 		}, nil
 	}
 
-	normalizedPath, err := ensureBrainWriteAllowed(b.config, params.Path)
-	if err != nil {
-		return &ToolResult{
-			Success: false,
-			Content: fmt.Sprintf("Invalid brain write path: %v", err),
-			Error:   err.Error(),
-		}, nil
-	}
 	params.Path = normalizedPath
 
 	patchContent := params.Content
@@ -158,30 +146,9 @@ func (b *BrainUpdate) Execute(ctx context.Context, projectRoot string, input jso
 			Error:   err.Error(),
 		}, nil
 	}
-	if b.config.Backend != "shunter" {
-		if err := brainindexstate.MarkStale(projectRoot, "brain_update", time.Now().UTC()); err != nil {
-			return &ToolResult{
-				Success: false,
-				Content: fmt.Sprintf("Brain document updated but failed to record stale brain index state: %v", err),
-				Error:   err.Error(),
-			}, nil
-		}
-	}
 
-	if b.config.LogBrainOperations {
-		if err := appendBrainLog(ctx, b.client, BrainLogEntry{
-			Timestamp: time.Now().UTC(),
-			Operation: "update",
-			Target:    params.Path,
-			Summary:   fmt.Sprintf("Updated brain document via %s.", params.Operation),
-			Session:   sessionIDFromContext(ctx),
-		}); err != nil {
-			return &ToolResult{
-				Success: false,
-				Content: fmt.Sprintf("Brain document updated but failed to append operation log: %v", err),
-				Error:   err.Error(),
-			}, nil
-		}
+	if result := finishBrainMutation(ctx, b.client, b.config, projectRoot, "brain_update", "updated", "update", params.Path, fmt.Sprintf("Updated brain document via %s.", params.Operation)); result != nil {
+		return result, nil
 	}
 
 	return &ToolResult{

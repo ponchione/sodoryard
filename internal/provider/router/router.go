@@ -198,55 +198,48 @@ func (r *Router) ProviderHealthMap() map[string]*ProviderHealth {
 // Complete routes a completion request to the appropriate provider based on
 // per-request override and default configuration.
 func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
-	target, targetName, err := r.resolveTarget(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	callReq := cloneRequestWithModel(req, r.resolvedModel(req, targetName))
-	resp, callErr := target.Complete(ctx, callReq)
-
-	if callErr == nil {
-		r.markSuccess(targetName)
-		return resp, nil
-	}
-
-	r.markFailure(targetName, callErr)
-
-	switch classifyError(callErr) {
-	case errorClassAuth:
-		return nil, wrapAuthError(targetName, callErr)
-	case errorClassRetriable:
-		return r.completeWithFallback(ctx, req, targetName, callErr)
-	}
-	return nil, callErr
+	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (*provider.Response, error) {
+		return p.Complete(ctx, callReq)
+	})
 }
 
 // Stream routes a streaming request to the appropriate provider based on
 // per-request override and default configuration.
 func (r *Router) Stream(ctx context.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (<-chan provider.StreamEvent, error) {
+		return p.Stream(ctx, callReq)
+	})
+}
+
+func routeCall[T any](
+	r *Router,
+	ctx context.Context,
+	req *provider.Request,
+	call func(provider.Provider, *provider.Request) (T, error),
+) (T, error) {
+	var zero T
 	target, targetName, err := r.resolveTarget(ctx, req)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	callReq := cloneRequestWithModel(req, r.resolvedModel(req, targetName))
-	ch, callErr := target.Stream(ctx, callReq)
+	result, callErr := call(target, callReq)
 
 	if callErr == nil {
 		r.markSuccess(targetName)
-		return ch, nil
+		return result, nil
 	}
 
 	r.markFailure(targetName, callErr)
 
 	switch classifyError(callErr) {
 	case errorClassAuth:
-		return nil, wrapAuthError(targetName, callErr)
+		return zero, wrapAuthError(targetName, callErr)
 	case errorClassRetriable:
-		return r.streamWithFallback(ctx, req, targetName, callErr)
+		return runWithFallback(r, req, targetName, callErr, call)
 	}
-	return nil, callErr
+	return zero, callErr
 }
 
 // Models aggregates models from all registered providers. If a provider's
@@ -402,18 +395,6 @@ func (r *Router) fallbackTarget(primaryProvider string) (provider.Provider, stri
 	}
 
 	return p, fallback.Provider, fallback.Model, true
-}
-
-func (r *Router) completeWithFallback(ctx context.Context, req *provider.Request, primaryProvider string, primaryErr error) (*provider.Response, error) {
-	return runWithFallback(r, req, primaryProvider, primaryErr, func(p provider.Provider, callReq *provider.Request) (*provider.Response, error) {
-		return p.Complete(ctx, callReq)
-	})
-}
-
-func (r *Router) streamWithFallback(ctx context.Context, req *provider.Request, primaryProvider string, primaryErr error) (<-chan provider.StreamEvent, error) {
-	return runWithFallback(r, req, primaryProvider, primaryErr, func(p provider.Provider, callReq *provider.Request) (<-chan provider.StreamEvent, error) {
-		return p.Stream(ctx, callReq)
-	})
 }
 
 func runWithFallback[T any](

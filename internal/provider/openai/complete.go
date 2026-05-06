@@ -36,6 +36,13 @@ type chatUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+func (u chatUsage) toProviderUsage() provider.Usage {
+	return provider.Usage{
+		InputTokens:  u.PromptTokens,
+		OutputTokens: u.CompletionTokens,
+	}
+}
+
 const maxRetryAttempts = 3
 
 // Complete sends a non-streaming chat completion request and returns
@@ -144,22 +151,11 @@ func translateResponse(name string, resp *chatResponse) (*provider.Response, err
 		))
 	}
 
-	// Map finish reason.
-	stopReason := mapFinishReason(choice.FinishReason)
-
-	// Map usage.
-	usage := provider.Usage{
-		InputTokens:         resp.Usage.PromptTokens,
-		OutputTokens:        resp.Usage.CompletionTokens,
-		CacheReadTokens:     0,
-		CacheCreationTokens: 0,
-	}
-
 	return &provider.Response{
 		Content:    content,
-		Usage:      usage,
+		Usage:      resp.Usage.toProviderUsage(),
 		Model:      resp.Model,
-		StopReason: stopReason,
+		StopReason: mapFinishReason(choice.FinishReason),
 	}, nil
 }
 

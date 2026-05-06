@@ -132,13 +132,7 @@ func (b *BrainLint) Execute(ctx context.Context, projectRoot string, input json.
 			summaryParts = append(summaryParts, fmt.Sprintf("%d contradictions across %d examined pairs", report.Summary.Contradictions, report.Summary.ContradictionPairsExamined))
 		}
 		summary := "Found " + strings.Join(summaryParts, ", ") + "."
-		if err := appendBrainLog(ctx, b.client, BrainLogEntry{
-			Timestamp: time.Now().UTC(),
-			Operation: "lint",
-			Target:    params.Scope,
-			Summary:   summary,
-			Session:   sessionIDFromContext(ctx),
-		}); err != nil {
+		if err := appendBrainOperationLog(ctx, b.client, "lint", params.Scope, summary); err != nil {
 			return &ToolResult{Success: false, Content: fmt.Sprintf("Lint completed but failed to append operation log: %v", err), Error: err.Error()}, nil
 		}
 	}

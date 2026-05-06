@@ -55,13 +55,5 @@ func (s *Store) ListEventsSince(ctx context.Context, chainID string, afterID int
 	if err != nil {
 		return nil, fmt.Errorf("list events since: %w", err)
 	}
-	events := make([]Event, 0, len(rows))
-	for _, row := range rows {
-		mapped, err := mapEvent(row)
-		if err != nil {
-			return nil, fmt.Errorf("list events since: %w", err)
-		}
-		events = append(events, mapped)
-	}
-	return events, nil
+	return mapRows(rows, "list events since", mapEvent)
 }

@@ -133,33 +133,15 @@ func (p *AnthropicProvider) handleSSEData(
 	switch eventType {
 	case "message_start":
 		var msg sseMessageStart
-		if err := json.Unmarshal(data, &msg); err != nil {
-			provider.SendStreamEvent(ctx, ch, provider.StreamError{
-				Err:     err,
-				Fatal:   false,
-				Message: fmt.Sprintf("failed to parse SSE event: message_start: %s", err),
-			})
+		if !decodeSSEEvent(ctx, ch, eventType, data, &msg) {
 			return
 		}
-		finalUsage.InputTokens = msg.Message.Usage.InputTokens
-		finalUsage.CacheReadTokens = msg.Message.Usage.CacheReadInputTokens
-		finalUsage.CacheCreationTokens = msg.Message.Usage.CacheCreationInputTokens
-		provider.SendStreamEvent(ctx, ch, provider.StreamUsage{
-			Usage: provider.Usage{
-				InputTokens:         msg.Message.Usage.InputTokens,
-				CacheReadTokens:     msg.Message.Usage.CacheReadInputTokens,
-				CacheCreationTokens: msg.Message.Usage.CacheCreationInputTokens,
-			},
-		})
+		*finalUsage = msg.Message.Usage.toProviderUsage()
+		provider.SendStreamEvent(ctx, ch, provider.StreamUsage{Usage: *finalUsage})
 
 	case "content_block_start":
 		var cbs sseContentBlockStart
-		if err := json.Unmarshal(data, &cbs); err != nil {
-			provider.SendStreamEvent(ctx, ch, provider.StreamError{
-				Err:     err,
-				Fatal:   false,
-				Message: fmt.Sprintf("failed to parse SSE event: content_block_start: %s", err),
-			})
+		if !decodeSSEEvent(ctx, ch, eventType, data, &cbs) {
 			return
 		}
 		ab := activeBlock{
@@ -177,12 +159,7 @@ func (p *AnthropicProvider) handleSSEData(
 
 	case "content_block_delta":
 		var cbd sseContentBlockDelta
-		if err := json.Unmarshal(data, &cbd); err != nil {
-			provider.SendStreamEvent(ctx, ch, provider.StreamError{
-				Err:     err,
-				Fatal:   false,
-				Message: fmt.Sprintf("failed to parse SSE event: content_block_delta: %s", err),
-			})
+		if !decodeSSEEvent(ctx, ch, eventType, data, &cbd) {
 			return
 		}
 		ab, ok := state.activeBlocks[cbd.Index]
@@ -209,12 +186,7 @@ func (p *AnthropicProvider) handleSSEData(
 
 	case "content_block_stop":
 		var cbs sseContentBlockStop
-		if err := json.Unmarshal(data, &cbs); err != nil {
-			provider.SendStreamEvent(ctx, ch, provider.StreamError{
-				Err:     err,
-				Fatal:   false,
-				Message: fmt.Sprintf("failed to parse SSE event: content_block_stop: %s", err),
-			})
+		if !decodeSSEEvent(ctx, ch, eventType, data, &cbs) {
 			return
 		}
 		ab, ok := state.activeBlocks[cbs.Index]
@@ -228,12 +200,7 @@ func (p *AnthropicProvider) handleSSEData(
 
 	case "message_delta":
 		var md sseMessageDelta
-		if err := json.Unmarshal(data, &md); err != nil {
-			provider.SendStreamEvent(ctx, ch, provider.StreamError{
-				Err:     err,
-				Fatal:   false,
-				Message: fmt.Sprintf("failed to parse SSE event: message_delta: %s", err),
-			})
+		if !decodeSSEEvent(ctx, ch, eventType, data, &md) {
 			return
 		}
 		*stopReason = md.Delta.StopReason
@@ -245,4 +212,16 @@ func (p *AnthropicProvider) handleSSEData(
 			Usage:      *finalUsage,
 		})
 	}
+}
+
+func decodeSSEEvent(ctx context.Context, ch chan<- provider.StreamEvent, eventType string, data []byte, target any) bool {
+	if err := json.Unmarshal(data, target); err != nil {
+		provider.SendStreamEvent(ctx, ch, provider.StreamError{
+			Err:     err,
+			Fatal:   false,
+			Message: fmt.Sprintf("failed to parse SSE event: %s: %s", eventType, err),
+		})
+		return false
+	}
+	return true
 }

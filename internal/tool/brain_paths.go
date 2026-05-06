@@ -31,10 +31,6 @@ func normalizeBrainDocumentPath(raw string) (string, error) {
 	return cleaned, nil
 }
 
-func ensureBrainWriteAllowed(cfg config.BrainConfig, rawPath string) (string, error) {
-	return ValidateBrainWritePath(cfg, rawPath)
-}
-
 func ValidateBrainWritePath(cfg config.BrainConfig, rawPath string) (string, error) {
 	normalizedPath, err := normalizeBrainDocumentPath(rawPath)
 	if err != nil {

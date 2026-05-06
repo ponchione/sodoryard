@@ -154,15 +154,7 @@ func (b projectMemoryBackend) ListChains(ctx context.Context, limit int) ([]Chai
 	if err != nil {
 		return nil, fmt.Errorf("list chains: %w", err)
 	}
-	chains := make([]Chain, 0, len(rows))
-	for _, row := range rows {
-		mapped, err := mapProjectMemoryChain(row)
-		if err != nil {
-			return nil, fmt.Errorf("list chains: %w", err)
-		}
-		chains = append(chains, mapped)
-	}
-	return chains, nil
+	return mapRows(rows, "list chains", mapProjectMemoryChain)
 }
 
 func (b projectMemoryBackend) GetStep(ctx context.Context, stepID string) (*Step, error) {

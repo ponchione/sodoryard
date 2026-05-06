@@ -134,16 +134,7 @@ func (p *OpenAIProvider) handleStreamPayload(ctx context.Context, payload string
 	}
 
 	if len(chunk.Choices) == 0 {
-		if chunk.Usage != nil {
-			provider.SendStreamEvent(ctx, ch, provider.StreamUsage{
-				Usage: provider.Usage{
-					InputTokens:         chunk.Usage.PromptTokens,
-					OutputTokens:        chunk.Usage.CompletionTokens,
-					CacheReadTokens:     0,
-					CacheCreationTokens: 0,
-				},
-			})
-		}
+		emitStreamUsage(ctx, ch, chunk.Usage)
 		return
 	}
 
@@ -176,15 +167,12 @@ func (p *OpenAIProvider) handleStreamPayload(ctx context.Context, payload string
 		provider.SendStreamEvent(ctx, ch, provider.StreamDone{StopReason: mapFinishReason(reason)})
 	}
 
-	if chunk.Usage != nil {
-		provider.SendStreamEvent(ctx, ch, provider.StreamUsage{
-			Usage: provider.Usage{
-				InputTokens:         chunk.Usage.PromptTokens,
-				OutputTokens:        chunk.Usage.CompletionTokens,
-				CacheReadTokens:     0,
-				CacheCreationTokens: 0,
-			},
-		})
+	emitStreamUsage(ctx, ch, chunk.Usage)
+}
+
+func emitStreamUsage(ctx context.Context, ch chan<- provider.StreamEvent, usage *chatUsage) {
+	if usage != nil {
+		provider.SendStreamEvent(ctx, ch, provider.StreamUsage{Usage: usage.toProviderUsage()})
 	}
 }
 
