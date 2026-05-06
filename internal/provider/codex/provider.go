@@ -13,12 +13,13 @@ import (
 // CodexProvider implements the unified Provider interface for OpenAI's
 // Responses API using Yard-owned Codex OAuth credentials.
 type CodexProvider struct {
-	httpClient   *http.Client
-	baseURL      string       // default: "https://chatgpt.com/backend-api/codex"
-	mu           sync.RWMutex // guards cachedToken and tokenExpiry
-	cachedToken  string
-	tokenExpiry  time.Time
-	codexBinPath string // optional path used only by model discovery helpers/tests
+	httpClient      *http.Client
+	baseURL         string       // default: "https://chatgpt.com/backend-api/codex"
+	reasoningEffort string       // default: defaultCodexReasoningEffort
+	mu              sync.RWMutex // guards cachedToken and tokenExpiry
+	cachedToken     string
+	tokenExpiry     time.Time
+	codexBinPath    string // optional path used only by model discovery helpers/tests
 }
 
 // ProviderOption is a functional option for configuring CodexProvider.
@@ -39,12 +40,20 @@ func WithBaseURL(url string) ProviderOption {
 	}
 }
 
+// WithReasoningEffort sets the Responses API reasoning effort for Codex calls.
+func WithReasoningEffort(effort string) ProviderOption {
+	return func(p *CodexProvider) {
+		p.reasoningEffort = normalizeCodexReasoningEffort(effort)
+	}
+}
+
 // NewCodexProvider creates a new CodexProvider after verifying that the codex
 // provider can reach the configured Responses endpoint at call time.
 func NewCodexProvider(opts ...ProviderOption) (*CodexProvider, error) {
 	p := &CodexProvider{
-		baseURL:    "https://chatgpt.com/backend-api/codex",
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		baseURL:         "https://chatgpt.com/backend-api/codex",
+		reasoningEffort: defaultCodexReasoningEffort,
+		httpClient:      &http.Client{Timeout: 120 * time.Second},
 	}
 
 	for _, opt := range opts {
@@ -52,6 +61,13 @@ func NewCodexProvider(opts ...ProviderOption) (*CodexProvider, error) {
 	}
 
 	return p, nil
+}
+
+func (p *CodexProvider) configuredReasoningEffort() string {
+	if p == nil {
+		return defaultCodexReasoningEffort
+	}
+	return normalizeCodexReasoningEffort(p.reasoningEffort)
 }
 
 // Name returns the provider name.

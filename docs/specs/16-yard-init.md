@@ -133,11 +133,12 @@ providers:
   codex:
     type: codex
     model: gpt-5.5
+    reasoning_effort: medium
 ```
 
 **Why:** codex is the path that worked on the maintainer's host when this spec was written (verified by the Phase 3 `phase3-smoke-1` smoke chain on 2026-04-11), uses the existing local Codex auth store, and requires no environment variable setup at the operator level. Anthropic was the previous default in `cmd/tidmouth/init.go` but currently failed its `Ping()` startup check on the same host with `Claude credentials file missing accessToken field`.
 
-`gpt-5.5` matches the runtime-pinned Codex daily-driver model so generated config, `/api/config`, and the actual request payload report the same model.
+`gpt-5.5` matches the runtime-pinned Codex daily-driver model so generated config, `/api/config`, and the actual request payload report the same model. `reasoning_effort: medium` keeps daily-driver dogfood runs bounded by default; operators can raise it for complex work.
 
 **Out of scope:** `yard init --provider <name>` flag, multi-provider seeding, or any first-run wizard. The operator edits `yard.yaml` after init if they want a different provider.
 

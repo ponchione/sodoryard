@@ -250,7 +250,7 @@ func (p *CodexProvider) Stream(ctx context.Context, req *provider.Request) (<-ch
 
 	model := codexRequestModel(req.Model)
 
-	apiReq := buildResponsesRequest(model, req, true)
+	apiReq := buildResponsesRequestWithReasoning(model, req, true, p.configuredReasoningEffort())
 	body, err := json.Marshal(apiReq)
 	if err != nil {
 		return nil, codexMarshalError(err)

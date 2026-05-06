@@ -24,6 +24,7 @@ func TestRunConfigPrintsResolvedSummary(t *testing.T) {
 		"config_path: " + configPath,
 		"default_provider: codex",
 		"default_model: gpt-5.5",
+		"default_reasoning_effort: medium",
 		"database_path: <unused in shunter mode>",
 		"brain_enabled: true",
 		"local_services_enabled: true",

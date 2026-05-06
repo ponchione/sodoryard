@@ -67,6 +67,25 @@ func TestWithBaseURL_TrimsTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestWithReasoningEffort_NormalizesConfiguredEffort(t *testing.T) {
+	p := &CodexProvider{}
+	WithReasoningEffort(" HIGH ")(p)
+
+	if got := p.configuredReasoningEffort(); got != "high" {
+		t.Fatalf("configuredReasoningEffort() = %q, want high", got)
+	}
+}
+
+func TestNewCodexProvider_DefaultReasoningEffort(t *testing.T) {
+	p, err := NewCodexProvider()
+	if err != nil {
+		t.Fatalf("NewCodexProvider() error = %v", err)
+	}
+	if got := p.configuredReasoningEffort(); got != "medium" {
+		t.Fatalf("configuredReasoningEffort() = %q, want medium", got)
+	}
+}
+
 func TestResponsesEndpointURL_DefaultCodexEndpoint(t *testing.T) {
 	p := &CodexProvider{baseURL: "https://chatgpt.com/backend-api/codex"}
 	if got := p.responsesEndpointURL(); got != "https://chatgpt.com/backend-api/codex/responses" {

@@ -78,7 +78,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req *provider.Request) (*p
 	model := codexRequestModel(req.Model)
 
 	streamResponse := p.usesChatGPTCodexEndpoint()
-	apiReq := buildResponsesRequest(model, req, streamResponse)
+	apiReq := buildResponsesRequestWithReasoning(model, req, streamResponse, p.configuredReasoningEffort())
 	body, err := json.Marshal(apiReq)
 	if err != nil {
 		return nil, codexMarshalError(err)

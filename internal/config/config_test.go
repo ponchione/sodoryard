@@ -56,8 +56,8 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Routing.Default.Model != "gpt-5.5" {
 		t.Fatalf("Routing.Default.Model = %q, want gpt-5.5", cfg.Routing.Default.Model)
 	}
-	if provider := cfg.Providers["codex"]; provider.Type != "codex" || provider.Model != "gpt-5.5" || provider.ContextLength != 400000 {
-		t.Fatalf("Providers[codex] = %#v, want codex/gpt-5.5/400000", provider)
+	if provider := cfg.Providers["codex"]; provider.Type != "codex" || provider.Model != "gpt-5.5" || provider.ReasoningEffort != "medium" || provider.ContextLength != 400000 {
+		t.Fatalf("Providers[codex] = %#v, want codex/gpt-5.5/medium/400000", provider)
 	}
 	if cfg.Agent.ShellTimeoutSeconds != 120 {
 		t.Fatalf("Agent.ShellTimeoutSeconds = %d, want 120", cfg.Agent.ShellTimeoutSeconds)
@@ -543,6 +543,11 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			name:       "unknown provider type",
 			yaml:       "project_root: \"" + projectRoot + "\"\nproviders:\n  anthropic:\n    type: mystery\n",
 			wantSubstr: "providers.anthropic.type=\"mystery\"",
+		},
+		{
+			name:       "invalid codex reasoning effort",
+			yaml:       "project_root: \"" + projectRoot + "\"\nproviders:\n  codex:\n    type: codex\n    reasoning_effort: extreme\n",
+			wantSubstr: "providers.codex.reasoning_effort=\"extreme\"",
 		},
 		{
 			name:       "fallback provider without model",

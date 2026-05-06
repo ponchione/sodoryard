@@ -234,7 +234,7 @@ func TestBuildResponsesRequest_ToolDefinitions(t *testing.T) {
 	}
 }
 
-func TestBuildResponsesRequest_ForcesGPT55AndXHighReasoning(t *testing.T) {
+func TestBuildResponsesRequest_ForcesGPT55AndDefaultReasoning(t *testing.T) {
 	req := &provider.Request{}
 	rr := buildResponsesRequest("o3", req, false)
 
@@ -244,14 +244,29 @@ func TestBuildResponsesRequest_ForcesGPT55AndXHighReasoning(t *testing.T) {
 	if rr.Reasoning == nil {
 		t.Fatal("expected reasoning config for forced gpt-5.5 model")
 	}
-	if rr.Reasoning.Effort != "xhigh" {
-		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
+	if rr.Reasoning.Effort != "medium" {
+		t.Errorf("expected effort %q, got %q", "medium", rr.Reasoning.Effort)
 	}
 	if rr.Reasoning.Summary != "auto" {
 		t.Errorf("expected summary %q, got %q", "auto", rr.Reasoning.Summary)
 	}
 	if len(rr.Include) != 1 || rr.Include[0] != "reasoning.encrypted_content" {
 		t.Fatalf("Include = %#v, want encrypted reasoning include", rr.Include)
+	}
+}
+
+func TestBuildResponsesRequest_UsesConfiguredReasoningEffort(t *testing.T) {
+	req := &provider.Request{}
+	rr := buildResponsesRequestWithReasoning("o3", req, false, "low")
+
+	if rr.Model != "gpt-5.5" {
+		t.Fatalf("expected model %q, got %q", "gpt-5.5", rr.Model)
+	}
+	if rr.Reasoning == nil {
+		t.Fatal("expected reasoning config")
+	}
+	if rr.Reasoning.Effort != "low" {
+		t.Errorf("expected effort %q, got %q", "low", rr.Reasoning.Effort)
 	}
 }
 
@@ -265,8 +280,8 @@ func TestBuildResponsesRequest_ForcesGPT55EvenWhenRequestedModelDiffers(t *testi
 	if rr.Reasoning == nil {
 		t.Fatal("expected reasoning config for forced gpt-5.5 model")
 	}
-	if rr.Reasoning.Effort != "xhigh" {
-		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
+	if rr.Reasoning.Effort != "medium" {
+		t.Errorf("expected effort %q, got %q", "medium", rr.Reasoning.Effort)
 	}
 }
 

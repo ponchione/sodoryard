@@ -119,7 +119,7 @@ A budget manager allocates tokens across these sources based on priority and the
 
 The provider router supports multiple LLM backends. `routing.default` selects the normal provider/model, and `routing.fallback` can be configured for retryable provider failures.
 
-- **Codex**: OpenAI Codex subscription integration with Yard-owned device-code OAuth auth. `yard init` currently seeds Codex as the default provider.
+- **Codex**: OpenAI Codex subscription integration with Yard-owned device-code OAuth auth. `yard init` currently seeds Codex as the default provider with `reasoning_effort: medium`; use `low`, `high`, or `xhigh` for unusually small or complex runs.
 - **Anthropic**: Claude models using `ANTHROPIC_API_KEY` or Claude OAuth credentials with token refresh.
 - **OpenAI-compatible**: APIs following the OpenAI chat-completions shape, including local services and third-party routers.
 

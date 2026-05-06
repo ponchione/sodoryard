@@ -38,6 +38,7 @@ providers:
   codex:
     type: codex
     model: gpt-5.5
+    reasoning_effort: medium
 
 index:
   include:

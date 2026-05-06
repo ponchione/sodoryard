@@ -30,6 +30,7 @@ const (
 	memoryBackendShunter        = "shunter"
 	brainBackendShunter         = "shunter"
 	memoryRPCTransportUnix      = "unix"
+	defaultCodexReasoningEffort = "medium"
 )
 
 // Canonical on-disk names for the yard state directory and its contents.
@@ -43,6 +44,7 @@ const (
 )
 
 var allowedProviderTypes = []string{"anthropic", "codex", "openai-compatible"}
+var allowedCodexReasoningEfforts = []string{"low", "medium", "high", "xhigh"}
 
 type Config struct {
 	ProjectRoot string `yaml:"project_root"`
@@ -121,12 +123,13 @@ type RouteConfig struct {
 }
 
 type ProviderConfig struct {
-	Type          string `yaml:"type"`
-	BaseURL       string `yaml:"base_url"`
-	Model         string `yaml:"model"`
-	APIKey        string `yaml:"api_key"`
-	APIKeyEnv     string `yaml:"api_key_env"`
-	ContextLength int    `yaml:"context_length"`
+	Type            string `yaml:"type"`
+	BaseURL         string `yaml:"base_url"`
+	Model           string `yaml:"model"`
+	ReasoningEffort string `yaml:"reasoning_effort"`
+	APIKey          string `yaml:"api_key"`
+	APIKeyEnv       string `yaml:"api_key_env"`
+	ContextLength   int    `yaml:"context_length"`
 }
 
 type IndexConfig struct {
@@ -287,9 +290,10 @@ func Default() *Config {
 		},
 		Providers: map[string]ProviderConfig{
 			"codex": {
-				Type:          "codex",
-				Model:         "gpt-5.5",
-				ContextLength: 400000,
+				Type:            "codex",
+				Model:           "gpt-5.5",
+				ReasoningEffort: defaultCodexReasoningEffort,
+				ContextLength:   400000,
 			},
 		},
 		Index: IndexConfig{
@@ -621,6 +625,7 @@ func (c *Config) normalize() {
 	if c.Providers == nil {
 		c.Providers = map[string]ProviderConfig{}
 	}
+	c.normalizeProviders()
 
 	if c.Server.Host == "" {
 		c.Server.Host = c.ServerHost
@@ -641,6 +646,19 @@ func (c *Config) normalize() {
 
 	c.ServerHost = c.Server.Host
 	c.ServerPort = c.Server.Port
+}
+
+func (c *Config) normalizeProviders() {
+	for name, provider := range c.Providers {
+		if strings.EqualFold(strings.TrimSpace(provider.Type), "codex") {
+			effort := strings.ToLower(strings.TrimSpace(provider.ReasoningEffort))
+			if effort == "" {
+				effort = defaultCodexReasoningEffort
+			}
+			provider.ReasoningEffort = effort
+			c.Providers[name] = provider
+		}
+	}
 }
 
 func (c *Config) normalizeMemory() {
@@ -930,6 +948,11 @@ func (c *Config) validateProviders() error {
 	for name, provider := range c.Providers {
 		if _, err := validateEnumValue("providers."+name+".type", provider.Type, "anthropic, codex, or openai-compatible", allowedProviderTypes...); err != nil {
 			return fmt.Errorf("invalid field providers.%s.type=%q (expected anthropic, codex, or openai-compatible)", name, provider.Type)
+		}
+		if strings.EqualFold(strings.TrimSpace(provider.Type), "codex") {
+			if _, err := validateEnumValue("providers."+name+".reasoning_effort", provider.ReasoningEffort, "low, medium, high, or xhigh", allowedCodexReasoningEfforts...); err != nil {
+				return fmt.Errorf("invalid field providers.%s.reasoning_effort=%q (expected low, medium, high, or xhigh)", name, provider.ReasoningEffort)
+			}
 		}
 	}
 	return nil

@@ -59,6 +59,9 @@ func BuildProvider(name string, cfg appconfig.ProviderConfig) (provider.Provider
 		if cfg.BaseURL != "" {
 			opts = append(opts, codex.WithBaseURL(cfg.BaseURL))
 		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, codex.WithReasoningEffort(cfg.ReasoningEffort))
+		}
 		p, err := codex.NewCodexProvider(opts...)
 		if err != nil {
 			return nil, err
