@@ -53,7 +53,7 @@ func NewCodexProvider(opts ...ProviderOption) (*CodexProvider, error) {
 	p := &CodexProvider{
 		baseURL:         "https://chatgpt.com/backend-api/codex",
 		reasoningEffort: defaultCodexReasoningEffort,
-		httpClient:      &http.Client{Timeout: 120 * time.Second},
+		httpClient:      &http.Client{},
 	}
 
 	for _, opt := range opts {

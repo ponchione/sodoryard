@@ -45,7 +45,7 @@ func WithBaseURL(url string) ProviderOption {
 func NewAnthropicProvider(creds *CredentialManager, opts ...ProviderOption) *AnthropicProvider {
 	p := &AnthropicProvider{
 		creds:      creds,
-		httpClient: &http.Client{Timeout: 5 * time.Minute},
+		httpClient: &http.Client{},
 		baseURL:    "https://api.anthropic.com",
 		sleep:      provider.SleepWithContext,
 	}
@@ -60,7 +60,7 @@ func NewAnthropicProvider(creds *CredentialManager, opts ...ProviderOption) *Ant
 func newAnthropicProviderInternal(creds credentialSource, opts ...ProviderOption) *AnthropicProvider {
 	p := &AnthropicProvider{
 		creds:      creds,
-		httpClient: &http.Client{Timeout: 5 * time.Minute},
+		httpClient: &http.Client{},
 		baseURL:    "https://api.anthropic.com",
 		sleep:      provider.SleepWithContext,
 	}

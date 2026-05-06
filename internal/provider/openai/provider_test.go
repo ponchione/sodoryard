@@ -94,6 +94,24 @@ func TestNewOpenAIProvider_KeylessLocalMode(t *testing.T) {
 	}
 }
 
+func TestNewOpenAIProvider_DefaultHTTPClientHasNoTotalStreamTimeout(t *testing.T) {
+	p, err := NewOpenAIProvider(OpenAIConfig{
+		Name:          "local",
+		BaseURL:       "http://localhost:8080/v1",
+		Model:         "test-model",
+		ContextLength: 4096,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.client == nil {
+		t.Fatal("client is nil")
+	}
+	if p.client.Timeout != 0 {
+		t.Fatalf("client.Timeout = %s, want 0 so long streams use request context", p.client.Timeout)
+	}
+}
+
 func TestNewOpenAIProvider_ValidationErrors(t *testing.T) {
 	tests := []struct {
 		name     string

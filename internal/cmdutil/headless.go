@@ -71,7 +71,7 @@ func NewHeadlessRunCommand(use string, short string, configPath *string) *cobra.
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := RunHeadlessForCommand(cmd, *configPath, flags)
-			if result != nil && (result.ExitCode == HeadlessExitOK || result.ExitCode == HeadlessExitSafetyLimit) {
+			if result != nil && result.ReceiptPath != "" {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), result.ReceiptPath)
 			}
 			if err != nil {

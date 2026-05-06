@@ -374,6 +374,48 @@ func TestRunSessionReturnsSafetyLimitOnDeadlineCancellation(t *testing.T) {
 	}
 }
 
+func TestRunSessionWritesBlockedReceiptOnTurnInfrastructureError(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
+		"  coder:",
+		"    system_prompt: agents/coder.md",
+		"    tools:",
+		"      - brain",
+		"    brain_write_paths:",
+		"      - receipts/coder/**",
+	}, "\n"))
+	promptDir := filepath.Join(projectRoot, "agents")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("prompt"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	deps := stubRunSessionDeps(
+		&rtpkg.EngineRuntime{BrainBackend: backend, Logger: slog.Default(), Cleanup: func() {}},
+		tool.NewRegistry(),
+		appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/coder/**"}},
+		&conversation.Conversation{ID: "conv-1"},
+		&fakeRunSessionLoop{err: fmt.Errorf("provider stream failed")},
+	)
+
+	result, err := RunSession(context.Background(), nil, configPath, RunRequest{Role: "coder", Task: "work", ChainID: "chain-infra", Timeout: time.Minute}, deps)
+	if err != nil {
+		t.Fatalf("RunSession returned error: %v", err)
+	}
+	if result == nil || result.ExitCode != ExitInfrastructure {
+		t.Fatalf("result=%#v, want infrastructure exit 1", result)
+	}
+	content := backend.docs[result.ReceiptPath]
+	if !strings.Contains(content, "verdict: blocked") {
+		t.Fatalf("receipt content = %q, want blocked verdict", content)
+	}
+	if !strings.Contains(content, "provider stream failed") {
+		t.Fatalf("receipt content = %q, want provider error details", content)
+	}
+}
+
 func TestDefaultDepsUsesFallbackChainIDGenerator(t *testing.T) {
 	deps := withDefaultDeps(Deps{})
 	if deps.NewChainID == nil {

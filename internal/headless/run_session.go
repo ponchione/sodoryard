@@ -44,7 +44,11 @@ type RunResult struct {
 	ExitCode    ExitCode
 }
 
-const defaultRunTimeout = 30 * time.Minute
+const (
+	defaultRunTimeout     = 30 * time.Minute
+	receiptWriteTimeout   = 30 * time.Second
+	infrastructureVerdict = "blocked"
+)
 
 type AgentLoop interface {
 	RunTurn(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error)
@@ -136,17 +140,34 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 	}
 
 	receiptVerdict, exitCode, err := determineExitStatus(ctx, turnResult, turnErr, loopMaxTurns, maxTokens)
+	receiptCtx, cancelReceipt := detachedReceiptContext(ctx)
+	defer cancelReceipt()
+	receiptPath := ResolveReceiptPath(req.Role, chainID, req.ReceiptPath)
 	if err != nil {
-		return nil, err
+		writtenPath, _, receiptErr := EnsureReceipt(
+			receiptCtx,
+			rt.BrainBackend,
+			scopedBrainCfg,
+			req.Role,
+			chainID,
+			receiptPath,
+			infrastructureVerdict,
+			infrastructureFailureText(err),
+			turnResult,
+		)
+		if receiptErr != nil {
+			return nil, fmt.Errorf("%w; write fallback receipt: %v", err, receiptErr)
+		}
+		return &RunResult{ReceiptPath: writtenPath, ExitCode: exitCode}, nil
 	}
 
 	receiptPath, receiptMeta, err := EnsureReceipt(
-		ctx,
+		receiptCtx,
 		rt.BrainBackend,
 		scopedBrainCfg,
 		req.Role,
 		chainID,
-		ResolveReceiptPath(req.Role, chainID, req.ReceiptPath),
+		receiptPath,
 		receiptVerdict,
 		FinalText(turnResult),
 		turnResult,
@@ -164,6 +185,22 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 	}
 
 	return &RunResult{ReceiptPath: receiptPath, ExitCode: exitCode}, nil
+}
+
+func detachedReceiptContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if ctx != nil {
+		base = context.WithoutCancel(ctx)
+	}
+	return context.WithTimeout(base, receiptWriteTimeout)
+}
+
+func infrastructureFailureText(err error) string {
+	msg := strings.TrimSpace(fmt.Sprint(err))
+	if msg == "" {
+		msg = "unknown infrastructure error"
+	}
+	return "The headless run stopped before the agent could complete.\n\nError:\n\n" + msg
 }
 
 func validateRunRequest(req RunRequest) error {

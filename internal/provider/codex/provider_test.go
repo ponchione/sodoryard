@@ -86,6 +86,19 @@ func TestNewCodexProvider_DefaultReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestNewCodexProvider_DefaultHTTPClientHasNoTotalStreamTimeout(t *testing.T) {
+	p, err := NewCodexProvider()
+	if err != nil {
+		t.Fatalf("NewCodexProvider() error = %v", err)
+	}
+	if p.httpClient == nil {
+		t.Fatal("httpClient is nil")
+	}
+	if p.httpClient.Timeout != 0 {
+		t.Fatalf("httpClient.Timeout = %s, want 0 so long streams use request context", p.httpClient.Timeout)
+	}
+}
+
 func TestResponsesEndpointURL_DefaultCodexEndpoint(t *testing.T) {
 	p := &CodexProvider{baseURL: "https://chatgpt.com/backend-api/codex"}
 	if got := p.responsesEndpointURL(); got != "https://chatgpt.com/backend-api/codex/responses" {

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/ponchione/sodoryard/internal/provider"
 )
@@ -15,10 +14,10 @@ import (
 type OpenAIConfig struct {
 	Name          string `yaml:"name"`           // provider instance name (e.g., "local", "openrouter")
 	BaseURL       string `yaml:"base_url"`       // e.g., "http://localhost:8080/v1"
-	APIKey        string `yaml:"api_key"`         // optional, direct API key value
-	APIKeyEnv     string `yaml:"api_key_env"`     // optional, env var name containing the API key
-	Model         string `yaml:"model"`           // default model name
-	ContextLength int    `yaml:"context_length"`  // context window size in tokens
+	APIKey        string `yaml:"api_key"`        // optional, direct API key value
+	APIKeyEnv     string `yaml:"api_key_env"`    // optional, env var name containing the API key
+	Model         string `yaml:"model"`          // default model name
+	ContextLength int    `yaml:"context_length"` // context window size in tokens
 }
 
 // OpenAIProvider implements the unified provider interface for any
@@ -26,7 +25,7 @@ type OpenAIConfig struct {
 type OpenAIProvider struct {
 	name          string
 	baseURL       string
-	apiKey        string       // resolved key (may be empty for keyless local servers)
+	apiKey        string // resolved key (may be empty for keyless local servers)
 	model         string
 	contextLength int
 	client        *http.Client
@@ -70,7 +69,7 @@ func NewOpenAIProvider(cfg OpenAIConfig) (*OpenAIProvider, error) {
 		apiKey:        apiKey,
 		model:         cfg.Model,
 		contextLength: cfg.ContextLength,
-		client:        &http.Client{Timeout: 120 * time.Second},
+		client:        &http.Client{},
 	}, nil
 }
 
