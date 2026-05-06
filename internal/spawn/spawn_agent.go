@@ -51,6 +51,8 @@ type spawnAgentInput struct {
 	Task          string `json:"task"`
 	TaskContext   string `json:"task_context,omitempty"`
 	ReindexBefore bool   `json:"reindex_before,omitempty"`
+	MaxTurns      int    `json:"max_turns,omitempty"`
+	MaxTokens     int    `json:"max_tokens,omitempty"`
 }
 
 type AgentStepInput struct {
@@ -58,6 +60,8 @@ type AgentStepInput struct {
 	Task          string
 	TaskContext   string
 	ReindexBefore bool
+	MaxTurns      int
+	MaxTokens     int
 }
 
 type AgentStepResult struct {
@@ -81,6 +85,8 @@ type spawnStep struct {
 	receiptPath           string
 	task                  string
 	chainRemainingTimeout time.Duration
+	maxTurns              int
+	maxTokens             int
 }
 
 type engineRunOutcome struct {
@@ -135,7 +141,7 @@ func (t *SpawnAgentTool) Description() string {
 }
 func (t *SpawnAgentTool) ToolPurity() tool.Purity { return tool.Mutating }
 func (t *SpawnAgentTool) Schema() json.RawMessage {
-	return json.RawMessage(`{"name":"spawn_agent","description":"Spawn a headless engine agent with the given role and task. Blocks until the engine completes. Returns the engine's receipt content.","input_schema":{"type":"object","properties":{"role":{"type":"string","description":"Engine role config key or built-in persona name."},"task":{"type":"string","description":"Task description for the engine."},"task_context":{"type":"string","description":"Optional context identifier for resolver-loop tracking."},"reindex_before":{"type":"boolean","description":"Run code/brain reindexing before starting the engine.","default":false}},"required":["role","task"]}}`)
+	return json.RawMessage(`{"name":"spawn_agent","description":"Spawn a headless engine agent with the given role and task. Blocks until the engine completes. Returns the engine's receipt content.","input_schema":{"type":"object","properties":{"role":{"type":"string","description":"Engine role config key or built-in persona name."},"task":{"type":"string","description":"Task description for the engine."},"task_context":{"type":"string","description":"Optional context identifier for resolver-loop tracking."},"reindex_before":{"type":"boolean","description":"Run code/brain reindexing before starting the engine.","default":false},"max_turns":{"type":"integer","description":"Optional per-step override for the spawned headless agent's maximum model iterations."},"max_tokens":{"type":"integer","description":"Optional per-step override for the spawned headless agent's total token ceiling."}},"required":["role","task"]}}`)
 }
 
 func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw json.RawMessage) (*tool.ToolResult, error) {
@@ -144,7 +150,7 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 		return nil, fmt.Errorf("spawn_agent: parse input: %w", err)
 	}
 
-	_, content, err := t.RunStep(ctx, AgentStepInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore})
+	_, content, err := t.RunStep(ctx, AgentStepInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore, MaxTurns: in.MaxTurns, MaxTokens: in.MaxTokens})
 	if err != nil {
 		if content != "" {
 			return &tool.ToolResult{Success: false, Content: content}, err
@@ -155,7 +161,7 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 }
 
 func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (AgentStepResult, string, error) {
-	step, err := t.prepareStep(ctx, spawnAgentInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore})
+	step, err := t.prepareStep(ctx, spawnAgentInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore, MaxTurns: in.MaxTurns, MaxTokens: in.MaxTokens})
 	if err != nil {
 		return AgentStepResult{}, "", err
 	}
@@ -218,6 +224,8 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 		receiptPath:           receiptPath,
 		task:                  task,
 		chainRemainingTimeout: chainRemainingTimeout,
+		maxTurns:              in.MaxTurns,
+		maxTokens:             in.MaxTokens,
 	}, nil
 }
 
@@ -229,7 +237,7 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 	agentTimeout := resolveStepRunTimeout(step.roleCfg, step.chainRemainingTimeout)
 	res := t.runCommand(ctx, RunCommandInput{
 		Name:   t.EngineBinary,
-		Args:   []string{"run", "--config", appconfig.ConfigFilename, "--role", step.roleName, "--task", step.task, "--chain-id", t.ChainID, "--receipt-path", step.receiptPath, "--timeout", agentTimeout.String()},
+		Args:   buildEngineRunArgs(step, t.ChainID, agentTimeout),
 		Stdout: stdout,
 		Stderr: stderr,
 		OnStdoutLine: func(line string) {
@@ -257,6 +265,17 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 		stderr:       stderr.String(),
 		durationSecs: durationSecs,
 	}
+}
+
+func buildEngineRunArgs(step spawnStep, chainID string, agentTimeout time.Duration) []string {
+	args := []string{"run", "--config", appconfig.ConfigFilename, "--role", step.roleName, "--task", step.task, "--chain-id", chainID, "--receipt-path", step.receiptPath, "--timeout", agentTimeout.String()}
+	if step.maxTurns > 0 {
+		args = append(args, "--max-turns", fmt.Sprintf("%d", step.maxTurns))
+	}
+	if step.maxTokens > 0 {
+		args = append(args, "--max-tokens", fmt.Sprintf("%d", step.maxTokens))
+	}
+	return args
 }
 
 func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, outcome engineRunOutcome) (string, receipt.Receipt, error) {

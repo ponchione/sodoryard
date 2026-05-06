@@ -361,7 +361,7 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 		ProcessID:  func() int { return 1234 },
 	}
 
-	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "implement one thing", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps)
+	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "implement one thing", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100, StepMaxTurns: 4, StepMaxTokens: 50000}, deps)
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
 	}
@@ -370,6 +370,9 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	}
 	if gotInput.Role != "coder" || gotInput.Task != "implement one thing" {
 		t.Fatalf("step input = %+v, want coder task", gotInput)
+	}
+	if gotInput.MaxTurns != 4 || gotInput.MaxTokens != 50000 {
+		t.Fatalf("step limits = turns %d tokens %d, want 4/50000", gotInput.MaxTurns, gotInput.MaxTokens)
 	}
 	steps, err := store.ListSteps(ctx, "one-step-chain")
 	if err != nil {

@@ -44,6 +44,8 @@ type yardChainFlags struct {
 	MaxResolverLoops int
 	MaxDuration      time.Duration
 	TokenBudget      int
+	StepMaxTurns     int
+	StepMaxTokens    int
 	DryRun           bool
 	Watch            bool
 	Verbosity        string
@@ -105,6 +107,8 @@ func newYardChainStartCmd(configPath *string) *cobra.Command {
 	cmd.Flags().IntVar(&flags.MaxResolverLoops, "max-resolver-loops", 3, "Maximum fix-audit cycles per task")
 	cmd.Flags().DurationVar(&flags.MaxDuration, "max-duration", 4*time.Hour, "Wall-clock timeout for entire chain")
 	cmd.Flags().IntVar(&flags.TokenBudget, "token-budget", 5_000_000, "Total token ceiling across all agents")
+	cmd.Flags().IntVar(&flags.StepMaxTurns, "step-max-turns", 0, "Optional maximum model iterations for each spawned headless step")
+	cmd.Flags().IntVar(&flags.StepMaxTokens, "step-max-tokens", 0, "Optional total token ceiling for each spawned headless step")
 	cmd.Flags().BoolVar(&flags.DryRun, "dry-run", false, "Create the chain row but do not run the orchestrator")
 	cmd.Flags().BoolVar(&flags.Watch, "watch", true, "Stream live chain progress to stderr while the command runs")
 	cmd.Flags().StringVar(&flags.Verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")
@@ -132,6 +136,8 @@ func yardRunChain(ctx context.Context, configPath string, flags yardChainFlags, 
 		MaxResolverLoops: flags.MaxResolverLoops,
 		MaxDuration:      flags.MaxDuration,
 		TokenBudget:      flags.TokenBudget,
+		StepMaxTurns:     flags.StepMaxTurns,
+		StepMaxTokens:    flags.StepMaxTokens,
 		DryRun:           flags.DryRun,
 		OnChainID: func(chainID string) {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)

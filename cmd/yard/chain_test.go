@@ -338,6 +338,8 @@ func TestValidateYardChainFlagsRejectsInvalidNumericFlags(t *testing.T) {
 		{name: "negative resolver loops", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: -1, MaxDuration: time.Second, TokenBudget: 1}, wantErr: "--max-resolver-loops must be >= 0"},
 		{name: "nonpositive max duration", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: 0, TokenBudget: 1}, wantErr: "--max-duration must be > 0"},
 		{name: "nonpositive token budget", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 0}, wantErr: "--token-budget must be > 0"},
+		{name: "negative step max turns", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTurns: -1}, wantErr: "--step-max-turns must be > 0 when supplied"},
+		{name: "negative step max tokens", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTokens: -1}, wantErr: "--step-max-tokens must be > 0 when supplied"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

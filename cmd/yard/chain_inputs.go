@@ -24,6 +24,12 @@ func validateYardChainFlags(flags yardChainFlags) error {
 	if flags.TokenBudget <= 0 {
 		return fmt.Errorf("--token-budget must be > 0")
 	}
+	if flags.StepMaxTurns < 0 {
+		return fmt.Errorf("--step-max-turns must be > 0 when supplied")
+	}
+	if flags.StepMaxTokens < 0 {
+		return fmt.Errorf("--step-max-tokens must be > 0 when supplied")
+	}
 	return nil
 }
 

@@ -65,6 +65,8 @@ type Options struct {
 	MaxResolverLoops int
 	MaxDuration      time.Duration
 	TokenBudget      int
+	StepMaxTurns     int
+	StepMaxTokens    int
 	DryRun           bool
 
 	OnChainID         func(string)
@@ -248,7 +250,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 
 func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
-	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false})
+	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
 	if err != nil {
 		if errors.Is(err, tool.ErrChainComplete) {
 			cleanupCtx := context.WithoutCancel(ctx)
@@ -309,7 +311,7 @@ func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opt
 		if taskContext == "" {
 			taskContext = manualRosterTaskContext(chainID, i+1, step.Role)
 		}
-		stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: step.Role, Task: task, TaskContext: taskContext, ReindexBefore: step.ReindexBefore})
+		stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: step.Role, Task: task, TaskContext: taskContext, ReindexBefore: step.ReindexBefore, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
 		if err != nil {
 			if errors.Is(err, tool.ErrChainComplete) {
 				cleanupCtx := context.WithoutCancel(ctx)
