@@ -27,7 +27,10 @@ cleanup-retired-binaries:
 # spawning. The frontend build/copy happens here so `make build` prepares
 # webfs/dist before building the operator-facing yard binary.
 tidmouth: frontend-build
-	rm -rf $(WEBFS_DIST) && cp -r $(WEB_DIR)/dist $(WEBFS_DIST)
+	rm -rf $(WEBFS_DIST)
+	mkdir -p $(WEBFS_DIST)
+	cp -r $(WEB_DIR)/dist/. $(WEBFS_DIST)/
+	touch $(WEBFS_DIST)/.gitkeep
 	mkdir -p $(BIN_DIR)
 	$(CGO_BUILD_ENV) go build $(GOFLAGS_DB) -o $(BIN_DIR)/tidmouth ./cmd/tidmouth
 
