@@ -78,7 +78,17 @@ func BuildStepBriefing(in StepBriefingInput) string {
 		}
 	}
 
-	openFindings := findingLines(analysis.Findings.OpenIDs, analysis.Findings)
+	guardrailFacts := latestGuardrailFacts(in.Events)
+	if len(guardrailFacts) > 0 {
+		b.WriteString("\nLatest post-step guardrail facts:\n")
+		for _, fact := range guardrailFacts {
+			b.WriteString("- ")
+			b.WriteString(fact)
+			b.WriteByte('\n')
+		}
+	}
+
+	openFindings := findingLines(analysis.Findings.OpenIDs, analysis.Findings, true)
 	if len(openFindings) > 0 {
 		b.WriteString("\nOpen audit findings:\n")
 		for _, finding := range openFindings {
@@ -88,7 +98,37 @@ func BuildStepBriefing(in StepBriefingInput) string {
 		}
 	}
 
-	closedFindings := findingLines(analysis.Findings.ClosedIDs, analysis.Findings)
+	addressedFindings := findingLines(analysis.Findings.AddressedIDs, analysis.Findings, true)
+	if len(addressedFindings) > 0 {
+		b.WriteString("\nAddressed audit findings:\n")
+		for _, finding := range addressedFindings {
+			b.WriteString("- ")
+			b.WriteString(finding)
+			b.WriteByte('\n')
+		}
+	}
+
+	reopenedFindings := findingLines(analysis.Findings.ReopenedIDs, analysis.Findings, false)
+	if len(reopenedFindings) > 0 {
+		b.WriteString("\nReopened audit findings:\n")
+		for _, finding := range reopenedFindings {
+			b.WriteString("- ")
+			b.WriteString(finding)
+			b.WriteByte('\n')
+		}
+	}
+
+	repeatedResolverFindings := findingLines(analysis.Findings.RepeatedResolverIDs, analysis.Findings, false)
+	if len(repeatedResolverFindings) > 0 {
+		b.WriteString("\nRepeated resolver loops:\n")
+		for _, finding := range repeatedResolverFindings {
+			b.WriteString("- ")
+			b.WriteString(finding)
+			b.WriteByte('\n')
+		}
+	}
+
+	closedFindings := findingLines(analysis.Findings.ClosedIDs, analysis.Findings, true)
 	if len(closedFindings) > 0 {
 		b.WriteString("\nClosed audit findings:\n")
 		for _, finding := range closedFindings {
@@ -190,20 +230,134 @@ func receiptValidationWarnings(events []Event) []string {
 	return warnings
 }
 
-func findingLines(ids []string, lifecycle FindingLifecycle) []string {
-	sourceByID := map[string]string{}
-	for _, finding := range lifecycle.Findings {
-		sourceByID[finding.ID] = finding.SourceRole
-	}
-	lines := make([]string, 0, len(ids))
-	for _, id := range ids {
-		role := strings.TrimSpace(sourceByID[id])
-		if role == "" {
-			lines = append(lines, id)
+func latestGuardrailFacts(events []Event) []string {
+	out := make([]string, 0)
+	for i := len(events) - 1; i >= 0 && len(out) < 3; i-- {
+		if events[i].EventType != EventStepGuardrailFacts {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s from %s", id, role))
+		var payload struct {
+			Role                             string   `json:"role"`
+			Sequence                         int      `json:"sequence"`
+			ReceiptValid                     bool     `json:"receipt_valid"`
+			ReceiptError                     string   `json:"receipt_error"`
+			ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
+			ChangedFileCount                 int      `json:"changed_file_count"`
+			SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
+			SourceWriterLockReleaseAttempted bool     `json:"source_writer_lock_release_attempted"`
+			OpenFindingIDs                   []string `json:"open_finding_ids"`
+			AddressedIDs                     []string `json:"addressed_ids"`
+		}
+		if err := json.Unmarshal([]byte(events[i].EventData), &payload); err != nil {
+			out = append(out, "decode error: "+err.Error())
+			continue
+		}
+		parts := []string{
+			fmt.Sprintf("step %d", payload.Sequence),
+			briefingKV("role", payload.Role),
+			fmt.Sprintf("receipt_valid=%t", payload.ReceiptValid),
+			fmt.Sprintf("manifest=%t", payload.ChangedFileManifestPresent),
+			fmt.Sprintf("changed=%d", payload.ChangedFileCount),
+			fmt.Sprintf("lock_release_attempted=%t", payload.SourceWriterLockReleaseAttempted),
+			fmt.Sprintf("lock_released=%t", payload.SourceWriterLockReleased),
+		}
+		if len(payload.OpenFindingIDs) > 0 {
+			parts = append(parts, briefingKV("open", strings.Join(compactBriefingStrings(payload.OpenFindingIDs), ",")))
+		}
+		if len(payload.AddressedIDs) > 0 {
+			parts = append(parts, briefingKV("addressed", strings.Join(compactBriefingStrings(payload.AddressedIDs), ",")))
+		}
+		if strings.TrimSpace(payload.ReceiptError) != "" {
+			parts = append(parts, briefingKV("receipt_error", payload.ReceiptError))
+		}
+		out = append(out, strings.Join(compactBriefingStrings(parts), " "))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func findingLines(ids []string, lifecycle FindingLifecycle, includeEvidence bool) []string {
+	idSet := map[string]struct{}{}
+	for _, id := range ids {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			idSet[trimmed] = struct{}{}
+		}
+	}
+	for _, finding := range lifecycle.Findings {
+		delete(idSet, finding.ID)
+	}
+	lines := make([]string, 0, len(ids))
+	for _, finding := range lifecycle.Findings {
+		if _, ok := idSet[finding.ID]; ok {
+			continue
+		}
+		if !containsBriefingString(ids, finding.ID) {
+			continue
+		}
+		lines = append(lines, formatFindingLine(finding, includeEvidence))
+	}
+	for id := range idSet {
+		lines = append(lines, id)
 	}
 	sort.Strings(lines)
 	return lines
+}
+
+func formatFindingLine(finding FindingLifecycleEntry, includeEvidence bool) string {
+	parts := []string{finding.ID}
+	if strings.TrimSpace(finding.SourceRole) != "" {
+		parts = append(parts, "from "+finding.SourceRole)
+	}
+	if strings.TrimSpace(finding.Status) != "" {
+		parts = append(parts, briefingKV("status", finding.Status))
+	}
+	if finding.AddressedCount > 0 {
+		parts = append(parts, fmt.Sprintf("addressed=%d", finding.AddressedCount))
+	}
+	if finding.ClosedCount > 0 {
+		parts = append(parts, fmt.Sprintf("closed=%d", finding.ClosedCount))
+	}
+	if finding.ReopenedCount > 0 {
+		parts = append(parts, fmt.Sprintf("reopened=%d", finding.ReopenedCount))
+	}
+	if includeEvidence {
+		parts = append(parts,
+			briefingKV("severity", finding.Severity),
+			briefingKV("evidence", finding.Evidence),
+			briefingKV("summary", finding.Summary),
+			briefingKV("required_fix", finding.RequiredFix),
+			briefingKV("resolution", finding.Resolution),
+			briefingKV("files", strings.Join(finding.FilesChanged, ",")),
+			briefingKV("validation", strings.Join(finding.Validation, ",")),
+		)
+	}
+	return strings.Join(compactBriefingStrings(parts), " ")
+}
+
+func briefingKV(key string, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return key + "=" + value
+}
+
+func containsBriefingString(values []string, want string) bool {
+	want = strings.TrimSpace(want)
+	for _, value := range values {
+		if strings.TrimSpace(value) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func compactBriefingStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
