@@ -96,6 +96,44 @@ func ParseValidationCommands(body string) []string {
 	return commands
 }
 
+func ParseChangedFiles(body string) []string {
+	lines := sectionContent(body, "Changed Files")
+	paths := make([]string, 0)
+	seen := map[string]struct{}{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, "none") || strings.EqualFold(value, "none.") {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		paths = append(paths, value)
+	}
+	inCodeBlock := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			add(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+			continue
+		}
+		if inCodeBlock {
+			add(trimmed)
+		}
+	}
+	return paths
+}
+
+func HasSection(body string, section string) bool {
+	_, ok := receiptSections(body)[normalizeReceiptSection(section)]
+	return ok
+}
+
 func looksLikeValidationCommand(value string) bool {
 	value = strings.TrimSpace(value)
 	if value == "" {

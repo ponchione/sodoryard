@@ -83,6 +83,9 @@ How many tests were written, what categories (unit, integration), what coverage 
 ## Changes
 Test files created or modified.
 
+## Changed Files
+Every test or fixture file created, modified, or deleted. Use one bare path per bullet, or "None." if no files changed.
+
 ## Validation
 Commands or checks run, with results. If validation was not run, explain why.
 

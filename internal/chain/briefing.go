@@ -241,6 +241,11 @@ func latestGuardrailFacts(events []Event) []string {
 			Sequence                         int      `json:"sequence"`
 			ReceiptValid                     bool     `json:"receipt_valid"`
 			ReceiptError                     string   `json:"receipt_error"`
+			ChangedFileClaimPresent          bool     `json:"changed_file_claim_present"`
+			ClaimedChangedFiles              []string `json:"claimed_changed_files"`
+			ChangedFileClaimMatchesManifest  bool     `json:"changed_file_claim_matches_manifest"`
+			ChangedFileClaimExtra            []string `json:"changed_file_claim_extra"`
+			ChangedFileManifestUnclaimed     []string `json:"changed_file_manifest_unclaimed"`
 			ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
 			ChangedFileCount                 int      `json:"changed_file_count"`
 			SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
@@ -258,9 +263,26 @@ func latestGuardrailFacts(events []Event) []string {
 			fmt.Sprintf("receipt_valid=%t", payload.ReceiptValid),
 			fmt.Sprintf("manifest=%t", payload.ChangedFileManifestPresent),
 			fmt.Sprintf("changed=%d", payload.ChangedFileCount),
+		}
+		if payload.ChangedFileClaimPresent || len(payload.ClaimedChangedFiles) > 0 || len(payload.ChangedFileClaimExtra) > 0 || len(payload.ChangedFileManifestUnclaimed) > 0 {
+			parts = append(parts,
+				fmt.Sprintf("claim_present=%t", payload.ChangedFileClaimPresent),
+				fmt.Sprintf("claim_matches=%t", payload.ChangedFileClaimMatchesManifest),
+			)
+			if len(payload.ClaimedChangedFiles) > 0 {
+				parts = append(parts, briefingKV("claimed", strings.Join(compactBriefingStrings(payload.ClaimedChangedFiles), ",")))
+			}
+			if len(payload.ChangedFileClaimExtra) > 0 {
+				parts = append(parts, briefingKV("claim_extra", strings.Join(compactBriefingStrings(payload.ChangedFileClaimExtra), ",")))
+			}
+			if len(payload.ChangedFileManifestUnclaimed) > 0 {
+				parts = append(parts, briefingKV("manifest_unclaimed", strings.Join(compactBriefingStrings(payload.ChangedFileManifestUnclaimed), ",")))
+			}
+		}
+		parts = append(parts,
 			fmt.Sprintf("lock_release_attempted=%t", payload.SourceWriterLockReleaseAttempted),
 			fmt.Sprintf("lock_released=%t", payload.SourceWriterLockReleased),
-		}
+		)
 		if len(payload.OpenFindingIDs) > 0 {
 			parts = append(parts, briefingKV("open", strings.Join(compactBriefingStrings(payload.OpenFindingIDs), ",")))
 		}

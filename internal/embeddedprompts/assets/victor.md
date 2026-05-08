@@ -97,6 +97,9 @@ Validation:
 ## Changes
 Every file modified, with a description of the fix applied.
 
+## Changed Files
+Every file created, modified, or deleted. Use one bare path per bullet, or "None." if no files changed.
+
 ## Validation
 Commands or checks run, with results. If validation was not run, explain why.
 

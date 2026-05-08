@@ -176,7 +176,7 @@ func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 				{StepID: "step-1", SequenceNum: 1, Role: "coder", Paths: []string{"internal/example.go"}},
 			},
 			StepFacts: []operator.StepGuardrailFactSummary{
-				{StepID: "step-1", SequenceNum: 1, Role: "coder", ReceiptValid: true, ChangedFileManifestPresent: true, ChangedFileCount: 1, SourceWriterLockReleased: true},
+				{StepID: "step-1", SequenceNum: 1, Role: "coder", ReceiptValid: true, ChangedFileManifestPresent: true, ChangedFileCount: 1, ChangedFileClaimPresent: true, ClaimedChangedFiles: []string{"internal/example.go"}, ChangedFileClaimMatchesManifest: true, SourceWriterLockReleased: true},
 			},
 		},
 		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
@@ -187,7 +187,7 @@ func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor", "Guardrails", "open=FIND-correctness-001", "finding id=FIND-correctness-001 source=correctness-auditor", "status=addressed addressed=2", "severity=high", "validation=rtk make test", "source_writer_lock acquired=1 released=1", "internal/example.go", "receipt_valid=true"} {
+	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor", "Guardrails", "open=FIND-correctness-001", "finding id=FIND-correctness-001 source=correctness-auditor", "status=addressed addressed=2", "severity=high", "validation=rtk make test", "source_writer_lock acquired=1 released=1", "internal/example.go", "receipt_valid=true", "claim_matches=true"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chain warning view missing %q:\n%s", want, view)
 		}

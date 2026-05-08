@@ -130,6 +130,11 @@ type postStepGuardrailFacts struct {
 	TurnsUsed                           int      `json:"turns_used"`
 	ReceiptDurationSeconds              int      `json:"receipt_duration_seconds"`
 	ClaimedValidationCommands           []string `json:"claimed_validation_commands"`
+	ChangedFileClaimPresent             bool     `json:"changed_file_claim_present"`
+	ClaimedChangedFiles                 []string `json:"claimed_changed_files"`
+	ChangedFileClaimMatchesManifest     bool     `json:"changed_file_claim_matches_manifest"`
+	ChangedFileClaimExtra               []string `json:"changed_file_claim_extra"`
+	ChangedFileManifestUnclaimed        []string `json:"changed_file_manifest_unclaimed"`
 	ChangedFileManifestPresent          bool     `json:"changed_file_manifest_present"`
 	ChangedFileManifestError            string   `json:"changed_file_manifest_error,omitempty"`
 	ChangedFileCount                    int      `json:"changed_file_count"`
@@ -649,6 +654,12 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		facts.TurnsUsed = parsed.TurnsUsed
 		facts.ReceiptDurationSeconds = parsed.DurationSeconds
 		facts.ClaimedValidationCommands = receipt.ParseValidationCommands(parsed.RawBody)
+		facts.ChangedFileClaimPresent = receipt.HasSection(parsed.RawBody, "Changed Files")
+		facts.ClaimedChangedFiles = receipt.ParseChangedFiles(parsed.RawBody)
+		if step.sourceMutating {
+			facts.ChangedFileClaimExtra, facts.ChangedFileManifestUnclaimed = diffStringSets(facts.ClaimedChangedFiles, facts.ChangedFiles)
+			facts.ChangedFileClaimMatchesManifest = len(facts.ChangedFileClaimExtra) == 0 && len(facts.ChangedFileManifestUnclaimed) == 0
+		}
 	}
 	if err := receipt.ValidateForStep(parsed, receipt.StepValidation{Agent: step.roleName, ChainID: t.ChainID, Step: step.sequence}); err != nil {
 		failMsg := fmt.Sprintf("validate receipt %s: %v", step.receiptPath, err)
@@ -801,16 +812,19 @@ func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptF
 
 func newPostStepGuardrailFacts(step spawnStep) *postStepGuardrailFacts {
 	return &postStepGuardrailFacts{
-		Role:                      step.roleName,
-		Sequence:                  step.sequence,
-		ReceiptPath:               step.receiptPath,
-		SourceMutating:            step.sourceMutating,
-		ClaimedValidationCommands: []string{},
-		ChangedFiles:              []string{},
-		FindingIDs:                []string{},
-		OpenFindingIDs:            []string{},
-		ClosedFindingIDs:          []string{},
-		AddressedIDs:              []string{},
+		Role:                         step.roleName,
+		Sequence:                     step.sequence,
+		ReceiptPath:                  step.receiptPath,
+		SourceMutating:               step.sourceMutating,
+		ClaimedValidationCommands:    []string{},
+		ClaimedChangedFiles:          []string{},
+		ChangedFileClaimExtra:        []string{},
+		ChangedFileManifestUnclaimed: []string{},
+		ChangedFiles:                 []string{},
+		FindingIDs:                   []string{},
+		OpenFindingIDs:               []string{},
+		ClosedFindingIDs:             []string{},
+		AddressedIDs:                 []string{},
 	}
 }
 
@@ -824,6 +838,9 @@ func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spa
 	facts.SourceMutating = step.sourceMutating
 	facts.ChangedFiles = uniqueSorted(facts.ChangedFiles)
 	facts.ChangedFileCount = len(facts.ChangedFiles)
+	facts.ClaimedChangedFiles = uniqueSorted(facts.ClaimedChangedFiles)
+	facts.ChangedFileClaimExtra = uniqueSorted(facts.ChangedFileClaimExtra)
+	facts.ChangedFileManifestUnclaimed = uniqueSorted(facts.ChangedFileManifestUnclaimed)
 	facts.FindingIDs = uniqueSorted(facts.FindingIDs)
 	facts.OpenFindingIDs = uniqueSorted(facts.OpenFindingIDs)
 	facts.ClosedFindingIDs = uniqueSorted(facts.ClosedFindingIDs)
@@ -848,6 +865,38 @@ func uniqueSorted(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func diffStringSets(left []string, right []string) ([]string, []string) {
+	leftSet := map[string]struct{}{}
+	rightSet := map[string]struct{}{}
+	for _, value := range left {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			leftSet[value] = struct{}{}
+		}
+	}
+	for _, value := range right {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			rightSet[value] = struct{}{}
+		}
+	}
+	leftOnly := make([]string, 0)
+	for value := range leftSet {
+		if _, ok := rightSet[value]; !ok {
+			leftOnly = append(leftOnly, value)
+		}
+	}
+	rightOnly := make([]string, 0)
+	for value := range rightSet {
+		if _, ok := leftSet[value]; !ok {
+			rightOnly = append(rightOnly, value)
+		}
+	}
+	sort.Strings(leftOnly)
+	sort.Strings(rightOnly)
+	return leftOnly, rightOnly
 }
 
 func uniqueStringsPreserveOrder(values []string) []string {
@@ -1219,6 +1268,7 @@ Use the actual verdict and usage numbers when known. Do not use created_at; the 
 The receipt body must include these markdown sections:
 - ## Summary
 - ## Changes
+- ## Changed Files (source-writing roles only; list every created, modified, or deleted path, or "None.")
 - ## Validation
 - ## Concerns
 - ## Next Steps

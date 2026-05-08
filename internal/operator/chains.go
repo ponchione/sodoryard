@@ -290,6 +290,14 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 				if facts.SourceMutating && facts.ChangedFileManifestPresent && event.StepID != "" {
 					changedFileEventsByStep[event.StepID] = true
 				}
+				if facts.SourceMutating && facts.ChangedFileClaimPresent && !facts.ChangedFileClaimMatchesManifest {
+					attentionHealth = true
+					report.addWarning(fmt.Sprintf("step %d changed-file receipt claim differs from harness manifest: extra=%s unclaimed=%s",
+						facts.Sequence,
+						joinValuesOrNone(facts.ChangedFileClaimExtra),
+						joinValuesOrNone(facts.ChangedFileManifestUnclaimed),
+					))
+				}
 				if !facts.ReceiptValid {
 					attentionHealth = true
 					reason := strings.TrimSpace(facts.ReceiptError)
@@ -511,6 +519,11 @@ type stepGuardrailFactsEvent struct {
 	ReceiptSectionsValid                bool     `json:"receipt_sections_valid"`
 	ReceiptValid                        bool     `json:"receipt_valid"`
 	ReceiptError                        string   `json:"receipt_error"`
+	ChangedFileClaimPresent             bool     `json:"changed_file_claim_present"`
+	ClaimedChangedFiles                 []string `json:"claimed_changed_files"`
+	ChangedFileClaimMatchesManifest     bool     `json:"changed_file_claim_matches_manifest"`
+	ChangedFileClaimExtra               []string `json:"changed_file_claim_extra"`
+	ChangedFileManifestUnclaimed        []string `json:"changed_file_manifest_unclaimed"`
 	ChangedFileManifestPresent          bool     `json:"changed_file_manifest_present"`
 	ChangedFileManifestError            string   `json:"changed_file_manifest_error"`
 	ChangedFileCount                    int      `json:"changed_file_count"`
@@ -563,6 +576,9 @@ func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) 
 	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
 	event.ClosedFindingIDs = compactStrings(event.ClosedFindingIDs)
 	event.AddressedIDs = compactStrings(event.AddressedIDs)
+	event.ClaimedChangedFiles = compactStrings(event.ClaimedChangedFiles)
+	event.ChangedFileClaimExtra = compactStrings(event.ChangedFileClaimExtra)
+	event.ChangedFileManifestUnclaimed = compactStrings(event.ChangedFileManifestUnclaimed)
 	event.ChangedFiles = compactStrings(event.ChangedFiles)
 	if event.ChangedFileCount == 0 {
 		event.ChangedFileCount = len(event.ChangedFiles)
@@ -622,6 +638,11 @@ func summarizeChainGuardrails(ch chain.Chain, steps []chain.Step, events []chain
 				ReceiptSchemaValid:               facts.ReceiptSchemaValid,
 				ReceiptSectionsValid:             facts.ReceiptSectionsValid,
 				ReceiptError:                     facts.ReceiptError,
+				ChangedFileClaimPresent:          facts.ChangedFileClaimPresent,
+				ClaimedChangedFiles:              append([]string(nil), facts.ClaimedChangedFiles...),
+				ChangedFileClaimMatchesManifest:  facts.ChangedFileClaimMatchesManifest,
+				ChangedFileClaimExtra:            append([]string(nil), facts.ChangedFileClaimExtra...),
+				ChangedFileManifestUnclaimed:     append([]string(nil), facts.ChangedFileManifestUnclaimed...),
 				ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
 				ChangedFileCount:                 facts.ChangedFileCount,
 				ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
@@ -686,6 +707,14 @@ func compactStrings(values []string) []string {
 		}
 	}
 	return out
+}
+
+func joinValuesOrNone(values []string) string {
+	values = compactStrings(values)
+	if len(values) == 0 {
+		return "none"
+	}
+	return strings.Join(values, ",")
 }
 
 func valueOrUnknown(value string) string {

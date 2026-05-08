@@ -89,6 +89,9 @@ What was built. List files created and modified.
 ## Changes
 Every file created, modified, or deleted — with a one-line description of each change. Also list any brain docs updated.
 
+## Changed Files
+Every file created, modified, or deleted. Use one bare path per bullet, or "None." if no files changed.
+
 ## Validation
 Commands or checks run, with results. If validation was not run, explain why.
 

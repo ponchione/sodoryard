@@ -100,3 +100,36 @@ npm exec vitest -- run src/pages/chain-detail.test.tsx
 		}
 	}
 }
+
+func TestParseChangedFiles(t *testing.T) {
+	body := `## Changed Files
+
+- internal/example.go
+- internal/example_test.go
+- internal/example.go
+
+` + "```" + `
+docs/specs/22-sequential-agent-guardrails.md
+` + "```" + `
+
+## Validation
+- rtk make test
+`
+	got := ParseChangedFiles(body)
+	want := []string{
+		"internal/example.go",
+		"internal/example_test.go",
+		"docs/specs/22-sequential-agent-guardrails.md",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("changed files = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("changed files[%d] = %q, want %q (all=%+v)", i, got[i], want[i], got)
+		}
+	}
+	if !HasSection(body, "Changed Files") || HasSection(body, "Missing") {
+		t.Fatalf("HasSection returned unexpected values")
+	}
+}

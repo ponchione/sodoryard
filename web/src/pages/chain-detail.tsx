@@ -215,6 +215,18 @@ export function ChainDetailPage() {
                         changed={fact.changed_file_count} open={formatIDs(fact.open_finding_ids)} addressed=
                         {formatIDs(fact.addressed_ids)}
                       </p>
+                      <p className="font-mono text-muted-foreground">
+                        claim={yesNo(fact.changed_file_claim_present)} matches=
+                        {yesNo(fact.changed_file_claim_matches_manifest)} claimed=
+                        {formatIDs(fact.claimed_changed_files)}
+                      </p>
+                      {(fact.changed_file_claim_extra.length > 0 ||
+                        fact.changed_file_manifest_unclaimed.length > 0) && (
+                        <p className="font-mono text-warning">
+                          extra={formatIDs(fact.changed_file_claim_extra)} unclaimed=
+                          {formatIDs(fact.changed_file_manifest_unclaimed)}
+                        </p>
+                      )}
                       {fact.receipt_error && <p className="text-warning">{fact.receipt_error}</p>}
                     </div>
                   ))}

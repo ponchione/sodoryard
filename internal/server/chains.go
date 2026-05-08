@@ -232,6 +232,11 @@ type stepGuardrailFactResponse struct {
 	ReceiptSchemaValid               bool     `json:"receipt_schema_valid"`
 	ReceiptSectionsValid             bool     `json:"receipt_sections_valid"`
 	ReceiptError                     string   `json:"receipt_error,omitempty"`
+	ChangedFileClaimPresent          bool     `json:"changed_file_claim_present"`
+	ClaimedChangedFiles              []string `json:"claimed_changed_files"`
+	ChangedFileClaimMatchesManifest  bool     `json:"changed_file_claim_matches_manifest"`
+	ChangedFileClaimExtra            []string `json:"changed_file_claim_extra"`
+	ChangedFileManifestUnclaimed     []string `json:"changed_file_manifest_unclaimed"`
 	ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
 	ChangedFileCount                 int      `json:"changed_file_count"`
 	ChangedFiles                     []string `json:"changed_files"`
@@ -394,6 +399,11 @@ func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) 
 			ReceiptSchemaValid:               facts.ReceiptSchemaValid,
 			ReceiptSectionsValid:             facts.ReceiptSectionsValid,
 			ReceiptError:                     facts.ReceiptError,
+			ChangedFileClaimPresent:          facts.ChangedFileClaimPresent,
+			ClaimedChangedFiles:              append([]string(nil), facts.ClaimedChangedFiles...),
+			ChangedFileClaimMatchesManifest:  facts.ChangedFileClaimMatchesManifest,
+			ChangedFileClaimExtra:            append([]string(nil), facts.ChangedFileClaimExtra...),
+			ChangedFileManifestUnclaimed:     append([]string(nil), facts.ChangedFileManifestUnclaimed...),
 			ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
 			ChangedFileCount:                 facts.ChangedFileCount,
 			ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),

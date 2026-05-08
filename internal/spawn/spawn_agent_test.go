@@ -169,6 +169,9 @@ Done.
 ## Changes
 Created new-file.txt.
 
+## Changed Files
+- new-file.txt
+
 ## Validation
 - rtk make test
 
@@ -216,11 +219,86 @@ Audit.
 	if !facts.SourceMutating || !facts.ChangedFileManifestPresent || facts.ChangedFileCount != 1 || len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "new-file.txt" {
 		t.Fatalf("guardrail facts changed files = %+v, want new-file.txt manifest", facts)
 	}
+	if !facts.ChangedFileClaimPresent || !facts.ChangedFileClaimMatchesManifest || len(facts.ClaimedChangedFiles) != 1 || facts.ClaimedChangedFiles[0] != "new-file.txt" {
+		t.Fatalf("guardrail facts changed-file claim = %+v, want matching new-file.txt claim", facts)
+	}
 	if !facts.SourceWriterLockReleaseAttempted || !facts.SourceWriterLockReleased {
 		t.Fatalf("guardrail facts lock release = %+v, want released source writer lock", facts)
 	}
 	if len(facts.ClaimedValidationCommands) != 1 || facts.ClaimedValidationCommands[0] != "rtk make test" {
 		t.Fatalf("guardrail facts validation commands = %+v, want rtk make test", facts.ClaimedValidationCommands)
+	}
+}
+
+func TestSpawnAgentRecordsChangedFileClaimMismatch(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
+		t.Skipf("git init failed: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "actual.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: repo})
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
+agent: coder
+chain_id: ` + chainID + `
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+## Summary
+Done.
+
+## Changes
+Claimed the wrong file.
+
+## Changed Files
+- claimed.txt
+
+## Validation
+- rtk make test
+
+## Concerns
+None.
+
+## Next Steps
+Audit.
+`
+		return RunResult{ExitCode: 0}
+	}
+
+	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`)); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var facts postStepGuardrailFacts
+	for _, event := range events {
+		if event.EventType == chain.EventStepGuardrailFacts {
+			if err := json.Unmarshal([]byte(event.EventData), &facts); err != nil {
+				t.Fatalf("decode guardrail facts: %v", err)
+			}
+		}
+	}
+	if !facts.ChangedFileClaimPresent || facts.ChangedFileClaimMatchesManifest {
+		t.Fatalf("guardrail facts changed-file claim = %+v, want mismatch", facts)
+	}
+	if strings.Join(facts.ClaimedChangedFiles, ",") != "claimed.txt" ||
+		strings.Join(facts.ChangedFiles, ",") != "actual.txt" ||
+		strings.Join(facts.ChangedFileClaimExtra, ",") != "claimed.txt" ||
+		strings.Join(facts.ChangedFileManifestUnclaimed, ",") != "actual.txt" {
+		t.Fatalf("guardrail facts changed-file diff = %+v, want claimed.txt extra and actual.txt unclaimed", facts)
 	}
 }
 

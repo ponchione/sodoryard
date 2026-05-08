@@ -671,6 +671,11 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 		"source_mutating":                        true,
 		"receipt_valid":                          false,
 		"receipt_error":                          "receipt: missing required section: Validation",
+		"changed_file_claim_present":             true,
+		"claimed_changed_files":                  []string{"claimed.txt"},
+		"changed_file_claim_matches_manifest":    false,
+		"changed_file_claim_extra":               []string{"claimed.txt"},
+		"changed_file_manifest_unclaimed":        []string{"actual.txt"},
 		"changed_file_manifest_present":          false,
 		"source_writer_lock_release_attempted":   true,
 		"source_writer_lock_released":            false,
@@ -695,6 +700,7 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 		"chain has 1 receipt_validation_warning event(s)",
 		"source writer guard blocked 1 spawn attempt(s)",
 		"step 1 receipt guardrail facts show invalid receipt: receipt: missing required section: Validation",
+		"step 1 changed-file receipt claim differs from harness manifest: extra=claimed.txt unclaimed=actual.txt",
 		"step 1 source writer lock release failed: lock held by other step",
 		"step 1 source-writing role coder completed without changed-file manifest",
 	} {
@@ -712,6 +718,9 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	facts := detail.Guardrails.StepFacts[0]
 	if facts.SequenceNum != 1 || facts.Role != "coder" || facts.ReceiptValid || facts.ReceiptError != "receipt: missing required section: Validation" || facts.SourceWriterLockReleased {
 		t.Fatalf("guardrail facts = %+v, want invalid receipt and unreleased lock", facts)
+	}
+	if !facts.ChangedFileClaimPresent || facts.ChangedFileClaimMatchesManifest || strings.Join(facts.ChangedFileClaimExtra, ",") != "claimed.txt" || strings.Join(facts.ChangedFileManifestUnclaimed, ",") != "actual.txt" {
+		t.Fatalf("guardrail fact changed-file claim = %+v, want mismatch details", facts)
 	}
 }
 

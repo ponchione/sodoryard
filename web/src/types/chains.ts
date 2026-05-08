@@ -147,6 +147,11 @@ export interface StepGuardrailFact {
   receipt_schema_valid: boolean;
   receipt_sections_valid: boolean;
   receipt_error?: string;
+  changed_file_claim_present: boolean;
+  claimed_changed_files: string[];
+  changed_file_claim_matches_manifest: boolean;
+  changed_file_claim_extra: string[];
+  changed_file_manifest_unclaimed: string[];
   changed_file_manifest_present: boolean;
   changed_file_count: number;
   changed_files: string[];

@@ -128,6 +128,11 @@ type StepGuardrailFactSummary struct {
 	ReceiptSchemaValid               bool
 	ReceiptSectionsValid             bool
 	ReceiptError                     string
+	ChangedFileClaimPresent          bool
+	ClaimedChangedFiles              []string
+	ChangedFileClaimMatchesManifest  bool
+	ChangedFileClaimExtra            []string
+	ChangedFileManifestUnclaimed     []string
 	ChangedFileManifestPresent       bool
 	ChangedFileCount                 int
 	ChangedFiles                     []string
