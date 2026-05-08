@@ -69,10 +69,32 @@ You do **not** have: `file_write`, `file_edit`, `shell`, `search_text`, `search_
 - `completed_with_concerns` — code is acceptable but has areas that should be improved in a future pass
 - `fix_required` — code has quality issues that must be addressed (convention violations, significant maintainability problems). List every finding with severity.
 
-**Summary:** Overall quality assessment. Note patterns — good and bad.
-**Changes:** Only the receipt.
-**Concerns:** Patterns that aren't convention violations but could become problems if they spread (e.g., a new pattern that diverges from established approaches).
-**Next Steps:** If `fix_required`, describe what needs to change and why. If `completed`, "Quality audit passed."
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+Overall quality assessment. Note patterns — good and bad.
+
+## Findings
+List each finding with a stable ID. Use `None.` if there are no findings.
+
+### FIND-quality-001
+Severity: medium
+Status: open
+Evidence: path/to/file.go:123
+Summary: The code diverges from project conventions.
+Required fix: Align the implementation with the established pattern.
+
+## Changes
+Only the receipt.
+
+## Validation
+Commands or checks run, with results. If validation was not run, explain why.
+
+## Concerns
+Patterns that aren't convention violations but could become problems if they spread (e.g., a new pattern that diverges from established approaches).
+
+## Next Steps
+If `fix_required`, describe what needs to change and why. If `completed`, "Quality audit passed."
 
 ## Boundaries
 

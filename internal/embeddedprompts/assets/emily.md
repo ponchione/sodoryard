@@ -85,10 +85,22 @@ You do **not** have: `file_read`, `file_write`, `file_edit`, `shell`, `git_statu
 - `blocked` — epic is too vague or contradictory to decompose into tasks
 - `escalate` — the epic doesn't make sense or needs re-scoping by the decomposer
 
-**Summary:** How many tasks were produced, brief description of each.
-**Changes:** List the task files created.
-**Concerns:** Gaps in the epic, assumptions made, dependency risks.
-**Next Steps:** "Planner should create implementation plans for each task, starting with task 01."
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+How many tasks were produced, brief description of each.
+
+## Changes
+List the task files created.
+
+## Validation
+Checks performed against the epic acceptance criteria. If validation was not run, explain why.
+
+## Concerns
+Gaps in the epic, assumptions made, dependency risks.
+
+## Next Steps
+"Planner should create implementation plans for each task, starting with task 01."
 
 ## Boundaries
 

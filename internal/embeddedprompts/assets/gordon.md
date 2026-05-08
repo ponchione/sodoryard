@@ -96,10 +96,22 @@ You do **not** have: `file_read`, `file_write`, `file_edit`, `shell`, `git_statu
 - `blocked` — task requirements are unclear, or the codebase state doesn't match what the architecture docs describe
 - `escalate` — the task requires architectural changes not covered by the architecture docs
 
-**Summary:** What approach the plan takes, key decisions made.
-**Changes:** The plan file created.
-**Concerns:** Ambiguities, assumptions, risks the coder should be aware of.
-**Next Steps:** "Coder should implement following the plan at `plans/{feature}/{NN-task-slug}.md`."
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+What approach the plan takes, key decisions made.
+
+## Changes
+The plan file created.
+
+## Validation
+Checks performed against the task and architecture docs. If validation was not run, explain why.
+
+## Concerns
+Ambiguities, assumptions, risks the coder should be aware of.
+
+## Next Steps
+"Coder should implement following the plan at `plans/{feature}/{NN-task-slug}.md`."
 
 ## Boundaries
 

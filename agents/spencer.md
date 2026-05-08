@@ -69,10 +69,32 @@ You do **not** have: `file_write`, `file_edit`, `shell`, `search_text`, `search_
 - `completed_with_concerns` — acceptable now, but flagging potential future issues
 - `fix_required` — performance problems that will impact the system at expected scale. List each with expected impact.
 
-**Summary:** Overall performance assessment. Note the scale assumptions you used.
-**Changes:** Only the receipt.
-**Concerns:** Scaling risks, missing performance requirements in the spec, areas where load testing would be valuable.
-**Next Steps:** If `fix_required`, describe the performance problems and suggest approaches (not implementations).
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+Overall performance assessment. Note the scale assumptions you used.
+
+## Findings
+List each finding with a stable ID. Use `None.` if there are no findings.
+
+### FIND-performance-001
+Severity: medium
+Status: open
+Evidence: path/to/file.go:123
+Summary: The loop scales linearly with every request.
+Required fix: Cache or precompute the repeated work.
+
+## Changes
+Only the receipt.
+
+## Validation
+Commands or checks run, with results. If validation was not run, explain why.
+
+## Concerns
+Scaling risks, missing performance requirements in the spec, areas where load testing would be valuable.
+
+## Next Steps
+If `fix_required`, describe the performance problems and suggest approaches (not implementations).
 
 ## Boundaries
 

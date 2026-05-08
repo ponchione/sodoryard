@@ -137,6 +137,9 @@ duration_seconds: %d
 ## Changes
 - No agent-authored receipt was found; this fallback receipt was written by the harness.
 
+## Validation
+- The harness did not receive an agent-authored validation summary.
+
 ## Concerns
 - Review the final text and session logs if more detail is needed.
 

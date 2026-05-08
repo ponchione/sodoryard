@@ -75,10 +75,22 @@ You do **not** have: `spawn_agent`, `chain_complete`.
 - `fix_required` — tests reveal bugs in the implementation. List failing tests and what they expose.
 - `blocked` — cannot write meaningful tests (e.g., testing framework not set up, missing test infrastructure)
 
-**Summary:** How many tests were written, what categories (unit, integration), what coverage of acceptance criteria.
-**Changes:** Test files created or modified.
-**Concerns:** Test gaps, areas that need integration tests but only have unit tests, flaky test risks.
-**Next Steps:** If `fix_required`, describe the bugs the tests revealed. Otherwise, "Tests complete."
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+How many tests were written, what categories (unit, integration), what coverage of acceptance criteria.
+
+## Changes
+Test files created or modified.
+
+## Validation
+Commands or checks run, with results. If validation was not run, explain why.
+
+## Concerns
+Test gaps, areas that need integration tests but only have unit tests, flaky test risks.
+
+## Next Steps
+If `fix_required`, describe the bugs the tests revealed. Otherwise, "Tests complete."
 
 ## Boundaries
 

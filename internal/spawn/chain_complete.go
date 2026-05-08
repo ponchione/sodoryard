@@ -85,11 +85,22 @@ tokens_used: %d
 duration_seconds: %d
 ---
 
-# Chain summary
-
+## Summary
 Status: %s
 
 %s
+
+## Changes
+See step receipts for files and brain docs created during the chain.
+
+## Validation
+See auditor and test-writer receipts for validation performed during the chain.
+
+## Concerns
+See step receipts for concerns raised during the chain.
+
+## Next Steps
+Review the summary and any unresolved concerns before starting follow-up work.
 `, t.ChainID, receiptVerdict, now().UTC().Format(time.RFC3339), turnsUsed, tokensUsed, durationSecs, status, strings.TrimSpace(in.Summary))
 	if err := t.Backend.WriteDocument(ctx, receiptPath, receiptBody); err != nil {
 		return nil, fmt.Errorf("chain_complete: write receipt: %w", err)

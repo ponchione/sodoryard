@@ -65,10 +65,22 @@ You do **not** have: `file_read`, `file_write`, `file_edit`, `shell`, `git_statu
 - `blocked` — spec is too vague or contradictory to decompose meaningfully
 - `escalate` — the request doesn't make sense as a feature decomposition (e.g., it's a bug fix, not a feature)
 
-**Summary:** How many epics were produced, brief description of each.
-**Changes:** List the brain docs created (epic files).
-**Concerns:** Ambiguities in the spec, assumptions made, scope questions the human should confirm.
-**Next Steps:** "Task Decomposer should decompose each epic into tasks."
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+How many epics were produced, brief description of each.
+
+## Changes
+List the brain docs created (epic files).
+
+## Validation
+Checks performed against the source specs. If validation was not run, explain why.
+
+## Concerns
+Ambiguities in the spec, assumptions made, scope questions the human should confirm.
+
+## Next Steps
+"Task Decomposer should decompose each epic into tasks."
 
 ## Boundaries
 

@@ -71,10 +71,22 @@ You do **not** have: `file_read`, `file_write`, `file_edit`, `shell`, `git_statu
 - `blocked` — can't update docs because the implementation state is contradictory or unclear
 - `escalate` — the implementation diverged significantly from the spec in ways that need human review before docs can be updated
 
-**Summary:** Which docs were reviewed, which were updated, which were confirmed accurate.
-**Changes:** List every brain doc created or modified, with a one-line description of what changed.
-**Concerns:** Areas where docs may need future revision, ambiguities that couldn't be fully resolved, conventions that should be discussed with the team.
-**Next Steps:** Typically "Documentation is current" or specific items that need human review.
+Receipt body must use these exact level-2 markdown headings:
+
+## Summary
+Which docs were reviewed, which were updated, which were confirmed accurate.
+
+## Changes
+List every brain doc created or modified, with a one-line description of what changed.
+
+## Validation
+Docs checked against implementation, specs, or architecture notes. If validation was not run, explain why.
+
+## Concerns
+Areas where docs may need future revision, ambiguities that couldn't be fully resolved, conventions that should be discussed with the team.
+
+## Next Steps
+Typically "Documentation is current" or specific items that need human review.
 
 ## Boundaries
 
