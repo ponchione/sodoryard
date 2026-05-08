@@ -397,6 +397,24 @@ Evaluation dimensions:
 3. Add JSON and human-readable output.
 4. Keep live model evaluation opt-in.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- `yard eval list`
+- `yard eval run receipt-contract`
+- `yard eval run chain-flow`
+- deterministic embedded fixtures for receipt schema/section/finding checks
+- deterministic embedded fixtures for chain-flow warnings, finding lifecycle state, and running source-writer conflict detection
+- human-readable and JSON output
+
+Not implemented in this slice:
+
+- live model evaluation
+- retrieval evaluation
+- `yard chain eval <chain-id>`
+- baseline comparison
+
 ### Acceptance Criteria
 
 - `yard eval run receipt-contract` can run in CI without provider credentials.

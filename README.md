@@ -60,6 +60,9 @@ yard [--config yard.yaml]             Terminal operator console
  |   |-- cancel                    Cancel a running chain
  |   |-- pause                     Pause a running chain
  |   +-- resume                    Resume a paused chain
+ |-- eval
+ |   |-- list                      List deterministic evaluation suites
+ |   +-- run                       Run a deterministic evaluation suite
  |-- brain
  |   +-- index                     Rebuild derived brain metadata
  |-- llm
