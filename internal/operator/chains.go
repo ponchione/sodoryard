@@ -124,6 +124,33 @@ func summarizeChain(ch chain.Chain, steps []chain.Step) ChainSummary {
 	}
 }
 
+func findingLifecycleMetrics(entries []chain.FindingLifecycleEntry) []FindingLifecycleMetric {
+	out := make([]FindingLifecycleMetric, 0, len(entries))
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		out = append(out, FindingLifecycleMetric{
+			ID:              entry.ID,
+			SourceRole:      entry.SourceRole,
+			Status:          entry.Status,
+			Severity:        entry.Severity,
+			Evidence:        entry.Evidence,
+			Summary:         entry.Summary,
+			RequiredFix:     entry.RequiredFix,
+			Resolution:      entry.Resolution,
+			FilesChanged:    append([]string(nil), entry.FilesChanged...),
+			Validation:      append([]string(nil), entry.Validation...),
+			AddressedCount:  entry.AddressedCount,
+			ClosedCount:     entry.ClosedCount,
+			ReopenedCount:   entry.ReopenedCount,
+			FirstSeenStep:   entry.FirstSeenStep,
+			LastUpdatedStep: entry.LastUpdatedStep,
+		})
+	}
+	return out
+}
+
 func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	ch := detail.Chain
 	report := ChainMetricsReport{
@@ -153,6 +180,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	report.AddressedFindingIDs = append([]string(nil), flowAnalysis.Findings.AddressedIDs...)
 	report.ReopenedFindingIDs = append([]string(nil), flowAnalysis.Findings.ReopenedIDs...)
 	report.RepeatedResolverFindingIDs = append([]string(nil), flowAnalysis.Findings.RepeatedResolverIDs...)
+	report.FindingLifecycle = findingLifecycleMetrics(flowAnalysis.Findings.Findings)
 	report.OpenFindingCount = len(report.OpenFindingIDs)
 	report.ClosedFindingCount = len(report.ClosedFindingIDs)
 	report.AddressedFindingCount = len(report.AddressedFindingIDs)

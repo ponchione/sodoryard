@@ -892,6 +892,12 @@ func TestGetChainMetricsSummarizesFindingLifecycle(t *testing.T) {
 		!reflect.DeepEqual(report.RepeatedResolverFindingIDs, []string{"FIND-correctness-001"}) {
 		t.Fatalf("finding ID summaries = %+v", report)
 	}
+	if len(report.FindingLifecycle) != 1 {
+		t.Fatalf("FindingLifecycle = %+v, want one entry", report.FindingLifecycle)
+	}
+	if got := report.FindingLifecycle[0]; got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Status != "addressed" || got.AddressedCount != 2 || got.ReopenedCount != 1 {
+		t.Fatalf("FindingLifecycle[0] = %+v, want legacy lifecycle counts", got)
+	}
 	for _, want := range []string{
 		"open audit findings: FIND-correctness-001",
 		"reopened audit findings: FIND-correctness-001",
@@ -952,6 +958,12 @@ func TestGetChainMetricsSummarizesFindingLifecycleFacts(t *testing.T) {
 		!reflect.DeepEqual(report.ReopenedFindingIDs, []string{"FIND-correctness-001"}) ||
 		!reflect.DeepEqual(report.RepeatedResolverFindingIDs, []string{"FIND-correctness-001"}) {
 		t.Fatalf("finding ID summaries = %+v", report)
+	}
+	if len(report.FindingLifecycle) != 1 {
+		t.Fatalf("FindingLifecycle = %+v, want one entry", report.FindingLifecycle)
+	}
+	if got := report.FindingLifecycle[0]; got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Status != "addressed" || got.Severity != "high" || got.Resolution != "fixed" || got.AddressedCount != 2 || got.ReopenedCount != 1 {
+		t.Fatalf("FindingLifecycle[0] = %+v, want merged lifecycle details", got)
 	}
 	for _, want := range []string{
 		"open audit findings: FIND-correctness-001",

@@ -274,6 +274,45 @@ func TestYardChainMetricsCommandPrintsDogfoodingSummary(t *testing.T) {
 	}
 }
 
+func TestRenderYardChainMetricsPrintsFindingLifecycle(t *testing.T) {
+	report := operator.ChainMetricsReport{
+		ChainID:                    "chain-findings",
+		Status:                     "running",
+		Health:                     "attention",
+		OpenFindingIDs:             []string{"FIND-correctness-001"},
+		AddressedFindingIDs:        []string{"FIND-correctness-001"},
+		ReopenedFindingIDs:         []string{"FIND-correctness-001"},
+		RepeatedResolverFindingIDs: []string{"FIND-correctness-001"},
+		FindingLifecycle: []operator.FindingLifecycleMetric{{
+			ID:              "FIND-correctness-001",
+			SourceRole:      "correctness-auditor",
+			Status:          "addressed",
+			Severity:        "high",
+			Evidence:        "internal/example.go:42",
+			Summary:         "nil panic",
+			RequiredFix:     "guard nil",
+			Resolution:      "fixed",
+			FilesChanged:    []string{"internal/example.go"},
+			Validation:      []string{"rtk make test"},
+			AddressedCount:  2,
+			ReopenedCount:   1,
+			FirstSeenStep:   3,
+			LastUpdatedStep: 7,
+		}},
+	}
+
+	var out bytes.Buffer
+	renderYardChainMetrics(&out, report)
+	for _, want := range []string{
+		"findings events=0 lifecycle_facts=0 open=0 closed=0 addressed=0 open_ids=FIND-correctness-001 closed_ids= addressed_ids=FIND-correctness-001 reopened_ids=FIND-correctness-001 repeated_resolver_ids=FIND-correctness-001",
+		"finding id=FIND-correctness-001 source=correctness-auditor status=addressed addressed=2 closed=0 reopened=1 first_step=3 last_step=7 severity=high evidence=\"internal/example.go:42\" summary=\"nil panic\" required_fix=\"guard nil\" resolution=\"fixed\" files=internal/example.go validation=\"rtk make test\"",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("metrics output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 	ctx := context.Background()
 	cfgPath, projectRoot := writeYardRunConfig(t)

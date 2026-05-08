@@ -178,6 +178,7 @@ type ChainMetricsReport struct {
 	AddressedFindingIDs               []string
 	ReopenedFindingIDs                []string
 	RepeatedResolverFindingIDs        []string
+	FindingLifecycle                  []FindingLifecycleMetric
 	SourceWriterBlocks                int
 	SourceWriterLockAcquires          int
 	SourceWriterLockReleases          int
@@ -205,6 +206,24 @@ type ChainStepMetric struct {
 	DurationSecs int
 	ExitCode     *int
 	ErrorMessage string
+}
+
+type FindingLifecycleMetric struct {
+	ID              string
+	SourceRole      string
+	Status          string
+	Severity        string
+	Evidence        string
+	Summary         string
+	RequiredFix     string
+	Resolution      string
+	FilesChanged    []string
+	Validation      []string
+	AddressedCount  int
+	ClosedCount     int
+	ReopenedCount   int
+	FirstSeenStep   int
+	LastUpdatedStep int
 }
 
 type ReceiptSummary struct {

@@ -109,6 +109,31 @@ func renderYardChainMetrics(out io.Writer, report operator.ChainMetricsReport) {
 	_, _ = fmt.Fprintf(out, "resolver_loops used=%d budget=%d pct=%.1f\n", report.ResolverLoops, report.MaxResolverLoops, report.ResolverLoopPct)
 	_, _ = fmt.Fprintf(out, "events total=%d output=%d changed_files=%d guardrail_facts=%d receipt_warnings=%d source_writer_blocks=%d source_writer_lock_acquired=%d source_writer_lock_released=%d source_writer_lock_force_released=%d source_writer_lock_release_failed=%d source_writer_lock_heartbeat_failed=%d source_writer_lock_stale_replaced=%d step_failed=%d safety_limit=%d reindex_started=%d reindex_done=%d process_started=%d process_exited=%d\n", report.EventTotal, report.OutputEvents, report.ChangedFileEvents, report.StepGuardrailFactEvents, report.ReceiptWarningEvents, report.SourceWriterBlocks, report.SourceWriterLockAcquires, report.SourceWriterLockReleases, report.SourceWriterLockForceReleases, report.SourceWriterLockReleaseFailures, report.SourceWriterLockHeartbeatFailures, report.SourceWriterLockStaleReplacements, report.StepFailedEvents, report.SafetyLimitEvents, report.ReindexStartedEvents, report.ReindexDoneEvents, report.ProcessStartedEvents, report.ProcessExitedEvents)
 	_, _ = fmt.Fprintf(out, "findings events=%d lifecycle_facts=%d open=%d closed=%d addressed=%d open_ids=%s closed_ids=%s addressed_ids=%s reopened_ids=%s repeated_resolver_ids=%s\n", report.ReceiptFindingEvents, report.FindingLifecycleFactEvents, report.OpenFindingCount, report.ClosedFindingCount, report.AddressedFindingCount, strings.Join(report.OpenFindingIDs, ","), strings.Join(report.ClosedFindingIDs, ","), strings.Join(report.AddressedFindingIDs, ","), strings.Join(report.ReopenedFindingIDs, ","), strings.Join(report.RepeatedResolverFindingIDs, ","))
+	for _, finding := range report.FindingLifecycle {
+		_, _ = fmt.Fprintf(out, "finding id=%s source=%s status=%s addressed=%d closed=%d reopened=%d first_step=%d last_step=%d", valueOrUnset(finding.ID), valueOrUnset(finding.SourceRole), valueOrUnset(finding.Status), finding.AddressedCount, finding.ClosedCount, finding.ReopenedCount, finding.FirstSeenStep, finding.LastUpdatedStep)
+		if finding.Severity != "" {
+			_, _ = fmt.Fprintf(out, " severity=%s", finding.Severity)
+		}
+		if finding.Evidence != "" {
+			_, _ = fmt.Fprintf(out, " evidence=%q", finding.Evidence)
+		}
+		if finding.Summary != "" {
+			_, _ = fmt.Fprintf(out, " summary=%q", finding.Summary)
+		}
+		if finding.RequiredFix != "" {
+			_, _ = fmt.Fprintf(out, " required_fix=%q", finding.RequiredFix)
+		}
+		if finding.Resolution != "" {
+			_, _ = fmt.Fprintf(out, " resolution=%q", finding.Resolution)
+		}
+		if len(finding.FilesChanged) > 0 {
+			_, _ = fmt.Fprintf(out, " files=%s", strings.Join(finding.FilesChanged, ","))
+		}
+		if len(finding.Validation) > 0 {
+			_, _ = fmt.Fprintf(out, " validation=%q", strings.Join(finding.Validation, "; "))
+		}
+		_, _ = fmt.Fprintln(out)
+	}
 	_, _ = fmt.Fprintf(out, "warnings=%d\n", len(report.Warnings))
 	for _, warning := range report.Warnings {
 		_, _ = fmt.Fprintf(out, "warning: %s\n", warning.Message)
