@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -176,6 +179,9 @@ func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (AgentS
 		return AgentStepResult{}, "", err
 	}
 	outcome := t.runEngineStep(ctx, step)
+	if step.sourceMutating {
+		t.captureChangedFiles(ctx, step)
+	}
 	receiptContent, parsed, err := t.readStepReceipt(ctx, step, outcome)
 	if err != nil {
 		return AgentStepResult{StepID: step.stepID, Sequence: step.sequence, ReceiptPath: step.receiptPath, Status: "failed", DurationSecs: outcome.durationSecs, ExitCode: outcome.exitCode}, "", err
@@ -367,6 +373,75 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 		stdout:       stdout.String(),
 		stderr:       stderr.String(),
 		durationSecs: durationSecs,
+	}
+}
+
+func (t *SpawnAgentTool) captureChangedFiles(ctx context.Context, step spawnStep) []string {
+	captureCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stdout := outputcap.NewBuffer(outputcap.DefaultLimit)
+	stderr := outputcap.NewBuffer(outputcap.DefaultLimit)
+	cmd := exec.CommandContext(captureCtx, "git", "status", "--short", "--untracked-files=all")
+	cmd.Dir = t.ProjectRoot
+	if len(t.SubprocessEnv) > 0 {
+		cmd.Env = append(os.Environ(), t.SubprocessEnv...)
+	}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	paths := parseGitStatusChangedFiles(stdout.String())
+	payload := map[string]any{
+		"paths": paths,
+		"count": len(paths),
+	}
+	if err != nil {
+		payload["error"] = strings.TrimSpace(err.Error())
+		if text := strings.TrimSpace(stderr.String()); text != "" {
+			payload["stderr"] = text
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			payload["exit_code"] = exitErr.ExitCode()
+		}
+	}
+	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepChangedFiles, payload)
+	return paths
+}
+
+func parseGitStatusChangedFiles(status string) []string {
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(status, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		pathPart := strings.TrimSpace(line[3:])
+		if pathPart == "" {
+			continue
+		}
+		if before, after, ok := strings.Cut(pathPart, " -> "); ok {
+			addGitStatusPath(seen, before)
+			addGitStatusPath(seen, after)
+			continue
+		}
+		addGitStatusPath(seen, pathPart)
+	}
+	paths := make([]string, 0, len(seen))
+	for path := range seen {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func addGitStatusPath(seen map[string]struct{}, raw string) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return
+	}
+	if unquoted, err := strconv.Unquote(path); err == nil {
+		path = unquoted
+	}
+	if path != "" {
+		seen[path] = struct{}{}
 	}
 }
 

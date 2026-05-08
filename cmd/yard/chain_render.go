@@ -116,6 +116,8 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 			stream = "stdout"
 		}
 		return fmt.Sprintf("[%s] %s", stream, line)
+	case chain.EventStepChangedFiles:
+		return join(plain("count"), quoted("paths"), quoted("error"))
 	case chain.EventStepCompleted, chain.EventStepFailed:
 		return join(plain("role"), plain("verdict"), plain("tokens_used"), plain("duration_secs"), plain("exit_code"), quoted("error"))
 	case chain.EventReceiptValidation:

@@ -6,6 +6,9 @@ package spawn
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +145,80 @@ Done.
 	}
 	if !processStartedSeen || !processExitedSeen {
 		t.Fatalf("step process events missing start/exit: %+v", events)
+	}
+}
+
+func TestSpawnAgentCapturesChangedFilesForSourceWriter(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
+		t.Skipf("git init failed: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new-file.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: repo})
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
+agent: coder
+chain_id: ` + chainID + `
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+## Summary
+Done.
+
+## Changes
+Created new-file.txt.
+
+## Validation
+Not run.
+
+## Concerns
+None.
+
+## Next Steps
+Audit.
+`
+		return RunResult{ExitCode: 0}
+	}
+
+	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`)); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var manifestSeen bool
+	for _, event := range events {
+		if event.EventType == chain.EventStepChangedFiles &&
+			strings.Contains(event.EventData, `"count":1`) &&
+			strings.Contains(event.EventData, `"new-file.txt"`) {
+			manifestSeen = true
+		}
+	}
+	if !manifestSeen {
+		t.Fatalf("events = %+v, want changed-file manifest for new-file.txt", events)
+	}
+}
+
+func TestParseGitStatusChangedFiles(t *testing.T) {
+	got := parseGitStatusChangedFiles(` M internal/foo.go
+?? "docs/new file.md"
+R  old.go -> internal/new.go
+`)
+	want := []string{"docs/new file.md", "internal/foo.go", "internal/new.go", "old.go"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("parseGitStatusChangedFiles = %#v, want %#v", got, want)
 	}
 }
 
