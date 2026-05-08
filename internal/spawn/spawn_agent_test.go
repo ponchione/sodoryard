@@ -513,6 +513,83 @@ Audit complete.
 	}
 }
 
+func TestSpawnAgentInjectsPreStepBriefing(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "briefing-chain", SourceTask: "audit the change", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "do work"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/briefing-chain-step-001.md", TokensUsed: 3, TurnsUsed: 1}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepChangedFiles, map[string]any{"paths": []string{"internal/guard.go"}, "count": 1}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{
+		Store:   store,
+		Backend: backend,
+		Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{
+			"coder":               {SystemPrompt: "builtin:coder"},
+			"correctness-auditor": {SystemPrompt: "builtin:correctness-auditor"},
+		}},
+		ChainID:      chainID,
+		EngineBinary: "tidmouth",
+		ProjectRoot:  t.TempDir(),
+	})
+	var gotTask string
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		gotTask = argValue(in.Args, "--task")
+		backend.docs["receipts/correctness-auditor/"+chainID+"-step-002.md"] = `---
+agent: correctness-auditor
+chain_id: briefing-chain
+step: 2
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+## Summary
+Audit complete.
+
+## Changes
+Only this receipt.
+
+## Validation
+Reviewed changed files.
+
+## Concerns
+None.
+
+## Next Steps
+Done.
+
+## Findings
+None.
+`
+		return RunResult{ExitCode: 0}
+	}
+
+	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"correctness-auditor","task":"audit work"}`)); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Current chain briefing:",
+		"Launch task: audit the change",
+		"Current step: 2 correctness-auditor",
+		"step 1 coder status=completed verdict=completed receipt=receipts/coder/briefing-chain-step-001.md",
+		"internal/guard.go",
+	} {
+		if !strings.Contains(gotTask, want) {
+			t.Fatalf("spawn task missing %q:\n%s", want, gotTask)
+		}
+	}
+}
+
 func TestSpawnAgentTreatsSpecVerdictsAsCompletedStepExecutions(t *testing.T) {
 	for _, verdict := range []string{
 		"completed",

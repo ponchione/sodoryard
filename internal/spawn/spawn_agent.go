@@ -228,7 +228,23 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 	}
 	seq := len(steps) + 1
 	receiptPath := receipt.StepPath(roleName, t.ChainID, seq)
-	task := taskWithHarnessContext(in.Task, t.ChainID, seq, receiptPath)
+	ch, err := t.Store.GetChain(ctx, t.ChainID)
+	if err != nil {
+		return spawnStep{}, fmt.Errorf("spawn_agent: load chain briefing state: %w", err)
+	}
+	events, err := t.Store.ListEvents(ctx, t.ChainID)
+	if err != nil {
+		return spawnStep{}, fmt.Errorf("spawn_agent: load chain briefing events: %w", err)
+	}
+	briefing := chain.BuildStepBriefing(chain.StepBriefingInput{
+		Chain:               *ch,
+		Steps:               steps,
+		Events:              events,
+		CurrentStepSequence: seq,
+		CurrentRole:         roleName,
+		ReceiptPath:         receiptPath,
+	})
+	task := taskWithHarnessContext(in.Task, t.ChainID, seq, receiptPath, briefing)
 	stepID, err := t.Store.StartStep(ctx, chain.StepSpec{ChainID: t.ChainID, SequenceNum: seq, Role: roleName, Task: in.Task, TaskContext: in.TaskContext})
 	if err != nil {
 		return spawnStep{}, fmt.Errorf("spawn_agent: create step: %w", err)
@@ -792,13 +808,19 @@ func infrastructureExitCode(code int) bool {
 
 func intPtr(v int) *int { return &v }
 
-func taskWithHarnessContext(task string, chainID string, step int, receiptPath string) string {
+func taskWithHarnessContext(task string, chainID string, step int, receiptPath string, briefing string) string {
+	briefing = strings.TrimSpace(briefing)
+	briefingBlock := ""
+	if briefing != "" {
+		briefingBlock = "\n\nCurrent chain briefing:\n" + briefing
+	}
 	return fmt.Sprintf(`%s
 
 Harness context:
 - Chain ID: %s
 - Step number: %d
 - Receipt path: %s
+%s
 
 Before finishing, write your receipt to the exact brain path above. If you cannot complete the task, still write the receipt there with the appropriate verdict and concerns.
 
@@ -825,5 +847,5 @@ The receipt body must include these markdown sections:
 
 Auditor receipts must also include ## Findings. Resolver receipts must also include ## Findings Addressed.
 
-The receipt body must include the concrete outcome of the task. If the task asks a question, put the answer in the Summary section rather than only saying that you found it.`, strings.TrimSpace(task), chainID, step, receiptPath, chainID, step)
+The receipt body must include the concrete outcome of the task. If the task asks a question, put the answer in the Summary section rather than only saying that you found it.`, strings.TrimSpace(task), chainID, step, receiptPath, briefingBlock, chainID, step)
 }
