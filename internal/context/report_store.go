@@ -329,6 +329,7 @@ func decodeContextReportRow(row dbpkg.ContextReport) (*ContextAssemblyReport, er
 	}
 	report.IncludedChunks = collectIncludedChunkKeys(report)
 	report.ExcludedChunks, report.ExclusionReasons = collectExcludedChunkKeys(report)
+	ensureUnifiedRetrievalResults(report)
 	if report.BudgetBreakdown == nil {
 		report.BudgetBreakdown = map[string]int{}
 	}
@@ -363,6 +364,7 @@ func decodeProjectMemoryContextReport(row projectmemory.ContextReport) (*Context
 	report.ContextHitRate = quality.ContextHitRate
 	report.IncludedChunks = collectIncludedChunkKeys(report)
 	report.ExcludedChunks, report.ExclusionReasons = collectExcludedChunkKeys(report)
+	ensureUnifiedRetrievalResults(report)
 	if report.BudgetBreakdown == nil {
 		report.BudgetBreakdown = map[string]int{}
 	}

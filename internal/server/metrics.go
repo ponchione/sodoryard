@@ -260,15 +260,16 @@ type contextReportResponse struct {
 	TotalLatencyMs     *int64 `json:"total_latency_ms,omitempty"`
 
 	// JSON blobs — passed through as raw JSON, not double-encoded.
-	Needs           json.RawMessage               `json:"needs,omitempty"`
-	Signals         json.RawMessage               `json:"signals,omitempty"`
-	RAGResults      json.RawMessage               `json:"rag_results,omitempty"`
-	BrainResults    json.RawMessage               `json:"brain_results,omitempty"`
-	GraphResults    json.RawMessage               `json:"graph_results,omitempty"`
-	ExplicitFiles   json.RawMessage               `json:"explicit_files,omitempty"`
-	BudgetBreakdown json.RawMessage               `json:"budget_breakdown,omitempty"`
-	AgentReadFiles  json.RawMessage               `json:"agent_read_files,omitempty"`
-	TokenBudget     *contextpkg.TokenBudgetReport `json:"token_budget,omitempty"`
+	Needs            json.RawMessage               `json:"needs,omitempty"`
+	Signals          json.RawMessage               `json:"signals,omitempty"`
+	RAGResults       json.RawMessage               `json:"rag_results,omitempty"`
+	BrainResults     json.RawMessage               `json:"brain_results,omitempty"`
+	GraphResults     json.RawMessage               `json:"graph_results,omitempty"`
+	ExplicitFiles    json.RawMessage               `json:"explicit_files,omitempty"`
+	RetrievalResults json.RawMessage               `json:"retrieval_results,omitempty"`
+	BudgetBreakdown  json.RawMessage               `json:"budget_breakdown,omitempty"`
+	AgentReadFiles   json.RawMessage               `json:"agent_read_files,omitempty"`
+	TokenBudget      *contextpkg.TokenBudgetReport `json:"token_budget,omitempty"`
 
 	// Scalars.
 	BudgetTotal     *int64   `json:"budget_total,omitempty"`
@@ -296,27 +297,28 @@ type contextSignalStreamEntry struct {
 }
 
 type metricsContextReport struct {
-	ConversationID      string
-	TurnNumber          int64
-	AnalysisLatencyMs   *int64
-	RetrievalLatencyMs  *int64
-	TotalLatencyMs      *int64
-	NeedsJSON           string
-	SignalsJSON         string
-	RAGResultsJSON      string
-	BrainResultsJSON    string
-	GraphResultsJSON    string
-	ExplicitFilesJSON   string
-	BudgetTotal         *int64
-	BudgetUsed          *int64
-	BudgetBreakdownJSON string
-	TokenBudgetJSON     string
-	IncludedCount       *int64
-	ExcludedCount       *int64
-	AgentUsedSearch     *int64
-	AgentReadFilesJSON  string
-	ContextHitRate      *float64
-	CreatedAt           string
+	ConversationID       string
+	TurnNumber           int64
+	AnalysisLatencyMs    *int64
+	RetrievalLatencyMs   *int64
+	TotalLatencyMs       *int64
+	NeedsJSON            string
+	SignalsJSON          string
+	RAGResultsJSON       string
+	BrainResultsJSON     string
+	GraphResultsJSON     string
+	ExplicitFilesJSON    string
+	RetrievalResultsJSON string
+	BudgetTotal          *int64
+	BudgetUsed           *int64
+	BudgetBreakdownJSON  string
+	TokenBudgetJSON      string
+	IncludedCount        *int64
+	ExcludedCount        *int64
+	AgentUsedSearch      *int64
+	AgentReadFilesJSON   string
+	ContextHitRate       *float64
+	CreatedAt            string
 }
 
 func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +356,7 @@ func (h *MetricsHandler) handleContextReport(w http.ResponseWriter, r *http.Requ
 	resp.BrainResults = stringToJSON(report.BrainResultsJSON)
 	resp.GraphResults = stringToJSON(report.GraphResultsJSON)
 	resp.ExplicitFiles = stringToJSON(report.ExplicitFilesJSON)
+	resp.RetrievalResults = stringToJSON(report.RetrievalResultsJSON)
 	resp.BudgetBreakdown = stringToJSON(report.BudgetBreakdownJSON)
 	resp.AgentReadFiles = stringToJSON(report.AgentReadFilesJSON)
 
@@ -583,29 +586,58 @@ func stringToJSON(raw string) json.RawMessage {
 }
 
 func metricsContextReportFromSQLite(row appdb.ContextReport) metricsContextReport {
+	ragJSON := nullStringValue(row.RagResultsJson)
+	brainJSON := nullStringValue(row.BrainResultsJson)
+	graphJSON := nullStringValue(row.GraphResultsJson)
+	explicitFilesJSON := nullStringValue(row.ExplicitFilesJson)
 	return metricsContextReport{
-		ConversationID:      row.ConversationID,
-		TurnNumber:          row.TurnNumber,
-		AnalysisLatencyMs:   nullInt64Ptr(row.AnalysisLatencyMs),
-		RetrievalLatencyMs:  nullInt64Ptr(row.RetrievalLatencyMs),
-		TotalLatencyMs:      nullInt64Ptr(row.TotalLatencyMs),
-		NeedsJSON:           nullStringValue(row.NeedsJson),
-		SignalsJSON:         nullStringValue(row.SignalsJson),
-		RAGResultsJSON:      nullStringValue(row.RagResultsJson),
-		BrainResultsJSON:    nullStringValue(row.BrainResultsJson),
-		GraphResultsJSON:    nullStringValue(row.GraphResultsJson),
-		ExplicitFilesJSON:   nullStringValue(row.ExplicitFilesJson),
-		BudgetTotal:         nullInt64Ptr(row.BudgetTotal),
-		BudgetUsed:          nullInt64Ptr(row.BudgetUsed),
-		BudgetBreakdownJSON: nullStringValue(row.BudgetBreakdownJson),
-		TokenBudgetJSON:     nullStringValue(row.TokenBudgetJson),
-		IncludedCount:       nullInt64Ptr(row.IncludedCount),
-		ExcludedCount:       nullInt64Ptr(row.ExcludedCount),
-		AgentUsedSearch:     nullInt64Ptr(row.AgentUsedSearchTool),
-		AgentReadFilesJSON:  nullStringValue(row.AgentReadFilesJson),
-		ContextHitRate:      nullFloat64Ptr(row.ContextHitRate),
-		CreatedAt:           row.CreatedAt,
+		ConversationID:       row.ConversationID,
+		TurnNumber:           row.TurnNumber,
+		AnalysisLatencyMs:    nullInt64Ptr(row.AnalysisLatencyMs),
+		RetrievalLatencyMs:   nullInt64Ptr(row.RetrievalLatencyMs),
+		TotalLatencyMs:       nullInt64Ptr(row.TotalLatencyMs),
+		NeedsJSON:            nullStringValue(row.NeedsJson),
+		SignalsJSON:          nullStringValue(row.SignalsJson),
+		RAGResultsJSON:       ragJSON,
+		BrainResultsJSON:     brainJSON,
+		GraphResultsJSON:     graphJSON,
+		ExplicitFilesJSON:    explicitFilesJSON,
+		RetrievalResultsJSON: metricsUnifiedRetrievalResultsJSON(ragJSON, brainJSON, graphJSON, explicitFilesJSON),
+		BudgetTotal:          nullInt64Ptr(row.BudgetTotal),
+		BudgetUsed:           nullInt64Ptr(row.BudgetUsed),
+		BudgetBreakdownJSON:  nullStringValue(row.BudgetBreakdownJson),
+		TokenBudgetJSON:      nullStringValue(row.TokenBudgetJson),
+		IncludedCount:        nullInt64Ptr(row.IncludedCount),
+		ExcludedCount:        nullInt64Ptr(row.ExcludedCount),
+		AgentUsedSearch:      nullInt64Ptr(row.AgentUsedSearchTool),
+		AgentReadFilesJSON:   nullStringValue(row.AgentReadFilesJson),
+		ContextHitRate:       nullFloat64Ptr(row.ContextHitRate),
+		CreatedAt:            row.CreatedAt,
 	}
+}
+
+func metricsUnifiedRetrievalResultsJSON(ragJSON string, brainJSON string, graphJSON string, explicitFilesJSON string) string {
+	var rag []contextpkg.RAGHit
+	var brain []contextpkg.BrainHit
+	var graph []contextpkg.GraphHit
+	var files []contextpkg.FileResult
+	if strings.TrimSpace(ragJSON) != "" {
+		_ = json.Unmarshal([]byte(ragJSON), &rag)
+	}
+	if strings.TrimSpace(brainJSON) != "" {
+		_ = json.Unmarshal([]byte(brainJSON), &brain)
+	}
+	if strings.TrimSpace(graphJSON) != "" {
+		_ = json.Unmarshal([]byte(graphJSON), &graph)
+	}
+	if strings.TrimSpace(explicitFilesJSON) != "" {
+		_ = json.Unmarshal([]byte(explicitFilesJSON), &files)
+	}
+	out, err := marshalMetricsJSON(contextpkg.BuildRetrievalResults(rag, brain, graph, files))
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 type metricsContextReportQuality struct {
@@ -667,6 +699,13 @@ func metricsContextReportFromProjectMemory(row projectmemory.ContextReport) (met
 	if err != nil {
 		return metricsContextReport{}, fmt.Errorf("marshal explicit file results: %w", err)
 	}
+	if len(report.UnifiedResults) == 0 {
+		report.UnifiedResults = contextpkg.BuildRetrievalResults(report.RAGResults, report.BrainResults, report.GraphResults, report.ExplicitFileResults)
+	}
+	retrievalResultsJSON, err := marshalMetricsJSON(report.UnifiedResults)
+	if err != nil {
+		return metricsContextReport{}, fmt.Errorf("marshal retrieval results: %w", err)
+	}
 	budgetBreakdownJSON, err := marshalMetricsJSON(report.BudgetBreakdown)
 	if err != nil {
 		return metricsContextReport{}, fmt.Errorf("marshal budget breakdown: %w", err)
@@ -681,27 +720,28 @@ func metricsContextReportFromProjectMemory(row projectmemory.ContextReport) (met
 	}
 
 	return metricsContextReport{
-		ConversationID:      row.ConversationID,
-		TurnNumber:          int64(row.TurnNumber),
-		AnalysisLatencyMs:   int64Ptr(report.AnalysisLatencyMs),
-		RetrievalLatencyMs:  int64Ptr(report.RetrievalLatencyMs),
-		TotalLatencyMs:      int64Ptr(report.TotalLatencyMs),
-		NeedsJSON:           needsJSON,
-		SignalsJSON:         signalsJSON,
-		RAGResultsJSON:      ragJSON,
-		BrainResultsJSON:    brainJSON,
-		GraphResultsJSON:    graphJSON,
-		ExplicitFilesJSON:   explicitFilesJSON,
-		BudgetTotal:         int64Ptr(int64(report.BudgetTotal)),
-		BudgetUsed:          int64Ptr(int64(report.BudgetUsed)),
-		BudgetBreakdownJSON: budgetBreakdownJSON,
-		TokenBudgetJSON:     tokenBudgetJSON,
-		IncludedCount:       int64Ptr(int64(len(report.IncludedChunks))),
-		ExcludedCount:       int64Ptr(int64(len(report.ExcludedChunks))),
-		AgentUsedSearch:     int64Ptr(boolAsInt64(usedSearch)),
-		AgentReadFilesJSON:  readFilesJSON,
-		ContextHitRate:      float64Ptr(hitRate),
-		CreatedAt:           unixMicroString(row.CreatedAtUS),
+		ConversationID:       row.ConversationID,
+		TurnNumber:           int64(row.TurnNumber),
+		AnalysisLatencyMs:    int64Ptr(report.AnalysisLatencyMs),
+		RetrievalLatencyMs:   int64Ptr(report.RetrievalLatencyMs),
+		TotalLatencyMs:       int64Ptr(report.TotalLatencyMs),
+		NeedsJSON:            needsJSON,
+		SignalsJSON:          signalsJSON,
+		RAGResultsJSON:       ragJSON,
+		BrainResultsJSON:     brainJSON,
+		GraphResultsJSON:     graphJSON,
+		ExplicitFilesJSON:    explicitFilesJSON,
+		RetrievalResultsJSON: retrievalResultsJSON,
+		BudgetTotal:          int64Ptr(int64(report.BudgetTotal)),
+		BudgetUsed:           int64Ptr(int64(report.BudgetUsed)),
+		BudgetBreakdownJSON:  budgetBreakdownJSON,
+		TokenBudgetJSON:      tokenBudgetJSON,
+		IncludedCount:        int64Ptr(int64(len(report.IncludedChunks))),
+		ExcludedCount:        int64Ptr(int64(len(report.ExcludedChunks))),
+		AgentUsedSearch:      int64Ptr(boolAsInt64(usedSearch)),
+		AgentReadFilesJSON:   readFilesJSON,
+		ContextHitRate:       float64Ptr(hitRate),
+		CreatedAt:            unixMicroString(row.CreatedAtUS),
 	}, nil
 }
 

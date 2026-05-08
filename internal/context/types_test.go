@@ -92,6 +92,30 @@ func TestRetrievalResultsZeroValueIsUsable(t *testing.T) {
 	}
 }
 
+func TestBuildRetrievalResultsNormalizesSources(t *testing.T) {
+	results := BuildRetrievalResults(
+		[]RAGHit{{ChunkID: "chunk-1", FilePath: "internal/auth/service.go", Name: "ValidateToken", Body: "func ValidateToken() {}", SimilarityScore: 0.8, Included: true}},
+		[]BrainHit{{DocumentPath: "notes/auth.md", SectionHeading: "Decision", Snippet: "Use middleware.", MatchScore: 0.7, MatchMode: "keyword"}},
+		[]GraphHit{{ChunkID: "graph-1", FilePath: "internal/auth/handler.go", SymbolName: "AuthHandler", RelationshipType: "caller", ExclusionReason: "budget_exceeded"}},
+		[]FileResult{{FilePath: "internal/auth/middleware.go", Content: "package auth", TokenCount: 12, Included: true}},
+	)
+	if len(results) != 4 {
+		t.Fatalf("len(results) = %d, want 4", len(results))
+	}
+	if results[0].Source != "code" || results[0].Kind != "code_chunk" || results[0].Path != "internal/auth/service.go" || results[0].Symbol != "ValidateToken" || !results[0].Included {
+		t.Fatalf("code result = %+v, want normalized included code chunk", results[0])
+	}
+	if results[1].Source != "brain" || results[1].Kind != "brain_doc" || results[1].Path != "notes/auth.md" || results[1].Symbol != "Decision" {
+		t.Fatalf("brain result = %+v, want normalized brain doc", results[1])
+	}
+	if results[2].Source != "graph" || results[2].Kind != "symbol" || results[2].ExclusionReason != "budget_exceeded" {
+		t.Fatalf("graph result = %+v, want normalized excluded graph symbol", results[2])
+	}
+	if results[3].Source != "explicit_file" || results[3].Kind != "explicit_file" || results[3].TokenEstimate != 12 {
+		t.Fatalf("file result = %+v, want normalized explicit file", results[3])
+	}
+}
+
 func TestAssemblyScopeUsesSeenFileLookup(t *testing.T) {
 	scope := AssemblyScope{
 		ConversationID: "conv-123",

@@ -238,6 +238,9 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	if len(pkg.Report.GraphResults) != 1 || pkg.Report.GraphResults[0].ExclusionReason != "budget_exceeded" {
 		t.Fatalf("GraphResults = %+v, want budget_exceeded exclusion", pkg.Report.GraphResults)
 	}
+	if len(pkg.Report.UnifiedResults) != 4 || pkg.Report.UnifiedResults[0].Kind != "code_chunk" || pkg.Report.UnifiedResults[1].Kind != "brain_doc" {
+		t.Fatalf("UnifiedResults = %+v, want normalized retrieval results", pkg.Report.UnifiedResults)
+	}
 	if !pkg.Report.Needs.PreferBrainContext {
 		t.Fatalf("report PreferBrainContext = false, want true")
 	}

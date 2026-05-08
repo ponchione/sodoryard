@@ -296,16 +296,22 @@ func buildContextAssemblyReport(
 		budget = &BudgetResult{}
 	}
 
+	ragResults := annotateRAGResults(results.RAGHits, budget)
+	brainResults := annotateBrainResults(results.BrainHits, budget)
+	fileResults := annotateFileResults(results.FileResults, budget)
+	graphResults := annotateGraphResults(results.GraphHits, budget)
+
 	report := &ContextAssemblyReport{
 		TurnNumber:          turnNumber,
 		AnalysisLatencyMs:   analysisLatencyMs,
 		RetrievalLatencyMs:  retrievalLatencyMs,
 		TotalLatencyMs:      totalLatencyMs,
 		Needs:               cloneContextNeeds(*needs),
-		RAGResults:          annotateRAGResults(results.RAGHits, budget),
-		BrainResults:        annotateBrainResults(results.BrainHits, budget),
-		ExplicitFileResults: annotateFileResults(results.FileResults, budget),
-		GraphResults:        annotateGraphResults(results.GraphHits, budget),
+		RAGResults:          ragResults,
+		BrainResults:        brainResults,
+		ExplicitFileResults: fileResults,
+		GraphResults:        graphResults,
+		UnifiedResults:      BuildRetrievalResults(ragResults, brainResults, graphResults, fileResults),
 		IncludedChunks:      append([]string(nil), budget.IncludedChunks...),
 		ExcludedChunks:      append([]string(nil), budget.ExcludedChunks...),
 		ExclusionReasons:    cloneStringMap(budget.ExclusionReasons),

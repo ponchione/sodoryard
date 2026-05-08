@@ -97,6 +97,22 @@ type FileResult struct {
 	ExclusionReason string `json:"exclusion_reason,omitempty"`
 }
 
+// RetrievalResult is the normalized, source-agnostic retrieval result shape
+// used by reports and deterministic evals. It is derived from the source-
+// specific result structs without changing ranking or budget policy.
+type RetrievalResult struct {
+	Source          string         `json:"source"`
+	Kind            string         `json:"kind"`
+	Path            string         `json:"path,omitempty"`
+	Symbol          string         `json:"symbol,omitempty"`
+	Score           float64        `json:"score,omitempty"`
+	Content         string         `json:"content,omitempty"`
+	TokenEstimate   int            `json:"token_estimate,omitempty"`
+	Included        bool           `json:"included,omitempty"`
+	ExclusionReason string         `json:"exclusion_reason,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+}
+
 // RetrievalResults groups the outputs of all retrieval paths before budget
 // fitting and serialization.
 type RetrievalResults struct {
@@ -162,6 +178,7 @@ type ContextAssemblyReport struct {
 	BrainResults        []BrainHit        `json:"brain_results,omitempty"`
 	ExplicitFileResults []FileResult      `json:"explicit_file_results,omitempty"`
 	GraphResults        []GraphHit        `json:"graph_results,omitempty"`
+	UnifiedResults      []RetrievalResult `json:"retrieval_results,omitempty"`
 	IncludedChunks      []string          `json:"included_chunks,omitempty"`
 	ExcludedChunks      []string          `json:"excluded_chunks,omitempty"`
 	ExclusionReasons    map[string]string `json:"exclusion_reasons,omitempty"`

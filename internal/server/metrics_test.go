@@ -442,6 +442,13 @@ func TestContextReportEndpointReturnsBrainGraphExplainabilityFields(t *testing.T
 	if brainResults[0].GraphSourcePath != "notes/runtime-cache.md" || brainResults[0].GraphHopDepth != 1 || brainResults[0].MatchMode != "backlink" {
 		t.Fatalf("brainResults[0] = %+v, want graph explainability fields", brainResults[0])
 	}
+	var retrievalResults []contextpkg.RetrievalResult
+	if err := json.Unmarshal(resp.RetrievalResults, &retrievalResults); err != nil {
+		t.Fatalf("decode retrieval results: %v", err)
+	}
+	if len(retrievalResults) != 1 || retrievalResults[0].Source != "brain" || retrievalResults[0].Kind != "brain_doc" || retrievalResults[0].Path != "notes/runtime-rationale.md" {
+		t.Fatalf("retrievalResults = %+v, want normalized brain result", retrievalResults)
+	}
 }
 
 func TestMetricsEndpointsReturnUnavailableWithoutQueries(t *testing.T) {

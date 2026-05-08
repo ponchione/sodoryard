@@ -914,6 +914,22 @@ This does not require replacing the current retrieval orchestrator at once. Star
 3. Wrap code and brain search first.
 4. Leave ranking policy unchanged.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- normalized `RetrievalResult` shape in `internal/context`
+- context assembly reports now include source-agnostic `retrieval_results`
+- normalized report results are derived from existing code, brain, graph, and explicit-file result records
+- SQLite/project-memory report reads rebuild normalized retrieval results for older reports when needed
+- metrics context-report API includes `retrieval_results` alongside source-specific result arrays
+
+Not implemented in this slice:
+
+- replacing retrieval orchestration or ranking policy
+- separate retriever interface wrappers for each source
+- retrieval eval suite assertions over expected files/symbols
+
 ### Acceptance Criteria
 
 - Context reports show consistent metadata across code and brain hits.
