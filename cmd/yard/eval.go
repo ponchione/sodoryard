@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -41,6 +43,7 @@ func newYardEvalListCmd() *cobra.Command {
 
 func newYardEvalRunCmd() *cobra.Command {
 	var jsonOut bool
+	var baselinePath string
 	cmd := &cobra.Command{
 		Use:   "run <suite>",
 		Short: "Run an evaluation suite",
@@ -49,6 +52,15 @@ func newYardEvalRunCmd() *cobra.Command {
 			report, err := yardeval.Run(cmd.Context(), args[0])
 			if err != nil {
 				return err
+			}
+			if strings.TrimSpace(baselinePath) != "" {
+				baseline, err := loadYardEvalBaseline(baselinePath)
+				if err != nil {
+					return err
+				}
+				comparison := yardeval.CompareBaseline(report, baseline)
+				comparison.Path = baselinePath
+				report.Baseline = &comparison
 			}
 			if jsonOut {
 				if err := cmdutil.WriteJSON(cmd.OutOrStdout(), report); err != nil {
@@ -60,10 +72,14 @@ func newYardEvalRunCmd() *cobra.Command {
 			if report.Status != yardeval.StatusPass {
 				return fmt.Errorf("eval suite %s failed", report.Suite)
 			}
+			if report.Baseline != nil && report.Baseline.Status != yardeval.StatusPass {
+				return fmt.Errorf("eval suite %s baseline comparison failed", report.Suite)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON output")
+	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Compare output to a saved JSON eval report")
 	return cmd
 }
 
@@ -108,4 +124,26 @@ func renderYardEvalReport(out io.Writer, report yardeval.Report) {
 			_, _ = fmt.Fprintf(out, "failed case=%s assertion=%s %s\n", c.Name, assertion.Name, message)
 		}
 	}
+	if report.Baseline != nil {
+		_, _ = fmt.Fprintf(out, "baseline=%s status=%s diffs=%d\n", valueOrUnset(report.Baseline.Path), report.Baseline.Status, len(report.Baseline.Diffs))
+		for _, diff := range report.Baseline.Diffs {
+			message := strings.TrimSpace(diff.Message)
+			if message == "" {
+				message = fmt.Sprintf("expected=%v actual=%v", diff.Expected, diff.Actual)
+			}
+			_, _ = fmt.Fprintf(out, "baseline_diff field=%s %s\n", diff.Field, message)
+		}
+	}
+}
+
+func loadYardEvalBaseline(path string) (yardeval.Report, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return yardeval.Report{}, fmt.Errorf("read eval baseline %s: %w", path, err)
+	}
+	var report yardeval.Report
+	if err := json.Unmarshal(data, &report); err != nil {
+		return yardeval.Report{}, fmt.Errorf("decode eval baseline %s: %w", path, err)
+	}
+	return report, nil
 }

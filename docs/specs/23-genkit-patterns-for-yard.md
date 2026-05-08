@@ -429,6 +429,21 @@ Not implemented in this slice:
 - retrieval evaluation
 - baseline comparison
 
+### Implemented Baseline Comparison Slice
+
+Implemented on 2026-05-08:
+
+- `yard eval run <suite> --baseline <report.json>`
+- baseline comparison against saved JSON eval reports
+- machine-readable baseline status/diffs in JSON output
+- human-readable baseline status and per-field diffs in normal output
+
+Not implemented in this slice:
+
+- baseline writing/management commands
+- historical trend storage
+- tolerance policies for live or noisy evals
+
 ### Acceptance Criteria
 
 - `yard eval run receipt-contract` can run in CI without provider credentials.

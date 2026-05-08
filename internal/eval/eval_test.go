@@ -102,6 +102,39 @@ func TestEvaluateChainFlowFailsOnStoredChainWarnings(t *testing.T) {
 	}
 }
 
+func TestCompareBaselinePassesForEquivalentReport(t *testing.T) {
+	report, err := Run(context.Background(), "receipt-contract")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	comparison := CompareBaseline(report, report)
+	if comparison.Status != StatusPass || len(comparison.Diffs) != 0 {
+		t.Fatalf("comparison = %+v, want pass with no diffs", comparison)
+	}
+}
+
+func TestCompareBaselineReportsDeterministicDiffs(t *testing.T) {
+	current, err := Run(context.Background(), "receipt-contract")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	baseline, err := Run(context.Background(), "receipt-contract")
+	if err != nil {
+		t.Fatalf("Run baseline returned error: %v", err)
+	}
+	baseline.Totals.Cases++
+	baseline.Cases[0].Assertions[0].Status = StatusFail
+	comparison := CompareBaseline(current, baseline)
+	if comparison.Status != StatusFail {
+		t.Fatalf("comparison status = %q, want fail", comparison.Status)
+	}
+	var fields []string
+	for _, diff := range comparison.Diffs {
+		fields = append(fields, diff.Field)
+	}
+	assertStringSetForTest(t, fields, []string{"cases", "totals"})
+}
+
 func TestRunRejectsUnknownSuite(t *testing.T) {
 	if _, err := Run(context.Background(), "missing"); err == nil || !strings.Contains(err.Error(), `unknown eval suite "missing"`) {
 		t.Fatalf("Run unknown error = %v, want unknown suite", err)

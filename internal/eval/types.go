@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -24,6 +25,7 @@ type Report struct {
 	Score       float64      `json:"score"`
 	Totals      Totals       `json:"totals"`
 	Cases       []CaseResult `json:"cases"`
+	Baseline    *Baseline    `json:"baseline,omitempty"`
 }
 
 type Totals struct {
@@ -60,6 +62,19 @@ type FindingResult struct {
 	Severity   string `json:"severity,omitempty"`
 	Category   string `json:"category,omitempty"`
 	Summary    string `json:"summary,omitempty"`
+}
+
+type Baseline struct {
+	Path   string         `json:"path,omitempty"`
+	Status string         `json:"status"`
+	Diffs  []BaselineDiff `json:"diffs,omitempty"`
+}
+
+type BaselineDiff struct {
+	Field    string `json:"field"`
+	Message  string `json:"message,omitempty"`
+	Expected any    `json:"expected,omitempty"`
+	Actual   any    `json:"actual,omitempty"`
 }
 
 type suite interface {
@@ -235,4 +250,98 @@ func equalStrings(a []string, b []string) bool {
 		}
 	}
 	return true
+}
+
+func CompareBaseline(current Report, baseline Report) Baseline {
+	comparison := Baseline{Status: StatusPass}
+	currentSig := reportBaselineSignatureFrom(current)
+	baselineSig := reportBaselineSignatureFrom(baseline)
+	addDiff := func(field string, expected any, actual any) {
+		if reflect.DeepEqual(expected, actual) {
+			return
+		}
+		comparison.Status = StatusFail
+		comparison.Diffs = append(comparison.Diffs, BaselineDiff{
+			Field:    field,
+			Message:  fmt.Sprintf("got %v, want %v", actual, expected),
+			Expected: expected,
+			Actual:   actual,
+		})
+	}
+	addDiff("suite", baselineSig.Suite, currentSig.Suite)
+	addDiff("status", baselineSig.Status, currentSig.Status)
+	addDiff("totals", baselineSig.Totals, currentSig.Totals)
+	addDiff("cases", baselineSig.Cases, currentSig.Cases)
+	return comparison
+}
+
+type reportBaselineSignature struct {
+	Suite  string                  `json:"suite"`
+	Status string                  `json:"status"`
+	Totals Totals                  `json:"totals"`
+	Cases  []caseBaselineSignature `json:"cases"`
+}
+
+type caseBaselineSignature struct {
+	Name       string                       `json:"name"`
+	Status     string                       `json:"status"`
+	Score      float64                      `json:"score"`
+	Assertions []assertionBaselineSignature `json:"assertions"`
+	Warnings   []string                     `json:"warnings,omitempty"`
+	Findings   []findingBaselineSignature   `json:"findings,omitempty"`
+}
+
+type assertionBaselineSignature struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+type findingBaselineSignature struct {
+	ID     string `json:"id"`
+	Status string `json:"status,omitempty"`
+}
+
+func reportBaselineSignatureFrom(report Report) reportBaselineSignature {
+	cases := make([]caseBaselineSignature, 0, len(report.Cases))
+	for _, c := range report.Cases {
+		assertions := make([]assertionBaselineSignature, 0, len(c.Assertions))
+		for _, assertion := range c.Assertions {
+			assertions = append(assertions, assertionBaselineSignature{Name: assertion.Name, Status: assertion.Status})
+		}
+		sort.SliceStable(assertions, func(i int, j int) bool {
+			if assertions[i].Name == assertions[j].Name {
+				return assertions[i].Status < assertions[j].Status
+			}
+			return assertions[i].Name < assertions[j].Name
+		})
+		findings := make([]findingBaselineSignature, 0, len(c.Findings))
+		for _, finding := range c.Findings {
+			findings = append(findings, findingBaselineSignature{ID: finding.ID, Status: finding.Status})
+		}
+		sort.SliceStable(findings, func(i int, j int) bool {
+			if findings[i].ID == findings[j].ID {
+				return findings[i].Status < findings[j].Status
+			}
+			return findings[i].ID < findings[j].ID
+		})
+		warnings := append([]string(nil), c.Warnings...)
+		sort.Strings(warnings)
+		cases = append(cases, caseBaselineSignature{
+			Name:       c.Name,
+			Status:     c.Status,
+			Score:      c.Score,
+			Assertions: assertions,
+			Warnings:   warnings,
+			Findings:   findings,
+		})
+	}
+	sort.SliceStable(cases, func(i int, j int) bool {
+		return cases[i].Name < cases[j].Name
+	})
+	return reportBaselineSignature{
+		Suite:  report.Suite,
+		Status: report.Status,
+		Totals: report.Totals,
+		Cases:  cases,
+	}
 }
