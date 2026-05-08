@@ -704,6 +704,22 @@ Use cases:
 3. Warn on mismatches between prompt metadata and configured role tools.
 4. Do not change actual tool registration from frontmatter.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- optional role prompt frontmatter parser for fields such as `role_key`, `expected_tools`, `receipt_schema`, and `recommended_max_turns`
+- prompt loading strips valid frontmatter before sending role prompts to models
+- malformed prompt frontmatter is warning-only and leaves prompt content unchanged
+- `yard config` prints warning-only prompt metadata mismatches for role key, expected tools, and receipt schema
+- frontmatter remains documentation/validation metadata only; it does not grant tools or change role registration
+
+Not implemented in this slice:
+
+- syncing embedded prompt metadata across all built-in prompt files
+- docs generation from prompt metadata
+- hard rejection of prompt metadata mismatches
+
 ### Acceptance Criteria
 
 - Existing prompts continue to load unchanged.

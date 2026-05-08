@@ -2,6 +2,9 @@ package cmdutil
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -38,5 +41,53 @@ func TestRunConfigPrintsResolvedSummary(t *testing.T) {
 	}
 	if strings.Contains(got, ".yard/yard.db") {
 		t.Fatalf("output = %q, want Shunter mode not to advertise .yard/yard.db", got)
+	}
+}
+
+func TestRunConfigPrintsPromptMetadataWarnings(t *testing.T) {
+	projectRoot := t.TempDir()
+	promptDir := filepath.Join(projectRoot, "prompts")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("---\nrole_key: reviewer\nexpected_tools: [brain]\nreceipt_schema: other.schema\n---\n# Prompt\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile prompt returned error: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	config := fmt.Sprintf(`project_root: %q
+routing:
+  default:
+    provider: codex
+    model: gpt-5.5
+providers:
+  codex:
+    type: codex
+    model: gpt-5.5
+local_services:
+  enabled: false
+  mode: off
+agent_roles:
+  coder:
+    system_prompt: prompts/coder.md
+    tools: [file]
+`, projectRoot)
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatalf("WriteFile config returned error: %v", err)
+	}
+	var out bytes.Buffer
+
+	if err := RunConfig(&out, configPath); err != nil {
+		t.Fatalf("RunConfig returned error: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		`prompt_warning: coder file:`,
+		`role_key "reviewer" differs from configured role "coder"`,
+		`expected_tools [brain] differ from configured tools [file]`,
+		`receipt_schema "other.schema" is not yard.receipt.v1`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q in %q", want, got)
+		}
 	}
 }

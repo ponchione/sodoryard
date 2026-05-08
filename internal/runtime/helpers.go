@@ -18,6 +18,7 @@ import (
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/embeddedprompts"
 	"github.com/ponchione/sodoryard/internal/logging"
+	"github.com/ponchione/sodoryard/internal/promptmeta"
 )
 
 // ChainCleanup extends a teardown chain without falling into the closure
@@ -147,35 +148,60 @@ ON CONFLICT(id) DO UPDATE SET
 // override, then the built-in default for the role when configuredValue is
 // empty.
 func LoadRoleSystemPrompt(roleName string, projectRoot string, configuredValue string) (string, string, error) {
+	prompt, err := LoadRoleSystemPromptWithMetadata(roleName, projectRoot, configuredValue)
+	if err != nil {
+		return "", "", err
+	}
+	return prompt.Content, prompt.Source, nil
+}
+
+type RoleSystemPrompt struct {
+	Content  string
+	Source   string
+	Metadata promptmeta.Metadata
+	Warnings []string
+}
+
+func LoadRoleSystemPromptWithMetadata(roleName string, projectRoot string, configuredValue string) (RoleSystemPrompt, error) {
 	trimmed := strings.TrimSpace(configuredValue)
 	if strings.HasPrefix(trimmed, "builtin:") {
 		builtinRole := strings.TrimSpace(strings.TrimPrefix(trimmed, "builtin:"))
 		prompt, ok := embeddedprompts.Get(builtinRole)
 		if !ok {
-			return "", "", fmt.Errorf("unknown built-in role system prompt %q", builtinRole)
+			return RoleSystemPrompt{}, fmt.Errorf("unknown built-in role system prompt %q", builtinRole)
 		}
-		return prompt, "embedded:" + builtinRole, nil
+		return parseRoleSystemPrompt(prompt, "embedded:"+builtinRole), nil
 	}
 	if trimmed != "" {
 		cfg := &appconfig.Config{ProjectRoot: projectRoot}
 		resolved := cfg.ResolveAgentRoleSystemPromptPath(trimmed)
 		if _, err := os.Stat(resolved); err != nil {
 			if os.IsNotExist(err) {
-				return "", "", fmt.Errorf("missing role system prompt override %s", resolved)
+				return RoleSystemPrompt{}, fmt.Errorf("missing role system prompt override %s", resolved)
 			}
-			return "", "", fmt.Errorf("stat role system prompt %s: %w", resolved, err)
+			return RoleSystemPrompt{}, fmt.Errorf("stat role system prompt %s: %w", resolved, err)
 		}
 		data, err := os.ReadFile(resolved)
 		if err != nil {
-			return "", "", fmt.Errorf("read role system prompt %s: %w", resolved, err)
+			return RoleSystemPrompt{}, fmt.Errorf("read role system prompt %s: %w", resolved, err)
 		}
-		return string(data), "file:" + resolved, nil
+		return parseRoleSystemPrompt(string(data), "file:"+resolved), nil
 	}
 	prompt, ok := embeddedprompts.Get(roleName)
 	if !ok {
-		return "", "", fmt.Errorf("no built-in role system prompt for role %q", roleName)
+		return RoleSystemPrompt{}, fmt.Errorf("no built-in role system prompt for role %q", roleName)
 	}
-	return prompt, "embedded:" + strings.TrimSpace(roleName), nil
+	return parseRoleSystemPrompt(prompt, "embedded:"+strings.TrimSpace(roleName)), nil
+}
+
+func parseRoleSystemPrompt(content string, source string) RoleSystemPrompt {
+	parsed := promptmeta.Parse(content)
+	return RoleSystemPrompt{
+		Content:  parsed.Body,
+		Source:   source,
+		Metadata: parsed.Metadata,
+		Warnings: append([]string(nil), parsed.Warnings...),
+	}
 }
 
 // ResolveModelContextLimit returns the context window size for a provider,

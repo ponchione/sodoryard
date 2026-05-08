@@ -3,9 +3,14 @@ package cmdutil
 import (
 	"fmt"
 	"io"
+	"os"
+	"sort"
 	"strings"
 
+	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/embeddedprompts"
 	"github.com/ponchione/sodoryard/internal/modelcap"
+	"github.com/ponchione/sodoryard/internal/promptmeta"
 )
 
 func RunConfig(out io.Writer, configPath string) error {
@@ -48,5 +53,70 @@ func RunConfig(out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "local_services_mode: %s\n", cfg.LocalServices.Mode)
 	_, _ = fmt.Fprintf(out, "local_services_compose_file: %s\n", cfg.LocalServices.ComposeFile)
 	_, _ = fmt.Fprintf(out, "local_services_project_dir: %s\n", cfg.LocalServices.ProjectDir)
+	for _, warning := range promptMetadataWarnings(cfg) {
+		_, _ = fmt.Fprintf(out, "prompt_warning: %s\n", warning)
+	}
 	return nil
+}
+
+func promptMetadataWarnings(cfg *appconfig.Config) []string {
+	if cfg == nil || len(cfg.AgentRoles) == 0 {
+		return nil
+	}
+	roleNames := make([]string, 0, len(cfg.AgentRoles))
+	for roleName := range cfg.AgentRoles {
+		roleNames = append(roleNames, roleName)
+	}
+	sort.Strings(roleNames)
+	var warnings []string
+	for _, roleName := range roleNames {
+		roleCfg := cfg.AgentRoles[roleName]
+		content, source, ok, err := promptContentForMetadata(cfg, roleName, roleCfg.SystemPrompt)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: %s", roleName, err))
+			continue
+		}
+		if !ok {
+			continue
+		}
+		parsed := promptmeta.Parse(content)
+		for _, warning := range parsed.Warnings {
+			warnings = append(warnings, fmt.Sprintf("%s %s: %s", roleName, source, warning))
+		}
+		if !parsed.HasFrontmatter {
+			continue
+		}
+		for _, warning := range promptmeta.ValidateRole(roleName, roleCfg.Tools, parsed.Metadata) {
+			warnings = append(warnings, fmt.Sprintf("%s %s: %s", roleName, source, warning))
+		}
+	}
+	return warnings
+}
+
+func promptContentForMetadata(cfg *appconfig.Config, roleName string, configuredValue string) (string, string, bool, error) {
+	if cfg == nil {
+		return "", "", false, nil
+	}
+	trimmed := strings.TrimSpace(configuredValue)
+	if strings.HasPrefix(trimmed, "builtin:") {
+		builtinRole := strings.TrimSpace(strings.TrimPrefix(trimmed, "builtin:"))
+		prompt, ok := embeddedprompts.Get(builtinRole)
+		if !ok {
+			return "", "", false, fmt.Errorf("unknown built-in role system prompt %q", builtinRole)
+		}
+		return prompt, "embedded:" + builtinRole, true, nil
+	}
+	if trimmed == "" {
+		prompt, ok := embeddedprompts.Get(roleName)
+		if !ok {
+			return "", "", false, nil
+		}
+		return prompt, "embedded:" + roleName, true, nil
+	}
+	resolved := cfg.ResolveAgentRoleSystemPromptPath(trimmed)
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", "", false, fmt.Errorf("read prompt metadata from %s: %w", resolved, err)
+	}
+	return string(data), "file:" + resolved, true, nil
 }

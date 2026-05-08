@@ -54,6 +54,37 @@ func TestLoadRoleSystemPromptSupportsFileOverrideAndBuiltIns(t *testing.T) {
 	}
 }
 
+func TestLoadRoleSystemPromptWithMetadataStripsFrontmatter(t *testing.T) {
+	projectRoot := t.TempDir()
+	promptDir := filepath.Join(projectRoot, "prompts")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	promptPath := filepath.Join(promptDir, "coder.md")
+	if err := os.WriteFile(promptPath, []byte("---\nrole_key: coder\nexpected_tools: [file]\n---\ncustom coder prompt\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	prompt, err := LoadRoleSystemPromptWithMetadata("coder", projectRoot, "prompts/coder.md")
+	if err != nil {
+		t.Fatalf("LoadRoleSystemPromptWithMetadata returned error: %v", err)
+	}
+	if prompt.Content != "custom coder prompt\n" || prompt.Source != "file:"+promptPath {
+		t.Fatalf("prompt = %+v, want stripped file prompt", prompt)
+	}
+	if prompt.Metadata.RoleKey != "coder" || len(prompt.Metadata.ExpectedTools) != 1 || prompt.Metadata.ExpectedTools[0] != "file" {
+		t.Fatalf("metadata = %+v, want role/tool metadata", prompt.Metadata)
+	}
+
+	content, source, err := LoadRoleSystemPrompt("coder", projectRoot, "prompts/coder.md")
+	if err != nil {
+		t.Fatalf("LoadRoleSystemPrompt returned error: %v", err)
+	}
+	if content != prompt.Content || source != prompt.Source {
+		t.Fatalf("LoadRoleSystemPrompt = (%q, %q), want stripped content/source", content, source)
+	}
+}
+
 func TestLoadRoleSystemPromptRejectsMissingOverridesAndUnknownBuiltIns(t *testing.T) {
 	projectRoot := t.TempDir()
 
