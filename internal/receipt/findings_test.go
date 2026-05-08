@@ -107,9 +107,13 @@ func TestParseChangedFiles(t *testing.T) {
 - internal/example.go
 - internal/example_test.go
 - internal/example.go
+- "docs/new file.md"
+- old/name.go -> internal/name.go
+- None
 
 ` + "```" + `
 docs/specs/22-sequential-agent-guardrails.md
+None.
 ` + "```" + `
 
 ## Validation
@@ -119,6 +123,9 @@ docs/specs/22-sequential-agent-guardrails.md
 	want := []string{
 		"internal/example.go",
 		"internal/example_test.go",
+		"docs/new file.md",
+		"old/name.go",
+		"internal/name.go",
 		"docs/specs/22-sequential-agent-guardrails.md",
 	}
 	if len(got) != len(want) {

@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -102,6 +103,9 @@ func ParseChangedFiles(body string) []string {
 	seen := map[string]struct{}{}
 	add := func(value string) {
 		value = strings.TrimSpace(value)
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = strings.TrimSpace(unquoted)
+		}
 		if value == "" || strings.EqualFold(value, "none") || strings.EqualFold(value, "none.") {
 			return
 		}
@@ -119,14 +123,24 @@ func ParseChangedFiles(body string) []string {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "- ") {
-			add(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+			addChangedFileClaim(add, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
 			continue
 		}
 		if inCodeBlock {
-			add(trimmed)
+			addChangedFileClaim(add, trimmed)
 		}
 	}
 	return paths
+}
+
+func addChangedFileClaim(add func(string), raw string) {
+	before, after, renamed := strings.Cut(strings.TrimSpace(raw), " -> ")
+	if renamed {
+		add(before)
+		add(after)
+		return
+	}
+	add(raw)
 }
 
 func HasSection(body string, section string) bool {
