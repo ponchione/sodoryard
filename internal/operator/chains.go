@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ponchione/sodoryard/internal/chain"
@@ -56,6 +57,7 @@ func (s *Service) GetChainDetail(ctx context.Context, chainID string) (ChainDeta
 	report := summarizeChainMetrics(detail)
 	detail.Health = report.Health
 	detail.Warnings = cloneRuntimeWarnings(report.Warnings)
+	detail.Guardrails = summarizeChainGuardrails(*ch, steps, events)
 	return detail, nil
 }
 
@@ -308,6 +310,8 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 					report.addWarning("resolver receipt did not address any finding IDs")
 				}
 			}
+		case chain.EventFindingLifecycleFacts:
+			report.FindingLifecycleFactEvents++
 		case chain.EventSourceWriterBlocked:
 			report.SourceWriterBlocks++
 			failHealth = true
@@ -475,17 +479,27 @@ type stepGuardrailFactsEvent struct {
 	Sequence                            int      `json:"sequence"`
 	ReceiptPath                         string   `json:"receipt_path"`
 	SourceMutating                      bool     `json:"source_mutating"`
+	ReceiptSchemaValid                  bool     `json:"receipt_schema_valid"`
+	ReceiptSectionsValid                bool     `json:"receipt_sections_valid"`
 	ReceiptValid                        bool     `json:"receipt_valid"`
 	ReceiptError                        string   `json:"receipt_error"`
 	ChangedFileManifestPresent          bool     `json:"changed_file_manifest_present"`
 	ChangedFileManifestError            string   `json:"changed_file_manifest_error"`
+	ChangedFileCount                    int      `json:"changed_file_count"`
+	ChangedFiles                        []string `json:"changed_files"`
 	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
 	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
 	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error"`
 	SuspiciousVerdictFindingCombination bool     `json:"suspicious_verdict_finding_combination"`
 	SuspiciousVerdictFindingReason      string   `json:"suspicious_verdict_finding_reason"`
 	OpenFindingIDs                      []string `json:"open_finding_ids"`
+	ClosedFindingIDs                    []string `json:"closed_finding_ids"`
 	AddressedIDs                        []string `json:"addressed_ids"`
+}
+
+type changedFileManifestEvent struct {
+	Paths []string `json:"paths"`
+	Error string   `json:"error"`
 }
 
 func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {
@@ -519,7 +533,118 @@ func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) 
 	event.SourceWriterLockReleaseError = strings.TrimSpace(event.SourceWriterLockReleaseError)
 	event.SuspiciousVerdictFindingReason = strings.TrimSpace(event.SuspiciousVerdictFindingReason)
 	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
+	event.ClosedFindingIDs = compactStrings(event.ClosedFindingIDs)
 	event.AddressedIDs = compactStrings(event.AddressedIDs)
+	event.ChangedFiles = compactStrings(event.ChangedFiles)
+	if event.ChangedFileCount == 0 {
+		event.ChangedFileCount = len(event.ChangedFiles)
+	}
+	return event, nil
+}
+
+func summarizeChainGuardrails(ch chain.Chain, steps []chain.Step, events []chain.Event) ChainGuardrailDetails {
+	analysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: steps, Events: events})
+	details := ChainGuardrailDetails{
+		OpenFindingIDs:             append([]string(nil), analysis.Findings.OpenIDs...),
+		ClosedFindingIDs:           append([]string(nil), analysis.Findings.ClosedIDs...),
+		AddressedFindingIDs:        append([]string(nil), analysis.Findings.AddressedIDs...),
+		ReopenedFindingIDs:         append([]string(nil), analysis.Findings.ReopenedIDs...),
+		RepeatedResolverFindingIDs: append([]string(nil), analysis.Findings.RepeatedResolverIDs...),
+	}
+	stepsByID := map[string]chain.Step{}
+	for _, step := range steps {
+		stepsByID[step.ID] = step
+	}
+	for _, event := range events {
+		step := stepsByID[event.StepID]
+		switch event.EventType {
+		case chain.EventStepChangedFiles:
+			manifest, err := parseChangedFileManifestEvent(event.EventData)
+			if err != nil {
+				manifest.Error = err.Error()
+			}
+			details.ChangedFiles = append(details.ChangedFiles, ChangedFileManifest{
+				StepID:      event.StepID,
+				SequenceNum: step.SequenceNum,
+				Role:        step.Role,
+				Paths:       append([]string(nil), manifest.Paths...),
+				Error:       manifest.Error,
+			})
+		case chain.EventStepGuardrailFacts:
+			facts, err := parseStepGuardrailFactsEvent(event.EventData)
+			if err != nil {
+				continue
+			}
+			seq := facts.Sequence
+			role := facts.Role
+			if seq == 0 {
+				seq = step.SequenceNum
+			}
+			if role == "" {
+				role = step.Role
+			}
+			details.StepFacts = append(details.StepFacts, StepGuardrailFactSummary{
+				StepID:                           event.StepID,
+				SequenceNum:                      seq,
+				Role:                             role,
+				ReceiptPath:                      facts.ReceiptPath,
+				SourceMutating:                   facts.SourceMutating,
+				ReceiptValid:                     facts.ReceiptValid,
+				ReceiptSchemaValid:               facts.ReceiptSchemaValid,
+				ReceiptSectionsValid:             facts.ReceiptSectionsValid,
+				ReceiptError:                     facts.ReceiptError,
+				ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
+				ChangedFileCount:                 facts.ChangedFileCount,
+				ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
+				SourceWriterLockReleaseAttempted: facts.SourceWriterLockReleaseAttempted,
+				SourceWriterLockReleased:         facts.SourceWriterLockReleased,
+				SourceWriterLockReleaseError:     facts.SourceWriterLockReleaseError,
+				OpenFindingIDs:                   append([]string(nil), facts.OpenFindingIDs...),
+				ClosedFindingIDs:                 append([]string(nil), facts.ClosedFindingIDs...),
+				AddressedIDs:                     append([]string(nil), facts.AddressedIDs...),
+			})
+		case chain.EventSourceWriterBlocked:
+			details.LockHealth.Blocked++
+		case chain.EventSourceWriterLockAcquired:
+			details.LockHealth.Acquired++
+		case chain.EventSourceWriterLockReleased:
+			details.LockHealth.Released++
+		case chain.EventSourceWriterLockForceReleased:
+			details.LockHealth.ForceReleased++
+		case chain.EventSourceWriterLockReleaseFailed:
+			details.LockHealth.ReleaseFailed++
+		case chain.EventSourceWriterLockHeartbeatFailed:
+			details.LockHealth.HeartbeatFailed++
+		case chain.EventSourceWriterLockStaleReplaced:
+			details.LockHealth.StaleReplaced++
+		}
+	}
+	details.LockHealth.UnreleasedWriters = details.LockHealth.Acquired - details.LockHealth.Released - details.LockHealth.ForceReleased
+	if details.LockHealth.UnreleasedWriters < 0 {
+		details.LockHealth.UnreleasedWriters = 0
+	}
+	sort.SliceStable(details.ChangedFiles, func(i, j int) bool {
+		if details.ChangedFiles[i].SequenceNum == details.ChangedFiles[j].SequenceNum {
+			return details.ChangedFiles[i].StepID < details.ChangedFiles[j].StepID
+		}
+		return details.ChangedFiles[i].SequenceNum < details.ChangedFiles[j].SequenceNum
+	})
+	sort.SliceStable(details.StepFacts, func(i, j int) bool {
+		if details.StepFacts[i].SequenceNum == details.StepFacts[j].SequenceNum {
+			return details.StepFacts[i].StepID < details.StepFacts[j].StepID
+		}
+		return details.StepFacts[i].SequenceNum < details.StepFacts[j].SequenceNum
+	})
+	return details
+}
+
+func parseChangedFileManifestEvent(data string) (changedFileManifestEvent, error) {
+	var event changedFileManifestEvent
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
+		return changedFileManifestEvent{}, err
+	}
+	event.Paths = compactStrings(event.Paths)
+	event.Error = strings.TrimSpace(event.Error)
 	return event, nil
 }
 

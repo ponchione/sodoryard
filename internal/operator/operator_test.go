@@ -702,6 +702,17 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
 		}
 	}
+	detail, err := svc.GetChainDetail(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainDetail returned error: %v", err)
+	}
+	if detail.Guardrails.LockHealth.Blocked != 1 || len(detail.Guardrails.StepFacts) != 1 {
+		t.Fatalf("guardrails = %+v, want lock block and step facts", detail.Guardrails)
+	}
+	facts := detail.Guardrails.StepFacts[0]
+	if facts.SequenceNum != 1 || facts.Role != "coder" || facts.ReceiptValid || facts.ReceiptError != "receipt: missing required section: Validation" || facts.SourceWriterLockReleased {
+		t.Fatalf("guardrail facts = %+v, want invalid receipt and unreleased lock", facts)
+	}
 }
 
 func TestProjectLocksListAndForceReleaseAuditsOperatorAction(t *testing.T) {
@@ -874,6 +885,67 @@ func TestGetChainMetricsSummarizesFindingLifecycle(t *testing.T) {
 	}
 	if report.OpenFindingCount != 1 || report.ClosedFindingCount != 0 || report.AddressedFindingCount != 1 {
 		t.Fatalf("finding counts = open %d closed %d addressed %d, want 1/0/1", report.OpenFindingCount, report.ClosedFindingCount, report.AddressedFindingCount)
+	}
+	if !reflect.DeepEqual(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.ReopenedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.RepeatedResolverFindingIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding ID summaries = %+v", report)
+	}
+	for _, want := range []string{
+		"open audit findings: FIND-correctness-001",
+		"reopened audit findings: FIND-correctness-001",
+		"flow: repeated resolver loop for FIND-correctness-001 (2 resolver receipts)",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
+func TestGetChainMetricsSummarizesFindingLifecycleFacts(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "finding-lifecycle-facts-chain", SourceTask: "findings"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	steps := []struct {
+		id      string
+		seq     int
+		role    string
+		verdict string
+		event   map[string]any
+	}{
+		{id: "step-audit-open", seq: 1, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "facts": []map[string]any{{"id": "FIND-correctness-001", "source_role": "correctness-auditor", "action": "opened", "status": "open", "severity": "high"}}}},
+		{id: "step-resolver-one", seq: 2, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "facts": []map[string]any{{"id": "FIND-correctness-001", "action": "addressed", "status": "addressed", "resolution": "fixed"}}}},
+		{id: "step-audit-closed", seq: 3, role: "correctness-auditor", verdict: "completed", event: map[string]any{"role": "correctness-auditor", "verdict": "completed", "facts": []map[string]any{{"id": "FIND-correctness-001", "source_role": "correctness-auditor", "action": "closed", "status": "closed"}}}},
+		{id: "step-audit-reopen", seq: 4, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "facts": []map[string]any{{"id": "FIND-correctness-001", "source_role": "correctness-auditor", "action": "reopened", "status": "open"}}}},
+		{id: "step-resolver-two", seq: 5, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "facts": []map[string]any{{"id": "FIND-correctness-001", "action": "addressed", "status": "addressed", "resolution": "fixed"}}}},
+	}
+	for _, spec := range steps {
+		stepID, err := store.StartStep(ctx, chain.StepSpec{StepID: spec.id, ChainID: chainID, SequenceNum: spec.seq, Role: spec.role, Task: spec.role})
+		if err != nil {
+			t.Fatalf("StartStep %s returned error: %v", spec.id, err)
+		}
+		if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: spec.verdict, ReceiptPath: fmt.Sprintf("receipts/%s/finding-lifecycle-facts-chain-step-%03d.md", spec.role, spec.seq), TokensUsed: 1, TurnsUsed: 1}); err != nil {
+			t.Fatalf("CompleteStep %s returned error: %v", spec.id, err)
+		}
+		if err := store.LogEvent(ctx, chainID, stepID, chain.EventFindingLifecycleFacts, spec.event); err != nil {
+			t.Fatalf("LogEvent %s returned error: %v", spec.id, err)
+		}
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: len(steps), TotalTokens: len(steps)}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.FindingLifecycleFactEvents != 5 || report.ReceiptFindingEvents != 0 {
+		t.Fatalf("finding event counts = lifecycle %d receipt %d, want 5/0", report.FindingLifecycleFactEvents, report.ReceiptFindingEvents)
 	}
 	if !reflect.DeepEqual(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
 		!reflect.DeepEqual(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) ||

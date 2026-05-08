@@ -170,6 +170,58 @@ type chainDetailResponse struct {
 	RecentEvents []chainEventResponse     `json:"recent_events"`
 	Health       string                   `json:"health"`
 	Warnings     []runtimeWarningResponse `json:"warnings"`
+	Guardrails   chainGuardrailResponse   `json:"guardrails"`
+}
+
+type chainGuardrailResponse struct {
+	OpenFindingIDs             []string                      `json:"open_finding_ids"`
+	ClosedFindingIDs           []string                      `json:"closed_finding_ids"`
+	AddressedFindingIDs        []string                      `json:"addressed_finding_ids"`
+	ReopenedFindingIDs         []string                      `json:"reopened_finding_ids"`
+	RepeatedResolverFindingIDs []string                      `json:"repeated_resolver_finding_ids"`
+	LockHealth                 guardrailLockHealthResponse   `json:"lock_health"`
+	ChangedFiles               []changedFileManifestResponse `json:"changed_files"`
+	StepFacts                  []stepGuardrailFactResponse   `json:"step_facts"`
+}
+
+type guardrailLockHealthResponse struct {
+	Acquired          int `json:"acquired"`
+	Released          int `json:"released"`
+	Blocked           int `json:"blocked"`
+	ForceReleased     int `json:"force_released"`
+	ReleaseFailed     int `json:"release_failed"`
+	HeartbeatFailed   int `json:"heartbeat_failed"`
+	StaleReplaced     int `json:"stale_replaced"`
+	UnreleasedWriters int `json:"unreleased_writers"`
+}
+
+type changedFileManifestResponse struct {
+	StepID      string   `json:"step_id"`
+	SequenceNum int      `json:"sequence_num"`
+	Role        string   `json:"role"`
+	Paths       []string `json:"paths"`
+	Error       string   `json:"error,omitempty"`
+}
+
+type stepGuardrailFactResponse struct {
+	StepID                           string   `json:"step_id"`
+	SequenceNum                      int      `json:"sequence_num"`
+	Role                             string   `json:"role"`
+	ReceiptPath                      string   `json:"receipt_path"`
+	SourceMutating                   bool     `json:"source_mutating"`
+	ReceiptValid                     bool     `json:"receipt_valid"`
+	ReceiptSchemaValid               bool     `json:"receipt_schema_valid"`
+	ReceiptSectionsValid             bool     `json:"receipt_sections_valid"`
+	ReceiptError                     string   `json:"receipt_error,omitempty"`
+	ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
+	ChangedFileCount                 int      `json:"changed_file_count"`
+	ChangedFiles                     []string `json:"changed_files"`
+	SourceWriterLockReleaseAttempted bool     `json:"source_writer_lock_release_attempted"`
+	SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
+	SourceWriterLockReleaseError     string   `json:"source_writer_lock_release_error,omitempty"`
+	OpenFindingIDs                   []string `json:"open_finding_ids"`
+	ClosedFindingIDs                 []string `json:"closed_finding_ids"`
+	AddressedIDs                     []string `json:"addressed_ids"`
 }
 
 type chainRecordResponse struct {
@@ -276,6 +328,62 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 		RecentEvents: events,
 		Health:       detail.Health,
 		Warnings:     warnings,
+		Guardrails:   chainGuardrailResponseFromOperator(detail.Guardrails),
+	}
+}
+
+func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) chainGuardrailResponse {
+	changedFiles := make([]changedFileManifestResponse, 0, len(details.ChangedFiles))
+	for _, manifest := range details.ChangedFiles {
+		changedFiles = append(changedFiles, changedFileManifestResponse{
+			StepID:      manifest.StepID,
+			SequenceNum: manifest.SequenceNum,
+			Role:        manifest.Role,
+			Paths:       append([]string(nil), manifest.Paths...),
+			Error:       manifest.Error,
+		})
+	}
+	stepFacts := make([]stepGuardrailFactResponse, 0, len(details.StepFacts))
+	for _, facts := range details.StepFacts {
+		stepFacts = append(stepFacts, stepGuardrailFactResponse{
+			StepID:                           facts.StepID,
+			SequenceNum:                      facts.SequenceNum,
+			Role:                             facts.Role,
+			ReceiptPath:                      facts.ReceiptPath,
+			SourceMutating:                   facts.SourceMutating,
+			ReceiptValid:                     facts.ReceiptValid,
+			ReceiptSchemaValid:               facts.ReceiptSchemaValid,
+			ReceiptSectionsValid:             facts.ReceiptSectionsValid,
+			ReceiptError:                     facts.ReceiptError,
+			ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
+			ChangedFileCount:                 facts.ChangedFileCount,
+			ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
+			SourceWriterLockReleaseAttempted: facts.SourceWriterLockReleaseAttempted,
+			SourceWriterLockReleased:         facts.SourceWriterLockReleased,
+			SourceWriterLockReleaseError:     facts.SourceWriterLockReleaseError,
+			OpenFindingIDs:                   append([]string(nil), facts.OpenFindingIDs...),
+			ClosedFindingIDs:                 append([]string(nil), facts.ClosedFindingIDs...),
+			AddressedIDs:                     append([]string(nil), facts.AddressedIDs...),
+		})
+	}
+	return chainGuardrailResponse{
+		OpenFindingIDs:             append([]string(nil), details.OpenFindingIDs...),
+		ClosedFindingIDs:           append([]string(nil), details.ClosedFindingIDs...),
+		AddressedFindingIDs:        append([]string(nil), details.AddressedFindingIDs...),
+		ReopenedFindingIDs:         append([]string(nil), details.ReopenedFindingIDs...),
+		RepeatedResolverFindingIDs: append([]string(nil), details.RepeatedResolverFindingIDs...),
+		LockHealth: guardrailLockHealthResponse{
+			Acquired:          details.LockHealth.Acquired,
+			Released:          details.LockHealth.Released,
+			Blocked:           details.LockHealth.Blocked,
+			ForceReleased:     details.LockHealth.ForceReleased,
+			ReleaseFailed:     details.LockHealth.ReleaseFailed,
+			HeartbeatFailed:   details.LockHealth.HeartbeatFailed,
+			StaleReplaced:     details.LockHealth.StaleReplaced,
+			UnreleasedWriters: details.LockHealth.UnreleasedWriters,
+		},
+		ChangedFiles: changedFiles,
+		StepFacts:    stepFacts,
 	}
 }
 

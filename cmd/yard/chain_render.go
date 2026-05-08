@@ -126,6 +126,8 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 		return join(plain("role"), plain("receipt_path"), quoted("warning"), quoted("error"))
 	case chain.EventReceiptFindings:
 		return join(plain("role"), plain("verdict"), plain("finding_count"), plain("open_count"), plain("closed_count"), plain("addressed_count"), quoted("open_finding_ids"), quoted("closed_finding_ids"), quoted("addressed_ids"))
+	case chain.EventFindingLifecycleFacts:
+		return join(plain("role"), plain("verdict"), quoted("receipt_path"), quoted("facts"))
 	case chain.EventSourceWriterBlocked:
 		return join(plain("requested_role"), plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), quoted("error"))
 	case chain.EventSourceWriterLockAcquired, chain.EventSourceWriterLockReleased, chain.EventSourceWriterLockForceReleased, chain.EventSourceWriterLockReleaseFailed, chain.EventSourceWriterLockHeartbeatFailed, chain.EventSourceWriterLockStaleReplaced:

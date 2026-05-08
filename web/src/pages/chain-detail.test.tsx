@@ -54,6 +54,51 @@ describe("ChainDetailPage", () => {
       ],
       receipts: [],
       recent_events: [],
+      guardrails: {
+        open_finding_ids: ["FIND-correctness-001"],
+        closed_finding_ids: [],
+        addressed_finding_ids: ["FIND-correctness-001"],
+        reopened_finding_ids: ["FIND-correctness-001"],
+        repeated_resolver_finding_ids: ["FIND-correctness-001"],
+        lock_health: {
+          acquired: 1,
+          released: 1,
+          blocked: 0,
+          force_released: 0,
+          release_failed: 0,
+          heartbeat_failed: 0,
+          stale_replaced: 0,
+          unreleased_writers: 0,
+        },
+        changed_files: [
+          {
+            step_id: "step-1",
+            sequence_num: 1,
+            role: "coder",
+            paths: ["internal/example.go"],
+          },
+        ],
+        step_facts: [
+          {
+            step_id: "step-1",
+            sequence_num: 1,
+            role: "coder",
+            receipt_path: "receipts/coder/chain-1-step-001.md",
+            source_mutating: true,
+            receipt_valid: true,
+            receipt_schema_valid: true,
+            receipt_sections_valid: true,
+            changed_file_manifest_present: true,
+            changed_file_count: 1,
+            changed_files: ["internal/example.go"],
+            source_writer_lock_release_attempted: true,
+            source_writer_lock_released: true,
+            open_finding_ids: [],
+            closed_finding_ids: [],
+            addressed_ids: [],
+          },
+        ],
+      },
     };
     apiGet.mockResolvedValue(detail);
 
@@ -67,6 +112,10 @@ describe("ChainDetailPage", () => {
 
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-1"));
     expect(await screen.findByText("Guardrail Warnings")).toBeInTheDocument();
+    expect(screen.getByText("Guardrail Details")).toBeInTheDocument();
+    expect(screen.getByText("Open: FIND-correctness-001")).toBeInTheDocument();
+    expect(screen.getByText(/acquired 1 \/ released 1/)).toBeInTheDocument();
+    expect(screen.getByText(/internal\/example.go/)).toBeInTheDocument();
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
   });

@@ -11,6 +11,14 @@ function formatDate(value?: string): string {
   return date.toLocaleString();
 }
 
+function formatIDs(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
+}
+
+function yesNo(value: boolean): string {
+  return value ? "yes" : "no";
+}
+
 export function ChainDetailPage() {
   const { id = "" } = useParams();
   const [searchParams] = useSearchParams();
@@ -127,6 +135,77 @@ export function ChainDetailPage() {
                 </ul>
               </section>
             )}
+
+            <section className="space-y-2">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Guardrail Details
+              </h2>
+              <div className="grid gap-3 border border-border p-3 text-xs lg:grid-cols-3">
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Finding IDs</div>
+                  <p className="text-foreground">Open: {formatIDs(detail.guardrails.open_finding_ids)}</p>
+                  <p className="text-muted-foreground">Addressed: {formatIDs(detail.guardrails.addressed_finding_ids)}</p>
+                  <p className="text-muted-foreground">Closed: {formatIDs(detail.guardrails.closed_finding_ids)}</p>
+                  <p className="text-warning">Reopened: {formatIDs(detail.guardrails.reopened_finding_ids)}</p>
+                  <p className="text-warning">
+                    Repeated resolver: {formatIDs(detail.guardrails.repeated_resolver_finding_ids)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Source Writer Lock</div>
+                  <p className="text-foreground">
+                    acquired {detail.guardrails.lock_health.acquired} / released{" "}
+                    {detail.guardrails.lock_health.released}
+                  </p>
+                  <p className="text-muted-foreground">
+                    unreleased {detail.guardrails.lock_health.unreleased_writers} / blocked{" "}
+                    {detail.guardrails.lock_health.blocked}
+                  </p>
+                  <p className="text-muted-foreground">
+                    forced {detail.guardrails.lock_health.force_released} / stale{" "}
+                    {detail.guardrails.lock_health.stale_replaced}
+                  </p>
+                  <p className="text-warning">
+                    release failed {detail.guardrails.lock_health.release_failed} / heartbeat failed{" "}
+                    {detail.guardrails.lock_health.heartbeat_failed}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Post-Step Facts</div>
+                  {detail.guardrails.step_facts.length === 0 && (
+                    <p className="text-muted-foreground">No guardrail fact events recorded.</p>
+                  )}
+                  {detail.guardrails.step_facts.slice(-3).map((fact) => (
+                    <div key={`${fact.step_id}:${fact.sequence_num}`} className="space-y-1 border-t border-border/70 pt-2">
+                      <p className="text-foreground">
+                        Step {fact.sequence_num} {fact.role}: receipt {yesNo(fact.receipt_valid)}, manifest{" "}
+                        {yesNo(fact.changed_file_manifest_present)}, lock released{" "}
+                        {yesNo(fact.source_writer_lock_released)}
+                      </p>
+                      <p className="font-mono text-muted-foreground">
+                        changed={fact.changed_file_count} open={formatIDs(fact.open_finding_ids)} addressed=
+                        {formatIDs(fact.addressed_ids)}
+                      </p>
+                      {fact.receipt_error && <p className="text-warning">{fact.receipt_error}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {detail.guardrails.changed_files.length > 0 && (
+                <div className="border border-border p-3 text-xs">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Changed Files</div>
+                  <div className="mt-2 space-y-1">
+                    {detail.guardrails.changed_files.map((manifest) => (
+                      <p key={`${manifest.step_id}:${manifest.sequence_num}`} className="font-mono text-muted-foreground">
+                        step {manifest.sequence_num} {manifest.role}:{" "}
+                        {manifest.paths.length > 0 ? manifest.paths.join(", ") : "none"}
+                        {manifest.error ? ` (${manifest.error})` : ""}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
 
             <section className="space-y-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Source</h2>

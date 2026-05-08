@@ -165,7 +165,18 @@ func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 		Chain:    chain.Chain{ID: "chain-1", Status: "completed", SourceTask: "first task"},
 		Health:   "attention",
 		Warnings: []operator.RuntimeWarning{{Message: "flow: chain completed after coder step 1 without later auditor"}},
-		Steps:    []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
+		Guardrails: operator.ChainGuardrailDetails{
+			OpenFindingIDs:      []string{"FIND-correctness-001"},
+			AddressedFindingIDs: []string{"FIND-correctness-001"},
+			LockHealth:          operator.GuardrailLockHealth{Acquired: 1, Released: 1},
+			ChangedFiles: []operator.ChangedFileManifest{
+				{StepID: "step-1", SequenceNum: 1, Role: "coder", Paths: []string{"internal/example.go"}},
+			},
+			StepFacts: []operator.StepGuardrailFactSummary{
+				{StepID: "step-1", SequenceNum: 1, Role: "coder", ReceiptValid: true, ChangedFileManifestPresent: true, ChangedFileCount: 1, SourceWriterLockReleased: true},
+			},
+		},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
 	}
 	model := NewModel(fake, Options{RefreshInterval: -1})
 	model.screen = screenChains
@@ -173,7 +184,7 @@ func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor"} {
+	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor", "Guardrails", "open=FIND-correctness-001", "source_writer_lock acquired=1 released=1", "internal/example.go", "receipt_valid=true"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chain warning view missing %q:\n%s", want, view)
 		}

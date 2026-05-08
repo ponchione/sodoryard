@@ -84,6 +84,58 @@ type ChainDetail struct {
 	RecentEvents []chain.Event
 	Health       string
 	Warnings     []RuntimeWarning
+	Guardrails   ChainGuardrailDetails
+}
+
+type ChainGuardrailDetails struct {
+	OpenFindingIDs             []string
+	ClosedFindingIDs           []string
+	AddressedFindingIDs        []string
+	ReopenedFindingIDs         []string
+	RepeatedResolverFindingIDs []string
+	LockHealth                 GuardrailLockHealth
+	ChangedFiles               []ChangedFileManifest
+	StepFacts                  []StepGuardrailFactSummary
+}
+
+type GuardrailLockHealth struct {
+	Acquired          int
+	Released          int
+	Blocked           int
+	ForceReleased     int
+	ReleaseFailed     int
+	HeartbeatFailed   int
+	StaleReplaced     int
+	UnreleasedWriters int
+}
+
+type ChangedFileManifest struct {
+	StepID      string
+	SequenceNum int
+	Role        string
+	Paths       []string
+	Error       string
+}
+
+type StepGuardrailFactSummary struct {
+	StepID                           string
+	SequenceNum                      int
+	Role                             string
+	ReceiptPath                      string
+	SourceMutating                   bool
+	ReceiptValid                     bool
+	ReceiptSchemaValid               bool
+	ReceiptSectionsValid             bool
+	ReceiptError                     string
+	ChangedFileManifestPresent       bool
+	ChangedFileCount                 int
+	ChangedFiles                     []string
+	SourceWriterLockReleaseAttempted bool
+	SourceWriterLockReleased         bool
+	SourceWriterLockReleaseError     string
+	OpenFindingIDs                   []string
+	ClosedFindingIDs                 []string
+	AddressedIDs                     []string
 }
 
 type ChainMetricsReport struct {
@@ -117,6 +169,7 @@ type ChainMetricsReport struct {
 	StepGuardrailFactEvents           int
 	ReceiptWarningEvents              int
 	ReceiptFindingEvents              int
+	FindingLifecycleFactEvents        int
 	OpenFindingCount                  int
 	ClosedFindingCount                int
 	AddressedFindingCount             int

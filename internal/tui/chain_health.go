@@ -103,6 +103,83 @@ func renderChainWarnings(warnings []operator.RuntimeWarning, limit int) []string
 	return lines
 }
 
+func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
+	if guardrailDetailsEmpty(details) {
+		return nil
+	}
+	lines := []string{"", "Guardrails"}
+	lines = append(lines, fmt.Sprintf("- findings open=%s addressed=%s closed=%s reopened=%s repeated_resolver=%s",
+		joinOrNone(details.OpenFindingIDs),
+		joinOrNone(details.AddressedFindingIDs),
+		joinOrNone(details.ClosedFindingIDs),
+		joinOrNone(details.ReopenedFindingIDs),
+		joinOrNone(details.RepeatedResolverFindingIDs),
+	))
+	lock := details.LockHealth
+	lines = append(lines, fmt.Sprintf("- source_writer_lock acquired=%d released=%d unreleased=%d blocked=%d release_failed=%d heartbeat_failed=%d",
+		lock.Acquired,
+		lock.Released,
+		lock.UnreleasedWriters,
+		lock.Blocked,
+		lock.ReleaseFailed,
+		lock.HeartbeatFailed,
+	))
+	for i, manifest := range details.ChangedFiles {
+		if i >= 3 {
+			lines = append(lines, fmt.Sprintf("- %d more changed-file manifest(s)", len(details.ChangedFiles)-i))
+			break
+		}
+		lines = append(lines, fmt.Sprintf("- changed_files step=%d role=%s paths=%s error=%s",
+			manifest.SequenceNum,
+			valueOrUnknown(manifest.Role),
+			joinOrNone(manifest.Paths),
+			valueOrNone(manifest.Error),
+		))
+	}
+	for i, facts := range details.StepFacts {
+		if i >= 3 {
+			lines = append(lines, fmt.Sprintf("- %d more post-step fact event(s)", len(details.StepFacts)-i))
+			break
+		}
+		lines = append(lines, fmt.Sprintf("- facts step=%d role=%s receipt_valid=%t manifest=%t changed=%d lock_released=%t open=%s addressed=%s",
+			facts.SequenceNum,
+			valueOrUnknown(facts.Role),
+			facts.ReceiptValid,
+			facts.ChangedFileManifestPresent,
+			facts.ChangedFileCount,
+			facts.SourceWriterLockReleased,
+			joinOrNone(facts.OpenFindingIDs),
+			joinOrNone(facts.AddressedIDs),
+		))
+	}
+	return lines
+}
+
+func guardrailDetailsEmpty(details operator.ChainGuardrailDetails) bool {
+	return len(details.OpenFindingIDs) == 0 &&
+		len(details.ClosedFindingIDs) == 0 &&
+		len(details.AddressedFindingIDs) == 0 &&
+		len(details.ReopenedFindingIDs) == 0 &&
+		len(details.RepeatedResolverFindingIDs) == 0 &&
+		len(details.ChangedFiles) == 0 &&
+		len(details.StepFacts) == 0 &&
+		details.LockHealth == (operator.GuardrailLockHealth{})
+}
+
+func valueOrNone(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "none"
+	}
+	return trimOneLine(value, 40)
+}
+
+func joinOrNone(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	return strings.Join(values, ",")
+}
+
 func renderChainHealth(styles styles, state readinessState) string {
 	switch state {
 	case readinessOK:

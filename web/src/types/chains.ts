@@ -88,6 +88,57 @@ export interface ChainEvent {
   created_at: string;
 }
 
+export interface ChainGuardrails {
+  open_finding_ids: string[];
+  closed_finding_ids: string[];
+  addressed_finding_ids: string[];
+  reopened_finding_ids: string[];
+  repeated_resolver_finding_ids: string[];
+  lock_health: GuardrailLockHealth;
+  changed_files: ChangedFileManifest[];
+  step_facts: StepGuardrailFact[];
+}
+
+export interface GuardrailLockHealth {
+  acquired: number;
+  released: number;
+  blocked: number;
+  force_released: number;
+  release_failed: number;
+  heartbeat_failed: number;
+  stale_replaced: number;
+  unreleased_writers: number;
+}
+
+export interface ChangedFileManifest {
+  step_id: string;
+  sequence_num: number;
+  role: string;
+  paths: string[];
+  error?: string;
+}
+
+export interface StepGuardrailFact {
+  step_id: string;
+  sequence_num: number;
+  role: string;
+  receipt_path: string;
+  source_mutating: boolean;
+  receipt_valid: boolean;
+  receipt_schema_valid: boolean;
+  receipt_sections_valid: boolean;
+  receipt_error?: string;
+  changed_file_manifest_present: boolean;
+  changed_file_count: number;
+  changed_files: string[];
+  source_writer_lock_release_attempted: boolean;
+  source_writer_lock_released: boolean;
+  source_writer_lock_release_error?: string;
+  open_finding_ids: string[];
+  closed_finding_ids: string[];
+  addressed_ids: string[];
+}
+
 export interface ReceiptSummary {
   label: string;
   step: string;
@@ -108,4 +159,5 @@ export interface ChainDetail {
   recent_events: ChainEvent[];
   health: string;
   warnings: RuntimeWarning[];
+  guardrails: ChainGuardrails;
 }
