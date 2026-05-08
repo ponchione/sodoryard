@@ -751,6 +751,20 @@ Not implemented in this slice:
 - CLI/TUI approve/deny/resume controls
 - approval support for file mutation tools or spawned agents
 
+### Implemented Trace Context Slice
+
+Implemented on 2026-05-08:
+
+- approval-required tool results now include trace-scope context when available
+- pending approval metadata carries chain ID, step ID, conversation ID, turn number, and iteration
+- exported trace scope read helper for middleware that needs to enrich structured runtime events
+
+Not implemented in this slice:
+
+- durable approval storage
+- `waiting_approval` chain status/events
+- approval resume controls
+
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.

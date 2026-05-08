@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type toolHookStub struct {
@@ -113,7 +115,14 @@ func TestExecutorShellApprovalHookBlocksBeforeExecutionWithMetadata(t *testing.T
 	reg.Register(shellTool)
 	exec := NewExecutor(reg, ExecutorConfig{ShellApprovalPatterns: []string{"git push --force"}}, nil)
 
-	results := exec.Execute(context.Background(), []ToolCall{
+	ctx := tracepkg.ContextWithScope(context.Background(), tracepkg.Scope{
+		ConversationID: "conv-approval",
+		ChainID:        "chain-approval",
+		StepID:         "step-approval",
+		TurnNumber:     2,
+		Iteration:      3,
+	})
+	results := exec.Execute(ctx, []ToolCall{
 		{ID: "tc-approval", Name: "shell", Arguments: json.RawMessage(`{"command":"git push --force origin main"}`)},
 	})
 	if executed {
@@ -131,6 +140,9 @@ func TestExecutorShellApprovalHookBlocksBeforeExecutionWithMetadata(t *testing.T
 	}
 	if details["tool_name"] != "shell" || details["risk_level"] != ApprovalRiskHigh {
 		t.Fatalf("details = %#v, want shell high-risk metadata", details)
+	}
+	if details["chain_id"] != "chain-approval" || details["step_id"] != "step-approval" || details["conversation_id"] != "conv-approval" || detailInt(t, details, "turn_number") != 2 || detailInt(t, details, "iteration") != 3 {
+		t.Fatalf("details = %#v, want trace scope metadata", details)
 	}
 }
 

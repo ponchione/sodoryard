@@ -152,6 +152,21 @@ func ContextWithScope(ctx context.Context, scope Scope) context.Context {
 	return context.WithValue(ctx, contextKey{}, state)
 }
 
+// ScopeFromContext returns the trace scope currently attached to ctx. Missing
+// scope fields are returned as zero values.
+func ScopeFromContext(ctx context.Context) Scope {
+	state := stateFromContext(ctx)
+	return Scope{
+		TraceID:        state.traceID,
+		ParentSpanID:   firstNonEmpty(state.currentSpanID, state.parentSpanID),
+		ConversationID: state.conversationID,
+		ChainID:        state.chainID,
+		StepID:         state.stepID,
+		TurnNumber:     state.turnNumber,
+		Iteration:      state.iteration,
+	}
+}
+
 func ContextFromEnv(ctx context.Context) context.Context {
 	return ContextWithScope(ctx, Scope{
 		TraceID:      os.Getenv(EnvTraceID),

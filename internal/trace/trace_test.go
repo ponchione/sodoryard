@@ -29,6 +29,22 @@ func TestNoopRecorderBehavior(t *testing.T) {
 	}
 }
 
+func TestScopeFromContextReturnsCurrentScope(t *testing.T) {
+	ctx := ContextWithScope(context.Background(), Scope{
+		TraceID:        "trace-1",
+		ParentSpanID:   "span-parent",
+		ConversationID: "conv-1",
+		ChainID:        "chain-1",
+		StepID:         "step-1",
+		TurnNumber:     2,
+		Iteration:      3,
+	})
+	scope := ScopeFromContext(ctx)
+	if scope.TraceID != "trace-1" || scope.ParentSpanID != "span-parent" || scope.ConversationID != "conv-1" || scope.ChainID != "chain-1" || scope.StepID != "step-1" || scope.TurnNumber != 2 || scope.Iteration != 3 {
+		t.Fatalf("scope = %+v, want attached scope", scope)
+	}
+}
+
 func TestSQLiteRecorderStartEndAndParentGrouping(t *testing.T) {
 	ctx := context.Background()
 	db := newTraceTestDB(t)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/provider"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 const (
@@ -106,14 +107,20 @@ func (h *ShellApprovalHook) BeforeTool(ctx context.Context, call ToolCall, def T
 		if !shellCommandMatchesPattern(command, pattern) {
 			continue
 		}
+		scope := tracepkg.ScopeFromContext(ctx)
 		return ctx, &ApprovalRequiredError{Pending: PendingApproval{
-			ID:        approvalIDForCall(call),
-			ToolName:  call.Name,
-			ToolInput: append(json.RawMessage(nil), call.Arguments...),
-			Reason:    fmt.Sprintf("shell command matches approval pattern %q", pattern),
-			RiskLevel: ApprovalRiskHigh,
-			CreatedAt: h.now().UTC(),
-			Status:    ApprovalStatusPending,
+			ID:             approvalIDForCall(call),
+			ChainID:        scope.ChainID,
+			StepID:         scope.StepID,
+			ConversationID: scope.ConversationID,
+			TurnNumber:     scope.TurnNumber,
+			Iteration:      scope.Iteration,
+			ToolName:       call.Name,
+			ToolInput:      append(json.RawMessage(nil), call.Arguments...),
+			Reason:         fmt.Sprintf("shell command matches approval pattern %q", pattern),
+			RiskLevel:      ApprovalRiskHigh,
+			CreatedAt:      h.now().UTC(),
+			Status:         ApprovalStatusPending,
 		}}
 	}
 	return ctx, nil
