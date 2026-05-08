@@ -121,9 +121,13 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 	case chain.EventStepCompleted, chain.EventStepFailed:
 		return join(plain("role"), plain("verdict"), plain("tokens_used"), plain("duration_secs"), plain("exit_code"), quoted("error"))
 	case chain.EventReceiptValidation:
-		return join(plain("role"), plain("receipt_path"), quoted("warning"))
+		return join(plain("role"), plain("receipt_path"), quoted("warning"), quoted("error"))
+	case chain.EventReceiptFindings:
+		return join(plain("role"), plain("verdict"), plain("finding_count"), plain("open_count"), plain("closed_count"), plain("addressed_count"), quoted("open_finding_ids"), quoted("closed_finding_ids"), quoted("addressed_ids"))
 	case chain.EventSourceWriterBlocked:
-		return join(plain("requested_role"), plain("active_role"), plain("active_status"), plain("active_sequence"), plain("active_step_id"), plain("active_chain_id"))
+		return join(plain("requested_role"), plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), quoted("error"))
+	case chain.EventSourceWriterLockAcquired, chain.EventSourceWriterLockReleased, chain.EventSourceWriterLockForceReleased, chain.EventSourceWriterLockReleaseFailed, chain.EventSourceWriterLockHeartbeatFailed, chain.EventSourceWriterLockStaleReplaced:
+		return join(plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), plain("expires_at"), quoted("error"), quoted("reason"))
 	case chain.EventResolverLoop:
 		return join(plain("count"), quoted("task_context"))
 	case chain.EventReindexStarted, chain.EventReindexCompleted, chain.EventSafetyLimitHit, chain.EventChainPaused, chain.EventChainCancelled, chain.EventChainCompleted:

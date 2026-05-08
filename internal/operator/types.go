@@ -85,42 +85,52 @@ type ChainDetail struct {
 }
 
 type ChainMetricsReport struct {
-	ChainID              string
-	Status               string
-	Health               string
-	TotalSteps           int
-	StepRows             int
-	MaxSteps             int
-	StepBudgetPct        float64
-	CompletedSteps       int
-	RunningSteps         int
-	PendingSteps         int
-	FailedSteps          int
-	TotalTokens          int
-	StepTokenTotal       int
-	StepTurnTotal        int
-	TokenBudget          int
-	TokenBudgetPct       float64
-	TotalDurationSecs    int
-	StepDurationSecs     int
-	MaxDurationSecs      int
-	DurationBudgetPct    float64
-	ResolverLoops        int
-	MaxResolverLoops     int
-	ResolverLoopPct      float64
-	EventTotal           int
-	OutputEvents         int
-	StepFailedEvents     int
-	ChangedFileEvents    int
-	ReceiptWarningEvents int
-	SourceWriterBlocks   int
-	SafetyLimitEvents    int
-	ReindexStartedEvents int
-	ReindexDoneEvents    int
-	ProcessStartedEvents int
-	ProcessExitedEvents  int
-	Warnings             []RuntimeWarning
-	Steps                []ChainStepMetric
+	ChainID                           string
+	Status                            string
+	Health                            string
+	TotalSteps                        int
+	StepRows                          int
+	MaxSteps                          int
+	StepBudgetPct                     float64
+	CompletedSteps                    int
+	RunningSteps                      int
+	PendingSteps                      int
+	FailedSteps                       int
+	TotalTokens                       int
+	StepTokenTotal                    int
+	StepTurnTotal                     int
+	TokenBudget                       int
+	TokenBudgetPct                    float64
+	TotalDurationSecs                 int
+	StepDurationSecs                  int
+	MaxDurationSecs                   int
+	DurationBudgetPct                 float64
+	ResolverLoops                     int
+	MaxResolverLoops                  int
+	ResolverLoopPct                   float64
+	EventTotal                        int
+	OutputEvents                      int
+	StepFailedEvents                  int
+	ChangedFileEvents                 int
+	ReceiptWarningEvents              int
+	ReceiptFindingEvents              int
+	OpenFindingCount                  int
+	AddressedFindingCount             int
+	OpenFindingIDs                    []string
+	SourceWriterBlocks                int
+	SourceWriterLockAcquires          int
+	SourceWriterLockReleases          int
+	SourceWriterLockForceReleases     int
+	SourceWriterLockReleaseFailures   int
+	SourceWriterLockHeartbeatFailures int
+	SourceWriterLockStaleReplacements int
+	SafetyLimitEvents                 int
+	ReindexStartedEvents              int
+	ReindexDoneEvents                 int
+	ProcessStartedEvents              int
+	ProcessExitedEvents               int
+	Warnings                          []RuntimeWarning
+	Steps                             []ChainStepMetric
 }
 
 type ChainStepMetric struct {
@@ -159,6 +169,27 @@ type ControlResult struct {
 	Already        bool
 	SignaledPIDs   []int
 	Warnings       []RuntimeWarning
+}
+
+type ProjectLockView struct {
+	LockName     string
+	OwnerChainID string
+	OwnerStepID  string
+	OwnerRole    string
+	AcquiredAt   time.Time
+	HeartbeatAt  time.Time
+	ExpiresAt    time.Time
+	Stale        bool
+	MetadataJSON string
+}
+
+type ProjectLockForceReleaseResult struct {
+	LockName     string
+	Released     bool
+	OwnerChainID string
+	OwnerStepID  string
+	OwnerRole    string
+	Message      string
 }
 
 type AgentRoleSummary struct {

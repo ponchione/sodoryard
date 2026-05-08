@@ -2,8 +2,11 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
@@ -138,6 +141,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	failHealth := false
 	attentionHealth := false
 	changedFileEventsByStep := map[string]bool{}
+	openFindingIDs := map[string]bool{}
 
 	switch ch.Status {
 	case "completed", "dry_run":
@@ -242,9 +246,46 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 		case chain.EventReceiptValidation:
 			report.ReceiptWarningEvents++
 			attentionHealth = true
+		case chain.EventReceiptFindings:
+			report.ReceiptFindingEvents++
+			findingEvent, parseErr := parseReceiptFindingEvent(event.EventData)
+			if parseErr == nil {
+				report.OpenFindingCount += len(findingEvent.OpenFindingIDs)
+				report.AddressedFindingCount += findingEvent.AddressedCount
+				for _, id := range findingEvent.ClosedFindingIDs {
+					delete(openFindingIDs, id)
+				}
+				for _, id := range findingEvent.OpenFindingIDs {
+					openFindingIDs[id] = true
+				}
+				if findingEvent.OpenCount > 0 && findingEvent.Verdict != "fix_required" {
+					attentionHealth = true
+					report.addWarning(fmt.Sprintf("%s reported %d open finding(s) with verdict %s", valueOrUnknown(findingEvent.Role), findingEvent.OpenCount, valueOrUnknown(findingEvent.Verdict)))
+				}
+				if findingEvent.Role == "resolver" && findingEvent.AddressedCount == 0 {
+					attentionHealth = true
+					report.addWarning("resolver receipt did not address any finding IDs")
+				}
+			}
 		case chain.EventSourceWriterBlocked:
 			report.SourceWriterBlocks++
 			failHealth = true
+		case chain.EventSourceWriterLockAcquired:
+			report.SourceWriterLockAcquires++
+		case chain.EventSourceWriterLockReleased:
+			report.SourceWriterLockReleases++
+		case chain.EventSourceWriterLockForceReleased:
+			report.SourceWriterLockForceReleases++
+			attentionHealth = true
+		case chain.EventSourceWriterLockReleaseFailed:
+			report.SourceWriterLockReleaseFailures++
+			failHealth = true
+		case chain.EventSourceWriterLockHeartbeatFailed:
+			report.SourceWriterLockHeartbeatFailures++
+			failHealth = true
+		case chain.EventSourceWriterLockStaleReplaced:
+			report.SourceWriterLockStaleReplacements++
+			attentionHealth = true
 		case chain.EventSafetyLimitHit:
 			report.SafetyLimitEvents++
 			failHealth = true
@@ -264,8 +305,27 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	if report.ReceiptWarningEvents > 0 {
 		report.addWarning(fmt.Sprintf("chain has %d receipt_validation_warning event(s)", report.ReceiptWarningEvents))
 	}
+	if len(openFindingIDs) > 0 {
+		report.OpenFindingIDs = make([]string, 0, len(openFindingIDs))
+		for id := range openFindingIDs {
+			report.OpenFindingIDs = append(report.OpenFindingIDs, id)
+		}
+		sort.Strings(report.OpenFindingIDs)
+	}
 	if report.SourceWriterBlocks > 0 {
 		report.addWarning(fmt.Sprintf("source writer guard blocked %d spawn attempt(s)", report.SourceWriterBlocks))
+	}
+	if report.SourceWriterLockForceReleases > 0 {
+		report.addWarning(fmt.Sprintf("source writer lock force released %d time(s)", report.SourceWriterLockForceReleases))
+	}
+	if report.SourceWriterLockReleaseFailures > 0 {
+		report.addWarning(fmt.Sprintf("source writer lock release failed %d time(s)", report.SourceWriterLockReleaseFailures))
+	}
+	if report.SourceWriterLockHeartbeatFailures > 0 {
+		report.addWarning(fmt.Sprintf("source writer lock heartbeat failed %d time(s)", report.SourceWriterLockHeartbeatFailures))
+	}
+	if report.SourceWriterLockStaleReplacements > 0 {
+		report.addWarning(fmt.Sprintf("source writer stale lock replaced %d time(s)", report.SourceWriterLockStaleReplacements))
 	}
 	if report.SafetyLimitEvents > 0 {
 		report.addWarning(fmt.Sprintf("chain has %d safety_limit_hit event(s)", report.SafetyLimitEvents))
@@ -336,6 +396,48 @@ func isTerminalChainStatus(status string) bool {
 
 func (r *ChainMetricsReport) addWarning(message string) {
 	r.Warnings = append(r.Warnings, RuntimeWarning{Message: message})
+}
+
+type receiptFindingEvent struct {
+	Role             string   `json:"role"`
+	Verdict          string   `json:"verdict"`
+	OpenCount        int      `json:"open_count"`
+	AddressedCount   int      `json:"addressed_count"`
+	OpenFindingIDs   []string `json:"open_finding_ids"`
+	ClosedFindingIDs []string `json:"closed_finding_ids"`
+}
+
+func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {
+	var event receiptFindingEvent
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
+		return receiptFindingEvent{}, err
+	}
+	event.Role = strings.TrimSpace(event.Role)
+	event.Verdict = strings.TrimSpace(event.Verdict)
+	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
+	event.ClosedFindingIDs = compactStrings(event.ClosedFindingIDs)
+	if event.OpenCount == 0 {
+		event.OpenCount = len(event.OpenFindingIDs)
+	}
+	return event, nil
+}
+
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func valueOrUnknown(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "<unknown>"
+	}
+	return value
 }
 
 func pct(used int, budget int) float64 {

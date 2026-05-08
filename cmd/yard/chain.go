@@ -80,6 +80,7 @@ func newYardChainCmd(configPath *string) *cobra.Command {
 		newYardChainMetricsCmd(configPath),
 		newYardChainLogsCmd(configPath),
 		newYardChainReceiptCmd(configPath),
+		newYardChainLocksCmd(configPath),
 		newYardChainCancelCmd(configPath),
 		newYardChainPauseCmd(configPath),
 		newYardChainResumeCmd(configPath),
