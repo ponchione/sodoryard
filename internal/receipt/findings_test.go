@@ -71,6 +71,42 @@ Validation:
 	}
 }
 
+func TestStructuredFindingMetadata(t *testing.T) {
+	r := Receipt{Findings: []Finding{{
+		ID:              "FIND-correctness-001",
+		Status:          "open",
+		Severity:        "high",
+		File:            "internal/example.go",
+		Line:            42,
+		Summary:         "Nil case can panic.",
+		Recommendation:  "Guard before dereferencing.",
+		RequiredFix:     "Add nil guard.",
+		FilesChanged:    []string{"internal/example.go"},
+		Validation:      []string{"rtk make test"},
+		AddressedByStep: "step-002",
+	}, {
+		ID:           "FIND-correctness-002",
+		Status:       "addressed",
+		Summary:      "Fixed validation issue.",
+		FilesChanged: []string{"internal/validation.go"},
+		Validation:   []string{"rtk make test"},
+	}}}
+
+	findings := StructuredAuditFindings(r, "correctness-auditor")
+	if len(findings) != 1 {
+		t.Fatalf("structured findings = %+v, want one active audit finding", findings)
+	}
+	got := findings[0]
+	if got.ID != "FIND-correctness-001" || got.Evidence != "internal/example.go:42" || got.RequiredFix != "Add nil guard." {
+		t.Fatalf("structured finding = %+v, want file evidence and required fix", got)
+	}
+
+	resolutions := StructuredFindingResolutions(r)
+	if len(resolutions) != 1 || resolutions[0].ID != "FIND-correctness-002" || resolutions[0].Resolution != "Fixed validation issue." || len(resolutions[0].FilesChanged) != 1 {
+		t.Fatalf("structured resolutions = %+v, want addressed finding resolution", resolutions)
+	}
+}
+
 func TestParseValidationCommands(t *testing.T) {
 	body := `## Validation
 

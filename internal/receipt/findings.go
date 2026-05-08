@@ -64,6 +64,71 @@ func ParseFindingResolutions(body string) []FindingResolution {
 	return resolutions
 }
 
+func StructuredAuditFindings(r Receipt, sourceRole string) []AuditFinding {
+	findings := make([]AuditFinding, 0, len(r.Findings))
+	for _, finding := range r.Findings {
+		if strings.TrimSpace(finding.ID) == "" {
+			continue
+		}
+		status := normalizeFindingStatus(finding.Status)
+		if status == "addressed" {
+			continue
+		}
+		findings = append(findings, AuditFinding{
+			ID:          finding.ID,
+			SourceRole:  strings.TrimSpace(sourceRole),
+			Severity:    finding.Severity,
+			Status:      status,
+			Evidence:    structuredFindingEvidence(finding),
+			Summary:     finding.Summary,
+			RequiredFix: firstNonEmpty(finding.RequiredFix, finding.Recommendation),
+		})
+	}
+	return findings
+}
+
+func StructuredFindingResolutions(r Receipt) []FindingResolution {
+	resolutions := make([]FindingResolution, 0, len(r.Findings))
+	for _, finding := range r.Findings {
+		if strings.TrimSpace(finding.ID) == "" {
+			continue
+		}
+		status := normalizeFindingStatus(finding.Status)
+		if status != "addressed" && status != "closed" {
+			continue
+		}
+		resolutions = append(resolutions, FindingResolution{
+			ID:           finding.ID,
+			Resolution:   firstNonEmpty(finding.Resolution, finding.Summary, finding.Recommendation),
+			FilesChanged: append([]string(nil), finding.FilesChanged...),
+			Validation:   append([]string(nil), finding.Validation...),
+		})
+	}
+	return resolutions
+}
+
+func structuredFindingEvidence(finding Finding) string {
+	if strings.TrimSpace(finding.Evidence) != "" {
+		return strings.TrimSpace(finding.Evidence)
+	}
+	if strings.TrimSpace(finding.File) == "" {
+		return ""
+	}
+	if finding.Line > 0 {
+		return finding.File + ":" + strconv.Itoa(finding.Line)
+	}
+	return finding.File
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func ParseValidationCommands(body string) []string {
 	lines := sectionContent(body, "Validation")
 	commands := make([]string, 0)
@@ -269,8 +334,8 @@ func normalizeFindingStatus(value string) string {
 	switch value {
 	case "closed", "fixed", "resolved":
 		return "closed"
-	case "open":
-		return "open"
+	case "open", "addressed", "invalid":
+		return value
 	case "reopened":
 		return "reopened"
 	default:

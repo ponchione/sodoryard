@@ -107,28 +107,50 @@ func FormatFallbackReceipt(role string, chainID string, receiptPath string, verd
 	now := time.Now().UTC()
 	step := receipt.StepFromPath(receiptPath)
 	r := &receipt.Receipt{
+		SchemaVersion:   receipt.SchemaVersion,
 		Agent:           role,
+		Role:            role,
 		ChainID:         chainID,
 		Step:            step,
+		StepID:          fmt.Sprintf("step-%03d", step),
 		Verdict:         receipt.Verdict(verdict),
 		Timestamp:       now,
 		TurnsUsed:       turnsUsed,
 		TokensUsed:      tokensUsed,
 		DurationSeconds: durationSeconds,
+		ChangedFiles:    []string{},
+		Findings:        []receipt.Finding{},
+		Followups:       []string{"Inspect the task outcome and decide whether follow-up work is needed."},
+		Metrics: receipt.Metrics{
+			Turns:           turnsUsed,
+			Tokens:          tokensUsed,
+			DurationSeconds: durationSeconds,
+		},
 	}
 	body := strings.TrimSpace(finalText)
 	if body == "" {
 		body = "No final text was returned."
 	}
 	content := fmt.Sprintf(`---
+schema_version: %s
 agent: %s
+role: %s
 chain_id: %s
 step: %d
+step_id: step-%03d
 verdict: %s
 timestamp: %s
 turns_used: %d
 tokens_used: %d
 duration_seconds: %d
+changed_files: []
+findings: []
+followups:
+  - Inspect the task outcome and decide whether follow-up work is needed.
+metrics:
+  turns: %d
+  tokens: %d
+  duration_seconds: %d
 ---
 
 ## Summary
@@ -148,7 +170,7 @@ None.
 
 ## Next Steps
 - Inspect the task outcome and decide whether follow-up work is needed.
-`, role, chainID, step, verdict, now.Format(time.RFC3339), turnsUsed, tokensUsed, durationSeconds, body)
+`, receipt.SchemaVersion, role, role, chainID, step, step, verdict, now.Format(time.RFC3339), turnsUsed, tokensUsed, durationSeconds, turnsUsed, tokensUsed, durationSeconds, body)
 	return content, r
 }
 

@@ -354,7 +354,7 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 		CurrentRole:         roleName,
 		ReceiptPath:         receiptPath,
 	})
-	task := taskWithHarnessContext(in.Task, t.ChainID, seq, receiptPath, briefing)
+	task := taskWithHarnessContext(in.Task, t.ChainID, seq, stepID, receiptPath, briefing)
 	step := spawnStep{
 		input:                 in,
 		roleName:              roleName,
@@ -690,7 +690,7 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 	if readErr != nil {
 		failMsg := fmt.Sprintf("missing receipt %s after exit_code=%d stdout=%q stderr=%q", step.receiptPath, outcome.exitCode, outcome.stdout, outcome.stderr)
 		receiptPath := step.receiptPath
-		if writeErr := t.writeSyntheticSafetyReceipt(ctx, step.roleName, step.sequence, step.receiptPath, failMsg, outcome.durationSecs); writeErr != nil {
+		if writeErr := t.writeSyntheticSafetyReceipt(ctx, step.roleName, step.sequence, step.stepID, step.receiptPath, failMsg, outcome.durationSecs); writeErr != nil {
 			failMsg = fmt.Sprintf("%s; failed to write safety receipt: %v", failMsg, writeErr)
 			receiptPath = ""
 		} else if facts != nil {
@@ -728,6 +728,10 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		facts.ClaimedValidationCommands = receipt.ParseValidationCommands(parsed.RawBody)
 		facts.ChangedFileClaimPresent = receipt.HasSection(parsed.RawBody, "Changed Files")
 		facts.ClaimedChangedFiles = receipt.ParseChangedFiles(parsed.RawBody)
+		if len(parsed.ChangedFiles) > 0 {
+			facts.ChangedFileClaimPresent = true
+			facts.ClaimedChangedFiles = append([]string(nil), parsed.ChangedFiles...)
+		}
 		if step.sourceMutating {
 			facts.ChangedFileClaimExtra, facts.ChangedFileManifestUnclaimed = diffStringSets(facts.ClaimedChangedFiles, facts.ChangedFiles)
 			facts.ChangedFileClaimMatchesManifest = len(facts.ChangedFileClaimExtra) == 0 && len(facts.ChangedFileManifestUnclaimed) == 0
@@ -746,6 +750,7 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 	if facts != nil {
 		facts.ReceiptStepValid = true
 	}
+	t.logReceiptSchemaWarnings(ctx, step, parsed)
 	if validateErr := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForStep(step.roleName, step.sourceMutating)); validateErr != nil {
 		failMsg := fmt.Sprintf("validate receipt sections %s: %v", step.receiptPath, validateErr)
 		if facts != nil {
@@ -763,6 +768,24 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 	}
 	t.logReceiptFindingFacts(ctx, step, parsed, facts)
 	return receiptContent, parsed, nil
+}
+
+func (t *SpawnAgentTool) logReceiptSchemaWarnings(ctx context.Context, step spawnStep, parsed receipt.Receipt) {
+	if t == nil || t.Store == nil {
+		return
+	}
+	for _, warning := range parsed.StructuredMetadataWarnings() {
+		warning = strings.TrimSpace(warning)
+		if warning == "" {
+			continue
+		}
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{
+			"role":           step.roleName,
+			"receipt_path":   step.receiptPath,
+			"schema_version": parsed.SchemaVersion,
+			"warning":        warning,
+		})
+	}
 }
 
 func (t *SpawnAgentTool) logReceiptFindingFacts(ctx context.Context, step spawnStep, parsed receipt.Receipt, facts *postStepGuardrailFacts) {
@@ -817,7 +840,10 @@ func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptF
 	var facts receiptFindingFactSet
 	switch roleName {
 	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
-		findings := receipt.ParseAuditFindings(parsed.RawBody, roleName)
+		findings := receipt.StructuredAuditFindings(parsed, roleName)
+		if len(findings) == 0 {
+			findings = receipt.ParseAuditFindings(parsed.RawBody, roleName)
+		}
 		for _, finding := range findings {
 			if strings.TrimSpace(finding.ID) == "" {
 				continue
@@ -858,7 +884,10 @@ func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptF
 		}
 		return facts, true
 	case "resolver":
-		resolutions := receipt.ParseFindingResolutions(parsed.RawBody)
+		resolutions := receipt.StructuredFindingResolutions(parsed)
+		if len(resolutions) == 0 {
+			resolutions = receipt.ParseFindingResolutions(parsed.RawBody)
+		}
 		for _, resolution := range resolutions {
 			if strings.TrimSpace(resolution.ID) != "" {
 				facts.AddressedIDs = append(facts.AddressedIDs, resolution.ID)
@@ -1347,21 +1376,32 @@ func (t *SpawnAgentTool) logStepProcessExited(ctx context.Context, stepID string
 	_ = t.Store.LogEvent(ctx, t.ChainID, stepID, chain.EventStepProcessExited, map[string]any{"process_id": pid, "exit_code": exitCode})
 }
 
-func (t *SpawnAgentTool) writeSyntheticSafetyReceipt(ctx context.Context, role string, step int, receiptPath string, reason string, durationSecs int) error {
+func (t *SpawnAgentTool) writeSyntheticSafetyReceipt(ctx context.Context, role string, step int, stepID string, receiptPath string, reason string, durationSecs int) error {
 	timestamp := t.now().UTC().Format(time.RFC3339)
 	body := strings.TrimSpace(reason)
 	if body == "" {
 		body = "The engine did not produce a receipt before the harness stopped it."
 	}
 	content := fmt.Sprintf(`---
+schema_version: %s
 agent: %s
+role: %s
 chain_id: %s
 step: %d
+step_id: %s
 verdict: %s
 timestamp: %s
 turns_used: 0
 tokens_used: 0
 duration_seconds: %d
+changed_files: []
+findings: []
+followups:
+  - Inspect the step failure and decide whether to retry, resolve manually, or stop the chain.
+metrics:
+  turns: 0
+  tokens: 0
+  duration_seconds: %d
 ---
 
 ## Summary
@@ -1381,7 +1421,7 @@ The harness could not validate the step output.
 
 ## Next Steps
 Inspect the step failure and decide whether to retry, resolve manually, or stop the chain.
-`, role, t.ChainID, step, receipt.VerdictSafetyLimit, timestamp, durationSecs, body)
+`, receipt.SchemaVersion, role, role, t.ChainID, step, stepID, receipt.VerdictSafetyLimit, timestamp, durationSecs, durationSecs, body)
 	return t.Backend.WriteDocument(ctx, receiptPath, content)
 }
 
@@ -1416,7 +1456,7 @@ func infrastructureExitCode(code int) bool {
 
 func intPtr(v int) *int { return &v }
 
-func taskWithHarnessContext(task string, chainID string, step int, receiptPath string, briefing string) string {
+func taskWithHarnessContext(task string, chainID string, step int, stepID string, receiptPath string, briefing string) string {
 	briefing = strings.TrimSpace(briefing)
 	briefingBlock := ""
 	if briefing != "" {
@@ -1434,17 +1474,28 @@ Before finishing, write your receipt to the exact brain path above. If you canno
 
 Receipt frontmatter must be valid YAML and include these required fields:
 ---
+schema_version: yard.receipt.v1
 agent: <role name>
+role: <role name>
 chain_id: %s
 step: %d
+step_id: %s
 verdict: completed
 timestamp: <current UTC time in RFC3339 format>
 turns_used: 0
 tokens_used: 0
 duration_seconds: 0
+changed_files: []
+findings: []
+followups: []
+metrics:
+  turns: 0
+  tokens: 0
+  duration_seconds: 0
 ---
 
 Use the actual verdict and usage numbers when known. Do not use created_at; the required completion-time field is timestamp.
+Keep agent and role identical. Use the exact step_id shown above. For source-writing roles, put the same changed-file paths in frontmatter changed_files and in the ## Changed Files body section. Auditor and resolver receipts may use frontmatter findings for structured finding data, but must still include the required markdown finding section.
 
 The receipt body must include these markdown sections:
 - ## Summary
@@ -1456,5 +1507,5 @@ The receipt body must include these markdown sections:
 
 Auditor receipts must also include ## Findings. Resolver receipts must also include ## Findings Addressed.
 
-The receipt body must include the concrete outcome of the task. If the task asks a question, put the answer in the Summary section rather than only saying that you found it.`, strings.TrimSpace(task), chainID, step, receiptPath, briefingBlock, chainID, step)
+The receipt body must include the concrete outcome of the task. If the task asks a question, put the answer in the Summary section rather than only saying that you found it.`, strings.TrimSpace(task), chainID, step, receiptPath, briefingBlock, chainID, step, stepID)
 }

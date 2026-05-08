@@ -354,6 +354,12 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 		case chain.EventReceiptValidation:
 			report.ReceiptWarningEvents++
 			attentionHealth = true
+			if validationEvent, parseErr := parseReceiptValidationEvent(event.EventData); parseErr == nil {
+				message := validationEvent.Message()
+				if message != "" {
+					report.addWarning(message)
+				}
+			}
 		case chain.EventReceiptFindings:
 			report.ReceiptFindingEvents++
 			findingEvent, parseErr := parseReceiptFindingEvent(event.EventData)
@@ -531,6 +537,14 @@ type receiptFindingEvent struct {
 	AddressedIDs     []string `json:"addressed_ids"`
 }
 
+type receiptValidationEvent struct {
+	Role          string `json:"role"`
+	ReceiptPath   string `json:"receipt_path"`
+	SchemaVersion string `json:"schema_version"`
+	Warning       string `json:"warning"`
+	Error         string `json:"error"`
+}
+
 type stepGuardrailFactsEvent struct {
 	Role                                string   `json:"role"`
 	Sequence                            int      `json:"sequence"`
@@ -592,6 +606,40 @@ type stepGuardrailFactsEvent struct {
 type changedFileManifestEvent struct {
 	Paths []string `json:"paths"`
 	Error string   `json:"error"`
+}
+
+func (e receiptValidationEvent) Message() string {
+	message := strings.TrimSpace(e.Warning)
+	if message == "" {
+		message = strings.TrimSpace(e.Error)
+	}
+	if message == "" {
+		return ""
+	}
+	prefix := strings.TrimSpace(e.Role)
+	if e.ReceiptPath != "" {
+		if prefix != "" {
+			prefix += " "
+		}
+		prefix += e.ReceiptPath
+	}
+	if prefix != "" {
+		return prefix + ": " + message
+	}
+	return message
+}
+
+func parseReceiptValidationEvent(data string) (receiptValidationEvent, error) {
+	var event receiptValidationEvent
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
+		return receiptValidationEvent{}, err
+	}
+	event.Role = strings.TrimSpace(event.Role)
+	event.ReceiptPath = strings.TrimSpace(event.ReceiptPath)
+	event.SchemaVersion = strings.TrimSpace(event.SchemaVersion)
+	event.Warning = strings.TrimSpace(event.Warning)
+	event.Error = strings.TrimSpace(event.Error)
+	return event, nil
 }
 
 func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {

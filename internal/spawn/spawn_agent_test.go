@@ -163,7 +163,7 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	if len(events) < 5 {
 		t.Fatalf("expected step output events, got %+v", events)
 	}
-	var stdoutSeen, stderrSeen, processStartedSeen, processExitedSeen bool
+	var stdoutSeen, stderrSeen, processStartedSeen, processExitedSeen, missingSchemaWarningSeen bool
 	for _, event := range events {
 		switch event.EventType {
 		case chain.EventStepOutput:
@@ -181,6 +181,10 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 			if strings.Contains(event.EventData, `"process_id":4321`) && strings.Contains(event.EventData, `"exit_code":0`) {
 				processExitedSeen = true
 			}
+		case chain.EventReceiptValidation:
+			if strings.Contains(event.EventData, `"warning":"missing schema_version"`) {
+				missingSchemaWarningSeen = true
+			}
 		}
 	}
 	if !stdoutSeen || !stderrSeen {
@@ -188,6 +192,9 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	}
 	if !processStartedSeen || !processExitedSeen {
 		t.Fatalf("step process events missing start/exit: %+v", events)
+	}
+	if !missingSchemaWarningSeen {
+		t.Fatalf("events = %+v, want missing schema_version receipt warning for legacy receipt", events)
 	}
 }
 
@@ -553,6 +560,111 @@ Validation:
 	}
 	if len(resolved.FilesChanged) != 1 || resolved.FilesChanged[0] != "internal/example.go" || len(resolved.Validation) != 1 || resolved.Validation[0] != "rtk make test" {
 		t.Fatalf("resolver lifecycle details = %+v/%+v, want changed file and validation", resolved.FilesChanged, resolved.Validation)
+	}
+}
+
+func TestBuildReceiptFindingFactsPrefersStructuredMetadata(t *testing.T) {
+	parsed, err := receipt.Parse([]byte(`---
+schema_version: yard.receipt.v1
+agent: correctness-auditor
+role: correctness-auditor
+chain_id: chain-1
+step: 1
+step_id: step-001
+verdict: fix_required
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+findings:
+  - id: FIND-correctness-001
+    status: open
+    severity: critical
+    file: internal/example.go
+    line: 44
+    summary: Structured finding.
+    required_fix: Use structured metadata.
+---
+
+## Summary
+Audit.
+
+## Changes
+Reviewed.
+
+## Validation
+Not run.
+
+## Concerns
+None.
+
+## Next Steps
+Resolve.
+
+## Findings
+None.
+`))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	facts, ok := buildReceiptFindingFacts("correctness-auditor", parsed)
+	if !ok || len(facts.LifecycleFacts) != 1 {
+		t.Fatalf("facts = %+v ok=%t, want one structured lifecycle fact", facts, ok)
+	}
+	got := facts.LifecycleFacts[0]
+	if got.ID != "FIND-correctness-001" || got.Severity != "critical" || got.Evidence != "internal/example.go:44" || got.RequiredFix != "Use structured metadata." {
+		t.Fatalf("lifecycle fact = %+v, want structured metadata fields", got)
+	}
+
+	resolverReceipt, err := receipt.Parse([]byte(`---
+schema_version: yard.receipt.v1
+agent: resolver
+role: resolver
+chain_id: chain-1
+step: 2
+step_id: step-002
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+findings:
+  - id: FIND-correctness-001
+    status: addressed
+    summary: Fixed via structured metadata.
+    files_changed:
+      - internal/example.go
+    validation:
+      - rtk make test
+---
+
+## Summary
+Resolved.
+
+## Changes
+Patched.
+
+## Changed Files
+- internal/example.go
+
+## Validation
+- rtk make test
+
+## Concerns
+None.
+
+## Next Steps
+Audit.
+
+## Findings Addressed
+None.
+`))
+	if err != nil {
+		t.Fatalf("Parse resolver returned error: %v", err)
+	}
+	resolverFacts, ok := buildReceiptFindingFacts("resolver", resolverReceipt)
+	if !ok || len(resolverFacts.LifecycleFacts) != 1 || resolverFacts.LifecycleFacts[0].Resolution != "Fixed via structured metadata." {
+		t.Fatalf("resolver facts = %+v ok=%t, want structured addressed fact", resolverFacts, ok)
 	}
 }
 
@@ -1217,6 +1329,9 @@ func TestSpawnAgentFailsWhenReceiptMissing(t *testing.T) {
 	safetyReceipt := backend.docs["receipts/coder/"+chainID+"-step-001.md"]
 	if !strings.Contains(safetyReceipt, "verdict: safety_limit") || !strings.Contains(safetyReceipt, "missing receipt") {
 		t.Fatalf("safety receipt = %q, want safety_limit receipt explaining missing receipt", safetyReceipt)
+	}
+	if !strings.Contains(safetyReceipt, "schema_version: yard.receipt.v1") || !strings.Contains(safetyReceipt, "step_id: ") {
+		t.Fatalf("safety receipt = %q, want structured receipt metadata", safetyReceipt)
 	}
 	if !strings.Contains(safetyReceipt, "## Changed Files") {
 		t.Fatalf("safety receipt = %q, want Changed Files section", safetyReceipt)

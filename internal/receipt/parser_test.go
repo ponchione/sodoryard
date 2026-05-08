@@ -30,6 +30,91 @@ func TestParseHappyPath(t *testing.T) {
 	if receipt.Agent != "correctness-auditor" || receipt.ChainID != "smoke-test-p5a" || receipt.Step != 1 || receipt.Verdict != VerdictCompleted || !receipt.Timestamp.Equal(wantTime) || receipt.TurnsUsed != 2 || receipt.TokensUsed != 0 || receipt.DurationSeconds != 0 || receipt.RawBody != "\nReceipt created per request.\n" {
 		t.Fatalf("unexpected receipt: %#v", receipt)
 	}
+	if got := receipt.StructuredMetadataWarnings(); len(got) != 1 || got[0] != "missing schema_version" {
+		t.Fatalf("structured metadata warnings = %v, want missing schema_version", got)
+	}
+}
+
+func TestParseStructuredMetadata(t *testing.T) {
+	receipt, err := Parse([]byte(`---
+schema_version: yard.receipt.v1
+role: correctness-auditor
+chain_id: smoke-test-p5a
+step: 1
+step_id: step-abc
+verdict: fix_required
+timestamp: 2026-04-11T00:00:00Z
+changed_files:
+  - internal/example.go
+findings:
+  - id: FIND-correctness-001
+    status: open
+    severity: high
+    category: correctness
+    file: internal/example.go
+    line: 42
+    summary: Nil pointer risk.
+    recommendation: Add a guard.
+followups:
+  - Resolve the finding.
+metrics:
+  turns: 3
+  input_tokens: 100
+  output_tokens: 25
+  duration_seconds: 7
+---
+body
+`))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if receipt.Agent != "correctness-auditor" || receipt.Role != "correctness-auditor" || receipt.StepID != "step-abc" {
+		t.Fatalf("receipt aliases = %#v, want role-backed agent and step id", receipt)
+	}
+	if receipt.TurnsUsed != 3 || receipt.TokensUsed != 125 || receipt.DurationSeconds != 7 {
+		t.Fatalf("receipt metrics = turns %d tokens %d duration %d, want 3/125/7", receipt.TurnsUsed, receipt.TokensUsed, receipt.DurationSeconds)
+	}
+	if len(receipt.ChangedFiles) != 1 || receipt.ChangedFiles[0] != "internal/example.go" || len(receipt.Findings) != 1 || len(receipt.Followups) != 1 {
+		t.Fatalf("structured fields = changed=%v findings=%v followups=%v", receipt.ChangedFiles, receipt.Findings, receipt.Followups)
+	}
+	if warnings := receipt.StructuredMetadataWarnings(); len(warnings) != 0 {
+		t.Fatalf("structured metadata warnings = %v, want none", warnings)
+	}
+}
+
+func TestParseStructuredMetadataWarnings(t *testing.T) {
+	receipt, err := Parse([]byte(`---
+schema_version: yard.receipt.v9
+agent: coder
+role: reviewer
+chain_id: smoke-test-p5a
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+findings:
+  - id: bad
+    status: mystery
+---
+body
+`))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	warnings := strings.Join(receipt.StructuredMetadataWarnings(), "\n")
+	for _, want := range []string{
+		`unsupported schema_version "yard.receipt.v9"`,
+		`role "reviewer" differs from agent "coder"`,
+		"missing step_id",
+		`findings[0] invalid id "bad"`,
+		`findings[0] invalid status "mystery"`,
+	} {
+		if !strings.Contains(warnings, want) {
+			t.Fatalf("warnings = %q, want %q", warnings, want)
+		}
+	}
 }
 
 func TestParseMissingFrontmatter(t *testing.T) {
@@ -277,6 +362,43 @@ Receipt created per request.
 	}
 	text := string(updated)
 	for _, want := range []string{"turns_used: 3", "tokens_used: 99", "duration_seconds: 7", "extra_field: keep-me", "\nReceipt created per request.\n"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("updated receipt = %q, want %q", text, want)
+		}
+	}
+}
+
+func TestRewriteUsageMetricsUpdatesStructuredMetrics(t *testing.T) {
+	updated, parsed, changed, err := RewriteUsageMetrics([]byte(`---
+schema_version: yard.receipt.v1
+role: coder
+chain_id: smoke-test-p5a
+step: 1
+step_id: step-001
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 0
+tokens_used: 0
+duration_seconds: 0
+metrics:
+  turns: 0
+  tokens: 0
+  duration_seconds: 0
+---
+
+Receipt created per request.
+`), UsageMetrics{TurnsUsed: 4, TokensUsed: 125, DurationSeconds: 8})
+	if err != nil {
+		t.Fatalf("RewriteUsageMetrics returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	if parsed.TurnsUsed != 4 || parsed.TokensUsed != 125 || parsed.DurationSeconds != 8 || len(parsed.StructuredMetadataWarnings()) != 0 {
+		t.Fatalf("parsed = %+v warnings=%v, want updated structured metrics", parsed, parsed.StructuredMetadataWarnings())
+	}
+	text := string(updated)
+	for _, want := range []string{"turns_used: 4", "tokens_used: 125", "duration_seconds: 8", "metrics:", "  turns: 4", "  tokens: 125", "  duration_seconds: 8"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("updated receipt = %q, want %q", text, want)
 		}
