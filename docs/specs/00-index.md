@@ -31,6 +31,7 @@
 | 19  | [[19-tool-result-details]]           | ✅ Draft | Structured tool-result metadata for UI and analytics, content unchanged |
 | 20  | [[20-operator-console-tui]]          | ✅ Draft | Terminal-first operator console, launch, chain control, and receipts    |
 | 21  | [[21-web-inspector]]                 | ✅ Draft | Browser inspector for transcripts, context, tools, diffs, and metrics   |
+| 22  | [[22-sequential-agent-guardrails]]   | ⚠️ Working plan | Sequential mutating agents, hard role guardrails, typed receipts, and auditability |
 
 ## Status Legend
 
