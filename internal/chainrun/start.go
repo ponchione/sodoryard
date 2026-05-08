@@ -116,6 +116,7 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	if err != nil {
 		return nil, err
 	}
+	opts.Mode = mode
 	var roleCfg appconfig.AgentRoleConfig
 	var systemPrompt string
 	if mode == ModeOrchestrator || mode == ModeConstrained {
@@ -298,7 +299,7 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 			Status:    status,
 			EventType: chain.EventChainCompleted,
 			Summary:   &summary,
-			Extra:     map[string]any{"summary": summary, "role": opts.Role, "verdict": stepResult.Verdict},
+			Extra:     map[string]any{"summary": summary, "mode": string(ModeOneStep), "role": opts.Role, "verdict": stepResult.Verdict},
 		}); err != nil {
 			return nil, err
 		}

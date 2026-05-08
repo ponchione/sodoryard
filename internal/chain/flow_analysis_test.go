@@ -94,9 +94,54 @@ func TestFlowAnalyzerAllowsAuditorAndDocsArbiterAfterCoder(t *testing.T) {
 	}
 }
 
+func TestFlowAnalyzerSuppressesGenericOrderWarningsForOneStepLaunch(t *testing.T) {
+	analysis := AnalyzeFlow(FlowAnalysisInput{
+		Chain: Chain{ID: "one-step-chain", Status: "completed"},
+		Steps: []Step{
+			{ID: "step-1", SequenceNum: 1, Role: "coder", Status: "completed"},
+		},
+		Events: []Event{
+			{ID: 1, EventType: EventChainStarted, EventData: `{"mode":"one_step_chain"}`},
+		},
+	})
+
+	if hasFlowWarningCode(analysis.Warnings, "coder_before_planner") || hasFlowWarningCode(analysis.Warnings, "completed_without_auditor") {
+		t.Fatalf("warnings = %+v, want no generic planner/auditor warnings for one-step launch", analysis.Warnings)
+	}
+}
+
+func TestFlowAnalyzerKeepsSafetyWarningsForManualRosterLaunch(t *testing.T) {
+	analysis := AnalyzeFlow(FlowAnalysisInput{
+		Chain: Chain{ID: "manual-chain", Status: "completed"},
+		Steps: []Step{
+			{ID: "step-1", SequenceNum: 1, Role: "coder", Status: "completed"},
+			{ID: "step-2", SequenceNum: 2, Role: "resolver", Status: "completed"},
+		},
+		Events: []Event{
+			{ID: 1, EventType: EventChainStarted, EventData: `{"mode":"manual_roster"}`},
+		},
+	})
+
+	if hasFlowWarningCode(analysis.Warnings, "coder_before_planner") || hasFlowWarningCode(analysis.Warnings, "completed_without_auditor") {
+		t.Fatalf("warnings = %+v, want no generic planner/auditor warnings for manual roster", analysis.Warnings)
+	}
+	if !hasFlowWarningCode(analysis.Warnings, "resolver_without_open_findings") {
+		t.Fatalf("warnings = %+v, want resolver_without_open_findings preserved", analysis.Warnings)
+	}
+}
+
 func hasFlowWarning(warnings []FlowWarning, want string) bool {
 	for _, warning := range warnings {
 		if warning.Message == want || strings.Contains(warning.Message, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFlowWarningCode(warnings []FlowWarning, code string) bool {
+	for _, warning := range warnings {
+		if warning.Code == code {
 			return true
 		}
 	}

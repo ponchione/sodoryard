@@ -92,6 +92,8 @@ func (a FlowAnalyzer) Analyze(in FlowAnalysisInput) FlowAnalysis {
 	if isDocsImpacting == nil {
 		isDocsImpacting = defaultDocsImpactingPath
 	}
+	launchMode := launchModeFromEvents(in.Events)
+	operatorDeclaredSequence := isOperatorDeclaredSequenceMode(launchMode)
 
 	var analysis FlowAnalysis
 	states := map[string]*FindingLifecycleEntry{}
@@ -108,7 +110,7 @@ func (a FlowAnalyzer) Analyze(in FlowAnalysisInput) FlowAnalysis {
 		case "planner":
 			plannerSeen = true
 		case "coder":
-			if !plannerSeen {
+			if !plannerSeen && !operatorDeclaredSequence {
 				analysis.addWarning(FlowWarning{
 					Code:        "coder_before_planner",
 					Message:     fmt.Sprintf("flow: coder step %d started before planner", step.SequenceNum),
@@ -171,7 +173,7 @@ func (a FlowAnalyzer) Analyze(in FlowAnalysisInput) FlowAnalysis {
 		analysis.applyFindingEvent(states, Step{}, payload, repeatedResolverWarned)
 	}
 
-	if in.Chain.Status == "completed" && lastCoderSeq > 0 && lastAuditorAfterCoderSeq < lastCoderSeq {
+	if in.Chain.Status == "completed" && lastCoderSeq > 0 && lastAuditorAfterCoderSeq < lastCoderSeq && !operatorDeclaredSequence {
 		analysis.addWarning(FlowWarning{
 			Code:        "completed_without_auditor",
 			Message:     fmt.Sprintf("flow: chain completed after coder step %d without later auditor", lastCoderSeq),
@@ -306,6 +308,36 @@ func parseChangedFilesPayload(data string) (changedFilesPayload, bool) {
 	payload.Paths = uniqueStrings(payload.Paths)
 	payload.Error = strings.TrimSpace(payload.Error)
 	return payload, true
+}
+
+func launchModeFromEvents(events []Event) string {
+	var mode string
+	for _, event := range events {
+		switch event.EventType {
+		case EventChainStarted, EventChainCompleted:
+		default:
+			continue
+		}
+		var payload struct {
+			Mode string `json:"mode"`
+		}
+		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
+			continue
+		}
+		if trimmed := strings.TrimSpace(payload.Mode); trimmed != "" {
+			mode = trimmed
+		}
+	}
+	return mode
+}
+
+func isOperatorDeclaredSequenceMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case "one_step_chain", "manual_roster":
+		return true
+	default:
+		return false
+	}
 }
 
 func findingState(states map[string]*FindingLifecycleEntry, id string, sourceRole string) *FindingLifecycleEntry {

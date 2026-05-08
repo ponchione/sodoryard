@@ -392,6 +392,18 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
+	var startedMode, completedMode bool
+	for _, event := range events {
+		if event.EventType == chain.EventChainStarted && strings.Contains(event.EventData, `"mode":"one_step_chain"`) {
+			startedMode = true
+		}
+		if event.EventType == chain.EventChainCompleted && strings.Contains(event.EventData, `"mode":"one_step_chain"`) {
+			completedMode = true
+		}
+	}
+	if !startedMode || !completedMode {
+		t.Fatalf("events = %+v, want one-step mode in start and completion payloads", events)
+	}
 	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
 		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false after terminal closure", exec, ok)
 	}
