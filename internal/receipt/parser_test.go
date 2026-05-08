@@ -171,6 +171,51 @@ body
 	}
 }
 
+func TestValidateForStepRejectsMismatchedReceiptContract(t *testing.T) {
+	parsed, err := Parse([]byte(happyPathReceipt))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	err = ValidateForStep(parsed, StepValidation{Agent: "coder", ChainID: "smoke-test-p5a", Step: 1})
+	if !errors.Is(err, ErrInvalidField) || !strings.Contains(err.Error(), "agent") {
+		t.Fatalf("ValidateForStep error = %v, want agent mismatch", err)
+	}
+	err = ValidateForStep(parsed, StepValidation{Agent: "correctness-auditor", ChainID: "other-chain", Step: 1})
+	if !errors.Is(err, ErrInvalidField) || !strings.Contains(err.Error(), "chain_id") {
+		t.Fatalf("ValidateForStep error = %v, want chain_id mismatch", err)
+	}
+	err = ValidateForStep(parsed, StepValidation{Agent: "correctness-auditor", ChainID: "smoke-test-p5a", Step: 2})
+	if !errors.Is(err, ErrInvalidField) || !strings.Contains(err.Error(), "step") {
+		t.Fatalf("ValidateForStep error = %v, want step mismatch", err)
+	}
+}
+
+func TestValidateRequiredSections(t *testing.T) {
+	body := `
+## Summary
+Done.
+
+## Changes
+Changed files.
+
+## Validation
+make test
+
+## Concerns
+None.
+
+## Next Steps
+Audit.
+`
+	if err := ValidateRequiredSections(body, RequiredSectionsForRole("coder")); err != nil {
+		t.Fatalf("ValidateRequiredSections returned error: %v", err)
+	}
+	err := ValidateRequiredSections(body, RequiredSectionsForRole("correctness-auditor"))
+	if !errors.Is(err, ErrMissingSection) || !strings.Contains(err.Error(), "Findings") {
+		t.Fatalf("ValidateRequiredSections error = %v, want missing Findings", err)
+	}
+}
+
 func TestRewriteUsageMetricsPreservesBody(t *testing.T) {
 	updated, parsed, changed, err := RewriteUsageMetrics([]byte(`---
 agent: correctness-auditor

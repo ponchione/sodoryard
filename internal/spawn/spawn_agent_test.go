@@ -719,6 +719,52 @@ func TestSpawnAgentFailsWhenReceiptMissing(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentFailsWhenReceiptDoesNotMatchStep(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
+agent: resolver
+chain_id: ` + chainID + `
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+## Summary
+Done.
+
+## Changes
+None.
+
+## Validation
+Not run.
+
+## Concerns
+None.
+
+## Next Steps
+None.
+`
+		return RunResult{ExitCode: 0}
+	}
+
+	_, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+	if err == nil || !strings.Contains(err.Error(), "invalid field: agent") {
+		t.Fatalf("error = %v, want agent validation failure", err)
+	}
+	steps, _ := store.ListSteps(ctx, chainID)
+	if len(steps) != 1 || steps[0].Status != "failed" || !strings.Contains(steps[0].ErrorMessage, "validate receipt") {
+		t.Fatalf("unexpected failed step: %+v", steps)
+	}
+}
+
 func argValue(args []string, name string) string {
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] == name {

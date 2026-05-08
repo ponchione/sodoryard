@@ -26,6 +26,12 @@ type Receipt struct {
 	RawBody         string    `yaml:"-"`
 }
 
+type StepValidation struct {
+	Agent   string
+	ChainID string
+	Step    int
+}
+
 type UsageMetrics struct {
 	TurnsUsed       int
 	TokensUsed      int

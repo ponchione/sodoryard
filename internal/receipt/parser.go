@@ -15,6 +15,7 @@ var (
 	ErrMissingField       = errors.New("receipt: missing required field")
 	ErrInvalidField       = errors.New("receipt: invalid field")
 	ErrInvalidVerdict     = errors.New("receipt: invalid verdict")
+	ErrMissingSection     = errors.New("receipt: missing required section")
 )
 
 func Parse(content []byte) (Receipt, error) {
@@ -147,6 +148,67 @@ func (r Receipt) validate() error {
 		return fmt.Errorf("%w: duration_seconds (must be >= 0, got %d)", ErrInvalidField, r.DurationSeconds)
 	}
 	return nil
+}
+
+func ValidateForStep(r Receipt, expected StepValidation) error {
+	if strings.TrimSpace(expected.Agent) != "" && r.Agent != expected.Agent {
+		return fmt.Errorf("%w: agent (got %q, want %q)", ErrInvalidField, r.Agent, expected.Agent)
+	}
+	if strings.TrimSpace(expected.ChainID) != "" && r.ChainID != expected.ChainID {
+		return fmt.Errorf("%w: chain_id (got %q, want %q)", ErrInvalidField, r.ChainID, expected.ChainID)
+	}
+	if expected.Step > 0 && r.Step != expected.Step {
+		return fmt.Errorf("%w: step (got %d, want %d)", ErrInvalidField, r.Step, expected.Step)
+	}
+	return nil
+}
+
+func RequiredSectionsForRole(role string) []string {
+	sections := []string{"Summary", "Changes", "Validation", "Concerns", "Next Steps"}
+	switch strings.TrimSpace(role) {
+	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
+		sections = append(sections, "Findings")
+	case "resolver":
+		sections = append(sections, "Findings Addressed")
+	}
+	return sections
+}
+
+func ValidateRequiredSections(body string, required []string) error {
+	present := receiptSections(body)
+	missing := make([]string, 0)
+	for _, section := range required {
+		name := strings.TrimSpace(section)
+		if name == "" {
+			continue
+		}
+		if _, ok := present[normalizeReceiptSection(name)]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: %s", ErrMissingSection, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func receiptSections(body string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
+		if name != "" {
+			out[normalizeReceiptSection(name)] = struct{}{}
+		}
+	}
+	return out
+}
+
+func normalizeReceiptSection(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
 
 func validVerdict(verdict Verdict) bool {

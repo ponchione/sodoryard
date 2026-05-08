@@ -401,6 +401,15 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
 		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
 	}
+	if err := receipt.ValidateForStep(parsed, receipt.StepValidation{Agent: step.roleName, ChainID: t.ChainID, Step: step.sequence}); err != nil {
+		failMsg := fmt.Sprintf("validate receipt %s: %v", step.receiptPath, err)
+		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
+		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
+	}
+	if err := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForRole(step.roleName)); err != nil {
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{"role": step.roleName, "receipt_path": step.receiptPath, "warning": err.Error()})
+	}
 	return receiptContent, parsed, nil
 }
 
@@ -659,7 +668,20 @@ tokens_used: 0
 duration_seconds: %d
 ---
 
+## Summary
+The harness wrote this safety receipt because the step did not produce a valid receipt.
+
+## Changes
+No source changes were recorded by this synthetic receipt.
+
+## Validation
+The harness could not validate the step output.
+
+## Concerns
 %s
+
+## Next Steps
+Inspect the step failure and decide whether to retry, resolve manually, or stop the chain.
 `, role, t.ChainID, step, receipt.VerdictSafetyLimit, timestamp, durationSecs, body)
 	return t.Backend.WriteDocument(ctx, receiptPath, content)
 }
@@ -718,6 +740,15 @@ duration_seconds: 0
 ---
 
 Use the actual verdict and usage numbers when known. Do not use created_at; the required completion-time field is timestamp.
+
+The receipt body must include these markdown sections:
+- ## Summary
+- ## Changes
+- ## Validation
+- ## Concerns
+- ## Next Steps
+
+Auditor receipts must also include ## Findings. Resolver receipts must also include ## Findings Addressed.
 
 The receipt body must include the concrete outcome of the task. If the task asks a question, put the answer in the Summary section rather than only saying that you found it.`, strings.TrimSpace(task), chainID, step, receiptPath, chainID, step)
 }

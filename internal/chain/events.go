@@ -19,6 +19,7 @@ const (
 	EventStepOutput          EventType = "step_output"
 	EventStepCompleted       EventType = "step_completed"
 	EventStepFailed          EventType = "step_failed"
+	EventReceiptValidation   EventType = "receipt_validation_warning"
 	EventSourceWriterBlocked EventType = "source_writer_guard_blocked"
 	EventReindexStarted      EventType = "reindex_started"
 	EventReindexCompleted    EventType = "reindex_completed"
