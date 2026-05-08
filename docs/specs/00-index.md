@@ -31,12 +31,13 @@
 | 19  | [[19-tool-result-details]]           | ✅ Draft | Structured tool-result metadata for UI and analytics, content unchanged |
 | 20  | [[20-operator-console-tui]]          | ✅ Draft | Terminal-first operator console, launch, chain control, and receipts    |
 | 21  | [[21-web-inspector]]                 | ✅ Draft | Browser inspector for transcripts, context, tools, diffs, and metrics   |
-| 22  | [[22-sequential-agent-guardrails]]   | ⚠️ Working plan | Sequential mutating agents, hard role guardrails, typed receipts, and auditability |
+| 22  | [[22-sequential-agent-guardrails]]   | ✅ Implemented | Sequential mutating agents, hard role guardrails, typed receipts, and auditability |
 | 23  | [[23-genkit-patterns-for-yard]]      | ⚠️ Working plan | Genkit-inspired tracing, typed contracts, hooks, evals, capabilities, and streaming ideas for Yard |
 
 ## Status Legend
 
 - ✅ **Draft** — Substantive content based on completed discussions. Ready for review and refinement.
+- ✅ **Implemented** — Required mechanics have landed; the document may still list optional future work.
 - ⚠️ **Skeleton** — Structure and key questions defined. Needs dedicated deep-dive conversation to fill in.
 - 🔴 **Blocked** — Cannot proceed without resolving a dependency.
 
