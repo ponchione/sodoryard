@@ -168,6 +168,8 @@ type chainDetailResponse struct {
 	Steps        []chainStepResponse      `json:"steps"`
 	Receipts     []receiptSummaryResponse `json:"receipts"`
 	RecentEvents []chainEventResponse     `json:"recent_events"`
+	Health       string                   `json:"health"`
+	Warnings     []runtimeWarningResponse `json:"warnings"`
 }
 
 type chainRecordResponse struct {
@@ -263,11 +265,17 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 	for _, event := range detail.RecentEvents {
 		events = append(events, chainEventResponseFromChain(event))
 	}
+	warnings := make([]runtimeWarningResponse, 0, len(detail.Warnings))
+	for _, warning := range detail.Warnings {
+		warnings = append(warnings, runtimeWarningResponse{Message: warning.Message})
+	}
 	return chainDetailResponse{
 		Chain:        chainRecordResponseFromChain(detail.Chain),
 		Steps:        steps,
 		Receipts:     receipts,
 		RecentEvents: events,
+		Health:       detail.Health,
+		Warnings:     warnings,
 	}
 }
 

@@ -85,7 +85,9 @@ export function ChainDetailPage() {
           </Link>
           <h1 className="mt-2 break-all font-mono text-xl font-bold text-primary text-glow-cyan">{id}</h1>
           {detail && (
-            <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>{detail.chain.status}</p>
+            <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>
+              {detail.chain.status} / {detail.health || "unknown"}
+            </p>
           )}
         </div>
 
@@ -112,6 +114,19 @@ export function ChainDetailPage() {
                 <div className="mt-1 text-sm text-foreground">{formatDate(detail.chain.updated_at)}</div>
               </div>
             </section>
+
+            {(detail.warnings ?? []).length > 0 && (
+              <section className="space-y-2">
+                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Guardrail Warnings
+                </h2>
+                <ul className="space-y-1 border border-border p-3 text-xs text-warning">
+                  {(detail.warnings ?? []).map((warning, index) => (
+                    <li key={`${warning.message}-${index}`}>- {warning.message}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <section className="space-y-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Source</h2>

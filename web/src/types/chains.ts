@@ -106,4 +106,6 @@ export interface ChainDetail {
   steps: ChainStep[];
   receipts: ReceiptSummary[];
   recent_events: ChainEvent[];
+  health: string;
+  warnings: RuntimeWarning[];
 }
