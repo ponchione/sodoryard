@@ -770,6 +770,165 @@ func TestGetChainMetricsWarnsWhenCodeIndexDirtyMarkingUnavailable(t *testing.T) 
 	}
 }
 
+func TestGetChainMetricsCombinesGuardrailEventChainFacts(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-guardrail-smoke", SourceTask: "guardrail smoke", MaxSteps: 8, MaxResolverLoops: 3, MaxDuration: time.Hour, TokenBudget: 1000})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	completeOperatorTestStep(t, ctx, store, chainID, 1, "planner")
+	coderID := completeOperatorTestStep(t, ctx, store, chainID, 2, "coder")
+	auditorID := completeOperatorTestStep(t, ctx, store, chainID, 3, "correctness-auditor")
+	resolverID := completeOperatorTestStep(t, ctx, store, chainID, 4, "resolver")
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 4, TotalTokens: 40, TotalDurationSecs: 4, ResolverLoops: 1}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, coderID, chain.EventStepChangedFiles, map[string]any{"paths": []string{"internal/api.go", "internal/api_test.go"}, "count": 2}); err != nil {
+		t.Fatalf("LogEvent coder changed files returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, coderID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                 "coder",
+		"sequence":                             2,
+		"source_mutating":                      true,
+		"receipt_valid":                        true,
+		"receipt_schema_valid":                 true,
+		"receipt_sections_valid":               true,
+		"changed_file_manifest_present":        true,
+		"changed_file_count":                   2,
+		"changed_files":                        []string{"internal/api.go", "internal/api_test.go"},
+		"changed_file_claim_present":           true,
+		"claimed_changed_files":                []string{"internal/api.go", "docs/claim.md"},
+		"changed_file_claim_matches_manifest":  false,
+		"changed_file_claim_extra":             []string{"docs/claim.md"},
+		"changed_file_manifest_unclaimed":      []string{"internal/api_test.go"},
+		"code_index_dirty_mark_supported":      true,
+		"code_index_dirty_mark_attempted":      true,
+		"code_index_dirty_marked":              true,
+		"code_index_state_supported":           true,
+		"code_index_state_found":               true,
+		"code_index_dirty":                     true,
+		"code_index_dirty_reason":              "source_write",
+		"brain_index_state_supported":          true,
+		"brain_index_state_found":              true,
+		"brain_index_dirty":                    true,
+		"brain_index_dirty_reason":             "complete_step_with_receipt",
+		"source_writer_lock_release_attempted": true,
+		"source_writer_lock_released":          true,
+	}); err != nil {
+		t.Fatalf("LogEvent coder guardrail facts returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, auditorID, chain.EventFindingLifecycleFacts, map[string]any{
+		"role":    "correctness-auditor",
+		"verdict": "fix_required",
+		"facts": []map[string]any{{
+			"id":           "FIND-correctness-001",
+			"source_role":  "correctness-auditor",
+			"action":       "opened",
+			"status":       "open",
+			"severity":     "high",
+			"evidence":     "internal/api.go:42",
+			"summary":      "nil panic",
+			"required_fix": "guard nil",
+		}},
+	}); err != nil {
+		t.Fatalf("LogEvent auditor lifecycle returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverID, chain.EventStepChangedFiles, map[string]any{"paths": []string{"internal/api.go"}, "count": 1}); err != nil {
+		t.Fatalf("LogEvent resolver changed files returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverID, chain.EventFindingLifecycleFacts, map[string]any{
+		"role":    "resolver",
+		"verdict": "completed",
+		"facts": []map[string]any{{
+			"id":            "FIND-correctness-001",
+			"action":        "addressed",
+			"status":        "addressed",
+			"resolution":    "fixed",
+			"files_changed": []string{"internal/api.go"},
+			"validation":    []string{"rtk make test"},
+		}},
+	}); err != nil {
+		t.Fatalf("LogEvent resolver lifecycle returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                 "resolver",
+		"sequence":                             4,
+		"source_mutating":                      true,
+		"receipt_valid":                        true,
+		"receipt_schema_valid":                 true,
+		"receipt_sections_valid":               true,
+		"changed_file_manifest_present":        true,
+		"changed_file_count":                   1,
+		"changed_files":                        []string{"internal/api.go"},
+		"changed_file_claim_present":           true,
+		"claimed_changed_files":                []string{"internal/api.go"},
+		"changed_file_claim_matches_manifest":  true,
+		"code_index_dirty_mark_supported":      true,
+		"code_index_dirty_mark_attempted":      true,
+		"code_index_dirty_marked":              true,
+		"code_index_state_supported":           true,
+		"code_index_state_found":               true,
+		"code_index_dirty":                     true,
+		"code_index_dirty_reason":              "source_write",
+		"source_writer_lock_release_attempted": true,
+		"source_writer_lock_released":          true,
+		"addressed_ids":                        []string{"FIND-correctness-001"},
+	}); err != nil {
+		t.Fatalf("LogEvent resolver guardrail facts returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.Health != "attention" || report.ChangedFileEvents != 2 || report.StepGuardrailFactEvents != 2 || report.FindingLifecycleFactEvents != 2 {
+		t.Fatalf("report = %+v, want attention with changed-file, guardrail, and lifecycle events", report)
+	}
+	for _, want := range []string{
+		"step 2 changed-file receipt claim differs from harness manifest: extra=docs/claim.md unclaimed=internal/api_test.go",
+		"open audit findings: FIND-correctness-001",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+	if hasRuntimeWarning(report.Warnings, "changed files but code index state was not marked stale") ||
+		hasRuntimeWarning(report.Warnings, "code index dirty marking is unavailable") {
+		t.Fatalf("warnings = %+v, want no stale-marking warnings after successful dirty mark", report.Warnings)
+	}
+	if !equalStringSlices(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
+		!equalStringSlices(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding ids = open %v addressed %v, want FIND-correctness-001 in both", report.OpenFindingIDs, report.AddressedFindingIDs)
+	}
+	if len(report.FindingLifecycle) != 1 {
+		t.Fatalf("finding lifecycle = %+v, want one finding", report.FindingLifecycle)
+	}
+	finding := report.FindingLifecycle[0]
+	if finding.ID != "FIND-correctness-001" || finding.Status != "addressed" || finding.Severity != "high" || finding.Resolution != "fixed" ||
+		!equalStringSlices(finding.FilesChanged, []string{"internal/api.go"}) || !equalStringSlices(finding.Validation, []string{"rtk make test"}) {
+		t.Fatalf("finding lifecycle = %+v, want merged auditor and resolver facts", finding)
+	}
+	detail, err := svc.GetChainDetail(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainDetail returned error: %v", err)
+	}
+	if len(detail.Guardrails.StepFacts) != 2 {
+		t.Fatalf("step facts = %+v, want coder and resolver facts", detail.Guardrails.StepFacts)
+	}
+	coderFacts := detail.Guardrails.StepFacts[0]
+	if coderFacts.SequenceNum != 2 || !coderFacts.CodeIndexDirtyMarked || !coderFacts.CodeIndexDirty || coderFacts.CodeIndexDirtyReason != "source_write" {
+		t.Fatalf("coder facts = %+v, want successful code index dirty mark", coderFacts)
+	}
+	if coderFacts.ChangedFileClaimMatchesManifest || strings.Join(coderFacts.ChangedFileClaimExtra, ",") != "docs/claim.md" || strings.Join(coderFacts.ChangedFileManifestUnclaimed, ",") != "internal/api_test.go" {
+		t.Fatalf("coder claim facts = %+v, want mismatch details", coderFacts)
+	}
+}
+
 func TestProjectLocksListAndForceReleaseAuditsOperatorAction(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
@@ -1876,6 +2035,26 @@ func requireChainStatus(t *testing.T, ctx context.Context, store *chain.Store, c
 	}
 }
 
+func completeOperatorTestStep(t *testing.T, ctx context.Context, store *chain.Store, chainID string, sequence int, role string) string {
+	t.Helper()
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: sequence, Role: role, Task: role + " task"})
+	if err != nil {
+		t.Fatalf("StartStep %s returned error: %v", role, err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{
+		StepID:       stepID,
+		Status:       "completed",
+		Verdict:      "completed",
+		ReceiptPath:  fmt.Sprintf("receipts/%s/%s-step-%03d.md", role, chainID, sequence),
+		TokensUsed:   10,
+		TurnsUsed:    1,
+		DurationSecs: 1,
+	}); err != nil {
+		t.Fatalf("CompleteStep %s returned error: %v", role, err)
+	}
+	return stepID
+}
+
 func hasRuntimeWarning(warnings []RuntimeWarning, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning.Message, want) {
@@ -1883,4 +2062,16 @@ func hasRuntimeWarning(warnings []RuntimeWarning, want string) bool {
 		}
 	}
 	return false
+}
+
+func equalStringSlices(got []string, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

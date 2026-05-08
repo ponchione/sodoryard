@@ -249,6 +249,10 @@ func latestGuardrailFacts(events []Event) []string {
 			ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
 			ChangedFileCount                 int      `json:"changed_file_count"`
 			CodeIndexStateSupported          bool     `json:"code_index_state_supported"`
+			CodeIndexDirtyMarkSupported      bool     `json:"code_index_dirty_mark_supported"`
+			CodeIndexDirtyMarkAttempted      bool     `json:"code_index_dirty_mark_attempted"`
+			CodeIndexDirtyMarked             bool     `json:"code_index_dirty_marked"`
+			CodeIndexDirtyMarkError          string   `json:"code_index_dirty_mark_error"`
 			CodeIndexDirty                   bool     `json:"code_index_dirty"`
 			CodeIndexDirtyReason             string   `json:"code_index_dirty_reason"`
 			BrainIndexStateSupported         bool     `json:"brain_index_state_supported"`
@@ -289,6 +293,15 @@ func latestGuardrailFacts(events []Event) []string {
 			fmt.Sprintf("lock_release_attempted=%t", payload.SourceWriterLockReleaseAttempted),
 			fmt.Sprintf("lock_released=%t", payload.SourceWriterLockReleased),
 		)
+		if payload.CodeIndexDirtyMarkSupported {
+			parts = append(parts,
+				fmt.Sprintf("code_index_mark_attempted=%t", payload.CodeIndexDirtyMarkAttempted),
+				fmt.Sprintf("code_index_marked=%t", payload.CodeIndexDirtyMarked),
+			)
+			if strings.TrimSpace(payload.CodeIndexDirtyMarkError) != "" {
+				parts = append(parts, briefingKV("code_index_mark_error", payload.CodeIndexDirtyMarkError))
+			}
+		}
 		if payload.CodeIndexStateSupported {
 			parts = append(parts, fmt.Sprintf("code_index_dirty=%t", payload.CodeIndexDirty))
 			if strings.TrimSpace(payload.CodeIndexDirtyReason) != "" {

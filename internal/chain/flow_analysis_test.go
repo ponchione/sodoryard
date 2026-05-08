@@ -158,6 +158,22 @@ func TestFlowAnalyzerSuppressesGenericOrderWarningsForOneStepLaunch(t *testing.T
 	}
 }
 
+func TestFlowAnalyzerUsesCompletedModeForOneStepLaunch(t *testing.T) {
+	analysis := AnalyzeFlow(FlowAnalysisInput{
+		Chain: Chain{ID: "one-step-completed-mode-chain", Status: "completed"},
+		Steps: []Step{
+			{ID: "step-1", SequenceNum: 1, Role: "coder", Status: "completed"},
+		},
+		Events: []Event{
+			{ID: 1, EventType: EventChainCompleted, EventData: `{"mode":"one_step_chain"}`},
+		},
+	})
+
+	if hasFlowWarningCode(analysis.Warnings, "coder_before_planner") || hasFlowWarningCode(analysis.Warnings, "completed_without_auditor") {
+		t.Fatalf("warnings = %+v, want one-step completion payload to suppress generic planner/auditor warnings", analysis.Warnings)
+	}
+}
+
 func TestFlowAnalyzerKeepsSafetyWarningsForManualRosterLaunch(t *testing.T) {
 	analysis := AnalyzeFlow(FlowAnalysisInput{
 		Chain: Chain{ID: "manual-chain", Status: "completed"},
@@ -175,6 +191,22 @@ func TestFlowAnalyzerKeepsSafetyWarningsForManualRosterLaunch(t *testing.T) {
 	}
 	if !hasFlowWarningCode(analysis.Warnings, "resolver_without_open_findings") {
 		t.Fatalf("warnings = %+v, want resolver_without_open_findings preserved", analysis.Warnings)
+	}
+}
+
+func TestFlowAnalyzerKeepsGenericOrderWarningsForConstrainedLaunch(t *testing.T) {
+	analysis := AnalyzeFlow(FlowAnalysisInput{
+		Chain: Chain{ID: "constrained-chain", Status: "completed"},
+		Steps: []Step{
+			{ID: "step-1", SequenceNum: 1, Role: "coder", Status: "completed"},
+		},
+		Events: []Event{
+			{ID: 1, EventType: EventChainStarted, EventData: `{"mode":"constrained_orchestration"}`},
+		},
+	})
+
+	if !hasFlowWarningCode(analysis.Warnings, "coder_before_planner") || !hasFlowWarningCode(analysis.Warnings, "completed_without_auditor") {
+		t.Fatalf("warnings = %+v, want constrained orchestration to keep generic planner/auditor warnings", analysis.Warnings)
 	}
 }
 
