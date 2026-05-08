@@ -15,13 +15,27 @@ type RuntimeStatus struct {
 	ProjectName         string
 	Provider            string
 	Model               string
+	ContextWindow       int
 	ReasoningEffort     string
+	ModelCapabilities   ModelCapabilities
 	AuthStatus          string
 	CodeIndex           RuntimeIndexStatus
 	BrainIndex          RuntimeIndexStatus
 	LocalServicesStatus string
 	ActiveChains        int
 	Warnings            []RuntimeWarning
+}
+
+type ModelCapabilities struct {
+	SupportsTools            bool
+	SupportsThinking         bool
+	SupportsReasoningEffort  bool
+	SupportsStructuredOutput bool
+	SupportsPromptCache      bool
+	SupportsImages           bool
+	SupportsToolChoice       bool
+	MaxOutputTokens          int
+	KnownQuirks              []string
 }
 
 type RuntimeIndexStatus struct {

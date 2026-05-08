@@ -78,10 +78,21 @@ func (p *AnthropicProvider) Name() string {
 // Models returns the static list of supported Claude models.
 func (p *AnthropicProvider) Models(ctx context.Context) ([]provider.Model, error) {
 	return []provider.Model{
-		{ID: "claude-sonnet-4-6-20250514", Name: "Claude Sonnet 4.6", ContextWindow: 200000, SupportsTools: true, SupportsThinking: true},
-		{ID: "claude-opus-4-6-20250515", Name: "Claude Opus 4.6", ContextWindow: 200000, SupportsTools: true, SupportsThinking: true},
-		{ID: "claude-haiku-4-5-20251001", Name: "Claude Haiku 4.5", ContextWindow: 200000, SupportsTools: true, SupportsThinking: true},
+		anthropicModel("claude-sonnet-4-6-20250514", "Claude Sonnet 4.6"),
+		anthropicModel("claude-opus-4-6-20250515", "Claude Opus 4.6"),
+		anthropicModel("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
 	}, nil
+}
+
+func anthropicModel(id string, name string) provider.Model {
+	return provider.Model{
+		ID:                  id,
+		Name:                name,
+		ContextWindow:       200000,
+		SupportsTools:       true,
+		SupportsThinking:    true,
+		SupportsPromptCache: true,
+	}
 }
 
 // Compile-time assertion that AnthropicProvider satisfies provider.Provider.

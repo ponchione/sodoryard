@@ -10,6 +10,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/modelcap"
 )
 
 func (s *Service) ListAgentRoles(ctx context.Context) ([]AgentRoleSummary, error) {
@@ -81,7 +82,7 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 		Roster:       append([]string(nil), req.Roster...),
 		Summary:      summarizeLaunch(req),
 		CompiledTask: compiled,
-		Warnings:     launchWarnings(req),
+		Warnings:     launchWarnings(cfg, req),
 	}, nil
 }
 
@@ -239,12 +240,52 @@ func summarizeLaunch(req LaunchRequest) string {
 	}
 }
 
-func launchWarnings(req LaunchRequest) []RuntimeWarning {
+func launchWarnings(cfg *appconfig.Config, req LaunchRequest) []RuntimeWarning {
 	var warnings []RuntimeWarning
 	if len(req.SourceSpecs) == 0 {
 		warnings = append(warnings, RuntimeWarning{Message: "no source specs selected"})
 	}
+	model, err := modelcap.ResolveConfiguredModel(cfg, "", "")
+	if err != nil {
+		warnings = append(warnings, RuntimeWarning{Message: "model capability metadata unavailable: " + err.Error()})
+		return warnings
+	}
+	if !model.SupportsTools && launchRequiresTools(cfg, req) {
+		warnings = append(warnings, RuntimeWarning{Message: fmt.Sprintf("default model %s:%s does not report tool support, but launch roles require tools", model.Provider, model.ID)})
+	}
 	return warnings
+}
+
+func launchRequiresTools(cfg *appconfig.Config, req LaunchRequest) bool {
+	if cfg == nil {
+		return false
+	}
+	for _, role := range launchRoleNames(req) {
+		roleCfg, ok := cfg.AgentRoles[role]
+		if !ok {
+			continue
+		}
+		if len(roleCfg.Tools) > 0 || len(roleCfg.CustomTools) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func launchRoleNames(req LaunchRequest) []string {
+	switch req.Mode {
+	case LaunchModeOneStep:
+		if strings.TrimSpace(req.Role) == "" {
+			return nil
+		}
+		return []string{req.Role}
+	case LaunchModeManualRoster:
+		return append([]string(nil), req.Roster...)
+	case LaunchModeConstrained:
+		return append([]string{"orchestrator"}, req.AllowedRoles...)
+	default:
+		return []string{"orchestrator"}
+	}
 }
 
 func resolveLaunchRoster(cfg *appconfig.Config, req LaunchRequest) ([]string, error) {

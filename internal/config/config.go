@@ -134,13 +134,22 @@ type RouteConfig struct {
 }
 
 type ProviderConfig struct {
-	Type            string `yaml:"type"`
-	BaseURL         string `yaml:"base_url"`
-	Model           string `yaml:"model"`
-	ReasoningEffort string `yaml:"reasoning_effort"`
-	APIKey          string `yaml:"api_key"`
-	APIKeyEnv       string `yaml:"api_key_env"`
-	ContextLength   int    `yaml:"context_length"`
+	Type                     string   `yaml:"type"`
+	BaseURL                  string   `yaml:"base_url"`
+	Model                    string   `yaml:"model"`
+	ReasoningEffort          string   `yaml:"reasoning_effort"`
+	APIKey                   string   `yaml:"api_key"`
+	APIKeyEnv                string   `yaml:"api_key_env"`
+	ContextLength            int      `yaml:"context_length"`
+	SupportsTools            *bool    `yaml:"supports_tools"`
+	SupportsThinking         *bool    `yaml:"supports_thinking"`
+	SupportsReasoningEffort  *bool    `yaml:"supports_reasoning_effort"`
+	SupportsStructuredOutput *bool    `yaml:"supports_structured_output"`
+	SupportsPromptCache      *bool    `yaml:"supports_prompt_cache"`
+	SupportsImages           *bool    `yaml:"supports_images"`
+	SupportsToolChoice       *bool    `yaml:"supports_tool_choice"`
+	MaxOutputTokens          int      `yaml:"max_output_tokens"`
+	KnownQuirks              []string `yaml:"known_quirks"`
 }
 
 type IndexConfig struct {

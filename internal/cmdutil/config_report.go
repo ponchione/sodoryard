@@ -3,6 +3,9 @@ package cmdutil
 import (
 	"fmt"
 	"io"
+	"strings"
+
+	"github.com/ponchione/sodoryard/internal/modelcap"
 )
 
 func RunConfig(out io.Writer, configPath string) error {
@@ -19,6 +22,16 @@ func RunConfig(out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "default_model: %s\n", cfg.Routing.Default.Model)
 	if provider, ok := cfg.Providers[cfg.Routing.Default.Provider]; ok {
 		_, _ = fmt.Fprintf(out, "default_reasoning_effort: %s\n", valueOrDefault(provider.ReasoningEffort, "<unset>"))
+	}
+	if model, err := modelcap.ResolveConfiguredModel(cfg, "", ""); err == nil {
+		_, _ = fmt.Fprintf(out, "default_context_window: %d\n", model.ContextWindow)
+		_, _ = fmt.Fprintf(out, "default_model_capabilities: %s\n", valueOrDefault(strings.Join(modelcap.CapabilityLabels(model), ","), "<none>"))
+		if model.MaxOutputTokens > 0 {
+			_, _ = fmt.Fprintf(out, "default_max_output_tokens: %d\n", model.MaxOutputTokens)
+		}
+		if len(model.KnownQuirks) > 0 {
+			_, _ = fmt.Fprintf(out, "default_model_quirks: %s\n", strings.Join(model.KnownQuirks, "; "))
+		}
 	}
 	_, _ = fmt.Fprintf(out, "fallback_provider: %s\n", valueOrDefault(cfg.Routing.Fallback.Provider, "<unset>"))
 	_, _ = fmt.Fprintf(out, "fallback_model: %s\n", valueOrDefault(cfg.Routing.Fallback.Model, "<unset>"))

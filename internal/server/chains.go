@@ -147,16 +147,30 @@ func (h *ChainInspectorHandler) handleReceipt(w http.ResponseWriter, r *http.Req
 }
 
 type runtimeStatusResponse struct {
-	ProjectRoot         string                   `json:"project_root"`
-	ProjectName         string                   `json:"project_name"`
-	Provider            string                   `json:"provider"`
-	Model               string                   `json:"model"`
-	AuthStatus          string                   `json:"auth_status"`
-	CodeIndex           runtimeIndexResponse     `json:"code_index"`
-	BrainIndex          runtimeIndexResponse     `json:"brain_index"`
-	LocalServicesStatus string                   `json:"local_services_status"`
-	ActiveChains        int                      `json:"active_chains"`
-	Warnings            []runtimeWarningResponse `json:"warnings"`
+	ProjectRoot         string                    `json:"project_root"`
+	ProjectName         string                    `json:"project_name"`
+	Provider            string                    `json:"provider"`
+	Model               string                    `json:"model"`
+	ContextWindow       int                       `json:"context_window"`
+	ModelCapabilities   modelCapabilitiesResponse `json:"model_capabilities"`
+	AuthStatus          string                    `json:"auth_status"`
+	CodeIndex           runtimeIndexResponse      `json:"code_index"`
+	BrainIndex          runtimeIndexResponse      `json:"brain_index"`
+	LocalServicesStatus string                    `json:"local_services_status"`
+	ActiveChains        int                       `json:"active_chains"`
+	Warnings            []runtimeWarningResponse  `json:"warnings"`
+}
+
+type modelCapabilitiesResponse struct {
+	SupportsTools            bool     `json:"supports_tools"`
+	SupportsThinking         bool     `json:"supports_thinking"`
+	SupportsReasoningEffort  bool     `json:"supports_reasoning_effort"`
+	SupportsStructuredOutput bool     `json:"supports_structured_output"`
+	SupportsPromptCache      bool     `json:"supports_prompt_cache"`
+	SupportsImages           bool     `json:"supports_images"`
+	SupportsToolChoice       bool     `json:"supports_tool_choice"`
+	MaxOutputTokens          int      `json:"max_output_tokens,omitempty"`
+	KnownQuirks              []string `json:"known_quirks,omitempty"`
 }
 
 type runtimeIndexResponse struct {
@@ -591,12 +605,28 @@ func toRuntimeStatusResponse(status operator.RuntimeStatus) runtimeStatusRespons
 		ProjectName:         status.ProjectName,
 		Provider:            status.Provider,
 		Model:               status.Model,
+		ContextWindow:       status.ContextWindow,
+		ModelCapabilities:   modelCapabilitiesResponseFromOperator(status.ModelCapabilities),
 		AuthStatus:          status.AuthStatus,
 		CodeIndex:           toRuntimeIndexResponse(status.CodeIndex),
 		BrainIndex:          toRuntimeIndexResponse(status.BrainIndex),
 		LocalServicesStatus: status.LocalServicesStatus,
 		ActiveChains:        status.ActiveChains,
 		Warnings:            warnings,
+	}
+}
+
+func modelCapabilitiesResponseFromOperator(capabilities operator.ModelCapabilities) modelCapabilitiesResponse {
+	return modelCapabilitiesResponse{
+		SupportsTools:            capabilities.SupportsTools,
+		SupportsThinking:         capabilities.SupportsThinking,
+		SupportsReasoningEffort:  capabilities.SupportsReasoningEffort,
+		SupportsStructuredOutput: capabilities.SupportsStructuredOutput,
+		SupportsPromptCache:      capabilities.SupportsPromptCache,
+		SupportsImages:           capabilities.SupportsImages,
+		SupportsToolChoice:       capabilities.SupportsToolChoice,
+		MaxOutputTokens:          capabilities.MaxOutputTokens,
+		KnownQuirks:              append([]string(nil), capabilities.KnownQuirks...),
 	}
 }
 

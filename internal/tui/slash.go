@@ -519,8 +519,13 @@ func (m Model) renderConsoleModel() string {
 	lines := []string{
 		"provider: " + valueOrUnknown(m.status.Provider),
 		"model: " + valueOrUnknown(m.status.Model),
+		fmt.Sprintf("context window: %d", m.status.ContextWindow),
+		"capabilities: " + renderModelCapabilities(m.status.ModelCapabilities),
 		"reasoning effort: " + valueOrUnknown(m.status.ReasoningEffort),
 		"auth: " + valueOrUnknown(m.status.AuthStatus),
+	}
+	if len(m.status.ModelCapabilities.KnownQuirks) > 0 {
+		lines = append(lines, "quirks: "+strings.Join(m.status.ModelCapabilities.KnownQuirks, "; "))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -540,6 +545,8 @@ func (m Model) renderConsoleStatus() string {
 		fmt.Sprintf("root: %s", valueOrUnknown(m.status.ProjectRoot)),
 		fmt.Sprintf("provider: %s", valueOrUnknown(m.status.Provider)),
 		fmt.Sprintf("model: %s", valueOrUnknown(m.status.Model)),
+		fmt.Sprintf("context window: %d", m.status.ContextWindow),
+		fmt.Sprintf("capabilities: %s", renderModelCapabilities(m.status.ModelCapabilities)),
 		fmt.Sprintf("reasoning effort: %s", valueOrUnknown(m.status.ReasoningEffort)),
 		fmt.Sprintf("auth: %s", valueOrUnknown(m.status.AuthStatus)),
 		fmt.Sprintf("code index: %s", renderIndexStatus(m.status.CodeIndex)),
@@ -563,6 +570,35 @@ func (m Model) renderConsoleStatus() string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderModelCapabilities(capabilities operator.ModelCapabilities) string {
+	var labels []string
+	if capabilities.SupportsTools {
+		labels = append(labels, "tools")
+	}
+	if capabilities.SupportsThinking {
+		labels = append(labels, "thinking")
+	}
+	if capabilities.SupportsReasoningEffort {
+		labels = append(labels, "reasoning_effort")
+	}
+	if capabilities.SupportsStructuredOutput {
+		labels = append(labels, "structured_output")
+	}
+	if capabilities.SupportsPromptCache {
+		labels = append(labels, "prompt_cache")
+	}
+	if capabilities.SupportsImages {
+		labels = append(labels, "images")
+	}
+	if capabilities.SupportsToolChoice {
+		labels = append(labels, "tool_choice")
+	}
+	if len(labels) == 0 {
+		return "<none>"
+	}
+	return strings.Join(labels, ",")
 }
 
 func (m Model) renderConsoleChains(query string) string {

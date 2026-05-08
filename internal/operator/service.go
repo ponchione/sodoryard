@@ -17,6 +17,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/modelcap"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
@@ -363,12 +364,18 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 	if authWarning != nil {
 		warnings = append(warnings, *authWarning)
 	}
+	model, modelWarning := runtimeModelMetadata(cfg)
+	if modelWarning != nil {
+		warnings = append(warnings, *modelWarning)
+	}
 	return RuntimeStatus{
 		ProjectRoot:         cfg.ProjectRoot,
 		ProjectName:         cfg.ProjectName(),
 		Provider:            cfg.Routing.Default.Provider,
 		Model:               cfg.Routing.Default.Model,
+		ContextWindow:       model.ContextWindow,
 		ReasoningEffort:     defaultProviderReasoningEffort(cfg),
+		ModelCapabilities:   modelCapabilitiesFromProvider(model),
 		AuthStatus:          authStatus,
 		CodeIndex:           codeIndex,
 		BrainIndex:          brainIndex,
@@ -376,6 +383,28 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 		ActiveChains:        activeChains,
 		Warnings:            warnings,
 	}, nil
+}
+
+func runtimeModelMetadata(cfg *appconfig.Config) (provider.Model, *RuntimeWarning) {
+	model, err := modelcap.ResolveConfiguredModel(cfg, "", "")
+	if err != nil {
+		return provider.Model{}, &RuntimeWarning{Message: "model capability metadata unavailable: " + err.Error()}
+	}
+	return model, nil
+}
+
+func modelCapabilitiesFromProvider(model provider.Model) ModelCapabilities {
+	return ModelCapabilities{
+		SupportsTools:            model.SupportsTools,
+		SupportsThinking:         model.SupportsThinking,
+		SupportsReasoningEffort:  model.SupportsReasoningEffort,
+		SupportsStructuredOutput: model.SupportsStructuredOutput,
+		SupportsPromptCache:      model.SupportsPromptCache,
+		SupportsImages:           model.SupportsImages,
+		SupportsToolChoice:       model.SupportsToolChoice,
+		MaxOutputTokens:          model.MaxOutputTokens,
+		KnownQuirks:              append([]string(nil), model.KnownQuirks...),
+	}
 }
 
 func (s *Service) SetReasoningEffort(ctx context.Context, effort string) (RuntimeStatus, error) {

@@ -15,6 +15,8 @@ func (m Model) renderDashboard() string {
 		fmt.Sprintf("root: %s", valueOrUnknown(m.status.ProjectRoot)),
 		fmt.Sprintf("provider: %s", valueOrUnknown(m.status.Provider)),
 		fmt.Sprintf("model: %s", valueOrUnknown(m.status.Model)),
+		fmt.Sprintf("context window: %d", m.status.ContextWindow),
+		fmt.Sprintf("capabilities: %s", renderModelCapabilities(m.status.ModelCapabilities)),
 		fmt.Sprintf("auth: %s", valueOrUnknown(m.status.AuthStatus)),
 		fmt.Sprintf("code index: %s", renderIndexStatus(m.status.CodeIndex)),
 		fmt.Sprintf("brain index: %s", renderIndexStatus(m.status.BrainIndex)),

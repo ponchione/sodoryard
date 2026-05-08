@@ -200,6 +200,9 @@ func TestRuntimeStatusCountsActiveChains(t *testing.T) {
 	if status.Provider != "codex" || status.Model != "test-model" {
 		t.Fatalf("provider/model = %q/%q, want codex/test-model", status.Provider, status.Model)
 	}
+	if status.ContextWindow != 400000 || !status.ModelCapabilities.SupportsTools || !status.ModelCapabilities.SupportsReasoningEffort {
+		t.Fatalf("model metadata = context:%d capabilities:%+v, want codex tool/reasoning metadata", status.ContextWindow, status.ModelCapabilities)
+	}
 	if status.ActiveChains != 2 {
 		t.Fatalf("ActiveChains = %d, want 2", status.ActiveChains)
 	}
@@ -458,6 +461,9 @@ agent_roles:
 	}
 	if status.LocalServicesStatus != "manual" {
 		t.Fatalf("LocalServicesStatus = %q, want manual", status.LocalServicesStatus)
+	}
+	if status.ContextWindow != 400000 || !status.ModelCapabilities.SupportsTools || !status.ModelCapabilities.SupportsReasoningEffort {
+		t.Fatalf("model metadata = context:%d capabilities:%+v, want codex capabilities", status.ContextWindow, status.ModelCapabilities)
 	}
 }
 
@@ -1418,6 +1424,62 @@ func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
 	}
 }
 
+func TestValidateLaunchWarnsWhenModelDoesNotSupportRequiredTools(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	config := fmt.Sprintf(`project_root: %q
+brain:
+  enabled: false
+local_services:
+  enabled: false
+routing:
+  default:
+    provider: local
+    model: local-model
+providers:
+  local:
+    type: openai-compatible
+    base_url: http://localhost:11434/v1
+    model: local-model
+    context_length: 8192
+    supports_tools: false
+agent_roles:
+  coder:
+    system_prompt: prompts/coder.md
+    tools: [file]
+  orchestrator:
+    system_prompt: prompts/orchestrator.md
+`, projectRoot)
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	store := chain.NewStore(newOperatorTestDB(t))
+	svc, err := Open(ctx, Options{
+		ConfigPath: configPath,
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{
+				Config:       cfg,
+				ChainStore:   store,
+				BrainBackend: &fakeBrainBackend{},
+				Cleanup:      func() {},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	preview, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "fix"})
+	if err != nil {
+		t.Fatalf("ValidateLaunch returned error: %v", err)
+	}
+	if !runtimeWarningsContain(preview.Warnings, "does not report tool support") {
+		t.Fatalf("warnings = %+v, want tool capability warning", preview.Warnings)
+	}
+}
+
 func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := t.TempDir()
@@ -2001,6 +2063,15 @@ agent_roles:
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func runtimeWarningsContain(warnings []RuntimeWarning, want string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning.Message, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func newOperatorTestDB(t *testing.T) *sql.DB {

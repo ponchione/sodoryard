@@ -25,6 +25,8 @@ func TestRunConfigPrintsResolvedSummary(t *testing.T) {
 		"default_provider: codex",
 		"default_model: gpt-5.5",
 		"default_reasoning_effort: medium",
+		"default_context_window: 400000",
+		"default_model_capabilities: tools,reasoning_effort",
 		"database_path: <unused in shunter mode>",
 		"brain_enabled: true",
 		"local_services_enabled: true",

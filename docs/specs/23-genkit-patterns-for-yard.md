@@ -485,6 +485,23 @@ Use this for:
 3. Add warnings when a role needs tools but selected model reports no tool support.
 4. Add warnings when structured receipts are enabled but selected model has no structured-output support.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- extended provider model metadata with reasoning-effort, structured-output, prompt-cache, image, tool-choice, max-output-token, and known-quirk fields
+- added a config-derived capability resolver for the default provider/model
+- surfaced context window and capability labels in `yard config`, operator runtime status, runtime status API, and TUI `/model` / `/status`
+- added launch-preview warnings when configured launch roles require tools but the selected model is configured as not supporting tools
+- added optional provider config overrides such as `supports_tools`, `supports_structured_output`, `max_output_tokens`, and `known_quirks`
+
+Not implemented in this slice:
+
+- changing provider request behavior based on capabilities
+- hard launch rejection for capability mismatches
+- structured-output preflight warnings, pending a dedicated structured-output runtime mode/flag
+- richer web rendering of model capabilities
+
 ### Acceptance Criteria
 
 - Runtime status displays provider, model, context window, and key capabilities.

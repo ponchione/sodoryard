@@ -86,6 +86,7 @@ func (p *OpenAIProvider) Models(_ context.Context) ([]provider.Model, error) {
 			Name:          p.model,
 			ContextWindow: p.contextLength,
 			SupportsTools: true,
+			KnownQuirks:   []string{"capabilities depend on the configured OpenAI-compatible endpoint"},
 		},
 	}, nil
 }
