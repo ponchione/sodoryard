@@ -271,7 +271,11 @@ func prepareRunRequest(configPath string, req RunRequest, newChainID func() stri
 }
 
 func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.Config, req RunRequest, taskText string, systemPrompt string, rt *rtpkg.EngineRuntime, registry *tool.Registry, loopMaxTurns int, deps Deps) (*agent.TurnResult, error, error) {
-	executor := tool.NewExecutor(registry, tool.ExecutorConfig{MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens, ProjectRoot: cfg.ProjectRoot}, rt.Logger)
+	executor := tool.NewExecutor(registry, tool.ExecutorConfig{
+		MaxOutputTokens:       cfg.Agent.ToolOutputMaxTokens,
+		ProjectRoot:           cfg.ProjectRoot,
+		ShellApprovalPatterns: cfg.Agent.ShellApprovalPatterns,
+	}, rt.Logger)
 	executor.SetRecorder(rt.ToolRecorder)
 	executor.SetTraceRecorder(rt.TraceRecorder)
 	adapter := tool.NewAgentLoopAdapter(executor)

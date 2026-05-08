@@ -719,6 +719,23 @@ For headless chains:
 3. Add CLI/TUI approval path for pending approvals.
 4. Add tests that approval-required tools do not execute before approval.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- `PendingApproval` and `ApprovalRequiredError` tool contracts
+- configurable `shell_approval_patterns` for shell commands that require operator approval
+- shell approval detection runs through the existing tool hook chain before execution
+- headless/default behavior fails closed with structured `approval_required` tool-result metadata
+- tests cover approval-required shell calls not executing before approval
+
+Not implemented in this slice:
+
+- durable approval storage
+- `waiting_approval` chain status/events
+- CLI/TUI approve/deny/resume controls
+- approval support for file mutation tools or spawned agents
+
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.

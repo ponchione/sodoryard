@@ -95,8 +95,9 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 	tool.RegisterSearchTools(registry, rt.SemanticSearcher)
 
 	executor := tool.NewExecutor(registry, tool.ExecutorConfig{
-		MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens,
-		ProjectRoot:     cfg.ProjectRoot,
+		MaxOutputTokens:       cfg.Agent.ToolOutputMaxTokens,
+		ProjectRoot:           cfg.ProjectRoot,
+		ShellApprovalPatterns: cfg.Agent.ShellApprovalPatterns,
 	}, logger)
 	executor.SetRecorder(rt.ToolRecorder)
 	executor.SetTraceRecorder(rt.TraceRecorder)

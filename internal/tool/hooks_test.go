@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +99,54 @@ func TestExecutorToolHookAfterErrorFailsClosed(t *testing.T) {
 	}
 	if !reflect.DeepEqual(events, []string{"before:postcheck:file_read:pure", "after:postcheck:tc-1"}) {
 		t.Fatalf("events = %v", events)
+	}
+}
+
+func TestExecutorShellApprovalHookBlocksBeforeExecutionWithMetadata(t *testing.T) {
+	reg := NewRegistry()
+	shellTool := newMockTool("shell", Mutating)
+	var executed bool
+	shellTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		executed = true
+		return &ToolResult{Success: true, Content: "ran"}, nil
+	}
+	reg.Register(shellTool)
+	exec := NewExecutor(reg, ExecutorConfig{ShellApprovalPatterns: []string{"git push --force"}}, nil)
+
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-approval", Name: "shell", Arguments: json.RawMessage(`{"command":"git push --force origin main"}`)},
+	})
+	if executed {
+		t.Fatal("shell executed despite approval requirement")
+	}
+	if len(results) != 1 || results[0].Success || results[0].Error != ErrApprovalRequired.Error() {
+		t.Fatalf("results = %+v, want approval-required failure", results)
+	}
+	if !strings.Contains(results[0].Content, "Approval required") || !strings.Contains(results[0].Content, "git push --force") {
+		t.Fatalf("content = %q, want approval explanation", results[0].Content)
+	}
+	details := decodeToolResultDetails(t, results[0].Details)
+	if details["kind"] != "approval_required" || details["approval_id"] != "approval-tc-approval" || details["status"] != ApprovalStatusPending {
+		t.Fatalf("details = %#v, want approval metadata", details)
+	}
+	if details["tool_name"] != "shell" || details["risk_level"] != ApprovalRiskHigh {
+		t.Fatalf("details = %#v, want shell high-risk metadata", details)
+	}
+}
+
+func TestExecutorShellApprovalHookAllowsNonMatchingShellCommand(t *testing.T) {
+	reg := NewRegistry()
+	shellTool := newMockTool("shell", Mutating)
+	shellTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		return &ToolResult{Success: true, Content: "ran"}, nil
+	}
+	reg.Register(shellTool)
+	exec := NewExecutor(reg, ExecutorConfig{ShellApprovalPatterns: []string{"git push --force"}}, nil)
+
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-ok", Name: "shell", Arguments: json.RawMessage(`{"command":"git status --short"}`)},
+	})
+	if len(results) != 1 || !results[0].Success || results[0].Content != "ran" {
+		t.Fatalf("results = %+v, want shell command to execute", results)
 	}
 }

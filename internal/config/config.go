@@ -180,6 +180,7 @@ type AgentConfig struct {
 	ToolResultStoreRoot      string   `yaml:"tool_result_store_root"`
 	ShellTimeoutSeconds      int      `yaml:"shell_timeout_seconds"`
 	ShellDenylist            []string `yaml:"shell_denylist"`
+	ShellApprovalPatterns    []string `yaml:"shell_approval_patterns"`
 	ExtendedThinking         bool     `yaml:"extended_thinking"`
 	CacheSystemPrompt        bool     `yaml:"cache_system_prompt"`
 	CacheAssembledContext    bool     `yaml:"cache_assembled_context"`

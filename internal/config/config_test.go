@@ -152,6 +152,8 @@ func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 		"  allow_external: true\n" +
 		"agent:\n" +
 		"  shell_timeout_seconds: 60\n" +
+		"  shell_approval_patterns:\n" +
+		"    - git clean -fdx\n" +
 		"  tool_result_store_root: \"" + filepath.Join(projectRoot, ".artifacts", "tool-results") + "\"\n" +
 		"brain:\n" +
 		"  enabled: false\n"
@@ -176,6 +178,9 @@ func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 	}
 	if cfg.Agent.ShellTimeoutSeconds != 60 {
 		t.Fatalf("Agent.ShellTimeoutSeconds = %d, want 60", cfg.Agent.ShellTimeoutSeconds)
+	}
+	if !slices.Equal(cfg.Agent.ShellApprovalPatterns, []string{"git clean -fdx"}) {
+		t.Fatalf("Agent.ShellApprovalPatterns = %#v, want git clean -fdx", cfg.Agent.ShellApprovalPatterns)
 	}
 	wantToolResultStoreRoot := filepath.Join(projectRoot, ".artifacts", "tool-results")
 	if got := cfg.Agent.ToolResultStoreRoot; got != wantToolResultStoreRoot {

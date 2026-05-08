@@ -21,6 +21,10 @@ type ExecutorConfig struct {
 
 	// ProjectRoot restricts file tool operations to this directory.
 	ProjectRoot string
+
+	// ShellApprovalPatterns require operator approval before matching shell
+	// commands execute. Headless callers fail closed until a resume path exists.
+	ShellApprovalPatterns []string
 }
 
 // Executor dispatches tool call batches with purity-based execution strategy.
@@ -32,6 +36,7 @@ type Executor struct {
 	tracer    tracepkg.Recorder
 	hooks     []Hook
 	traceHook Hook
+	approval  Hook
 	config    ExecutorConfig
 	logger    *slog.Logger
 	nowFn     func() time.Time // injectable for testing
@@ -43,12 +48,16 @@ func NewExecutor(registry *Registry, config ExecutorConfig, logger *slog.Logger)
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Executor{
+	executor := &Executor{
 		registry: registry,
 		config:   config,
 		logger:   logger,
 		nowFn:    time.Now,
 	}
+	if approval := NewShellApprovalHook(config.ShellApprovalPatterns); approval != nil {
+		executor.approval = approval
+	}
+	return executor
 }
 
 // SetRecorder attaches a tool execution recorder for analytics persistence.
@@ -203,13 +212,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (re
 	hooks := e.executionHooks()
 	hookCtx, ran, beforeErr := runBeforeHooks(ctx, hooks, call, t)
 	if beforeErr != nil {
-		result = ToolResult{
-			CallID:     call.ID,
-			Content:    fmt.Sprintf("Tool %q blocked before execution: %v", call.Name, beforeErr),
-			Success:    false,
-			Error:      beforeErr.Error(),
-			DurationMs: e.nowFn().Sub(start).Milliseconds(),
-		}
+		result = blockedBeforeToolResult(call, beforeErr, e.nowFn().Sub(start).Milliseconds())
 		return e.finishToolHooks(hookCtx, hooks[:ran], call, result)
 	}
 	ctx = hookCtx
@@ -256,8 +259,33 @@ func (e *Executor) executionHooks() []Hook {
 	if e.traceHook != nil {
 		hooks = append(hooks, e.traceHook)
 	}
+	if e.approval != nil {
+		hooks = append(hooks, e.approval)
+	}
 	hooks = append(hooks, e.hooks...)
 	return hooks
+}
+
+func blockedBeforeToolResult(call ToolCall, err error, durationMs int64) ToolResult {
+	var approvalErr *ApprovalRequiredError
+	if errors.As(err, &approvalErr) {
+		pending := approvalErr.Pending
+		return ToolResult{
+			CallID:     call.ID,
+			Content:    fmt.Sprintf("Approval required before executing tool %q: %s. The tool was not run.", call.Name, pending.Reason),
+			Success:    false,
+			Error:      ErrApprovalRequired.Error(),
+			DurationMs: durationMs,
+			Details:    approvalRequiredDetails(pending),
+		}
+	}
+	return ToolResult{
+		CallID:     call.ID,
+		Content:    fmt.Sprintf("Tool %q blocked before execution: %v", call.Name, err),
+		Success:    false,
+		Error:      err.Error(),
+		DurationMs: durationMs,
+	}
 }
 
 func (e *Executor) finishToolHooks(ctx context.Context, hooks []Hook, call ToolCall, result ToolResult) ToolResult {
