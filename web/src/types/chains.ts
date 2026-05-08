@@ -155,6 +155,16 @@ export interface StepGuardrailFact {
   changed_file_manifest_present: boolean;
   changed_file_count: number;
   changed_files: string[];
+  code_index_state_supported: boolean;
+  code_index_state_found: boolean;
+  code_index_dirty: boolean;
+  code_index_dirty_reason?: string;
+  code_index_state_error?: string;
+  brain_index_state_supported: boolean;
+  brain_index_state_found: boolean;
+  brain_index_dirty: boolean;
+  brain_index_dirty_reason?: string;
+  brain_index_state_error?: string;
   source_writer_lock_release_attempted: boolean;
   source_writer_lock_released: boolean;
   source_writer_lock_release_error?: string;

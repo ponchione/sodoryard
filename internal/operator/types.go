@@ -136,6 +136,16 @@ type StepGuardrailFactSummary struct {
 	ChangedFileManifestPresent       bool
 	ChangedFileCount                 int
 	ChangedFiles                     []string
+	CodeIndexStateSupported          bool
+	CodeIndexStateFound              bool
+	CodeIndexDirty                   bool
+	CodeIndexDirtyReason             string
+	CodeIndexStateError              string
+	BrainIndexStateSupported         bool
+	BrainIndexStateFound             bool
+	BrainIndexDirty                  bool
+	BrainIndexDirtyReason            string
+	BrainIndexStateError             string
 	SourceWriterLockReleaseAttempted bool
 	SourceWriterLockReleased         bool
 	SourceWriterLockReleaseError     string

@@ -240,6 +240,16 @@ type stepGuardrailFactResponse struct {
 	ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
 	ChangedFileCount                 int      `json:"changed_file_count"`
 	ChangedFiles                     []string `json:"changed_files"`
+	CodeIndexStateSupported          bool     `json:"code_index_state_supported"`
+	CodeIndexStateFound              bool     `json:"code_index_state_found"`
+	CodeIndexDirty                   bool     `json:"code_index_dirty"`
+	CodeIndexDirtyReason             string   `json:"code_index_dirty_reason,omitempty"`
+	CodeIndexStateError              string   `json:"code_index_state_error,omitempty"`
+	BrainIndexStateSupported         bool     `json:"brain_index_state_supported"`
+	BrainIndexStateFound             bool     `json:"brain_index_state_found"`
+	BrainIndexDirty                  bool     `json:"brain_index_dirty"`
+	BrainIndexDirtyReason            string   `json:"brain_index_dirty_reason,omitempty"`
+	BrainIndexStateError             string   `json:"brain_index_state_error,omitempty"`
 	SourceWriterLockReleaseAttempted bool     `json:"source_writer_lock_release_attempted"`
 	SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
 	SourceWriterLockReleaseError     string   `json:"source_writer_lock_release_error,omitempty"`
@@ -407,6 +417,16 @@ func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) 
 			ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
 			ChangedFileCount:                 facts.ChangedFileCount,
 			ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
+			CodeIndexStateSupported:          facts.CodeIndexStateSupported,
+			CodeIndexStateFound:              facts.CodeIndexStateFound,
+			CodeIndexDirty:                   facts.CodeIndexDirty,
+			CodeIndexDirtyReason:             facts.CodeIndexDirtyReason,
+			CodeIndexStateError:              facts.CodeIndexStateError,
+			BrainIndexStateSupported:         facts.BrainIndexStateSupported,
+			BrainIndexStateFound:             facts.BrainIndexStateFound,
+			BrainIndexDirty:                  facts.BrainIndexDirty,
+			BrainIndexDirtyReason:            facts.BrainIndexDirtyReason,
+			BrainIndexStateError:             facts.BrainIndexStateError,
 			SourceWriterLockReleaseAttempted: facts.SourceWriterLockReleaseAttempted,
 			SourceWriterLockReleased:         facts.SourceWriterLockReleased,
 			SourceWriterLockReleaseError:     facts.SourceWriterLockReleaseError,

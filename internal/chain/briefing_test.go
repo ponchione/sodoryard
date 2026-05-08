@@ -79,7 +79,7 @@ func TestBuildStepBriefingIncludesLifecycleAndGuardrailFacts(t *testing.T) {
 			{ID: 2, StepID: "resolve-1", EventType: EventFindingLifecycleFacts, EventData: `{"role":"resolver","facts":[{"id":"FIND-correctness-001","action":"addressed","status":"addressed","resolution":"fixed","files_changed":["internal/example.go"],"validation":["rtk make test"]}]}`},
 			{ID: 3, StepID: "audit-2", EventType: EventFindingLifecycleFacts, EventData: `{"role":"correctness-auditor","facts":[{"id":"FIND-correctness-001","source_role":"correctness-auditor","action":"reopened","status":"open","summary":"nil panic still possible"}]}`},
 			{ID: 4, StepID: "resolve-2", EventType: EventFindingLifecycleFacts, EventData: `{"role":"resolver","facts":[{"id":"FIND-correctness-001","action":"addressed","status":"addressed","resolution":"fixed"}]}`},
-			{ID: 5, StepID: "resolve-2", EventType: EventStepGuardrailFacts, EventData: `{"role":"resolver","sequence":4,"receipt_valid":true,"changed_file_manifest_present":true,"changed_file_count":1,"changed_file_claim_present":true,"claimed_changed_files":["internal/example.go"],"changed_file_claim_matches_manifest":true,"source_writer_lock_release_attempted":true,"source_writer_lock_released":true,"addressed_ids":["FIND-correctness-001"]}`},
+			{ID: 5, StepID: "resolve-2", EventType: EventStepGuardrailFacts, EventData: `{"role":"resolver","sequence":4,"receipt_valid":true,"changed_file_manifest_present":true,"changed_file_count":1,"changed_file_claim_present":true,"claimed_changed_files":["internal/example.go"],"changed_file_claim_matches_manifest":true,"code_index_state_supported":true,"code_index_dirty":true,"code_index_dirty_reason":"source_write","brain_index_state_supported":true,"brain_index_dirty":true,"brain_index_dirty_reason":"complete_step_with_receipt","source_writer_lock_release_attempted":true,"source_writer_lock_released":true,"addressed_ids":["FIND-correctness-001"]}`},
 		},
 		CurrentStepSequence: 5,
 		CurrentRole:         "correctness-auditor",
@@ -88,7 +88,7 @@ func TestBuildStepBriefingIncludesLifecycleAndGuardrailFacts(t *testing.T) {
 
 	for _, want := range []string{
 		"Latest post-step guardrail facts:",
-		"step 4 role=resolver receipt_valid=true manifest=true changed=1 claim_present=true claim_matches=true claimed=internal/example.go lock_release_attempted=true lock_released=true addressed=FIND-correctness-001",
+		"step 4 role=resolver receipt_valid=true manifest=true changed=1 claim_present=true claim_matches=true claimed=internal/example.go lock_release_attempted=true lock_released=true code_index_dirty=true code_index_reason=source_write brain_index_dirty=true brain_index_reason=complete_step_with_receipt addressed=FIND-correctness-001",
 		"Open audit findings:",
 		"FIND-correctness-001 from correctness-auditor status=addressed addressed=2 reopened=1 severity=high evidence=internal/example.go:42 summary=nil panic still possible required_fix=guard nil resolution=fixed files=internal/example.go validation=rtk make test",
 		"Addressed audit findings:",

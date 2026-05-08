@@ -139,6 +139,16 @@ type postStepGuardrailFacts struct {
 	ChangedFileManifestError            string   `json:"changed_file_manifest_error,omitempty"`
 	ChangedFileCount                    int      `json:"changed_file_count"`
 	ChangedFiles                        []string `json:"changed_files"`
+	CodeIndexStateSupported             bool     `json:"code_index_state_supported"`
+	CodeIndexStateFound                 bool     `json:"code_index_state_found"`
+	CodeIndexDirty                      bool     `json:"code_index_dirty"`
+	CodeIndexDirtyReason                string   `json:"code_index_dirty_reason,omitempty"`
+	CodeIndexStateError                 string   `json:"code_index_state_error,omitempty"`
+	BrainIndexStateSupported            bool     `json:"brain_index_state_supported"`
+	BrainIndexStateFound                bool     `json:"brain_index_state_found"`
+	BrainIndexDirty                     bool     `json:"brain_index_dirty"`
+	BrainIndexDirtyReason               string   `json:"brain_index_dirty_reason,omitempty"`
+	BrainIndexStateError                string   `json:"brain_index_state_error,omitempty"`
 	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
 	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
 	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error,omitempty"`
@@ -167,6 +177,14 @@ type receiptFindingFactSet struct {
 	LifecycleFacts                      []chain.FindingLifecycleFact
 	SuspiciousVerdictFindingCombination bool
 	SuspiciousVerdictFindingReason      string
+}
+
+type codeIndexStateReader interface {
+	ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error)
+}
+
+type brainIndexStateReader interface {
+	ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error)
 }
 
 type stepReceiptCompleter interface {
@@ -841,12 +859,47 @@ func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spa
 	facts.ClaimedChangedFiles = uniqueSorted(facts.ClaimedChangedFiles)
 	facts.ChangedFileClaimExtra = uniqueSorted(facts.ChangedFileClaimExtra)
 	facts.ChangedFileManifestUnclaimed = uniqueSorted(facts.ChangedFileManifestUnclaimed)
+	if facts.SourceMutating {
+		t.capturePostStepIndexFacts(ctx, facts)
+	}
 	facts.FindingIDs = uniqueSorted(facts.FindingIDs)
 	facts.OpenFindingIDs = uniqueSorted(facts.OpenFindingIDs)
 	facts.ClosedFindingIDs = uniqueSorted(facts.ClosedFindingIDs)
 	facts.AddressedIDs = uniqueSorted(facts.AddressedIDs)
 	facts.ClaimedValidationCommands = uniqueStringsPreserveOrder(facts.ClaimedValidationCommands)
 	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepGuardrailFacts, facts)
+}
+
+func (t *SpawnAgentTool) capturePostStepIndexFacts(ctx context.Context, facts *postStepGuardrailFacts) {
+	if t == nil || facts == nil || t.Backend == nil {
+		return
+	}
+	if reader, ok := t.Backend.(codeIndexStateReader); ok && reader != nil {
+		facts.CodeIndexStateSupported = true
+		state, found, err := reader.ReadCodeIndexState(ctx)
+		if err != nil {
+			facts.CodeIndexStateError = err.Error()
+		} else {
+			facts.CodeIndexStateFound = found
+			if found {
+				facts.CodeIndexDirty = state.Dirty
+				facts.CodeIndexDirtyReason = strings.TrimSpace(state.DirtyReason)
+			}
+		}
+	}
+	if reader, ok := t.Backend.(brainIndexStateReader); ok && reader != nil {
+		facts.BrainIndexStateSupported = true
+		state, found, err := reader.ReadBrainIndexState(ctx)
+		if err != nil {
+			facts.BrainIndexStateError = err.Error()
+		} else {
+			facts.BrainIndexStateFound = found
+			if found {
+				facts.BrainIndexDirty = state.Dirty
+				facts.BrainIndexDirtyReason = strings.TrimSpace(state.DirtyReason)
+			}
+		}
+	}
 }
 
 func uniqueSorted(values []string) []string {

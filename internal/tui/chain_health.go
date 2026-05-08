@@ -160,7 +160,7 @@ func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
 			lines = append(lines, fmt.Sprintf("- %d more post-step fact event(s)", len(details.StepFacts)-i))
 			break
 		}
-		lines = append(lines, fmt.Sprintf("- facts step=%d role=%s receipt_valid=%t manifest=%t changed=%d claim_present=%t claim_matches=%t claimed=%s extra=%s unclaimed=%s lock_released=%t open=%s addressed=%s",
+		lines = append(lines, fmt.Sprintf("- facts step=%d role=%s receipt_valid=%t manifest=%t changed=%d claim_present=%t claim_matches=%t claimed=%s extra=%s unclaimed=%s code_index_dirty=%t brain_index_dirty=%t lock_released=%t open=%s addressed=%s",
 			facts.SequenceNum,
 			valueOrUnknown(facts.Role),
 			facts.ReceiptValid,
@@ -171,6 +171,8 @@ func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
 			joinOrNone(facts.ClaimedChangedFiles),
 			joinOrNone(facts.ChangedFileClaimExtra),
 			joinOrNone(facts.ChangedFileManifestUnclaimed),
+			facts.CodeIndexDirty,
+			facts.BrainIndexDirty,
 			facts.SourceWriterLockReleased,
 			joinOrNone(facts.OpenFindingIDs),
 			joinOrNone(facts.AddressedIDs),

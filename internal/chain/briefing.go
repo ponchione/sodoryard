@@ -248,6 +248,12 @@ func latestGuardrailFacts(events []Event) []string {
 			ChangedFileManifestUnclaimed     []string `json:"changed_file_manifest_unclaimed"`
 			ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
 			ChangedFileCount                 int      `json:"changed_file_count"`
+			CodeIndexStateSupported          bool     `json:"code_index_state_supported"`
+			CodeIndexDirty                   bool     `json:"code_index_dirty"`
+			CodeIndexDirtyReason             string   `json:"code_index_dirty_reason"`
+			BrainIndexStateSupported         bool     `json:"brain_index_state_supported"`
+			BrainIndexDirty                  bool     `json:"brain_index_dirty"`
+			BrainIndexDirtyReason            string   `json:"brain_index_dirty_reason"`
 			SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
 			SourceWriterLockReleaseAttempted bool     `json:"source_writer_lock_release_attempted"`
 			OpenFindingIDs                   []string `json:"open_finding_ids"`
@@ -283,6 +289,18 @@ func latestGuardrailFacts(events []Event) []string {
 			fmt.Sprintf("lock_release_attempted=%t", payload.SourceWriterLockReleaseAttempted),
 			fmt.Sprintf("lock_released=%t", payload.SourceWriterLockReleased),
 		)
+		if payload.CodeIndexStateSupported {
+			parts = append(parts, fmt.Sprintf("code_index_dirty=%t", payload.CodeIndexDirty))
+			if strings.TrimSpace(payload.CodeIndexDirtyReason) != "" {
+				parts = append(parts, briefingKV("code_index_reason", payload.CodeIndexDirtyReason))
+			}
+		}
+		if payload.BrainIndexStateSupported {
+			parts = append(parts, fmt.Sprintf("brain_index_dirty=%t", payload.BrainIndexDirty))
+			if strings.TrimSpace(payload.BrainIndexDirtyReason) != "" {
+				parts = append(parts, briefingKV("brain_index_reason", payload.BrainIndexDirtyReason))
+			}
+		}
 		if len(payload.OpenFindingIDs) > 0 {
 			parts = append(parts, briefingKV("open", strings.Join(compactBriefingStrings(payload.OpenFindingIDs), ",")))
 		}

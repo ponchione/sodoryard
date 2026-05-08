@@ -924,9 +924,9 @@ func TestFormatChainEventRendersStepStartedCompactly(t *testing.T) {
 }
 
 func TestFormatChainEventRendersGuardrailFactsCompactly(t *testing.T) {
-	event := chain.Event{ID: 8, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepGuardrailFacts, EventData: `{"role":"coder","sequence":1,"receipt_valid":true,"receipt_schema_valid":true,"receipt_sections_valid":true,"changed_file_count":2,"changed_file_claim_present":true,"changed_file_claim_matches_manifest":false,"claimed_changed_files":["internal/a.go"],"changed_file_manifest_unclaimed":["internal/b.go"],"source_writer_lock_released":true}`}
+	event := chain.Event{ID: 8, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepGuardrailFacts, EventData: `{"role":"coder","sequence":1,"receipt_valid":true,"receipt_schema_valid":true,"receipt_sections_valid":true,"changed_file_count":2,"changed_file_claim_present":true,"changed_file_claim_matches_manifest":false,"claimed_changed_files":["internal/a.go"],"changed_file_manifest_unclaimed":["internal/b.go"],"code_index_dirty":true,"code_index_dirty_reason":"source_write","brain_index_dirty":true,"brain_index_dirty_reason":"complete_step_with_receipt","source_writer_lock_released":true}`}
 	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
-	want := "8\t2026-04-21T01:02:03Z\tstep_guardrail_facts\trole=coder sequence=1 receipt_valid=true receipt_schema_valid=true receipt_sections_valid=true changed_file_count=2 changed_file_claim_present=true changed_file_claim_matches_manifest=false claimed_changed_files=\"[internal/a.go]\" changed_file_manifest_unclaimed=\"[internal/b.go]\" source_writer_lock_released=true\n"
+	want := "8\t2026-04-21T01:02:03Z\tstep_guardrail_facts\trole=coder sequence=1 receipt_valid=true receipt_schema_valid=true receipt_sections_valid=true changed_file_count=2 changed_file_claim_present=true changed_file_claim_matches_manifest=false claimed_changed_files=\"[internal/a.go]\" changed_file_manifest_unclaimed=\"[internal/b.go]\" code_index_dirty=true code_index_dirty_reason=\"source_write\" brain_index_dirty=true brain_index_dirty_reason=\"complete_step_with_receipt\" source_writer_lock_released=true\n"
 	if got != want {
 		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
 	}

@@ -677,6 +677,12 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 		"changed_file_claim_extra":               []string{"claimed.txt"},
 		"changed_file_manifest_unclaimed":        []string{"actual.txt"},
 		"changed_file_manifest_present":          false,
+		"changed_file_count":                     1,
+		"code_index_state_found":                 true,
+		"code_index_dirty":                       false,
+		"brain_index_state_found":                true,
+		"brain_index_dirty":                      true,
+		"brain_index_dirty_reason":               "complete_step_with_receipt",
 		"source_writer_lock_release_attempted":   true,
 		"source_writer_lock_released":            false,
 		"source_writer_lock_release_error":       "lock held by other step",
@@ -701,6 +707,7 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 		"source writer guard blocked 1 spawn attempt(s)",
 		"step 1 receipt guardrail facts show invalid receipt: receipt: missing required section: Validation",
 		"step 1 changed-file receipt claim differs from harness manifest: extra=claimed.txt unclaimed=actual.txt",
+		"step 1 changed files but code index state was not marked stale",
 		"step 1 source writer lock release failed: lock held by other step",
 		"step 1 source-writing role coder completed without changed-file manifest",
 	} {
@@ -721,6 +728,9 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	}
 	if !facts.ChangedFileClaimPresent || facts.ChangedFileClaimMatchesManifest || strings.Join(facts.ChangedFileClaimExtra, ",") != "claimed.txt" || strings.Join(facts.ChangedFileManifestUnclaimed, ",") != "actual.txt" {
 		t.Fatalf("guardrail fact changed-file claim = %+v, want mismatch details", facts)
+	}
+	if !facts.CodeIndexStateFound || facts.CodeIndexDirty || !facts.BrainIndexStateFound || !facts.BrainIndexDirty || facts.BrainIndexDirtyReason != "complete_step_with_receipt" {
+		t.Fatalf("guardrail fact index state = %+v, want clean code index and dirty brain index", facts)
 	}
 }
 

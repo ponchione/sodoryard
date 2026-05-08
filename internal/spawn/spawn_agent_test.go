@@ -462,6 +462,9 @@ func TestSpawnAgentUsesProjectMemoryCompleteStepWithReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartChain returned error: %v", err)
 	}
+	if err := backend.MarkCodeIndexClean(ctx, "abc123", time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC), []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkCodeIndexClean: %v", err)
+	}
 	tool := NewSpawnAgentTool(SpawnAgentDeps{
 		Store:        store,
 		Backend:      backend,
@@ -512,13 +515,27 @@ func TestSpawnAgentUsesProjectMemoryCompleteStepWithReceipt(t *testing.T) {
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
 	var completed bool
+	var facts postStepGuardrailFacts
+	var factsSeen bool
 	for _, event := range events {
 		if event.EventType == chain.EventStepCompleted && strings.Contains(event.EventData, `"tokens_used":44`) {
 			completed = true
 		}
+		if event.EventType == chain.EventStepGuardrailFacts {
+			factsSeen = true
+			if err := json.Unmarshal([]byte(event.EventData), &facts); err != nil {
+				t.Fatalf("decode guardrail facts: %v", err)
+			}
+		}
 	}
 	if !completed {
 		t.Fatalf("events = %+v, want step_completed from atomic reducer", events)
+	}
+	if !factsSeen || !facts.CodeIndexStateSupported || !facts.CodeIndexStateFound || facts.CodeIndexDirty {
+		t.Fatalf("guardrail facts code index state = %+v, want supported clean code index", facts)
+	}
+	if !facts.BrainIndexStateSupported || !facts.BrainIndexStateFound || !facts.BrainIndexDirty || facts.BrainIndexDirtyReason != "complete_step_with_receipt" {
+		t.Fatalf("guardrail facts brain index state = %+v, want dirty complete_step_with_receipt", facts)
 	}
 	state, found, err := backend.ReadBrainIndexState(ctx)
 	if err != nil {

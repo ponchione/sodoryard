@@ -298,6 +298,10 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 						joinValuesOrNone(facts.ChangedFileManifestUnclaimed),
 					))
 				}
+				if facts.SourceMutating && facts.ChangedFileCount > 0 && facts.CodeIndexStateFound && !facts.CodeIndexDirty {
+					attentionHealth = true
+					report.addWarning(fmt.Sprintf("step %d changed files but code index state was not marked stale", facts.Sequence))
+				}
 				if !facts.ReceiptValid {
 					attentionHealth = true
 					reason := strings.TrimSpace(facts.ReceiptError)
@@ -528,6 +532,16 @@ type stepGuardrailFactsEvent struct {
 	ChangedFileManifestError            string   `json:"changed_file_manifest_error"`
 	ChangedFileCount                    int      `json:"changed_file_count"`
 	ChangedFiles                        []string `json:"changed_files"`
+	CodeIndexStateSupported             bool     `json:"code_index_state_supported"`
+	CodeIndexStateFound                 bool     `json:"code_index_state_found"`
+	CodeIndexDirty                      bool     `json:"code_index_dirty"`
+	CodeIndexDirtyReason                string   `json:"code_index_dirty_reason"`
+	CodeIndexStateError                 string   `json:"code_index_state_error"`
+	BrainIndexStateSupported            bool     `json:"brain_index_state_supported"`
+	BrainIndexStateFound                bool     `json:"brain_index_state_found"`
+	BrainIndexDirty                     bool     `json:"brain_index_dirty"`
+	BrainIndexDirtyReason               string   `json:"brain_index_dirty_reason"`
+	BrainIndexStateError                string   `json:"brain_index_state_error"`
 	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
 	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
 	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error"`
@@ -571,6 +585,10 @@ func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) 
 	event.ReceiptPath = strings.TrimSpace(event.ReceiptPath)
 	event.ReceiptError = strings.TrimSpace(event.ReceiptError)
 	event.ChangedFileManifestError = strings.TrimSpace(event.ChangedFileManifestError)
+	event.CodeIndexDirtyReason = strings.TrimSpace(event.CodeIndexDirtyReason)
+	event.CodeIndexStateError = strings.TrimSpace(event.CodeIndexStateError)
+	event.BrainIndexDirtyReason = strings.TrimSpace(event.BrainIndexDirtyReason)
+	event.BrainIndexStateError = strings.TrimSpace(event.BrainIndexStateError)
 	event.SourceWriterLockReleaseError = strings.TrimSpace(event.SourceWriterLockReleaseError)
 	event.SuspiciousVerdictFindingReason = strings.TrimSpace(event.SuspiciousVerdictFindingReason)
 	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
@@ -646,6 +664,16 @@ func summarizeChainGuardrails(ch chain.Chain, steps []chain.Step, events []chain
 				ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
 				ChangedFileCount:                 facts.ChangedFileCount,
 				ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
+				CodeIndexStateSupported:          facts.CodeIndexStateSupported,
+				CodeIndexStateFound:              facts.CodeIndexStateFound,
+				CodeIndexDirty:                   facts.CodeIndexDirty,
+				CodeIndexDirtyReason:             facts.CodeIndexDirtyReason,
+				CodeIndexStateError:              facts.CodeIndexStateError,
+				BrainIndexStateSupported:         facts.BrainIndexStateSupported,
+				BrainIndexStateFound:             facts.BrainIndexStateFound,
+				BrainIndexDirty:                  facts.BrainIndexDirty,
+				BrainIndexDirtyReason:            facts.BrainIndexDirtyReason,
+				BrainIndexStateError:             facts.BrainIndexStateError,
 				SourceWriterLockReleaseAttempted: facts.SourceWriterLockReleaseAttempted,
 				SourceWriterLockReleased:         facts.SourceWriterLockReleased,
 				SourceWriterLockReleaseError:     facts.SourceWriterLockReleaseError,

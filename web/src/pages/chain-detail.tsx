@@ -227,6 +227,14 @@ export function ChainDetailPage() {
                           {formatIDs(fact.changed_file_manifest_unclaimed)}
                         </p>
                       )}
+                      {fact.source_mutating && (
+                        <p className="font-mono text-muted-foreground">
+                          code_index_dirty={yesNo(fact.code_index_dirty)} brain_index_dirty=
+                          {yesNo(fact.brain_index_dirty)}
+                          {fact.code_index_dirty_reason ? ` code_reason=${fact.code_index_dirty_reason}` : ""}
+                          {fact.brain_index_dirty_reason ? ` brain_reason=${fact.brain_index_dirty_reason}` : ""}
+                        </p>
+                      )}
                       {fact.receipt_error && <p className="text-warning">{fact.receipt_error}</p>}
                     </div>
                   ))}
