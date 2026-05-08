@@ -348,6 +348,25 @@ type ListChainEventsResponse struct {
 	Events []ChainEvent
 }
 
+type AcquireProjectLockResponse struct {
+	Result ProjectLockAcquireResult
+}
+
+type ReadProjectLockRequest struct {
+	LockName string
+}
+
+type ReadProjectLockResponse struct {
+	Lock  ProjectLock
+	Found bool
+}
+
+type ListProjectLocksRequest struct{}
+
+type ListProjectLocksResponse struct {
+	Locks []ProjectLock
+}
+
 type ReadLaunchRequest struct {
 	ProjectID string
 	LaunchID  string
@@ -704,6 +723,46 @@ func (s *brainRPCService) ListChainEventsSince(req ListChainEventsSinceRequest, 
 		return err
 	}
 	resp.Events = events
+	return nil
+}
+
+func (s *brainRPCService) AcquireProjectLock(req AcquireProjectLockArgs, resp *AcquireProjectLockResponse) error {
+	result, err := s.backend.AcquireProjectLock(context.Background(), req)
+	if err != nil {
+		return err
+	}
+	resp.Result = result
+	return nil
+}
+
+func (s *brainRPCService) ReleaseProjectLock(req ReleaseProjectLockArgs, resp *EmptyResponse) error {
+	return s.backend.ReleaseProjectLock(context.Background(), req)
+}
+
+func (s *brainRPCService) HeartbeatProjectLock(req HeartbeatProjectLockArgs, resp *EmptyResponse) error {
+	return s.backend.HeartbeatProjectLock(context.Background(), req)
+}
+
+func (s *brainRPCService) ForceReleaseProjectLock(req ReleaseProjectLockArgs, resp *EmptyResponse) error {
+	return s.backend.ForceReleaseProjectLock(context.Background(), req)
+}
+
+func (s *brainRPCService) ReadProjectLock(req ReadProjectLockRequest, resp *ReadProjectLockResponse) error {
+	lock, found, err := s.backend.ReadProjectLock(context.Background(), req.LockName)
+	if err != nil {
+		return err
+	}
+	resp.Lock = lock
+	resp.Found = found
+	return nil
+}
+
+func (s *brainRPCService) ListProjectLocks(req ListProjectLocksRequest, resp *ListProjectLocksResponse) error {
+	locks, err := s.backend.ListProjectLocks(context.Background())
+	if err != nil {
+		return err
+	}
+	resp.Locks = locks
 	return nil
 }
 

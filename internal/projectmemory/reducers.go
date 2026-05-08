@@ -251,10 +251,14 @@ type UpdateContextReportQualityArgs struct {
 }
 
 type reducerResult struct {
-	Path        string `json:"path,omitempty"`
-	ContentHash string `json:"content_hash,omitempty"`
-	Revision    uint32 `json:"revision,omitempty"`
-	OperationID string `json:"operation_id,omitempty"`
+	Path                     string `json:"path,omitempty"`
+	ContentHash              string `json:"content_hash,omitempty"`
+	Revision                 uint32 `json:"revision,omitempty"`
+	OperationID              string `json:"operation_id,omitempty"`
+	ReplacedLockOwnerChainID string `json:"replaced_lock_owner_chain_id,omitempty"`
+	ReplacedLockOwnerStepID  string `json:"replaced_lock_owner_step_id,omitempty"`
+	ReplacedLockOwnerRole    string `json:"replaced_lock_owner_role,omitempty"`
+	ReplacedLockExpiredAtUS  uint64 `json:"replaced_lock_expired_at_us,omitempty"`
 }
 
 func writeDocumentReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {

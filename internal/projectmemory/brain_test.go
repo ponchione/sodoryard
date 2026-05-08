@@ -1241,6 +1241,125 @@ Done atomically.
 	}
 }
 
+func TestProjectLockReducersAcquireBlockHeartbeatReleaseAndForce(t *testing.T) {
+	ctx := context.Background()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
+	result, err := backend.AcquireProjectLock(ctx, AcquireProjectLockArgs{
+		LockName:     "source_writer",
+		OwnerChainID: "chain-1",
+		OwnerStepID:  "step-1",
+		OwnerRole:    "coder",
+		AcquiredAtUS: uint64(now.UnixMicro()),
+		ExpiresAtUS:  uint64(now.Add(time.Minute).UnixMicro()),
+		MetadataJSON: `{"receipt_path":"receipts/coder/chain-1-step-001.md"}`,
+	})
+	if err != nil {
+		t.Fatalf("AcquireProjectLock: %v", err)
+	}
+	if result.ReplacedLockOwnerStepID != "" {
+		t.Fatalf("AcquireProjectLock result = %+v, want no stale replacement", result)
+	}
+	lock, found, err := backend.ReadProjectLock(ctx, "source_writer")
+	if err != nil {
+		t.Fatalf("ReadProjectLock: %v", err)
+	}
+	if !found || lock.OwnerStepID != "step-1" || lock.OwnerRole != "coder" || !strings.Contains(lock.MetadataJSON, "receipt_path") {
+		t.Fatalf("lock = %+v found=%t, want coder owner", lock, found)
+	}
+
+	err = backend.HeartbeatProjectLock(ctx, HeartbeatProjectLockArgs{
+		LockName:      "source_writer",
+		OwnerChainID:  "chain-1",
+		OwnerStepID:   "step-1",
+		HeartbeatAtUS: uint64(now.Add(10 * time.Second).UnixMicro()),
+		ExpiresAtUS:   uint64(now.Add(2 * time.Minute).UnixMicro()),
+	})
+	if err != nil {
+		t.Fatalf("HeartbeatProjectLock: %v", err)
+	}
+	lock, found, _ = backend.ReadProjectLock(ctx, "source_writer")
+	if !found || lock.ExpiresAtUS != uint64(now.Add(2*time.Minute).UnixMicro()) {
+		t.Fatalf("lock after heartbeat = %+v found=%t, want extended expiry", lock, found)
+	}
+
+	err = backend.ReleaseProjectLock(ctx, ReleaseProjectLockArgs{
+		LockName:     "source_writer",
+		OwnerChainID: "chain-other",
+		OwnerStepID:  "step-other",
+	})
+	if err == nil || !strings.Contains(err.Error(), "held by chain chain-1") {
+		t.Fatalf("ReleaseProjectLock wrong owner error = %v, want held-by-chain error", err)
+	}
+	if _, err = backend.AcquireProjectLock(ctx, AcquireProjectLockArgs{
+		LockName:     "source_writer",
+		OwnerChainID: "chain-2",
+		OwnerStepID:  "step-2",
+		OwnerRole:    "resolver",
+		AcquiredAtUS: uint64(now.Add(20 * time.Second).UnixMicro()),
+		ExpiresAtUS:  uint64(now.Add(3 * time.Minute).UnixMicro()),
+	}); err == nil || !strings.Contains(err.Error(), "project lock source_writer is held") {
+		t.Fatalf("AcquireProjectLock while held error = %v, want held lock rejection", err)
+	}
+	if err := backend.ForceReleaseProjectLock(ctx, ReleaseProjectLockArgs{
+		LockName:     "source_writer",
+		OwnerChainID: "operator",
+		OwnerStepID:  "manual-force",
+	}); err != nil {
+		t.Fatalf("ForceReleaseProjectLock: %v", err)
+	}
+	if _, found, err := backend.ReadProjectLock(ctx, "source_writer"); err != nil || found {
+		t.Fatalf("ReadProjectLock after force = found %t err %v, want released", found, err)
+	}
+}
+
+func TestProjectLockAcquireReplacesExpiredLock(t *testing.T) {
+	ctx := context.Background()
+	backend, err := OpenBrainBackend(ctx, Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+
+	now := time.Date(2026, 5, 8, 13, 0, 0, 0, time.UTC)
+	if _, err := backend.AcquireProjectLock(ctx, AcquireProjectLockArgs{
+		LockName:     "source_writer",
+		OwnerChainID: "chain-stale",
+		OwnerStepID:  "step-stale",
+		OwnerRole:    "coder",
+		AcquiredAtUS: uint64(now.Add(-2 * time.Minute).UnixMicro()),
+		ExpiresAtUS:  uint64(now.Add(-time.Minute).UnixMicro()),
+	}); err != nil {
+		t.Fatalf("AcquireProjectLock stale seed: %v", err)
+	}
+	result, err := backend.AcquireProjectLock(ctx, AcquireProjectLockArgs{
+		LockName:     "source_writer",
+		OwnerChainID: "chain-new",
+		OwnerStepID:  "step-new",
+		OwnerRole:    "resolver",
+		AcquiredAtUS: uint64(now.UnixMicro()),
+		ExpiresAtUS:  uint64(now.Add(time.Minute).UnixMicro()),
+	})
+	if err != nil {
+		t.Fatalf("AcquireProjectLock replacing stale: %v", err)
+	}
+	if result.ReplacedLockOwnerStepID != "step-stale" || result.ReplacedLockOwnerRole != "coder" {
+		t.Fatalf("AcquireProjectLock result = %+v, want stale owner details", result)
+	}
+	lock, found, err := backend.ReadProjectLock(ctx, "source_writer")
+	if err != nil {
+		t.Fatalf("ReadProjectLock: %v", err)
+	}
+	if !found || lock.OwnerStepID != "step-new" || lock.OwnerRole != "resolver" {
+		t.Fatalf("lock = %+v found=%t, want replacement owner", lock, found)
+	}
+}
+
 func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

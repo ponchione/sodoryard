@@ -114,6 +114,40 @@ type LogChainEventArgs struct {
 	CreatedAtUS uint64 `json:"created_at_us"`
 }
 
+type AcquireProjectLockArgs struct {
+	LockName     string `json:"lock_name"`
+	OwnerChainID string `json:"owner_chain_id"`
+	OwnerStepID  string `json:"owner_step_id"`
+	OwnerRole    string `json:"owner_role"`
+	ExpiresAtUS  uint64 `json:"expires_at_us"`
+	MetadataJSON string `json:"metadata_json"`
+	AcquiredAtUS uint64 `json:"acquired_at_us"`
+}
+
+type ReleaseProjectLockArgs struct {
+	LockName     string `json:"lock_name"`
+	OwnerChainID string `json:"owner_chain_id"`
+	OwnerStepID  string `json:"owner_step_id"`
+	Force        bool   `json:"force"`
+	ReleasedAtUS uint64 `json:"released_at_us"`
+}
+
+type HeartbeatProjectLockArgs struct {
+	LockName      string `json:"lock_name"`
+	OwnerChainID  string `json:"owner_chain_id"`
+	OwnerStepID   string `json:"owner_step_id"`
+	ExpiresAtUS   uint64 `json:"expires_at_us"`
+	HeartbeatAtUS uint64 `json:"heartbeat_at_us"`
+}
+
+type ProjectLockAcquireResult struct {
+	LockName                 string
+	ReplacedLockOwnerChainID string
+	ReplacedLockOwnerStepID  string
+	ReplacedLockOwnerRole    string
+	ReplacedLockExpiredAtUS  uint64
+}
+
 type chainMetricsPayload struct {
 	TotalSteps        uint64 `json:"total_steps"`
 	TotalTokens       uint64 `json:"total_tokens"`
@@ -439,6 +473,142 @@ func logChainEventReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error
 	return encodeReducerResult(reducerResult{OperationID: eventID})
 }
 
+func acquireProjectLockReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args AcquireProjectLockArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	lockName := strings.TrimSpace(args.LockName)
+	if lockName == "" {
+		return nil, fmt.Errorf("lock name is required")
+	}
+	ownerChainID := strings.TrimSpace(args.OwnerChainID)
+	if ownerChainID == "" {
+		return nil, fmt.Errorf("lock owner chain id is required")
+	}
+	ownerStepID := strings.TrimSpace(args.OwnerStepID)
+	if ownerStepID == "" {
+		return nil, fmt.Errorf("lock owner step id is required")
+	}
+	ownerRole := strings.TrimSpace(args.OwnerRole)
+	if ownerRole == "" {
+		return nil, fmt.Errorf("lock owner role is required")
+	}
+	nowUS := nonZeroUS(args.AcquiredAtUS, reducerNowUS(ctx))
+	expiresAtUS := args.ExpiresAtUS
+	if expiresAtUS <= nowUS {
+		return nil, fmt.Errorf("lock expires_at_us must be in the future")
+	}
+	rowID, current, found := findProjectLockByName(ctx.DB, lockName)
+	if found && sameLockOwner(current, ownerChainID, ownerStepID) {
+		current.OwnerRole = ownerRole
+		current.HeartbeatAtUS = nowUS
+		current.ExpiresAtUS = expiresAtUS
+		current.MetadataJSON = defaultString(args.MetadataJSON, emptyJSONObject)
+		if _, err := ctx.DB.Update(uint32(tableProjectLocks), rowID, projectLockRow(current)); err != nil {
+			return nil, err
+		}
+		return encodeReducerResult(reducerResult{OperationID: lockName})
+	}
+	result := reducerResult{OperationID: lockName}
+	lock := ProjectLock{
+		LockName:      lockName,
+		OwnerChainID:  ownerChainID,
+		OwnerStepID:   ownerStepID,
+		OwnerRole:     ownerRole,
+		AcquiredAtUS:  nowUS,
+		HeartbeatAtUS: nowUS,
+		ExpiresAtUS:   expiresAtUS,
+		MetadataJSON:  defaultString(args.MetadataJSON, emptyJSONObject),
+	}
+	if found {
+		if current.ExpiresAtUS > nowUS {
+			return nil, fmt.Errorf("project lock %s is held by chain %s step %s role %s until %d", lockName, current.OwnerChainID, current.OwnerStepID, current.OwnerRole, current.ExpiresAtUS)
+		}
+		result.ReplacedLockOwnerChainID = current.OwnerChainID
+		result.ReplacedLockOwnerStepID = current.OwnerStepID
+		result.ReplacedLockOwnerRole = current.OwnerRole
+		result.ReplacedLockExpiredAtUS = current.ExpiresAtUS
+		if _, err := ctx.DB.Update(uint32(tableProjectLocks), rowID, projectLockRow(lock)); err != nil {
+			return nil, err
+		}
+		return encodeReducerResult(result)
+	}
+	if _, err := ctx.DB.Insert(uint32(tableProjectLocks), projectLockRow(lock)); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(result)
+}
+
+func releaseProjectLockReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args ReleaseProjectLockArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	return releaseProjectLock(ctx, args)
+}
+
+func forceReleaseProjectLockReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args ReleaseProjectLockArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	args.Force = true
+	return releaseProjectLock(ctx, args)
+}
+
+func releaseProjectLock(ctx *schema.ReducerContext, args ReleaseProjectLockArgs) ([]byte, error) {
+	lockName := strings.TrimSpace(args.LockName)
+	if lockName == "" {
+		return nil, fmt.Errorf("lock name is required")
+	}
+	rowID, lock, found := findProjectLockByName(ctx.DB, lockName)
+	if !found {
+		return encodeReducerResult(reducerResult{OperationID: lockName})
+	}
+	if !args.Force && !sameLockOwner(lock, strings.TrimSpace(args.OwnerChainID), strings.TrimSpace(args.OwnerStepID)) {
+		return nil, fmt.Errorf("project lock %s is held by chain %s step %s role %s", lockName, lock.OwnerChainID, lock.OwnerStepID, lock.OwnerRole)
+	}
+	if err := ctx.DB.Delete(uint32(tableProjectLocks), rowID); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{
+		OperationID:              lockName,
+		ReplacedLockOwnerChainID: lock.OwnerChainID,
+		ReplacedLockOwnerStepID:  lock.OwnerStepID,
+		ReplacedLockOwnerRole:    lock.OwnerRole,
+		ReplacedLockExpiredAtUS:  lock.ExpiresAtUS,
+	})
+}
+
+func heartbeatProjectLockReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
+	var args HeartbeatProjectLockArgs
+	if err := decodeReducerArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	lockName := strings.TrimSpace(args.LockName)
+	if lockName == "" {
+		return nil, fmt.Errorf("lock name is required")
+	}
+	rowID, lock, found := findProjectLockByName(ctx.DB, lockName)
+	if !found {
+		return nil, fmt.Errorf("project lock not found: %s", lockName)
+	}
+	if !sameLockOwner(lock, strings.TrimSpace(args.OwnerChainID), strings.TrimSpace(args.OwnerStepID)) {
+		return nil, fmt.Errorf("project lock %s is held by chain %s step %s role %s", lockName, lock.OwnerChainID, lock.OwnerStepID, lock.OwnerRole)
+	}
+	nowUS := nonZeroUS(args.HeartbeatAtUS, reducerNowUS(ctx))
+	if args.ExpiresAtUS <= nowUS {
+		return nil, fmt.Errorf("lock expires_at_us must be in the future")
+	}
+	lock.HeartbeatAtUS = nowUS
+	lock.ExpiresAtUS = args.ExpiresAtUS
+	if _, err := ctx.DB.Update(uint32(tableProjectLocks), rowID, projectLockRow(lock)); err != nil {
+		return nil, err
+	}
+	return encodeReducerResult(reducerResult{OperationID: lockName})
+}
+
 func applyCompleteStepArgs(step ChainStep, args CompleteStepArgs, nowUS uint64) ChainStep {
 	status := strings.TrimSpace(args.Status)
 	if status == "" {
@@ -501,6 +671,18 @@ func findStepByID(db types.ReducerDB, id string) (types.RowID, ChainStep, bool) 
 		return 0, ChainStep{}, false
 	}
 	return rowID, decodeChainStepRow(row), true
+}
+
+func findProjectLockByName(db types.ReducerDB, name string) (types.RowID, ProjectLock, bool) {
+	rowID, row, ok := firstRow(db.SeekIndex(uint32(tableProjectLocks), uint32(indexProjectLocksPrimary), types.NewString(strings.TrimSpace(name))))
+	if !ok {
+		return 0, ProjectLock{}, false
+	}
+	return rowID, decodeProjectLockRow(row), true
+}
+
+func sameLockOwner(lock ProjectLock, chainID string, stepID string) bool {
+	return strings.TrimSpace(lock.OwnerChainID) == strings.TrimSpace(chainID) && strings.TrimSpace(lock.OwnerStepID) == strings.TrimSpace(stepID)
 }
 
 func nextChainEventSequence(db types.ReducerDB, chainID string) uint64 {

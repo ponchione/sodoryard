@@ -54,6 +54,12 @@ type ChainStore interface {
 	ListChainSteps(ctx context.Context, chainID string) ([]ChainStep, error)
 	ListChainEvents(ctx context.Context, chainID string) ([]ChainEvent, error)
 	ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]ChainEvent, error)
+	AcquireProjectLock(ctx context.Context, args AcquireProjectLockArgs) (ProjectLockAcquireResult, error)
+	ReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error
+	HeartbeatProjectLock(ctx context.Context, args HeartbeatProjectLockArgs) error
+	ForceReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error
+	ReadProjectLock(ctx context.Context, lockName string) (ProjectLock, bool, error)
+	ListProjectLocks(ctx context.Context) ([]ProjectLock, error)
 }
 
 type LaunchStore interface {
@@ -319,6 +325,42 @@ func (r *Runtime) SetChainStatus(ctx context.Context, args SetChainStatusArgs) e
 
 func (r *Runtime) LogChainEvent(ctx context.Context, args LogChainEventArgs) error {
 	_, err := r.callReducerJSON(ctx, "log_chain_event", args)
+	return err
+}
+
+func (r *Runtime) AcquireProjectLock(ctx context.Context, args AcquireProjectLockArgs) (ProjectLockAcquireResult, error) {
+	data, err := r.callReducerJSON(ctx, "acquire_project_lock", args)
+	if err != nil {
+		return ProjectLockAcquireResult{}, err
+	}
+	var result reducerResult
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &result); err != nil {
+			return ProjectLockAcquireResult{}, fmt.Errorf("decode acquire_project_lock result: %w", err)
+		}
+	}
+	return ProjectLockAcquireResult{
+		LockName:                 result.OperationID,
+		ReplacedLockOwnerChainID: result.ReplacedLockOwnerChainID,
+		ReplacedLockOwnerStepID:  result.ReplacedLockOwnerStepID,
+		ReplacedLockOwnerRole:    result.ReplacedLockOwnerRole,
+		ReplacedLockExpiredAtUS:  result.ReplacedLockExpiredAtUS,
+	}, nil
+}
+
+func (r *Runtime) ReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error {
+	_, err := r.callReducerJSON(ctx, "release_project_lock", args)
+	return err
+}
+
+func (r *Runtime) HeartbeatProjectLock(ctx context.Context, args HeartbeatProjectLockArgs) error {
+	_, err := r.callReducerJSON(ctx, "heartbeat_project_lock", args)
+	return err
+}
+
+func (r *Runtime) ForceReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error {
+	args.Force = true
+	_, err := r.callReducerJSON(ctx, "force_release_project_lock", args)
 	return err
 }
 

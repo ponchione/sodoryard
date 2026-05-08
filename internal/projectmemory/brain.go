@@ -314,6 +314,30 @@ func (b *BrainBackend) ListChainEventsSince(ctx context.Context, chainID string,
 	return b.runtime.ListChainEventsSince(ctx, chainID, afterSequence)
 }
 
+func (b *BrainBackend) AcquireProjectLock(ctx context.Context, args AcquireProjectLockArgs) (ProjectLockAcquireResult, error) {
+	return b.runtime.AcquireProjectLock(ctx, args)
+}
+
+func (b *BrainBackend) ReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error {
+	return b.runtime.ReleaseProjectLock(ctx, args)
+}
+
+func (b *BrainBackend) HeartbeatProjectLock(ctx context.Context, args HeartbeatProjectLockArgs) error {
+	return b.runtime.HeartbeatProjectLock(ctx, args)
+}
+
+func (b *BrainBackend) ForceReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error {
+	return b.runtime.ForceReleaseProjectLock(ctx, args)
+}
+
+func (b *BrainBackend) ReadProjectLock(ctx context.Context, lockName string) (ProjectLock, bool, error) {
+	return b.runtime.ReadProjectLock(ctx, lockName)
+}
+
+func (b *BrainBackend) ListProjectLocks(ctx context.Context) ([]ProjectLock, error) {
+	return b.runtime.ListProjectLocks(ctx)
+}
+
 func (b *BrainBackend) SaveLaunch(ctx context.Context, args SaveLaunchArgs) error {
 	return b.runtime.SaveLaunch(ctx, args)
 }

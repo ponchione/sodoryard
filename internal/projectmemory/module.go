@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 9
+const schemaVersion = 10
 
 const (
 	tableProjectState schema.TableID = iota
@@ -30,6 +30,7 @@ const (
 	tableLaunchPresets
 	tableDocumentLinks
 	tableBrainIndexChunks
+	tableProjectLocks
 )
 
 const (
@@ -137,6 +138,10 @@ const (
 	indexBrainIndexChunksDocument
 )
 
+const (
+	indexProjectLocksPrimary schema.IndexID = iota
+)
+
 func NewModule() *shunter.Module {
 	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
 	declareProjectState(mod)
@@ -159,6 +164,7 @@ func NewModule() *shunter.Module {
 	declareLaunchPresets(mod)
 	declareDocumentLinks(mod)
 	declareBrainIndexChunks(mod)
+	declareProjectLocks(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -204,6 +210,10 @@ func NewModule() *shunter.Module {
 	mod.Reducer("upsert_launch_preset", saveLaunchPresetReducer)
 	mod.Reducer("upsert_code_index_file", upsertCodeIndexFileReducer)
 	mod.Reducer("remove_code_index_file", removeCodeIndexFileReducer)
+	mod.Reducer("acquire_project_lock", acquireProjectLockReducer)
+	mod.Reducer("release_project_lock", releaseProjectLockReducer)
+	mod.Reducer("heartbeat_project_lock", heartbeatProjectLockReducer)
+	mod.Reducer("force_release_project_lock", forceReleaseProjectLockReducer)
 	return mod
 }
 
@@ -613,6 +623,22 @@ func declareBrainIndexChunks(mod *shunter.Module) {
 		},
 		Indexes: []schema.IndexDefinition{
 			{Name: "brain_index_chunks_document", Columns: []string{"document_path"}},
+		},
+	})
+}
+
+func declareProjectLocks(mod *shunter.Module) {
+	mod.TableDef(schema.TableDefinition{
+		Name: "project_locks",
+		Columns: []schema.ColumnDefinition{
+			{Name: "lock_name", Type: schema.KindString, PrimaryKey: true},
+			{Name: "owner_chain_id", Type: schema.KindString},
+			{Name: "owner_step_id", Type: schema.KindString},
+			{Name: "owner_role", Type: schema.KindString},
+			{Name: "acquired_at_us", Type: schema.KindUint64},
+			{Name: "heartbeat_at_us", Type: schema.KindUint64},
+			{Name: "expires_at_us", Type: schema.KindUint64},
+			{Name: "metadata_json", Type: schema.KindString},
 		},
 	})
 }

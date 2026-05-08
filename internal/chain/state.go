@@ -17,6 +17,7 @@ type Store struct {
 	db     *sql.DB
 	memory storeBackend
 	clock  func() time.Time
+	locks  *localProjectLockStore
 }
 
 type storeBackend interface {
@@ -35,6 +36,12 @@ type storeBackend interface {
 	LogEvent(ctx context.Context, chainID string, stepID string, eventType EventType, eventData any) error
 	ListEvents(ctx context.Context, chainID string) ([]Event, error)
 	ListEventsSince(ctx context.Context, chainID string, afterID int64) ([]Event, error)
+	AcquireProjectLock(ctx context.Context, params AcquireProjectLockParams) (ProjectLockAcquireResult, error)
+	ReleaseProjectLock(ctx context.Context, params ReleaseProjectLockParams) error
+	HeartbeatProjectLock(ctx context.Context, params HeartbeatProjectLockParams) error
+	ForceReleaseProjectLock(ctx context.Context, params ReleaseProjectLockParams) error
+	GetProjectLock(ctx context.Context, lockName string) (ProjectLock, bool, error)
+	ListProjectLocks(ctx context.Context) ([]ProjectLock, error)
 }
 
 type ChainSpec struct {
@@ -61,6 +68,48 @@ type ChainMetrics struct {
 	TotalTokens       int
 	TotalDurationSecs int
 	ResolverLoops     int
+}
+
+type ProjectLock struct {
+	LockName     string
+	OwnerChainID string
+	OwnerStepID  string
+	OwnerRole    string
+	AcquiredAt   time.Time
+	HeartbeatAt  time.Time
+	ExpiresAt    time.Time
+	MetadataJSON string
+}
+
+type AcquireProjectLockParams struct {
+	LockName     string
+	OwnerChainID string
+	OwnerStepID  string
+	OwnerRole    string
+	AcquiredAt   time.Time
+	ExpiresAt    time.Time
+	MetadataJSON string
+}
+
+type ProjectLockAcquireResult struct {
+	Lock                     ProjectLock
+	ReplacedLockOwnerChainID string
+	ReplacedLockOwnerStepID  string
+	ReplacedLockOwnerRole    string
+	ReplacedLockExpiredAt    time.Time
+}
+
+type ReleaseProjectLockParams struct {
+	LockName     string
+	OwnerChainID string
+	OwnerStepID  string
+}
+
+type HeartbeatProjectLockParams struct {
+	LockName     string
+	OwnerChainID string
+	OwnerStepID  string
+	ExpiresAt    time.Time
 }
 
 type CompleteStepParams struct {
@@ -125,7 +174,7 @@ type Event struct {
 }
 
 func NewStore(db *sql.DB) *Store {
-	return &Store{q: appdb.New(db), db: db, clock: time.Now}
+	return &Store{q: appdb.New(db), db: db, clock: time.Now, locks: newLocalProjectLockStore()}
 }
 
 func StoreWithClock(db *sql.DB, clk func() time.Time) *Store {

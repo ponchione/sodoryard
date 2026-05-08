@@ -25,6 +25,12 @@ type ProjectMemoryStore interface {
 	ListChainSteps(ctx context.Context, chainID string) ([]projectmemory.ChainStep, error)
 	ListChainEvents(ctx context.Context, chainID string) ([]projectmemory.ChainEvent, error)
 	ListChainEventsSince(ctx context.Context, chainID string, afterSequence uint64) ([]projectmemory.ChainEvent, error)
+	AcquireProjectLock(ctx context.Context, args projectmemory.AcquireProjectLockArgs) (projectmemory.ProjectLockAcquireResult, error)
+	ReleaseProjectLock(ctx context.Context, args projectmemory.ReleaseProjectLockArgs) error
+	HeartbeatProjectLock(ctx context.Context, args projectmemory.HeartbeatProjectLockArgs) error
+	ForceReleaseProjectLock(ctx context.Context, args projectmemory.ReleaseProjectLockArgs) error
+	ReadProjectLock(ctx context.Context, lockName string) (projectmemory.ProjectLock, bool, error)
+	ListProjectLocks(ctx context.Context) ([]projectmemory.ProjectLock, error)
 }
 
 type projectMemoryBackend struct {
@@ -39,6 +45,7 @@ func NewProjectMemoryStore(memory ProjectMemoryStore) *Store {
 	return &Store{
 		memory: projectMemoryBackend{memory: memory, now: time.Now},
 		clock:  time.Now,
+		locks:  newLocalProjectLockStore(),
 	}
 }
 
@@ -239,6 +246,96 @@ func (b projectMemoryBackend) ListEventsSince(ctx context.Context, chainID strin
 	return mapProjectMemoryEvents(rows), nil
 }
 
+func (b projectMemoryBackend) AcquireProjectLock(ctx context.Context, params AcquireProjectLockParams) (ProjectLockAcquireResult, error) {
+	acquiredAtUS := timeToUnixMicro(params.AcquiredAt)
+	if acquiredAtUS == 0 {
+		acquiredAtUS = b.nowUS()
+	}
+	result, err := b.memory.AcquireProjectLock(ctx, projectmemory.AcquireProjectLockArgs{
+		LockName:     params.LockName,
+		OwnerChainID: params.OwnerChainID,
+		OwnerStepID:  params.OwnerStepID,
+		OwnerRole:    params.OwnerRole,
+		ExpiresAtUS:  timeToUnixMicro(params.ExpiresAt),
+		MetadataJSON: params.MetadataJSON,
+		AcquiredAtUS: acquiredAtUS,
+	})
+	if err != nil {
+		return ProjectLockAcquireResult{}, fmt.Errorf("acquire project lock: %w", err)
+	}
+	lock, found, err := b.memory.ReadProjectLock(ctx, params.LockName)
+	if err != nil {
+		return ProjectLockAcquireResult{}, fmt.Errorf("read acquired project lock: %w", err)
+	}
+	if !found {
+		return ProjectLockAcquireResult{}, fmt.Errorf("read acquired project lock: not found")
+	}
+	return ProjectLockAcquireResult{
+		Lock:                     mapProjectMemoryLock(lock),
+		ReplacedLockOwnerChainID: result.ReplacedLockOwnerChainID,
+		ReplacedLockOwnerStepID:  result.ReplacedLockOwnerStepID,
+		ReplacedLockOwnerRole:    result.ReplacedLockOwnerRole,
+		ReplacedLockExpiredAt:    unixMicro(result.ReplacedLockExpiredAtUS),
+	}, nil
+}
+
+func (b projectMemoryBackend) ReleaseProjectLock(ctx context.Context, params ReleaseProjectLockParams) error {
+	if err := b.memory.ReleaseProjectLock(ctx, projectmemory.ReleaseProjectLockArgs{
+		LockName:     params.LockName,
+		OwnerChainID: params.OwnerChainID,
+		OwnerStepID:  params.OwnerStepID,
+		ReleasedAtUS: b.nowUS(),
+	}); err != nil {
+		return fmt.Errorf("release project lock: %w", err)
+	}
+	return nil
+}
+
+func (b projectMemoryBackend) HeartbeatProjectLock(ctx context.Context, params HeartbeatProjectLockParams) error {
+	if err := b.memory.HeartbeatProjectLock(ctx, projectmemory.HeartbeatProjectLockArgs{
+		LockName:      params.LockName,
+		OwnerChainID:  params.OwnerChainID,
+		OwnerStepID:   params.OwnerStepID,
+		ExpiresAtUS:   timeToUnixMicro(params.ExpiresAt),
+		HeartbeatAtUS: b.nowUS(),
+	}); err != nil {
+		return fmt.Errorf("heartbeat project lock: %w", err)
+	}
+	return nil
+}
+
+func (b projectMemoryBackend) ForceReleaseProjectLock(ctx context.Context, params ReleaseProjectLockParams) error {
+	if err := b.memory.ForceReleaseProjectLock(ctx, projectmemory.ReleaseProjectLockArgs{
+		LockName:     params.LockName,
+		OwnerChainID: params.OwnerChainID,
+		OwnerStepID:  params.OwnerStepID,
+		ReleasedAtUS: b.nowUS(),
+	}); err != nil {
+		return fmt.Errorf("force release project lock: %w", err)
+	}
+	return nil
+}
+
+func (b projectMemoryBackend) GetProjectLock(ctx context.Context, lockName string) (ProjectLock, bool, error) {
+	lock, found, err := b.memory.ReadProjectLock(ctx, lockName)
+	if err != nil {
+		return ProjectLock{}, false, fmt.Errorf("get project lock: %w", err)
+	}
+	return mapProjectMemoryLock(lock), found, nil
+}
+
+func (b projectMemoryBackend) ListProjectLocks(ctx context.Context) ([]ProjectLock, error) {
+	rows, err := b.memory.ListProjectLocks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list project locks: %w", err)
+	}
+	locks := make([]ProjectLock, 0, len(rows))
+	for _, row := range rows {
+		locks = append(locks, mapProjectMemoryLock(row))
+	}
+	return locks, nil
+}
+
 const emptyJSONPayload = "{}"
 
 type projectMemoryChainMetrics struct {
@@ -327,6 +424,19 @@ func mapProjectMemoryEvents(rows []projectmemory.ChainEvent) []Event {
 	return events
 }
 
+func mapProjectMemoryLock(row projectmemory.ProjectLock) ProjectLock {
+	return ProjectLock{
+		LockName:     row.LockName,
+		OwnerChainID: row.OwnerChainID,
+		OwnerStepID:  row.OwnerStepID,
+		OwnerRole:    row.OwnerRole,
+		AcquiredAt:   unixMicro(row.AcquiredAtUS),
+		HeartbeatAt:  unixMicro(row.HeartbeatAtUS),
+		ExpiresAt:    unixMicro(row.ExpiresAtUS),
+		MetadataJSON: row.MetadataJSON,
+	}
+}
+
 func (b projectMemoryBackend) nowUS() uint64 {
 	now := b.now
 	if now == nil {
@@ -348,6 +458,13 @@ func nullableUnixMicro(value uint64) *time.Time {
 	}
 	ts := unixMicro(value)
 	return &ts
+}
+
+func timeToUnixMicro(value time.Time) uint64 {
+	if value.IsZero() {
+		return 0
+	}
+	return uint64(value.UTC().UnixMicro())
 }
 
 func marshalProjectMemoryStrings(values []string) (string, error) {

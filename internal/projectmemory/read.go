@@ -664,6 +664,44 @@ func (r *Runtime) ListChainEventsSince(ctx context.Context, chainID string, afte
 	return events, nil
 }
 
+func (r *Runtime) ReadProjectLock(ctx context.Context, lockName string) (ProjectLock, bool, error) {
+	lockName = strings.TrimSpace(lockName)
+	if lockName == "" {
+		return ProjectLock{}, false, fmt.Errorf("lock name is required")
+	}
+	var lock ProjectLock
+	var found bool
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.SeekIndex(tableProjectLocks, indexProjectLocksPrimary, types.NewString(lockName)) {
+			lock = decodeProjectLockRow(row)
+			found = true
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		return ProjectLock{}, false, err
+	}
+	return lock, found, nil
+}
+
+func (r *Runtime) ListProjectLocks(ctx context.Context) ([]ProjectLock, error) {
+	locks := make([]ProjectLock, 0)
+	err := r.rt.Read(ctx, func(view shunter.LocalReadView) error {
+		for _, row := range view.TableScan(tableProjectLocks) {
+			locks = append(locks, decodeProjectLockRow(row))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(locks, func(i, j int) bool {
+		return locks[i].LockName < locks[j].LockName
+	})
+	return locks, nil
+}
+
 func (r *Runtime) ReadLaunch(ctx context.Context, projectID string, launchID string) (Launch, bool, error) {
 	projectID = strings.TrimSpace(projectID)
 	launchID = strings.TrimSpace(launchID)

@@ -53,6 +53,17 @@ type ChainEvent struct {
 	PayloadJSON string
 }
 
+type ProjectLock struct {
+	LockName      string
+	OwnerChainID  string
+	OwnerStepID   string
+	OwnerRole     string
+	AcquiredAtUS  uint64
+	HeartbeatAtUS uint64
+	ExpiresAtUS   uint64
+	MetadataJSON  string
+}
+
 func chainRow(chain Chain) types.ProductValue {
 	return types.ProductValue{
 		types.NewString(chain.ID),
@@ -154,6 +165,32 @@ func decodeChainEventRow(row types.ProductValue) ChainEvent {
 		EventType:   row[4].AsString(),
 		CreatedAtUS: row[5].AsUint64(),
 		PayloadJSON: row[6].AsString(),
+	}
+}
+
+func projectLockRow(lock ProjectLock) types.ProductValue {
+	return types.ProductValue{
+		types.NewString(lock.LockName),
+		types.NewString(lock.OwnerChainID),
+		types.NewString(lock.OwnerStepID),
+		types.NewString(lock.OwnerRole),
+		types.NewUint64(lock.AcquiredAtUS),
+		types.NewUint64(lock.HeartbeatAtUS),
+		types.NewUint64(lock.ExpiresAtUS),
+		types.NewString(defaultString(lock.MetadataJSON, emptyJSONObject)),
+	}
+}
+
+func decodeProjectLockRow(row types.ProductValue) ProjectLock {
+	return ProjectLock{
+		LockName:      row[0].AsString(),
+		OwnerChainID:  row[1].AsString(),
+		OwnerStepID:   row[2].AsString(),
+		OwnerRole:     row[3].AsString(),
+		AcquiredAtUS:  row[4].AsUint64(),
+		HeartbeatAtUS: row[5].AsUint64(),
+		ExpiresAtUS:   row[6].AsUint64(),
+		MetadataJSON:  row[7].AsString(),
 	}
 }
 

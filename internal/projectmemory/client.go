@@ -363,6 +363,42 @@ func (c *Client) ListChainEventsSince(ctx context.Context, chainID string, after
 	return resp.Events, nil
 }
 
+func (c *Client) AcquireProjectLock(ctx context.Context, args AcquireProjectLockArgs) (ProjectLockAcquireResult, error) {
+	var resp AcquireProjectLockResponse
+	if err := c.call(ctx, "Brain.AcquireProjectLock", args, &resp); err != nil {
+		return ProjectLockAcquireResult{}, err
+	}
+	return resp.Result, nil
+}
+
+func (c *Client) ReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error {
+	return c.call(ctx, "Brain.ReleaseProjectLock", args, &EmptyResponse{})
+}
+
+func (c *Client) HeartbeatProjectLock(ctx context.Context, args HeartbeatProjectLockArgs) error {
+	return c.call(ctx, "Brain.HeartbeatProjectLock", args, &EmptyResponse{})
+}
+
+func (c *Client) ForceReleaseProjectLock(ctx context.Context, args ReleaseProjectLockArgs) error {
+	return c.call(ctx, "Brain.ForceReleaseProjectLock", args, &EmptyResponse{})
+}
+
+func (c *Client) ReadProjectLock(ctx context.Context, lockName string) (ProjectLock, bool, error) {
+	var resp ReadProjectLockResponse
+	if err := c.call(ctx, "Brain.ReadProjectLock", ReadProjectLockRequest{LockName: lockName}, &resp); err != nil {
+		return ProjectLock{}, false, err
+	}
+	return resp.Lock, resp.Found, nil
+}
+
+func (c *Client) ListProjectLocks(ctx context.Context) ([]ProjectLock, error) {
+	var resp ListProjectLocksResponse
+	if err := c.call(ctx, "Brain.ListProjectLocks", ListProjectLocksRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Locks, nil
+}
+
 func (c *Client) SaveLaunch(ctx context.Context, args SaveLaunchArgs) error {
 	return c.call(ctx, "Brain.SaveLaunch", args, &EmptyResponse{})
 }
