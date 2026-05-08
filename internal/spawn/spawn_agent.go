@@ -44,6 +44,7 @@ type SpawnAgentTool struct {
 const (
 	defaultAgentRunTimeout     = 30 * time.Minute
 	parentTimeoutGraceDuration = 10 * time.Second
+	sourceWriterGuardScanLimit = 1000
 )
 
 type spawnAgentInput struct {
@@ -84,6 +85,7 @@ type spawnStep struct {
 	stepID                string
 	receiptPath           string
 	task                  string
+	sourceMutating        bool
 	chainRemainingTimeout time.Duration
 	maxTurns              int
 	maxTokens             int
@@ -99,6 +101,14 @@ type engineRunOutcome struct {
 
 type stepReceiptCompleter interface {
 	CompleteStepWithReceipt(context.Context, projectmemory.CompleteStepWithReceiptArgs) error
+}
+
+type activeSourceWriterStep struct {
+	ChainID     string
+	StepID      string
+	SequenceNum int
+	Role        string
+	Status      string
 }
 
 func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
@@ -200,6 +210,12 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 	if stopErr := t.stopIfChainNotRunnable(ctx); stopErr != nil {
 		return spawnStep{}, stopErr
 	}
+	sourceMutating := appconfig.IsSourceWritingRole(roleName, roleCfg)
+	if sourceMutating {
+		if err := t.enforceSourceWriterGuard(ctx, roleName); err != nil {
+			return spawnStep{}, err
+		}
+	}
 	steps, err := t.Store.ListSteps(ctx, t.ChainID)
 	if err != nil {
 		return spawnStep{}, fmt.Errorf("spawn_agent: list steps: %w", err)
@@ -223,10 +239,97 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 		stepID:                stepID,
 		receiptPath:           receiptPath,
 		task:                  task,
+		sourceMutating:        sourceMutating,
 		chainRemainingTimeout: chainRemainingTimeout,
 		maxTurns:              in.MaxTurns,
 		maxTokens:             in.MaxTokens,
 	}, nil
+}
+
+func (t *SpawnAgentTool) enforceSourceWriterGuard(ctx context.Context, requestedRole string) error {
+	active, err := t.findActiveSourceWriter(ctx)
+	if err != nil {
+		return fmt.Errorf("spawn_agent: source writer guard: %w", err)
+	}
+	if active == nil {
+		return nil
+	}
+	_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventSourceWriterBlocked, map[string]any{
+		"requested_role":  requestedRole,
+		"active_chain_id": active.ChainID,
+		"active_step_id":  active.StepID,
+		"active_sequence": active.SequenceNum,
+		"active_role":     active.Role,
+		"active_status":   active.Status,
+		"guard":           "source_writer",
+		"mutation_class":  appconfig.MutationClassSourceWrite,
+	})
+	return fmt.Errorf("spawn_agent: source writer guard: active source-writing step %d (%s) in chain %s has role %s and status %s; refusing to start %s", active.SequenceNum, active.StepID, active.ChainID, active.Role, active.Status, requestedRole)
+}
+
+func (t *SpawnAgentTool) findActiveSourceWriter(ctx context.Context) (*activeSourceWriterStep, error) {
+	if active, err := t.findActiveSourceWriterInChain(ctx, t.ChainID); err != nil || active != nil {
+		return active, err
+	}
+	chains, err := t.Store.ListChains(ctx, sourceWriterGuardScanLimit)
+	if err != nil {
+		return nil, fmt.Errorf("list chains: %w", err)
+	}
+	for _, ch := range chains {
+		if ch.ID == t.ChainID {
+			continue
+		}
+		active, err := t.findActiveSourceWriterInChain(ctx, ch.ID)
+		if err != nil {
+			return nil, err
+		}
+		if active != nil {
+			return active, nil
+		}
+	}
+	return nil, nil
+}
+
+func (t *SpawnAgentTool) findActiveSourceWriterInChain(ctx context.Context, chainID string) (*activeSourceWriterStep, error) {
+	steps, err := t.Store.ListSteps(ctx, chainID)
+	if err != nil {
+		return nil, fmt.Errorf("list steps for chain %s: %w", chainID, err)
+	}
+	for _, step := range steps {
+		if !isActiveStepStatus(step.Status) {
+			continue
+		}
+		if !t.stepRoleIsSourceWriting(step.Role) {
+			continue
+		}
+		return &activeSourceWriterStep{
+			ChainID:     step.ChainID,
+			StepID:      step.ID,
+			SequenceNum: step.SequenceNum,
+			Role:        step.Role,
+			Status:      step.Status,
+		}, nil
+	}
+	return nil, nil
+}
+
+func (t *SpawnAgentTool) stepRoleIsSourceWriting(roleName string) bool {
+	if t.Config != nil {
+		resolvedName, roleCfg, err := t.Config.ResolveAgentRole(roleName)
+		if err == nil {
+			return appconfig.IsSourceWritingRole(resolvedName, roleCfg)
+		}
+	}
+	return appconfig.IsSourceWritingRole(roleName, appconfig.AgentRoleConfig{})
+}
+
+func isActiveStepStatus(status string) bool {
+	switch status {
+	case "pending", "running":
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engineRunOutcome {

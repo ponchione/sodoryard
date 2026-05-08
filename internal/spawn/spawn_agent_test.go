@@ -323,6 +323,119 @@ Done.
 	}
 }
 
+func TestSpawnAgentRejectsSecondSourceWriterAcrossProject(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	activeChainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "active-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	activeStepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: activeChainID, SequenceNum: 1, Role: "coder", Task: "do work"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.StepRunning(ctx, activeStepID); err != nil {
+		t.Fatalf("StepRunning returned error: %v", err)
+	}
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "blocked-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	tool := NewSpawnAgentTool(SpawnAgentDeps{
+		Store:   store,
+		Backend: &fakeBrainBackend{docs: map[string]string{}},
+		Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{
+			"coder":    {SystemPrompt: "builtin:coder"},
+			"resolver": {SystemPrompt: "builtin:resolver"},
+		}},
+		ChainID:      chainID,
+		EngineBinary: "tidmouth",
+		ProjectRoot:  t.TempDir(),
+	})
+	runCalled := false
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		runCalled = true
+		return RunResult{ExitCode: 0}
+	}
+
+	_, err = tool.Execute(ctx, ".", []byte(`{"role":"resolver","task":"fix work"}`))
+	if err == nil || !strings.Contains(err.Error(), "source writer guard") {
+		t.Fatalf("error = %v, want source writer guard rejection", err)
+	}
+	if runCalled {
+		t.Fatal("runCommand called despite active source writer")
+	}
+	steps, err := store.ListSteps(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %+v, want no blocked step row", steps)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var blockedEvent bool
+	for _, event := range events {
+		if event.EventType == chain.EventSourceWriterBlocked &&
+			strings.Contains(event.EventData, `"requested_role":"resolver"`) &&
+			strings.Contains(event.EventData, `"active_chain_id":"active-writer-chain"`) &&
+			strings.Contains(event.EventData, `"active_role":"coder"`) {
+			blockedEvent = true
+		}
+	}
+	if !blockedEvent {
+		t.Fatalf("events = %+v, want source writer guard blocked event", events)
+	}
+}
+
+func TestSpawnAgentAllowsReadOnlyRoleWhileSourceWriterRuns(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	activeChainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "active-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	activeStepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: activeChainID, SequenceNum: 1, Role: "coder", Task: "do work"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.StepRunning(ctx, activeStepID); err != nil {
+		t.Fatalf("StepRunning returned error: %v", err)
+	}
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "readonly-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{
+		Store:   store,
+		Backend: backend,
+		Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{
+			"coder":               {SystemPrompt: "builtin:coder"},
+			"correctness-auditor": {SystemPrompt: "builtin:correctness-auditor"},
+		}},
+		ChainID:      chainID,
+		EngineBinary: "tidmouth",
+		ProjectRoot:  t.TempDir(),
+	})
+	runCalled := false
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		runCalled = true
+		backend.docs["receipts/correctness-auditor/"+chainID+"-step-001.md"] = `---
+agent: correctness-auditor
+chain_id: readonly-chain
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+Audit complete.
+`
+		return RunResult{ExitCode: 0}
+	}
+
+	result, err := tool.Execute(ctx, ".", []byte(`{"role":"correctness-auditor","task":"audit work"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !runCalled || result == nil || !result.Success {
+		t.Fatalf("runCalled=%t result=%#v, want successful read-only spawn", runCalled, result)
+	}
+}
+
 func TestSpawnAgentTreatsSpecVerdictsAsCompletedStepExecutions(t *testing.T) {
 	for _, verdict := range []string{
 		"completed",

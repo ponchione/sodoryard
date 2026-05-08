@@ -12,21 +12,22 @@ import (
 type EventType string
 
 const (
-	EventChainStarted       EventType = "chain_started"
-	EventStepStarted        EventType = "step_started"
-	EventStepProcessStarted EventType = "step_process_started"
-	EventStepProcessExited  EventType = "step_process_exited"
-	EventStepOutput         EventType = "step_output"
-	EventStepCompleted      EventType = "step_completed"
-	EventStepFailed         EventType = "step_failed"
-	EventReindexStarted     EventType = "reindex_started"
-	EventReindexCompleted   EventType = "reindex_completed"
-	EventResolverLoop       EventType = "resolver_loop"
-	EventSafetyLimitHit     EventType = "safety_limit_hit"
-	EventChainPaused        EventType = "chain_paused"
-	EventChainResumed       EventType = "chain_resumed"
-	EventChainCompleted     EventType = "chain_completed"
-	EventChainCancelled     EventType = "chain_cancelled"
+	EventChainStarted        EventType = "chain_started"
+	EventStepStarted         EventType = "step_started"
+	EventStepProcessStarted  EventType = "step_process_started"
+	EventStepProcessExited   EventType = "step_process_exited"
+	EventStepOutput          EventType = "step_output"
+	EventStepCompleted       EventType = "step_completed"
+	EventStepFailed          EventType = "step_failed"
+	EventSourceWriterBlocked EventType = "source_writer_guard_blocked"
+	EventReindexStarted      EventType = "reindex_started"
+	EventReindexCompleted    EventType = "reindex_completed"
+	EventResolverLoop        EventType = "resolver_loop"
+	EventSafetyLimitHit      EventType = "safety_limit_hit"
+	EventChainPaused         EventType = "chain_paused"
+	EventChainResumed        EventType = "chain_resumed"
+	EventChainCompleted      EventType = "chain_completed"
+	EventChainCancelled      EventType = "chain_cancelled"
 )
 
 func (s *Store) LogEvent(ctx context.Context, chainID string, stepID string, eventType EventType, eventData any) error {

@@ -118,6 +118,8 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 		return fmt.Sprintf("[%s] %s", stream, line)
 	case chain.EventStepCompleted, chain.EventStepFailed:
 		return join(plain("role"), plain("verdict"), plain("tokens_used"), plain("duration_secs"), plain("exit_code"), quoted("error"))
+	case chain.EventSourceWriterBlocked:
+		return join(plain("requested_role"), plain("active_role"), plain("active_status"), plain("active_sequence"), plain("active_step_id"), plain("active_chain_id"))
 	case chain.EventResolverLoop:
 		return join(plain("count"), quoted("task_context"))
 	case chain.EventReindexStarted, chain.EventReindexCompleted, chain.EventSafetyLimitHit, chain.EventChainPaused, chain.EventChainCancelled, chain.EventChainCompleted:
