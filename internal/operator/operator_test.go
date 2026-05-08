@@ -669,8 +669,20 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 		"role":                                   "coder",
 		"sequence":                               1,
 		"source_mutating":                        true,
+		"exit_code":                              2,
+		"duration_secs":                          7,
+		"receipt_present":                        true,
+		"synthetic_receipt_written":              false,
 		"receipt_valid":                          false,
+		"receipt_schema_valid":                   true,
+		"receipt_step_valid":                     true,
+		"receipt_sections_valid":                 false,
 		"receipt_error":                          "receipt: missing required section: Validation",
+		"parsed_verdict":                         "completed",
+		"tokens_used":                            11,
+		"turns_used":                             2,
+		"receipt_duration_seconds":               6,
+		"claimed_validation_commands":            []string{"rtk make test"},
 		"changed_file_claim_present":             true,
 		"claimed_changed_files":                  []string{"claimed.txt"},
 		"changed_file_claim_matches_manifest":    false,
@@ -686,6 +698,10 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 		"source_writer_lock_release_attempted":   true,
 		"source_writer_lock_released":            false,
 		"source_writer_lock_release_error":       "lock held by other step",
+		"finding_count":                          1,
+		"open_finding_count":                     1,
+		"finding_ids":                            []string{"FIND-correctness-001"},
+		"open_finding_ids":                       []string{"FIND-correctness-001"},
 		"suspicious_verdict_finding_combination": false,
 	}); err != nil {
 		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
@@ -726,8 +742,14 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	if facts.SequenceNum != 1 || facts.Role != "coder" || facts.ReceiptValid || facts.ReceiptError != "receipt: missing required section: Validation" || facts.SourceWriterLockReleased {
 		t.Fatalf("guardrail facts = %+v, want invalid receipt and unreleased lock", facts)
 	}
+	if !facts.ReceiptPresent || facts.SyntheticReceiptWritten || facts.ParsedVerdict != "completed" || facts.ExitCode != 2 || facts.DurationSecs != 7 || facts.TokensUsed != 11 || facts.TurnsUsed != 2 || facts.ReceiptDurationSeconds != 6 || strings.Join(facts.ClaimedValidationCommands, ",") != "rtk make test" {
+		t.Fatalf("guardrail fact receipt/run fields = %+v, want surfaced post-step metadata", facts)
+	}
 	if !facts.ChangedFileClaimPresent || facts.ChangedFileClaimMatchesManifest || strings.Join(facts.ChangedFileClaimExtra, ",") != "claimed.txt" || strings.Join(facts.ChangedFileManifestUnclaimed, ",") != "actual.txt" {
 		t.Fatalf("guardrail fact changed-file claim = %+v, want mismatch details", facts)
+	}
+	if facts.FindingCount != 1 || facts.OpenFindingCount != 1 || strings.Join(facts.FindingIDs, ",") != "FIND-correctness-001" || strings.Join(facts.OpenFindingIDs, ",") != "FIND-correctness-001" {
+		t.Fatalf("guardrail fact finding fields = %+v, want surfaced finding counts and ids", facts)
 	}
 	if !facts.CodeIndexStateFound || facts.CodeIndexDirty || !facts.BrainIndexStateFound || !facts.BrainIndexDirty || facts.BrainIndexDirtyReason != "complete_step_with_receipt" {
 		t.Fatalf("guardrail fact index state = %+v, want clean code index and dirty brain index", facts)

@@ -535,10 +535,20 @@ type stepGuardrailFactsEvent struct {
 	Sequence                            int      `json:"sequence"`
 	ReceiptPath                         string   `json:"receipt_path"`
 	SourceMutating                      bool     `json:"source_mutating"`
+	ExitCode                            int      `json:"exit_code"`
+	DurationSecs                        int      `json:"duration_secs"`
+	ReceiptPresent                      bool     `json:"receipt_present"`
+	SyntheticReceiptWritten             bool     `json:"synthetic_receipt_written"`
 	ReceiptSchemaValid                  bool     `json:"receipt_schema_valid"`
+	ReceiptStepValid                    bool     `json:"receipt_step_valid"`
 	ReceiptSectionsValid                bool     `json:"receipt_sections_valid"`
 	ReceiptValid                        bool     `json:"receipt_valid"`
 	ReceiptError                        string   `json:"receipt_error"`
+	ParsedVerdict                       string   `json:"parsed_verdict"`
+	TokensUsed                          int      `json:"tokens_used"`
+	TurnsUsed                           int      `json:"turns_used"`
+	ReceiptDurationSeconds              int      `json:"receipt_duration_seconds"`
+	ClaimedValidationCommands           []string `json:"claimed_validation_commands"`
 	ChangedFileClaimPresent             bool     `json:"changed_file_claim_present"`
 	ClaimedChangedFiles                 []string `json:"claimed_changed_files"`
 	ChangedFileClaimMatchesManifest     bool     `json:"changed_file_claim_matches_manifest"`
@@ -565,11 +575,17 @@ type stepGuardrailFactsEvent struct {
 	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
 	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
 	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error"`
+	FindingCount                        int      `json:"finding_count"`
+	OpenFindingCount                    int      `json:"open_finding_count"`
+	ClosedFindingCount                  int      `json:"closed_finding_count"`
+	AddressedFindingCount               int      `json:"addressed_finding_count"`
+	FindingIDs                          []string `json:"finding_ids"`
 	SuspiciousVerdictFindingCombination bool     `json:"suspicious_verdict_finding_combination"`
 	SuspiciousVerdictFindingReason      string   `json:"suspicious_verdict_finding_reason"`
 	OpenFindingIDs                      []string `json:"open_finding_ids"`
 	ClosedFindingIDs                    []string `json:"closed_finding_ids"`
 	AddressedIDs                        []string `json:"addressed_ids"`
+	RunError                            string   `json:"run_error"`
 }
 
 type changedFileManifestEvent struct {
@@ -604,6 +620,7 @@ func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) 
 	event.Role = strings.TrimSpace(event.Role)
 	event.ReceiptPath = strings.TrimSpace(event.ReceiptPath)
 	event.ReceiptError = strings.TrimSpace(event.ReceiptError)
+	event.ParsedVerdict = strings.TrimSpace(event.ParsedVerdict)
 	event.ChangedFileManifestError = strings.TrimSpace(event.ChangedFileManifestError)
 	event.CodeIndexDirtyMarkError = strings.TrimSpace(event.CodeIndexDirtyMarkError)
 	event.CodeIndexDirtyReason = strings.TrimSpace(event.CodeIndexDirtyReason)
@@ -612,15 +629,30 @@ func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) 
 	event.BrainIndexStateError = strings.TrimSpace(event.BrainIndexStateError)
 	event.SourceWriterLockReleaseError = strings.TrimSpace(event.SourceWriterLockReleaseError)
 	event.SuspiciousVerdictFindingReason = strings.TrimSpace(event.SuspiciousVerdictFindingReason)
+	event.RunError = strings.TrimSpace(event.RunError)
 	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
 	event.ClosedFindingIDs = compactStrings(event.ClosedFindingIDs)
 	event.AddressedIDs = compactStrings(event.AddressedIDs)
+	event.FindingIDs = compactStrings(event.FindingIDs)
+	event.ClaimedValidationCommands = compactStrings(event.ClaimedValidationCommands)
 	event.ClaimedChangedFiles = compactStrings(event.ClaimedChangedFiles)
 	event.ChangedFileClaimExtra = compactStrings(event.ChangedFileClaimExtra)
 	event.ChangedFileManifestUnclaimed = compactStrings(event.ChangedFileManifestUnclaimed)
 	event.ChangedFiles = compactStrings(event.ChangedFiles)
 	if event.ChangedFileCount == 0 {
 		event.ChangedFileCount = len(event.ChangedFiles)
+	}
+	if event.FindingCount == 0 {
+		event.FindingCount = len(event.FindingIDs)
+	}
+	if event.OpenFindingCount == 0 {
+		event.OpenFindingCount = len(event.OpenFindingIDs)
+	}
+	if event.ClosedFindingCount == 0 {
+		event.ClosedFindingCount = len(event.ClosedFindingIDs)
+	}
+	if event.AddressedFindingCount == 0 {
+		event.AddressedFindingCount = len(event.AddressedIDs)
 	}
 	return event, nil
 }
@@ -668,43 +700,62 @@ func summarizeChainGuardrails(ch chain.Chain, steps []chain.Step, events []chain
 				role = step.Role
 			}
 			details.StepFacts = append(details.StepFacts, StepGuardrailFactSummary{
-				StepID:                           event.StepID,
-				SequenceNum:                      seq,
-				Role:                             role,
-				ReceiptPath:                      facts.ReceiptPath,
-				SourceMutating:                   facts.SourceMutating,
-				ReceiptValid:                     facts.ReceiptValid,
-				ReceiptSchemaValid:               facts.ReceiptSchemaValid,
-				ReceiptSectionsValid:             facts.ReceiptSectionsValid,
-				ReceiptError:                     facts.ReceiptError,
-				ChangedFileClaimPresent:          facts.ChangedFileClaimPresent,
-				ClaimedChangedFiles:              append([]string(nil), facts.ClaimedChangedFiles...),
-				ChangedFileClaimMatchesManifest:  facts.ChangedFileClaimMatchesManifest,
-				ChangedFileClaimExtra:            append([]string(nil), facts.ChangedFileClaimExtra...),
-				ChangedFileManifestUnclaimed:     append([]string(nil), facts.ChangedFileManifestUnclaimed...),
-				ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
-				ChangedFileCount:                 facts.ChangedFileCount,
-				ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
-				CodeIndexStateSupported:          facts.CodeIndexStateSupported,
-				CodeIndexStateFound:              facts.CodeIndexStateFound,
-				CodeIndexDirtyMarkSupported:      facts.CodeIndexDirtyMarkSupported,
-				CodeIndexDirtyMarkAttempted:      facts.CodeIndexDirtyMarkAttempted,
-				CodeIndexDirtyMarked:             facts.CodeIndexDirtyMarked,
-				CodeIndexDirtyMarkError:          facts.CodeIndexDirtyMarkError,
-				CodeIndexDirty:                   facts.CodeIndexDirty,
-				CodeIndexDirtyReason:             facts.CodeIndexDirtyReason,
-				CodeIndexStateError:              facts.CodeIndexStateError,
-				BrainIndexStateSupported:         facts.BrainIndexStateSupported,
-				BrainIndexStateFound:             facts.BrainIndexStateFound,
-				BrainIndexDirty:                  facts.BrainIndexDirty,
-				BrainIndexDirtyReason:            facts.BrainIndexDirtyReason,
-				BrainIndexStateError:             facts.BrainIndexStateError,
-				SourceWriterLockReleaseAttempted: facts.SourceWriterLockReleaseAttempted,
-				SourceWriterLockReleased:         facts.SourceWriterLockReleased,
-				SourceWriterLockReleaseError:     facts.SourceWriterLockReleaseError,
-				OpenFindingIDs:                   append([]string(nil), facts.OpenFindingIDs...),
-				ClosedFindingIDs:                 append([]string(nil), facts.ClosedFindingIDs...),
-				AddressedIDs:                     append([]string(nil), facts.AddressedIDs...),
+				StepID:                              event.StepID,
+				SequenceNum:                         seq,
+				Role:                                role,
+				ReceiptPath:                         facts.ReceiptPath,
+				SourceMutating:                      facts.SourceMutating,
+				ExitCode:                            facts.ExitCode,
+				DurationSecs:                        facts.DurationSecs,
+				ReceiptPresent:                      facts.ReceiptPresent,
+				SyntheticReceiptWritten:             facts.SyntheticReceiptWritten,
+				ReceiptValid:                        facts.ReceiptValid,
+				ReceiptSchemaValid:                  facts.ReceiptSchemaValid,
+				ReceiptStepValid:                    facts.ReceiptStepValid,
+				ReceiptSectionsValid:                facts.ReceiptSectionsValid,
+				ReceiptError:                        facts.ReceiptError,
+				ParsedVerdict:                       facts.ParsedVerdict,
+				TokensUsed:                          facts.TokensUsed,
+				TurnsUsed:                           facts.TurnsUsed,
+				ReceiptDurationSeconds:              facts.ReceiptDurationSeconds,
+				ClaimedValidationCommands:           append([]string(nil), facts.ClaimedValidationCommands...),
+				ChangedFileClaimPresent:             facts.ChangedFileClaimPresent,
+				ClaimedChangedFiles:                 append([]string(nil), facts.ClaimedChangedFiles...),
+				ChangedFileClaimMatchesManifest:     facts.ChangedFileClaimMatchesManifest,
+				ChangedFileClaimExtra:               append([]string(nil), facts.ChangedFileClaimExtra...),
+				ChangedFileManifestUnclaimed:        append([]string(nil), facts.ChangedFileManifestUnclaimed...),
+				ChangedFileManifestPresent:          facts.ChangedFileManifestPresent,
+				ChangedFileManifestError:            facts.ChangedFileManifestError,
+				ChangedFileCount:                    facts.ChangedFileCount,
+				ChangedFiles:                        append([]string(nil), facts.ChangedFiles...),
+				CodeIndexStateSupported:             facts.CodeIndexStateSupported,
+				CodeIndexStateFound:                 facts.CodeIndexStateFound,
+				CodeIndexDirtyMarkSupported:         facts.CodeIndexDirtyMarkSupported,
+				CodeIndexDirtyMarkAttempted:         facts.CodeIndexDirtyMarkAttempted,
+				CodeIndexDirtyMarked:                facts.CodeIndexDirtyMarked,
+				CodeIndexDirtyMarkError:             facts.CodeIndexDirtyMarkError,
+				CodeIndexDirty:                      facts.CodeIndexDirty,
+				CodeIndexDirtyReason:                facts.CodeIndexDirtyReason,
+				CodeIndexStateError:                 facts.CodeIndexStateError,
+				BrainIndexStateSupported:            facts.BrainIndexStateSupported,
+				BrainIndexStateFound:                facts.BrainIndexStateFound,
+				BrainIndexDirty:                     facts.BrainIndexDirty,
+				BrainIndexDirtyReason:               facts.BrainIndexDirtyReason,
+				BrainIndexStateError:                facts.BrainIndexStateError,
+				SourceWriterLockReleaseAttempted:    facts.SourceWriterLockReleaseAttempted,
+				SourceWriterLockReleased:            facts.SourceWriterLockReleased,
+				SourceWriterLockReleaseError:        facts.SourceWriterLockReleaseError,
+				FindingCount:                        facts.FindingCount,
+				OpenFindingCount:                    facts.OpenFindingCount,
+				ClosedFindingCount:                  facts.ClosedFindingCount,
+				AddressedFindingCount:               facts.AddressedFindingCount,
+				FindingIDs:                          append([]string(nil), facts.FindingIDs...),
+				OpenFindingIDs:                      append([]string(nil), facts.OpenFindingIDs...),
+				ClosedFindingIDs:                    append([]string(nil), facts.ClosedFindingIDs...),
+				AddressedIDs:                        append([]string(nil), facts.AddressedIDs...),
+				SuspiciousVerdictFindingCombination: facts.SuspiciousVerdictFindingCombination,
+				SuspiciousVerdictFindingReason:      facts.SuspiciousVerdictFindingReason,
+				RunError:                            facts.RunError,
 			})
 		case chain.EventSourceWriterBlocked:
 			details.LockHealth.Blocked++

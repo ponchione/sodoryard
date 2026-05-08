@@ -160,12 +160,16 @@ func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
 			lines = append(lines, fmt.Sprintf("- %d more post-step fact event(s)", len(details.StepFacts)-i))
 			break
 		}
-		lines = append(lines, fmt.Sprintf("- facts step=%d role=%s receipt_valid=%t manifest=%t changed=%d claim_present=%t claim_matches=%t claimed=%s extra=%s unclaimed=%s code_index_dirty=%t code_index_mark_supported=%t code_index_mark_attempted=%t code_index_marked=%t brain_index_dirty=%t lock_released=%t open=%s addressed=%s",
+		lines = append(lines, fmt.Sprintf("- facts step=%d role=%s verdict=%s receipt_present=%t synthetic_receipt=%t receipt_valid=%t manifest=%t changed=%d validation=%s claim_present=%t claim_matches=%t claimed=%s extra=%s unclaimed=%s code_index_dirty=%t code_index_mark_supported=%t code_index_mark_attempted=%t code_index_marked=%t brain_index_dirty=%t lock_released=%t findings=%d open=%s closed=%s addressed=%s suspicious=%t",
 			facts.SequenceNum,
 			valueOrUnknown(facts.Role),
+			valueOrNone(facts.ParsedVerdict),
+			facts.ReceiptPresent,
+			facts.SyntheticReceiptWritten,
 			facts.ReceiptValid,
 			facts.ChangedFileManifestPresent,
 			facts.ChangedFileCount,
+			joinOrNone(facts.ClaimedValidationCommands),
 			facts.ChangedFileClaimPresent,
 			facts.ChangedFileClaimMatchesManifest,
 			joinOrNone(facts.ClaimedChangedFiles),
@@ -177,8 +181,11 @@ func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
 			facts.CodeIndexDirtyMarked,
 			facts.BrainIndexDirty,
 			facts.SourceWriterLockReleased,
+			facts.FindingCount,
 			joinOrNone(facts.OpenFindingIDs),
+			joinOrNone(facts.ClosedFindingIDs),
 			joinOrNone(facts.AddressedIDs),
+			facts.SuspiciousVerdictFindingCombination,
 		))
 	}
 	return lines

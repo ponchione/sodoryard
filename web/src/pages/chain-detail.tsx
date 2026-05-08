@@ -207,14 +207,25 @@ export function ChainDetailPage() {
                   {detail.guardrails.step_facts.slice(-3).map((fact) => (
                     <div key={`${fact.step_id}:${fact.sequence_num}`} className="space-y-1 border-t border-border/70 pt-2">
                       <p className="text-foreground">
-                        Step {fact.sequence_num} {fact.role}: receipt {yesNo(fact.receipt_valid)}, manifest{" "}
-                        {yesNo(fact.changed_file_manifest_present)}, lock released{" "}
+                        Step {fact.sequence_num} {fact.role}: verdict {fact.parsed_verdict || "none"}, receipt{" "}
+                        {yesNo(fact.receipt_valid)}, manifest {yesNo(fact.changed_file_manifest_present)}, lock released{" "}
                         {yesNo(fact.source_writer_lock_released)}
                       </p>
                       <p className="font-mono text-muted-foreground">
-                        changed={fact.changed_file_count} open={formatIDs(fact.open_finding_ids)} addressed=
+                        receipt_present={yesNo(fact.receipt_present)} synthetic=
+                        {yesNo(fact.synthetic_receipt_written)} schema={yesNo(fact.receipt_schema_valid)} sections=
+                        {yesNo(fact.receipt_sections_valid)}
+                      </p>
+                      <p className="font-mono text-muted-foreground">
+                        changed={fact.changed_file_count} findings={fact.finding_count} open=
+                        {formatIDs(fact.open_finding_ids)} closed={formatIDs(fact.closed_finding_ids)} addressed=
                         {formatIDs(fact.addressed_ids)}
                       </p>
+                      {fact.claimed_validation_commands.length > 0 && (
+                        <p className="font-mono text-muted-foreground">
+                          validation={formatIDs(fact.claimed_validation_commands)}
+                        </p>
+                      )}
                       <p className="font-mono text-muted-foreground">
                         claim={yesNo(fact.changed_file_claim_present)} matches=
                         {yesNo(fact.changed_file_claim_matches_manifest)} claimed=
@@ -239,6 +250,10 @@ export function ChainDetailPage() {
                         </p>
                       )}
                       {fact.receipt_error && <p className="text-warning">{fact.receipt_error}</p>}
+                      {fact.suspicious_verdict_finding_reason && (
+                        <p className="text-warning">{fact.suspicious_verdict_finding_reason}</p>
+                      )}
+                      {fact.run_error && <p className="text-warning">{fact.run_error}</p>}
                     </div>
                   ))}
                 </div>

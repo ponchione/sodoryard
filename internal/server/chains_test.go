@@ -85,7 +85,19 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		"role":                                 "coder",
 		"sequence":                             1,
 		"source_mutating":                      true,
+		"exit_code":                            0,
+		"duration_secs":                        5,
+		"receipt_present":                      true,
+		"synthetic_receipt_written":            false,
 		"receipt_valid":                        true,
+		"receipt_schema_valid":                 true,
+		"receipt_step_valid":                   true,
+		"receipt_sections_valid":               true,
+		"parsed_verdict":                       "completed",
+		"tokens_used":                          13,
+		"turns_used":                           2,
+		"receipt_duration_seconds":             4,
+		"claimed_validation_commands":          []string{"rtk make test"},
 		"changed_file_manifest_present":        true,
 		"changed_file_count":                   1,
 		"changed_files":                        []string{"internal/example.go"},
@@ -98,6 +110,10 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		"code_index_dirty_reason":              "source_write",
 		"source_writer_lock_release_attempted": true,
 		"source_writer_lock_released":          true,
+		"finding_count":                        1,
+		"open_finding_count":                   1,
+		"finding_ids":                          []string{"FIND-correctness-001"},
+		"open_finding_ids":                     []string{"FIND-correctness-001"},
 	}); err != nil {
 		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
 	}
@@ -157,6 +173,18 @@ func TestChainInspectorEndpoints(t *testing.T) {
 			StepFacts []struct {
 				SequenceNum                 int      `json:"sequence_num"`
 				Role                        string   `json:"role"`
+				ExitCode                    int      `json:"exit_code"`
+				DurationSecs                int      `json:"duration_secs"`
+				ReceiptPresent              bool     `json:"receipt_present"`
+				SyntheticReceiptWritten     bool     `json:"synthetic_receipt_written"`
+				ReceiptSchemaValid          bool     `json:"receipt_schema_valid"`
+				ReceiptStepValid            bool     `json:"receipt_step_valid"`
+				ReceiptSectionsValid        bool     `json:"receipt_sections_valid"`
+				ParsedVerdict               string   `json:"parsed_verdict"`
+				TokensUsed                  int      `json:"tokens_used"`
+				TurnsUsed                   int      `json:"turns_used"`
+				ReceiptDurationSeconds      int      `json:"receipt_duration_seconds"`
+				ClaimedValidationCommands   []string `json:"claimed_validation_commands"`
 				CodeIndexDirtyMarkSupported bool     `json:"code_index_dirty_mark_supported"`
 				CodeIndexDirtyMarkAttempted bool     `json:"code_index_dirty_mark_attempted"`
 				CodeIndexDirtyMarked        bool     `json:"code_index_dirty_marked"`
@@ -164,6 +192,10 @@ func TestChainInspectorEndpoints(t *testing.T) {
 				CodeIndexDirtyReason        string   `json:"code_index_dirty_reason"`
 				ChangedFiles                []string `json:"changed_files"`
 				SourceWriterLockReleased    bool     `json:"source_writer_lock_released"`
+				FindingCount                int      `json:"finding_count"`
+				OpenFindingCount            int      `json:"open_finding_count"`
+				FindingIDs                  []string `json:"finding_ids"`
+				OpenFindingIDs              []string `json:"open_finding_ids"`
 			} `json:"step_facts"`
 		} `json:"guardrails"`
 	}
@@ -183,6 +215,12 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	facts := detail.Guardrails.StepFacts[0]
 	if facts.SequenceNum != 1 || facts.Role != "coder" || !facts.CodeIndexDirtyMarkSupported || !facts.CodeIndexDirtyMarkAttempted || !facts.CodeIndexDirtyMarked || !facts.CodeIndexDirty || facts.CodeIndexDirtyReason != "source_write" || !facts.SourceWriterLockReleased {
 		t.Fatalf("guardrail step facts = %+v, want index mark and lock facts", facts)
+	}
+	if facts.ExitCode != 0 || facts.DurationSecs != 5 || !facts.ReceiptPresent || facts.SyntheticReceiptWritten || !facts.ReceiptSchemaValid || !facts.ReceiptStepValid || !facts.ReceiptSectionsValid || facts.ParsedVerdict != "completed" || facts.TokensUsed != 13 || facts.TurnsUsed != 2 || facts.ReceiptDurationSeconds != 4 || len(facts.ClaimedValidationCommands) != 1 || facts.ClaimedValidationCommands[0] != "rtk make test" {
+		t.Fatalf("guardrail receipt/run facts = %+v, want surfaced post-step metadata", facts)
+	}
+	if facts.FindingCount != 1 || facts.OpenFindingCount != 1 || len(facts.FindingIDs) != 1 || facts.FindingIDs[0] != "FIND-correctness-001" || len(facts.OpenFindingIDs) != 1 || facts.OpenFindingIDs[0] != "FIND-correctness-001" {
+		t.Fatalf("guardrail finding facts = %+v, want finding counts and ids", facts)
 	}
 	if len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "internal/example.go" {
 		t.Fatalf("guardrail changed files = %+v, want internal/example.go", facts.ChangedFiles)

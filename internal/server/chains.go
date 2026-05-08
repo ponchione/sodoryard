@@ -223,43 +223,62 @@ type changedFileManifestResponse struct {
 }
 
 type stepGuardrailFactResponse struct {
-	StepID                           string   `json:"step_id"`
-	SequenceNum                      int      `json:"sequence_num"`
-	Role                             string   `json:"role"`
-	ReceiptPath                      string   `json:"receipt_path"`
-	SourceMutating                   bool     `json:"source_mutating"`
-	ReceiptValid                     bool     `json:"receipt_valid"`
-	ReceiptSchemaValid               bool     `json:"receipt_schema_valid"`
-	ReceiptSectionsValid             bool     `json:"receipt_sections_valid"`
-	ReceiptError                     string   `json:"receipt_error,omitempty"`
-	ChangedFileClaimPresent          bool     `json:"changed_file_claim_present"`
-	ClaimedChangedFiles              []string `json:"claimed_changed_files"`
-	ChangedFileClaimMatchesManifest  bool     `json:"changed_file_claim_matches_manifest"`
-	ChangedFileClaimExtra            []string `json:"changed_file_claim_extra"`
-	ChangedFileManifestUnclaimed     []string `json:"changed_file_manifest_unclaimed"`
-	ChangedFileManifestPresent       bool     `json:"changed_file_manifest_present"`
-	ChangedFileCount                 int      `json:"changed_file_count"`
-	ChangedFiles                     []string `json:"changed_files"`
-	CodeIndexStateSupported          bool     `json:"code_index_state_supported"`
-	CodeIndexStateFound              bool     `json:"code_index_state_found"`
-	CodeIndexDirtyMarkSupported      bool     `json:"code_index_dirty_mark_supported"`
-	CodeIndexDirtyMarkAttempted      bool     `json:"code_index_dirty_mark_attempted"`
-	CodeIndexDirtyMarked             bool     `json:"code_index_dirty_marked"`
-	CodeIndexDirtyMarkError          string   `json:"code_index_dirty_mark_error,omitempty"`
-	CodeIndexDirty                   bool     `json:"code_index_dirty"`
-	CodeIndexDirtyReason             string   `json:"code_index_dirty_reason,omitempty"`
-	CodeIndexStateError              string   `json:"code_index_state_error,omitempty"`
-	BrainIndexStateSupported         bool     `json:"brain_index_state_supported"`
-	BrainIndexStateFound             bool     `json:"brain_index_state_found"`
-	BrainIndexDirty                  bool     `json:"brain_index_dirty"`
-	BrainIndexDirtyReason            string   `json:"brain_index_dirty_reason,omitempty"`
-	BrainIndexStateError             string   `json:"brain_index_state_error,omitempty"`
-	SourceWriterLockReleaseAttempted bool     `json:"source_writer_lock_release_attempted"`
-	SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
-	SourceWriterLockReleaseError     string   `json:"source_writer_lock_release_error,omitempty"`
-	OpenFindingIDs                   []string `json:"open_finding_ids"`
-	ClosedFindingIDs                 []string `json:"closed_finding_ids"`
-	AddressedIDs                     []string `json:"addressed_ids"`
+	StepID                              string   `json:"step_id"`
+	SequenceNum                         int      `json:"sequence_num"`
+	Role                                string   `json:"role"`
+	ReceiptPath                         string   `json:"receipt_path"`
+	SourceMutating                      bool     `json:"source_mutating"`
+	ExitCode                            int      `json:"exit_code"`
+	DurationSecs                        int      `json:"duration_secs"`
+	ReceiptPresent                      bool     `json:"receipt_present"`
+	SyntheticReceiptWritten             bool     `json:"synthetic_receipt_written"`
+	ReceiptValid                        bool     `json:"receipt_valid"`
+	ReceiptSchemaValid                  bool     `json:"receipt_schema_valid"`
+	ReceiptStepValid                    bool     `json:"receipt_step_valid"`
+	ReceiptSectionsValid                bool     `json:"receipt_sections_valid"`
+	ReceiptError                        string   `json:"receipt_error,omitempty"`
+	ParsedVerdict                       string   `json:"parsed_verdict,omitempty"`
+	TokensUsed                          int      `json:"tokens_used"`
+	TurnsUsed                           int      `json:"turns_used"`
+	ReceiptDurationSeconds              int      `json:"receipt_duration_seconds"`
+	ClaimedValidationCommands           []string `json:"claimed_validation_commands"`
+	ChangedFileClaimPresent             bool     `json:"changed_file_claim_present"`
+	ClaimedChangedFiles                 []string `json:"claimed_changed_files"`
+	ChangedFileClaimMatchesManifest     bool     `json:"changed_file_claim_matches_manifest"`
+	ChangedFileClaimExtra               []string `json:"changed_file_claim_extra"`
+	ChangedFileManifestUnclaimed        []string `json:"changed_file_manifest_unclaimed"`
+	ChangedFileManifestPresent          bool     `json:"changed_file_manifest_present"`
+	ChangedFileManifestError            string   `json:"changed_file_manifest_error,omitempty"`
+	ChangedFileCount                    int      `json:"changed_file_count"`
+	ChangedFiles                        []string `json:"changed_files"`
+	CodeIndexStateSupported             bool     `json:"code_index_state_supported"`
+	CodeIndexStateFound                 bool     `json:"code_index_state_found"`
+	CodeIndexDirtyMarkSupported         bool     `json:"code_index_dirty_mark_supported"`
+	CodeIndexDirtyMarkAttempted         bool     `json:"code_index_dirty_mark_attempted"`
+	CodeIndexDirtyMarked                bool     `json:"code_index_dirty_marked"`
+	CodeIndexDirtyMarkError             string   `json:"code_index_dirty_mark_error,omitempty"`
+	CodeIndexDirty                      bool     `json:"code_index_dirty"`
+	CodeIndexDirtyReason                string   `json:"code_index_dirty_reason,omitempty"`
+	CodeIndexStateError                 string   `json:"code_index_state_error,omitempty"`
+	BrainIndexStateSupported            bool     `json:"brain_index_state_supported"`
+	BrainIndexStateFound                bool     `json:"brain_index_state_found"`
+	BrainIndexDirty                     bool     `json:"brain_index_dirty"`
+	BrainIndexDirtyReason               string   `json:"brain_index_dirty_reason,omitempty"`
+	BrainIndexStateError                string   `json:"brain_index_state_error,omitempty"`
+	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
+	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
+	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error,omitempty"`
+	FindingCount                        int      `json:"finding_count"`
+	OpenFindingCount                    int      `json:"open_finding_count"`
+	ClosedFindingCount                  int      `json:"closed_finding_count"`
+	AddressedFindingCount               int      `json:"addressed_finding_count"`
+	FindingIDs                          []string `json:"finding_ids"`
+	OpenFindingIDs                      []string `json:"open_finding_ids"`
+	ClosedFindingIDs                    []string `json:"closed_finding_ids"`
+	AddressedIDs                        []string `json:"addressed_ids"`
+	SuspiciousVerdictFindingCombination bool     `json:"suspicious_verdict_finding_combination"`
+	SuspiciousVerdictFindingReason      string   `json:"suspicious_verdict_finding_reason,omitempty"`
+	RunError                            string   `json:"run_error,omitempty"`
 }
 
 type chainRecordResponse struct {
@@ -404,43 +423,62 @@ func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) 
 	stepFacts := make([]stepGuardrailFactResponse, 0, len(details.StepFacts))
 	for _, facts := range details.StepFacts {
 		stepFacts = append(stepFacts, stepGuardrailFactResponse{
-			StepID:                           facts.StepID,
-			SequenceNum:                      facts.SequenceNum,
-			Role:                             facts.Role,
-			ReceiptPath:                      facts.ReceiptPath,
-			SourceMutating:                   facts.SourceMutating,
-			ReceiptValid:                     facts.ReceiptValid,
-			ReceiptSchemaValid:               facts.ReceiptSchemaValid,
-			ReceiptSectionsValid:             facts.ReceiptSectionsValid,
-			ReceiptError:                     facts.ReceiptError,
-			ChangedFileClaimPresent:          facts.ChangedFileClaimPresent,
-			ClaimedChangedFiles:              append([]string(nil), facts.ClaimedChangedFiles...),
-			ChangedFileClaimMatchesManifest:  facts.ChangedFileClaimMatchesManifest,
-			ChangedFileClaimExtra:            append([]string(nil), facts.ChangedFileClaimExtra...),
-			ChangedFileManifestUnclaimed:     append([]string(nil), facts.ChangedFileManifestUnclaimed...),
-			ChangedFileManifestPresent:       facts.ChangedFileManifestPresent,
-			ChangedFileCount:                 facts.ChangedFileCount,
-			ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
-			CodeIndexStateSupported:          facts.CodeIndexStateSupported,
-			CodeIndexStateFound:              facts.CodeIndexStateFound,
-			CodeIndexDirtyMarkSupported:      facts.CodeIndexDirtyMarkSupported,
-			CodeIndexDirtyMarkAttempted:      facts.CodeIndexDirtyMarkAttempted,
-			CodeIndexDirtyMarked:             facts.CodeIndexDirtyMarked,
-			CodeIndexDirtyMarkError:          facts.CodeIndexDirtyMarkError,
-			CodeIndexDirty:                   facts.CodeIndexDirty,
-			CodeIndexDirtyReason:             facts.CodeIndexDirtyReason,
-			CodeIndexStateError:              facts.CodeIndexStateError,
-			BrainIndexStateSupported:         facts.BrainIndexStateSupported,
-			BrainIndexStateFound:             facts.BrainIndexStateFound,
-			BrainIndexDirty:                  facts.BrainIndexDirty,
-			BrainIndexDirtyReason:            facts.BrainIndexDirtyReason,
-			BrainIndexStateError:             facts.BrainIndexStateError,
-			SourceWriterLockReleaseAttempted: facts.SourceWriterLockReleaseAttempted,
-			SourceWriterLockReleased:         facts.SourceWriterLockReleased,
-			SourceWriterLockReleaseError:     facts.SourceWriterLockReleaseError,
-			OpenFindingIDs:                   append([]string(nil), facts.OpenFindingIDs...),
-			ClosedFindingIDs:                 append([]string(nil), facts.ClosedFindingIDs...),
-			AddressedIDs:                     append([]string(nil), facts.AddressedIDs...),
+			StepID:                              facts.StepID,
+			SequenceNum:                         facts.SequenceNum,
+			Role:                                facts.Role,
+			ReceiptPath:                         facts.ReceiptPath,
+			SourceMutating:                      facts.SourceMutating,
+			ExitCode:                            facts.ExitCode,
+			DurationSecs:                        facts.DurationSecs,
+			ReceiptPresent:                      facts.ReceiptPresent,
+			SyntheticReceiptWritten:             facts.SyntheticReceiptWritten,
+			ReceiptValid:                        facts.ReceiptValid,
+			ReceiptSchemaValid:                  facts.ReceiptSchemaValid,
+			ReceiptStepValid:                    facts.ReceiptStepValid,
+			ReceiptSectionsValid:                facts.ReceiptSectionsValid,
+			ReceiptError:                        facts.ReceiptError,
+			ParsedVerdict:                       facts.ParsedVerdict,
+			TokensUsed:                          facts.TokensUsed,
+			TurnsUsed:                           facts.TurnsUsed,
+			ReceiptDurationSeconds:              facts.ReceiptDurationSeconds,
+			ClaimedValidationCommands:           append([]string(nil), facts.ClaimedValidationCommands...),
+			ChangedFileClaimPresent:             facts.ChangedFileClaimPresent,
+			ClaimedChangedFiles:                 append([]string(nil), facts.ClaimedChangedFiles...),
+			ChangedFileClaimMatchesManifest:     facts.ChangedFileClaimMatchesManifest,
+			ChangedFileClaimExtra:               append([]string(nil), facts.ChangedFileClaimExtra...),
+			ChangedFileManifestUnclaimed:        append([]string(nil), facts.ChangedFileManifestUnclaimed...),
+			ChangedFileManifestPresent:          facts.ChangedFileManifestPresent,
+			ChangedFileManifestError:            facts.ChangedFileManifestError,
+			ChangedFileCount:                    facts.ChangedFileCount,
+			ChangedFiles:                        append([]string(nil), facts.ChangedFiles...),
+			CodeIndexStateSupported:             facts.CodeIndexStateSupported,
+			CodeIndexStateFound:                 facts.CodeIndexStateFound,
+			CodeIndexDirtyMarkSupported:         facts.CodeIndexDirtyMarkSupported,
+			CodeIndexDirtyMarkAttempted:         facts.CodeIndexDirtyMarkAttempted,
+			CodeIndexDirtyMarked:                facts.CodeIndexDirtyMarked,
+			CodeIndexDirtyMarkError:             facts.CodeIndexDirtyMarkError,
+			CodeIndexDirty:                      facts.CodeIndexDirty,
+			CodeIndexDirtyReason:                facts.CodeIndexDirtyReason,
+			CodeIndexStateError:                 facts.CodeIndexStateError,
+			BrainIndexStateSupported:            facts.BrainIndexStateSupported,
+			BrainIndexStateFound:                facts.BrainIndexStateFound,
+			BrainIndexDirty:                     facts.BrainIndexDirty,
+			BrainIndexDirtyReason:               facts.BrainIndexDirtyReason,
+			BrainIndexStateError:                facts.BrainIndexStateError,
+			SourceWriterLockReleaseAttempted:    facts.SourceWriterLockReleaseAttempted,
+			SourceWriterLockReleased:            facts.SourceWriterLockReleased,
+			SourceWriterLockReleaseError:        facts.SourceWriterLockReleaseError,
+			FindingCount:                        facts.FindingCount,
+			OpenFindingCount:                    facts.OpenFindingCount,
+			ClosedFindingCount:                  facts.ClosedFindingCount,
+			AddressedFindingCount:               facts.AddressedFindingCount,
+			FindingIDs:                          append([]string(nil), facts.FindingIDs...),
+			OpenFindingIDs:                      append([]string(nil), facts.OpenFindingIDs...),
+			ClosedFindingIDs:                    append([]string(nil), facts.ClosedFindingIDs...),
+			AddressedIDs:                        append([]string(nil), facts.AddressedIDs...),
+			SuspiciousVerdictFindingCombination: facts.SuspiciousVerdictFindingCombination,
+			SuspiciousVerdictFindingReason:      facts.SuspiciousVerdictFindingReason,
+			RunError:                            facts.RunError,
 		})
 	}
 	return chainGuardrailResponse{

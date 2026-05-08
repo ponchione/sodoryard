@@ -104,9 +104,19 @@ describe("ChainDetailPage", () => {
             role: "coder",
             receipt_path: "receipts/coder/chain-1-step-001.md",
             source_mutating: true,
+            exit_code: 0,
+            duration_secs: 2,
+            receipt_present: true,
+            synthetic_receipt_written: false,
             receipt_valid: true,
             receipt_schema_valid: true,
+            receipt_step_valid: true,
             receipt_sections_valid: true,
+            parsed_verdict: "completed",
+            tokens_used: 10,
+            turns_used: 1,
+            receipt_duration_seconds: 2,
+            claimed_validation_commands: ["rtk make test"],
             changed_file_claim_present: true,
             claimed_changed_files: ["internal/example.go"],
             changed_file_claim_matches_manifest: true,
@@ -128,9 +138,15 @@ describe("ChainDetailPage", () => {
             brain_index_dirty_reason: "complete_step_with_receipt",
             source_writer_lock_release_attempted: true,
             source_writer_lock_released: true,
+            finding_count: 1,
+            open_finding_count: 1,
+            closed_finding_count: 0,
+            addressed_finding_count: 0,
+            finding_ids: ["FIND-correctness-001"],
             open_finding_ids: [],
             closed_finding_ids: [],
             addressed_ids: [],
+            suspicious_verdict_finding_combination: false,
           },
         ],
       },
@@ -157,6 +173,8 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText(/code_index_mark_supported=yes/)).toBeInTheDocument();
     expect(screen.getByText(/code_index_mark_attempted=yes/)).toBeInTheDocument();
     expect(screen.getByText(/code_index_marked=yes/)).toBeInTheDocument();
+    expect(screen.getByText(/verdict completed/)).toBeInTheDocument();
+    expect(screen.getByText(/validation=rtk make test/)).toBeInTheDocument();
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
   });

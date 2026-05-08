@@ -239,8 +239,12 @@ func latestGuardrailFacts(events []Event) []string {
 		var payload struct {
 			Role                             string   `json:"role"`
 			Sequence                         int      `json:"sequence"`
+			ReceiptPresent                   bool     `json:"receipt_present"`
+			SyntheticReceiptWritten          bool     `json:"synthetic_receipt_written"`
 			ReceiptValid                     bool     `json:"receipt_valid"`
 			ReceiptError                     string   `json:"receipt_error"`
+			ParsedVerdict                    string   `json:"parsed_verdict"`
+			ClaimedValidationCommands        []string `json:"claimed_validation_commands"`
 			ChangedFileClaimPresent          bool     `json:"changed_file_claim_present"`
 			ClaimedChangedFiles              []string `json:"claimed_changed_files"`
 			ChangedFileClaimMatchesManifest  bool     `json:"changed_file_claim_matches_manifest"`
@@ -260,7 +264,9 @@ func latestGuardrailFacts(events []Event) []string {
 			BrainIndexDirtyReason            string   `json:"brain_index_dirty_reason"`
 			SourceWriterLockReleased         bool     `json:"source_writer_lock_released"`
 			SourceWriterLockReleaseAttempted bool     `json:"source_writer_lock_release_attempted"`
+			FindingCount                     int      `json:"finding_count"`
 			OpenFindingIDs                   []string `json:"open_finding_ids"`
+			ClosedFindingIDs                 []string `json:"closed_finding_ids"`
 			AddressedIDs                     []string `json:"addressed_ids"`
 		}
 		if err := json.Unmarshal([]byte(events[i].EventData), &payload); err != nil {
@@ -273,6 +279,18 @@ func latestGuardrailFacts(events []Event) []string {
 			fmt.Sprintf("receipt_valid=%t", payload.ReceiptValid),
 			fmt.Sprintf("manifest=%t", payload.ChangedFileManifestPresent),
 			fmt.Sprintf("changed=%d", payload.ChangedFileCount),
+		}
+		if strings.TrimSpace(payload.ParsedVerdict) != "" {
+			parts = append(parts, briefingKV("verdict", payload.ParsedVerdict))
+		}
+		if payload.ReceiptPresent || payload.SyntheticReceiptWritten {
+			parts = append(parts,
+				fmt.Sprintf("receipt_present=%t", payload.ReceiptPresent),
+				fmt.Sprintf("synthetic_receipt=%t", payload.SyntheticReceiptWritten),
+			)
+		}
+		if len(payload.ClaimedValidationCommands) > 0 {
+			parts = append(parts, briefingKV("validation", strings.Join(compactBriefingStrings(payload.ClaimedValidationCommands), ",")))
 		}
 		if payload.ChangedFileClaimPresent || len(payload.ClaimedChangedFiles) > 0 || len(payload.ChangedFileClaimExtra) > 0 || len(payload.ChangedFileManifestUnclaimed) > 0 {
 			parts = append(parts,
@@ -317,8 +335,14 @@ func latestGuardrailFacts(events []Event) []string {
 		if len(payload.OpenFindingIDs) > 0 {
 			parts = append(parts, briefingKV("open", strings.Join(compactBriefingStrings(payload.OpenFindingIDs), ",")))
 		}
+		if len(payload.ClosedFindingIDs) > 0 {
+			parts = append(parts, briefingKV("closed", strings.Join(compactBriefingStrings(payload.ClosedFindingIDs), ",")))
+		}
 		if len(payload.AddressedIDs) > 0 {
 			parts = append(parts, briefingKV("addressed", strings.Join(compactBriefingStrings(payload.AddressedIDs), ",")))
+		}
+		if payload.FindingCount > 0 {
+			parts = append(parts, fmt.Sprintf("findings=%d", payload.FindingCount))
 		}
 		if strings.TrimSpace(payload.ReceiptError) != "" {
 			parts = append(parts, briefingKV("receipt_error", payload.ReceiptError))

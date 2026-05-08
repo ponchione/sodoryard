@@ -143,16 +143,27 @@ export interface StepGuardrailFact {
   role: string;
   receipt_path: string;
   source_mutating: boolean;
+  exit_code: number;
+  duration_secs: number;
+  receipt_present: boolean;
+  synthetic_receipt_written: boolean;
   receipt_valid: boolean;
   receipt_schema_valid: boolean;
+  receipt_step_valid: boolean;
   receipt_sections_valid: boolean;
   receipt_error?: string;
+  parsed_verdict?: string;
+  tokens_used: number;
+  turns_used: number;
+  receipt_duration_seconds: number;
+  claimed_validation_commands: string[];
   changed_file_claim_present: boolean;
   claimed_changed_files: string[];
   changed_file_claim_matches_manifest: boolean;
   changed_file_claim_extra: string[];
   changed_file_manifest_unclaimed: string[];
   changed_file_manifest_present: boolean;
+  changed_file_manifest_error?: string;
   changed_file_count: number;
   changed_files: string[];
   code_index_state_supported: boolean;
@@ -172,9 +183,17 @@ export interface StepGuardrailFact {
   source_writer_lock_release_attempted: boolean;
   source_writer_lock_released: boolean;
   source_writer_lock_release_error?: string;
+  finding_count: number;
+  open_finding_count: number;
+  closed_finding_count: number;
+  addressed_finding_count: number;
+  finding_ids: string[];
   open_finding_ids: string[];
   closed_finding_ids: string[];
   addressed_ids: string[];
+  suspicious_verdict_finding_combination: boolean;
+  suspicious_verdict_finding_reason?: string;
+  run_error?: string;
 }
 
 export interface ReceiptSummary {
