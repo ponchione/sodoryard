@@ -1374,7 +1374,7 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch one-step returned error: %v", err)
 	}
-	if preview.Mode != LaunchModeOneStep || preview.Role != "coder" || preview.Summary != "Run one coder step" || preview.CompiledTask != "fix tests" {
+	if preview.Mode != LaunchModeOneStep || preview.Template.ID != "one_step" || preview.Role != "coder" || preview.Summary != "Run one coder step" || preview.CompiledTask != "fix tests" {
 		t.Fatalf("one-step preview = %+v, want coder preview", preview)
 	}
 	if len(preview.Warnings) != 1 || preview.Warnings[0].Message != "no source specs selected" {
@@ -1385,7 +1385,7 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch orchestrator returned error: %v", err)
 	}
-	if orchestrator.Mode != LaunchModeOrchestrator || orchestrator.Role != "orchestrator" || orchestrator.CompiledTask != "Specs: specs/a.md" {
+	if orchestrator.Mode != LaunchModeOrchestrator || orchestrator.Template.ID != "sir_topham_decides" || orchestrator.Role != "orchestrator" || orchestrator.CompiledTask != "Specs: specs/a.md" {
 		t.Fatalf("orchestrator preview = %+v, want normalized spec preview", orchestrator)
 	}
 
@@ -1393,7 +1393,7 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch manual roster returned error: %v", err)
 	}
-	if manual.Mode != LaunchModeManualRoster || manual.Role != "coder,orchestrator" || !reflect.DeepEqual(manual.Roster, []string{"coder", "orchestrator"}) || manual.Summary != "Run manual roster: coder -> orchestrator" {
+	if manual.Mode != LaunchModeManualRoster || manual.Template.ID != "manual_roster" || manual.Role != "coder,orchestrator" || !reflect.DeepEqual(manual.Roster, []string{"coder", "orchestrator"}) || manual.Summary != "Run manual roster: coder -> orchestrator" {
 		t.Fatalf("manual preview = %+v, want normalized roster preview", manual)
 	}
 
@@ -1401,8 +1401,32 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch constrained returned error: %v", err)
 	}
-	if constrained.Mode != LaunchModeConstrained || constrained.Role != "orchestrator" || !reflect.DeepEqual(constrained.AllowedRoles, []string{"coder"}) || constrained.Summary != "Run constrained orchestration with roles: coder" || !strings.Contains(constrained.CompiledTask, "Allowed roles: coder") {
+	if constrained.Mode != LaunchModeConstrained || constrained.Template.ID != "constrained_orchestration" || constrained.Role != "orchestrator" || !reflect.DeepEqual(constrained.AllowedRoles, []string{"coder"}) || constrained.Summary != "Run constrained orchestration with roles: coder" || !strings.Contains(constrained.CompiledTask, "Allowed roles: coder") {
 		t.Fatalf("constrained preview = %+v, want normalized constrained preview", constrained)
+	}
+}
+
+func TestListLaunchTemplatesReturnsTypedMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc := openOperatorTestService(t, t.TempDir(), chain.NewStore(newOperatorTestDB(t)), &fakeBrainBackend{}, nil)
+
+	templates, err := svc.ListLaunchTemplates(ctx)
+	if err != nil {
+		t.Fatalf("ListLaunchTemplates returned error: %v", err)
+	}
+	if len(templates) != 4 {
+		t.Fatalf("templates = %+v, want 4 launch templates", templates)
+	}
+	if templates[0].ID != "constrained_orchestration" || templates[0].Mode != LaunchModeConstrained || templates[0].ReceiptSchema != "yard.receipt.v1" {
+		t.Fatalf("first template = %+v, want constrained template metadata", templates[0])
+	}
+	templates[0].DefaultRoles = append(templates[0].DefaultRoles, "mutated")
+	again, err := svc.ListLaunchTemplates(ctx)
+	if err != nil {
+		t.Fatalf("ListLaunchTemplates second call returned error: %v", err)
+	}
+	if reflect.DeepEqual(templates[0].DefaultRoles, again[0].DefaultRoles) {
+		t.Fatalf("template slices were not cloned: first=%+v second=%+v", templates[0], again[0])
 	}
 }
 

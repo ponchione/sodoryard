@@ -666,6 +666,9 @@ func renderConsoleLaunchPreview(preview operator.LaunchPreview) string {
 		"mode: " + string(preview.Mode),
 		"role: " + valueOrUnknown(preview.Role),
 	}
+	if preview.Template.Label != "" {
+		lines = append(lines, "template: "+preview.Template.Label)
+	}
 	if len(preview.Roster) > 0 {
 		lines = append(lines, "roster: "+strings.Join(preview.Roster, " -> "))
 	}

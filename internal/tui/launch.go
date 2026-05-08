@@ -40,6 +40,9 @@ func (m Model) renderLaunch() string {
 			fmt.Sprintf("mode: %s", m.preview.Mode),
 			fmt.Sprintf("role: %s", m.preview.Role),
 		)
+		if m.preview.Template.Label != "" {
+			lines = append(lines, fmt.Sprintf("template: %s", m.preview.Template.Label))
+		}
 		if len(m.preview.Roster) > 0 {
 			lines = append(lines, fmt.Sprintf("roster: %s", strings.Join(m.preview.Roster, " -> ")))
 		}

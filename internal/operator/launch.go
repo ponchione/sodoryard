@@ -39,6 +39,10 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 	if req.SourceTask == "" && len(req.SourceSpecs) == 0 {
 		return LaunchPreview{}, fmt.Errorf("one of task or specs is required")
 	}
+	template, ok := launchTemplateForMode(req.Mode)
+	if !ok {
+		return LaunchPreview{}, fmt.Errorf("unsupported launch mode %s", req.Mode)
+	}
 	switch req.Mode {
 	case LaunchModeOneStep:
 		if req.Role == "" {
@@ -71,12 +75,11 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 		}
 		req.Roster = roster
 		req.Role = strings.Join(roster, ",")
-	default:
-		return LaunchPreview{}, fmt.Errorf("unsupported launch mode %s", req.Mode)
 	}
 	compiled := compileLaunchTask(req)
 	return LaunchPreview{
 		Mode:         req.Mode,
+		Template:     template,
 		Role:         req.Role,
 		AllowedRoles: append([]string(nil), req.AllowedRoles...),
 		Roster:       append([]string(nil), req.Roster...),

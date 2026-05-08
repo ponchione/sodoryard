@@ -377,12 +377,23 @@ type LaunchRequest struct {
 
 type LaunchPreview struct {
 	Mode         LaunchMode
+	Template     LaunchTemplate
 	Role         string
 	AllowedRoles []string
 	Roster       []string
 	Summary      string
 	CompiledTask string
 	Warnings     []RuntimeWarning
+}
+
+type LaunchTemplate struct {
+	ID              string
+	Mode            LaunchMode
+	Label           string
+	Description     string
+	DefaultRoles    []string
+	ReceiptSchema   string
+	PreflightChecks []string
 }
 
 type LaunchDraft struct {

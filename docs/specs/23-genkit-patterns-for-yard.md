@@ -577,6 +577,22 @@ type ChainTemplate struct {
 3. Add launch preview output based on template metadata and model capabilities.
 4. Keep custom presets as saved parameter sets over templates.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- typed `LaunchTemplate` metadata for current launch modes
+- shared template registry for one-step, manual-roster, constrained-orchestration, and Sir Topham-managed launches
+- launch previews now carry template metadata, including ID, label, receipt schema, default roles, and preflight checks
+- TUI launch preview and slash-command preview render the template label when available
+
+Not implemented in this slice:
+
+- changing launch compile semantics
+- custom presets explicitly binding to template IDs beyond their existing launch mode
+- CLI/API listing commands for launch templates
+- JSON input schemas or template-specific hard validation beyond existing launch validation
+
 ### Acceptance Criteria
 
 - One-step, manual-roster, constrained-orchestration, and full-orchestration launches use one shared compile path.
