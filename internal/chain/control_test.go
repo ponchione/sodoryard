@@ -14,6 +14,7 @@ func TestNextControlStatus(t *testing.T) {
 	}{
 		{name: "pause running becomes requested", cur: "running", target: "paused", want: "pause_requested"},
 		{name: "cancel running becomes requested", cur: "running", target: "cancelled", want: "cancel_requested"},
+		{name: "cancel waiting approval becomes requested", cur: StatusWaitingApproval, target: "cancelled", want: "cancel_requested"},
 		{name: "cancel paused is immediate", cur: "paused", target: "cancelled", want: "cancelled"},
 	}
 	for _, tc := range tests {
@@ -60,7 +61,7 @@ func TestFinalizeControlEventType(t *testing.T) {
 }
 
 func TestShouldStopScheduling(t *testing.T) {
-	for _, status := range []string{"paused", "cancelled", "pause_requested", "cancel_requested"} {
+	for _, status := range []string{"paused", "cancelled", "pause_requested", "cancel_requested", StatusWaitingApproval} {
 		if !ShouldStopScheduling(status) {
 			t.Fatalf("ShouldStopScheduling(%q) = false, want true", status)
 		}

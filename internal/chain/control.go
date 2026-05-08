@@ -26,6 +26,8 @@ type TerminalChainClosure struct {
 
 var ErrChainAlreadyRunning = errors.New("chain already running")
 
+const StatusWaitingApproval = "waiting_approval"
+
 func NextControlStatus(currentStatus string, targetStatus string) (string, error) {
 	switch targetStatus {
 	case "paused":
@@ -39,7 +41,7 @@ func NextControlStatus(currentStatus string, targetStatus string) (string, error
 		}
 	case "cancelled":
 		switch currentStatus {
-		case "running", "pause_requested", "cancel_requested":
+		case "running", "pause_requested", "cancel_requested", StatusWaitingApproval:
 			return "cancel_requested", nil
 		case "paused", "cancelled":
 			return "cancelled", nil
@@ -251,7 +253,7 @@ func LatestActiveStepProcess(events []Event) (ActiveStepProcess, bool) {
 
 func ShouldStopScheduling(status string) bool {
 	switch status {
-	case "paused", "cancelled", "pause_requested", "cancel_requested":
+	case "paused", "cancelled", "pause_requested", "cancel_requested", StatusWaitingApproval:
 		return true
 	default:
 		return false

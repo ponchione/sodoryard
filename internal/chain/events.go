@@ -35,6 +35,7 @@ const (
 	EventReindexCompleted                EventType = "reindex_completed"
 	EventResolverLoop                    EventType = "resolver_loop"
 	EventSafetyLimitHit                  EventType = "safety_limit_hit"
+	EventApprovalRequired                EventType = "approval_required"
 	EventChainPaused                     EventType = "chain_paused"
 	EventChainResumed                    EventType = "chain_resumed"
 	EventChainCompleted                  EventType = "chain_completed"

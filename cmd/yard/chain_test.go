@@ -1081,6 +1081,15 @@ func TestFormatChainEventRendersFindingLifecycleFactsCompactly(t *testing.T) {
 	}
 }
 
+func TestFormatChainEventRendersApprovalRequiredCompactly(t *testing.T) {
+	event := chain.Event{ID: 10, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventApprovalRequired, EventData: `{"approval_id":"approval-tc-1","tool_name":"shell","risk_level":"high","status":"pending","reason":"shell command matches approval pattern \"git push --force\""}`}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "10\t2026-04-21T01:02:03Z\tapproval_required\tapproval_id=approval-tc-1 tool_name=shell risk_level=high status=pending reason=\"shell command matches approval pattern \\\"git push --force\\\"\"\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
 func TestFormatChainEventFallsBackToRawPayloadForNonStepOutput(t *testing.T) {
 	event := chain.Event{
 		ID:        7,

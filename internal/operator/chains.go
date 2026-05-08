@@ -498,7 +498,7 @@ func summarizeStep(step chain.Step) *StepSummary {
 
 func isActiveChainStatus(status string) bool {
 	switch status {
-	case "running", "pause_requested", "paused", "cancel_requested":
+	case "running", "pause_requested", "paused", "cancel_requested", chain.StatusWaitingApproval:
 		return true
 	default:
 		return false

@@ -765,6 +765,22 @@ Not implemented in this slice:
 - `waiting_approval` chain status/events
 - approval resume controls
 
+### Implemented Chain Event Contract Slice
+
+Implemented on 2026-05-08:
+
+- `approval_required` chain event type
+- `waiting_approval` chain status constant
+- chain scheduling treats `waiting_approval` as a stop state
+- chain cancel controls can request cancellation while waiting for approval
+- chain log rendering shows approval ID, tool name, risk, status, and reason
+
+Not implemented in this slice:
+
+- runtime emission of approval events
+- durable approval storage
+- approve/deny/resume controls
+
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.
