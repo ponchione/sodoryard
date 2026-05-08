@@ -262,7 +262,7 @@ func TestYardChainMetricsCommandPrintsDogfoodingSummary(t *testing.T) {
 		"turns step_sum=0\n" +
 		"duration recorded=3s step_sum=3s budget=100s pct=3.0\n" +
 		"resolver_loops used=0 budget=2 pct=0.0\n" +
-		"events total=3 output=1 changed_files=0 receipt_warnings=0 source_writer_blocks=0 source_writer_lock_acquired=0 source_writer_lock_released=0 source_writer_lock_force_released=0 source_writer_lock_release_failed=0 source_writer_lock_heartbeat_failed=0 source_writer_lock_stale_replaced=0 step_failed=0 safety_limit=0 reindex_started=0 reindex_done=0 process_started=1 process_exited=1\n" +
+		"events total=3 output=1 changed_files=0 guardrail_facts=0 receipt_warnings=0 source_writer_blocks=0 source_writer_lock_acquired=0 source_writer_lock_released=0 source_writer_lock_force_released=0 source_writer_lock_release_failed=0 source_writer_lock_heartbeat_failed=0 source_writer_lock_stale_replaced=0 step_failed=0 safety_limit=0 reindex_started=0 reindex_done=0 process_started=1 process_exited=1\n" +
 		"findings events=0 open=0 closed=0 addressed=0 open_ids= closed_ids= addressed_ids= reopened_ids= repeated_resolver_ids=\n" +
 		"warnings=3\n" +
 		"warning: step 1 completed without a receipt path\n" +
@@ -879,6 +879,15 @@ func TestFormatChainEventRendersStepStartedCompactly(t *testing.T) {
 	event := chain.Event{ID: 7, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepStarted, EventData: `{"role":"coder","task":"fix auth","receipt_path":"receipts/coder/chain-step-001.md"}`}
 	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
 	want := "7\t2026-04-21T01:02:03Z\tstep_started\trole=coder task=\"fix auth\" receipt_path=receipts/coder/chain-step-001.md\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatChainEventRendersGuardrailFactsCompactly(t *testing.T) {
+	event := chain.Event{ID: 8, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepGuardrailFacts, EventData: `{"role":"coder","sequence":1,"receipt_valid":true,"receipt_schema_valid":true,"receipt_sections_valid":true,"changed_file_count":2,"source_writer_lock_released":true}`}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "8\t2026-04-21T01:02:03Z\tstep_guardrail_facts\trole=coder sequence=1 receipt_valid=true receipt_schema_valid=true receipt_sections_valid=true changed_file_count=2 source_writer_lock_released=true\n"
 	if got != want {
 		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
 	}

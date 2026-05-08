@@ -114,6 +114,7 @@ type ChainMetricsReport struct {
 	OutputEvents                      int
 	StepFailedEvents                  int
 	ChangedFileEvents                 int
+	StepGuardrailFactEvents           int
 	ReceiptWarningEvents              int
 	ReceiptFindingEvents              int
 	OpenFindingCount                  int

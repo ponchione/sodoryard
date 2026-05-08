@@ -106,6 +106,63 @@ type engineRunOutcome struct {
 	durationSecs int
 }
 
+type changedFileCapture struct {
+	Paths []string
+	Error string
+}
+
+type postStepGuardrailFacts struct {
+	Role                                string   `json:"role"`
+	Sequence                            int      `json:"sequence"`
+	ReceiptPath                         string   `json:"receipt_path"`
+	SourceMutating                      bool     `json:"source_mutating"`
+	ExitCode                            int      `json:"exit_code"`
+	DurationSecs                        int      `json:"duration_secs"`
+	ReceiptPresent                      bool     `json:"receipt_present"`
+	SyntheticReceiptWritten             bool     `json:"synthetic_receipt_written"`
+	ReceiptSchemaValid                  bool     `json:"receipt_schema_valid"`
+	ReceiptStepValid                    bool     `json:"receipt_step_valid"`
+	ReceiptSectionsValid                bool     `json:"receipt_sections_valid"`
+	ReceiptValid                        bool     `json:"receipt_valid"`
+	ReceiptError                        string   `json:"receipt_error,omitempty"`
+	ParsedVerdict                       string   `json:"parsed_verdict,omitempty"`
+	TokensUsed                          int      `json:"tokens_used"`
+	TurnsUsed                           int      `json:"turns_used"`
+	ReceiptDurationSeconds              int      `json:"receipt_duration_seconds"`
+	ClaimedValidationCommands           []string `json:"claimed_validation_commands"`
+	ChangedFileManifestPresent          bool     `json:"changed_file_manifest_present"`
+	ChangedFileManifestError            string   `json:"changed_file_manifest_error,omitempty"`
+	ChangedFileCount                    int      `json:"changed_file_count"`
+	ChangedFiles                        []string `json:"changed_files"`
+	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
+	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
+	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error,omitempty"`
+	FindingCount                        int      `json:"finding_count"`
+	OpenFindingCount                    int      `json:"open_finding_count"`
+	ClosedFindingCount                  int      `json:"closed_finding_count"`
+	AddressedFindingCount               int      `json:"addressed_finding_count"`
+	FindingIDs                          []string `json:"finding_ids"`
+	OpenFindingIDs                      []string `json:"open_finding_ids"`
+	ClosedFindingIDs                    []string `json:"closed_finding_ids"`
+	AddressedIDs                        []string `json:"addressed_ids"`
+	SuspiciousVerdictFindingCombination bool     `json:"suspicious_verdict_finding_combination"`
+	SuspiciousVerdictFindingReason      string   `json:"suspicious_verdict_finding_reason,omitempty"`
+	RunError                            string   `json:"run_error,omitempty"`
+}
+
+type receiptFindingFactSet struct {
+	FindingCount                        int
+	OpenFindingCount                    int
+	ClosedFindingCount                  int
+	AddressedFindingCount               int
+	FindingIDs                          []string
+	OpenFindingIDs                      []string
+	ClosedFindingIDs                    []string
+	AddressedIDs                        []string
+	SuspiciousVerdictFindingCombination bool
+	SuspiciousVerdictFindingReason      string
+}
+
 type stepReceiptCompleter interface {
 	CompleteStepWithReceipt(context.Context, projectmemory.CompleteStepWithReceiptArgs) error
 }
@@ -169,23 +226,44 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 	return &tool.ToolResult{Success: true, Content: content}, nil
 }
 
-func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (AgentStepResult, string, error) {
+func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (result AgentStepResult, receiptContent string, err error) {
 	step, err := t.prepareStep(ctx, spawnAgentInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore, MaxTurns: in.MaxTurns, MaxTokens: in.MaxTokens})
 	if err != nil {
 		return AgentStepResult{}, "", err
 	}
-	if step.sourceWriterLockOwned {
-		defer t.releaseSourceWriterLock(detachedLockContext(ctx), step)
-	}
+	facts := newPostStepGuardrailFacts(step)
+	defer func() {
+		factCtx := detachedLockContext(ctx)
+		if step.sourceWriterLockOwned {
+			facts.SourceWriterLockReleaseAttempted = true
+			if releaseErr := t.releaseSourceWriterLock(factCtx, step); releaseErr != nil {
+				facts.SourceWriterLockReleaseError = releaseErr.Error()
+			} else {
+				facts.SourceWriterLockReleased = true
+			}
+		}
+		if err != nil {
+			facts.RunError = err.Error()
+		}
+		t.logPostStepGuardrailFacts(factCtx, step, facts)
+	}()
 	outcome := t.runEngineStep(ctx, step)
+	facts.ExitCode = outcome.exitCode
+	facts.DurationSecs = outcome.durationSecs
 	if step.sourceMutating {
-		t.captureChangedFiles(ctx, step)
+		capture := t.captureChangedFiles(ctx, step)
+		facts.ChangedFileManifestPresent = true
+		facts.ChangedFiles = append([]string(nil), capture.Paths...)
+		facts.ChangedFileCount = len(capture.Paths)
+		facts.ChangedFileManifestError = capture.Error
 	}
-	receiptContent, parsed, err := t.readStepReceipt(ctx, step, outcome)
+	receiptContent, parsed, err := t.readStepReceipt(ctx, step, outcome, facts)
 	if err != nil {
-		return AgentStepResult{StepID: step.stepID, Sequence: step.sequence, ReceiptPath: step.receiptPath, Status: "failed", DurationSecs: outcome.durationSecs, ExitCode: outcome.exitCode}, "", err
+		result = AgentStepResult{StepID: step.stepID, Sequence: step.sequence, ReceiptPath: step.receiptPath, Status: "failed", DurationSecs: outcome.durationSecs, ExitCode: outcome.exitCode}
+		return result, "", err
 	}
-	return t.recordStepOutcome(ctx, step, outcome, receiptContent, parsed)
+	result, receiptContent, err = t.recordStepOutcome(ctx, step, outcome, receiptContent, parsed)
+	return result, receiptContent, err
 }
 
 func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (spawnStep, error) {
@@ -261,7 +339,7 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 	releaseOnError := true
 	defer func() {
 		if releaseOnError && step.sourceWriterLockOwned {
-			t.releaseSourceWriterLock(detachedLockContext(ctx), step)
+			_ = t.releaseSourceWriterLock(detachedLockContext(ctx), step)
 		}
 	}()
 	_, err = t.Store.StartStep(ctx, chain.StepSpec{StepID: stepID, ChainID: t.ChainID, SequenceNum: seq, Role: roleName, Task: in.Task, TaskContext: in.TaskContext})
@@ -334,7 +412,7 @@ func (t *SpawnAgentTool) acquireSourceWriterLock(ctx context.Context, step *spaw
 	return nil
 }
 
-func (t *SpawnAgentTool) releaseSourceWriterLock(ctx context.Context, step spawnStep) {
+func (t *SpawnAgentTool) releaseSourceWriterLock(ctx context.Context, step spawnStep) error {
 	err := t.Store.ReleaseProjectLock(ctx, chain.ReleaseProjectLockParams{
 		LockName:     chain.SourceWriterLockName,
 		OwnerChainID: t.ChainID,
@@ -348,7 +426,7 @@ func (t *SpawnAgentTool) releaseSourceWriterLock(ctx context.Context, step spawn
 			"owner_role":     step.roleName,
 			"error":          err.Error(),
 		})
-		return
+		return err
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventSourceWriterLockReleased, map[string]any{
 		"lock_name":      chain.SourceWriterLockName,
@@ -356,6 +434,7 @@ func (t *SpawnAgentTool) releaseSourceWriterLock(ctx context.Context, step spawn
 		"owner_step_id":  step.stepID,
 		"owner_role":     step.roleName,
 	})
+	return nil
 }
 
 func (t *SpawnAgentTool) heartbeatSourceWriterLock(ctx context.Context, step spawnStep) error {
@@ -448,7 +527,7 @@ func (t *SpawnAgentTool) startSourceWriterLockHeartbeat(ctx context.Context, ste
 	}
 }
 
-func (t *SpawnAgentTool) captureChangedFiles(ctx context.Context, step spawnStep) []string {
+func (t *SpawnAgentTool) captureChangedFiles(ctx context.Context, step spawnStep) changedFileCapture {
 	captureCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	stdout := outputcap.NewBuffer(outputcap.DefaultLimit)
@@ -466,8 +545,10 @@ func (t *SpawnAgentTool) captureChangedFiles(ctx context.Context, step spawnStep
 		"paths": paths,
 		"count": len(paths),
 	}
+	var captureErr string
 	if err != nil {
-		payload["error"] = strings.TrimSpace(err.Error())
+		captureErr = strings.TrimSpace(err.Error())
+		payload["error"] = captureErr
 		if text := strings.TrimSpace(stderr.String()); text != "" {
 			payload["stderr"] = text
 		}
@@ -476,7 +557,7 @@ func (t *SpawnAgentTool) captureChangedFiles(ctx context.Context, step spawnStep
 		}
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepChangedFiles, payload)
-	return paths
+	return changedFileCapture{Paths: paths, Error: captureErr}
 }
 
 func parseGitStatusChangedFiles(status string) []string {
@@ -528,7 +609,7 @@ func buildEngineRunArgs(step spawnStep, chainID string, agentTimeout time.Durati
 	return args
 }
 
-func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, outcome engineRunOutcome) (string, receipt.Receipt, error) {
+func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, outcome engineRunOutcome, facts *postStepGuardrailFacts) (string, receipt.Receipt, error) {
 	receiptContent, readErr := t.Backend.ReadDocument(ctx, step.receiptPath)
 	if readErr != nil {
 		failMsg := fmt.Sprintf("missing receipt %s after exit_code=%d stdout=%q stderr=%q", step.receiptPath, outcome.exitCode, outcome.stdout, outcome.stderr)
@@ -536,38 +617,87 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		if writeErr := t.writeSyntheticSafetyReceipt(ctx, step.roleName, step.sequence, step.receiptPath, failMsg, outcome.durationSecs); writeErr != nil {
 			failMsg = fmt.Sprintf("%s; failed to write safety receipt: %v", failMsg, writeErr)
 			receiptPath = ""
+		} else if facts != nil {
+			facts.SyntheticReceiptWritten = true
+		}
+		if facts != nil {
+			facts.ReceiptPresent = false
+			facts.ReceiptError = failMsg
 		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(receipt.VerdictSafetyLimit), ReceiptPath: receiptPath, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
 		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %s", failMsg)
 	}
+	if facts != nil {
+		facts.ReceiptPresent = true
+	}
 	parsed, err := receipt.Parse([]byte(receiptContent))
 	if err != nil {
 		failMsg := fmt.Sprintf("parse receipt %s: %v", step.receiptPath, err)
+		if facts != nil {
+			facts.ReceiptError = err.Error()
+		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
 		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
 	}
+	if facts != nil {
+		facts.ReceiptSchemaValid = true
+		facts.ParsedVerdict = string(parsed.Verdict)
+		facts.TokensUsed = parsed.TokensUsed
+		facts.TurnsUsed = parsed.TurnsUsed
+		facts.ReceiptDurationSeconds = parsed.DurationSeconds
+		facts.ClaimedValidationCommands = receipt.ParseValidationCommands(parsed.RawBody)
+	}
 	if err := receipt.ValidateForStep(parsed, receipt.StepValidation{Agent: step.roleName, ChainID: t.ChainID, Step: step.sequence}); err != nil {
 		failMsg := fmt.Sprintf("validate receipt %s: %v", step.receiptPath, err)
+		if facts != nil {
+			facts.ReceiptError = err.Error()
+		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
 		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
 	}
+	if facts != nil {
+		facts.ReceiptStepValid = true
+	}
 	if err := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForRole(step.roleName)); err != nil {
 		failMsg := fmt.Sprintf("validate receipt sections %s: %v", step.receiptPath, err)
+		if facts != nil {
+			facts.ReceiptError = err.Error()
+		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{"role": step.roleName, "receipt_path": step.receiptPath, "error": err.Error()})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
 		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
 	}
-	t.logReceiptFindingFacts(ctx, step, parsed)
+	if facts != nil {
+		facts.ReceiptSectionsValid = true
+		facts.ReceiptValid = true
+	}
+	t.logReceiptFindingFacts(ctx, step, parsed, facts)
 	return receiptContent, parsed, nil
 }
 
-func (t *SpawnAgentTool) logReceiptFindingFacts(ctx context.Context, step spawnStep, parsed receipt.Receipt) {
+func (t *SpawnAgentTool) logReceiptFindingFacts(ctx context.Context, step spawnStep, parsed receipt.Receipt, facts *postStepGuardrailFacts) {
 	if t == nil || t.Store == nil {
 		return
+	}
+	findingFacts, ok := buildReceiptFindingFacts(step.roleName, parsed)
+	if !ok {
+		return
+	}
+	if facts != nil {
+		facts.FindingCount = findingFacts.FindingCount
+		facts.OpenFindingCount = findingFacts.OpenFindingCount
+		facts.ClosedFindingCount = findingFacts.ClosedFindingCount
+		facts.AddressedFindingCount = findingFacts.AddressedFindingCount
+		facts.FindingIDs = append([]string(nil), findingFacts.FindingIDs...)
+		facts.OpenFindingIDs = append([]string(nil), findingFacts.OpenFindingIDs...)
+		facts.ClosedFindingIDs = append([]string(nil), findingFacts.ClosedFindingIDs...)
+		facts.AddressedIDs = append([]string(nil), findingFacts.AddressedIDs...)
+		facts.SuspiciousVerdictFindingCombination = findingFacts.SuspiciousVerdictFindingCombination
+		facts.SuspiciousVerdictFindingReason = findingFacts.SuspiciousVerdictFindingReason
 	}
 	payload := map[string]any{
 		"role":         step.roleName,
@@ -576,41 +706,133 @@ func (t *SpawnAgentTool) logReceiptFindingFacts(ctx context.Context, step spawnS
 	}
 	switch step.roleName {
 	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
-		findings := receipt.ParseAuditFindings(parsed.RawBody, step.roleName)
-		findingIDs := make([]string, 0, len(findings))
-		openFindingIDs := make([]string, 0, len(findings))
-		closedFindingIDs := make([]string, 0, len(findings))
-		for _, finding := range findings {
-			if finding.ID == "" {
-				continue
-			}
-			findingIDs = append(findingIDs, finding.ID)
-			if finding.Status == "closed" {
-				closedFindingIDs = append(closedFindingIDs, finding.ID)
-			} else {
-				openFindingIDs = append(openFindingIDs, finding.ID)
-			}
-		}
-		payload["finding_count"] = len(findingIDs)
-		payload["open_count"] = len(openFindingIDs)
-		payload["closed_count"] = len(closedFindingIDs)
-		payload["finding_ids"] = findingIDs
-		payload["open_finding_ids"] = openFindingIDs
-		payload["closed_finding_ids"] = closedFindingIDs
+		payload["finding_count"] = findingFacts.FindingCount
+		payload["open_count"] = findingFacts.OpenFindingCount
+		payload["closed_count"] = findingFacts.ClosedFindingCount
+		payload["finding_ids"] = findingFacts.FindingIDs
+		payload["open_finding_ids"] = findingFacts.OpenFindingIDs
+		payload["closed_finding_ids"] = findingFacts.ClosedFindingIDs
 	case "resolver":
-		resolutions := receipt.ParseFindingResolutions(parsed.RawBody)
-		addressedIDs := make([]string, 0, len(resolutions))
-		for _, resolution := range resolutions {
-			if resolution.ID != "" {
-				addressedIDs = append(addressedIDs, resolution.ID)
-			}
-		}
-		payload["addressed_count"] = len(addressedIDs)
-		payload["addressed_ids"] = addressedIDs
+		payload["addressed_count"] = findingFacts.AddressedFindingCount
+		payload["addressed_ids"] = findingFacts.AddressedIDs
 	default:
 		return
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptFindings, payload)
+}
+
+func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptFindingFactSet, bool) {
+	var facts receiptFindingFactSet
+	switch roleName {
+	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
+		findings := receipt.ParseAuditFindings(parsed.RawBody, roleName)
+		for _, finding := range findings {
+			if strings.TrimSpace(finding.ID) == "" {
+				continue
+			}
+			facts.FindingIDs = append(facts.FindingIDs, finding.ID)
+			if finding.Status == "closed" {
+				facts.ClosedFindingIDs = append(facts.ClosedFindingIDs, finding.ID)
+			} else {
+				facts.OpenFindingIDs = append(facts.OpenFindingIDs, finding.ID)
+			}
+		}
+		facts.FindingIDs = uniqueSorted(facts.FindingIDs)
+		facts.OpenFindingIDs = uniqueSorted(facts.OpenFindingIDs)
+		facts.ClosedFindingIDs = uniqueSorted(facts.ClosedFindingIDs)
+		facts.FindingCount = len(facts.FindingIDs)
+		facts.OpenFindingCount = len(facts.OpenFindingIDs)
+		facts.ClosedFindingCount = len(facts.ClosedFindingIDs)
+		if facts.OpenFindingCount > 0 && parsed.Verdict != receipt.VerdictFixRequired {
+			facts.SuspiciousVerdictFindingCombination = true
+			facts.SuspiciousVerdictFindingReason = fmt.Sprintf("%s reported %d open finding(s) with verdict %s", roleName, facts.OpenFindingCount, parsed.Verdict)
+		}
+		return facts, true
+	case "resolver":
+		resolutions := receipt.ParseFindingResolutions(parsed.RawBody)
+		for _, resolution := range resolutions {
+			if strings.TrimSpace(resolution.ID) != "" {
+				facts.AddressedIDs = append(facts.AddressedIDs, resolution.ID)
+			}
+		}
+		facts.AddressedIDs = uniqueSorted(facts.AddressedIDs)
+		facts.AddressedFindingCount = len(facts.AddressedIDs)
+		if facts.AddressedFindingCount == 0 {
+			facts.SuspiciousVerdictFindingCombination = true
+			facts.SuspiciousVerdictFindingReason = "resolver receipt did not address any finding IDs"
+		}
+		return facts, true
+	default:
+		return receiptFindingFactSet{}, false
+	}
+}
+
+func newPostStepGuardrailFacts(step spawnStep) *postStepGuardrailFacts {
+	return &postStepGuardrailFacts{
+		Role:                      step.roleName,
+		Sequence:                  step.sequence,
+		ReceiptPath:               step.receiptPath,
+		SourceMutating:            step.sourceMutating,
+		ClaimedValidationCommands: []string{},
+		ChangedFiles:              []string{},
+		FindingIDs:                []string{},
+		OpenFindingIDs:            []string{},
+		ClosedFindingIDs:          []string{},
+		AddressedIDs:              []string{},
+	}
+}
+
+func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spawnStep, facts *postStepGuardrailFacts) {
+	if t == nil || t.Store == nil || facts == nil {
+		return
+	}
+	facts.Role = step.roleName
+	facts.Sequence = step.sequence
+	facts.ReceiptPath = step.receiptPath
+	facts.SourceMutating = step.sourceMutating
+	facts.ChangedFiles = uniqueSorted(facts.ChangedFiles)
+	facts.ChangedFileCount = len(facts.ChangedFiles)
+	facts.FindingIDs = uniqueSorted(facts.FindingIDs)
+	facts.OpenFindingIDs = uniqueSorted(facts.OpenFindingIDs)
+	facts.ClosedFindingIDs = uniqueSorted(facts.ClosedFindingIDs)
+	facts.AddressedIDs = uniqueSorted(facts.AddressedIDs)
+	facts.ClaimedValidationCommands = uniqueStringsPreserveOrder(facts.ClaimedValidationCommands)
+	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepGuardrailFacts, facts)
+}
+
+func uniqueSorted(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func uniqueStringsPreserveOrder(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (t *SpawnAgentTool) recordStepOutcome(ctx context.Context, step spawnStep, outcome engineRunOutcome, receiptContent string, parsed receipt.Receipt) (AgentStepResult, string, error) {

@@ -63,6 +63,67 @@ func ParseFindingResolutions(body string) []FindingResolution {
 	return resolutions
 }
 
+func ParseValidationCommands(body string) []string {
+	lines := sectionContent(body, "Validation")
+	commands := make([]string, 0)
+	seen := map[string]struct{}{}
+	inCodeBlock := false
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		commands = append(commands, value)
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			add(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+			continue
+		}
+		if inCodeBlock || looksLikeValidationCommand(trimmed) {
+			add(trimmed)
+		}
+	}
+	return commands
+}
+
+func looksLikeValidationCommand(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	for _, prefix := range []string{
+		"rtk ",
+		"make ",
+		"go test",
+		"go run",
+		"go build",
+		"npm ",
+		"pnpm ",
+		"yarn ",
+		"yard ",
+		"git ",
+		"pytest",
+		"python ",
+		"cargo ",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 type receiptHeadingBlock struct {
 	ID    string
 	Lines []string

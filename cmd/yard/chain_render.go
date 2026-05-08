@@ -118,6 +118,8 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 		return fmt.Sprintf("[%s] %s", stream, line)
 	case chain.EventStepChangedFiles:
 		return join(plain("count"), quoted("paths"), quoted("error"))
+	case chain.EventStepGuardrailFacts:
+		return join(plain("role"), plain("sequence"), plain("receipt_valid"), plain("receipt_schema_valid"), plain("receipt_sections_valid"), plain("changed_file_count"), plain("source_writer_lock_released"), plain("open_finding_count"), plain("addressed_finding_count"), quoted("receipt_error"), quoted("suspicious_verdict_finding_reason"))
 	case chain.EventStepCompleted, chain.EventStepFailed:
 		return join(plain("role"), plain("verdict"), plain("tokens_used"), plain("duration_secs"), plain("exit_code"), quoted("error"))
 	case chain.EventReceiptValidation:

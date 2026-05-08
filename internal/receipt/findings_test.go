@@ -54,3 +54,33 @@ Validation:
 		t.Fatalf("Validation = %+v, want make test passed", got.Validation)
 	}
 }
+
+func TestParseValidationCommands(t *testing.T) {
+	body := `## Validation
+
+- rtk make test
+- rtk make build
+- rtk make test
+Reviewed the changed files.
+go test -tags sqlite_fts5 ./internal/chain
+
+` + "```" + `
+npm exec vitest -- run src/pages/chain-detail.test.tsx
+` + "```" + `
+`
+	got := ParseValidationCommands(body)
+	want := []string{
+		"rtk make test",
+		"rtk make build",
+		"go test -tags sqlite_fts5 ./internal/chain",
+		"npm exec vitest -- run src/pages/chain-detail.test.tsx",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("commands = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("commands[%d] = %q, want %q (all=%+v)", i, got[i], want[i], got)
+		}
+	}
+}

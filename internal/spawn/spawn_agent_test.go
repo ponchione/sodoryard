@@ -5,6 +5,7 @@ package spawn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -169,7 +170,7 @@ Done.
 Created new-file.txt.
 
 ## Validation
-Not run.
+- rtk make test
 
 ## Concerns
 None.
@@ -188,15 +189,38 @@ Audit.
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
 	var manifestSeen bool
+	var facts postStepGuardrailFacts
+	var factsSeen bool
 	for _, event := range events {
 		if event.EventType == chain.EventStepChangedFiles &&
 			strings.Contains(event.EventData, `"count":1`) &&
 			strings.Contains(event.EventData, `"new-file.txt"`) {
 			manifestSeen = true
 		}
+		if event.EventType == chain.EventStepGuardrailFacts {
+			factsSeen = true
+			if err := json.Unmarshal([]byte(event.EventData), &facts); err != nil {
+				t.Fatalf("decode guardrail facts: %v", err)
+			}
+		}
 	}
 	if !manifestSeen {
 		t.Fatalf("events = %+v, want changed-file manifest for new-file.txt", events)
+	}
+	if !factsSeen {
+		t.Fatalf("events = %+v, want post-step guardrail facts", events)
+	}
+	if !facts.ReceiptValid || !facts.ReceiptSchemaValid || !facts.ReceiptSectionsValid {
+		t.Fatalf("guardrail facts receipt validity = %+v, want valid receipt", facts)
+	}
+	if !facts.SourceMutating || !facts.ChangedFileManifestPresent || facts.ChangedFileCount != 1 || len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "new-file.txt" {
+		t.Fatalf("guardrail facts changed files = %+v, want new-file.txt manifest", facts)
+	}
+	if !facts.SourceWriterLockReleaseAttempted || !facts.SourceWriterLockReleased {
+		t.Fatalf("guardrail facts lock release = %+v, want released source writer lock", facts)
+	}
+	if len(facts.ClaimedValidationCommands) != 1 || facts.ClaimedValidationCommands[0] != "rtk make test" {
+		t.Fatalf("guardrail facts validation commands = %+v, want rtk make test", facts.ClaimedValidationCommands)
 	}
 }
 
@@ -976,13 +1000,24 @@ Done.`)
 	}
 	events, _ := store.ListEvents(ctx, chainID)
 	var validationEvent bool
+	var facts postStepGuardrailFacts
+	var factsSeen bool
 	for _, event := range events {
 		if event.EventType == chain.EventReceiptValidation && strings.Contains(event.EventData, `"error":"receipt: missing required section`) {
 			validationEvent = true
 		}
+		if event.EventType == chain.EventStepGuardrailFacts {
+			factsSeen = true
+			if err := json.Unmarshal([]byte(event.EventData), &facts); err != nil {
+				t.Fatalf("decode guardrail facts: %v", err)
+			}
+		}
 	}
 	if !validationEvent {
 		t.Fatalf("events = %+v, want receipt validation error event", events)
+	}
+	if !factsSeen || !facts.ReceiptSchemaValid || !facts.ReceiptStepValid || facts.ReceiptSectionsValid || facts.ReceiptValid || !strings.Contains(facts.ReceiptError, "missing required section") {
+		t.Fatalf("guardrail facts = %+v, want invalid section facts", facts)
 	}
 }
 

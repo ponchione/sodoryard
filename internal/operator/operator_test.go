@@ -665,6 +665,20 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	if err := store.LogEvent(ctx, chainID, "", chain.EventSourceWriterBlocked, map[string]any{"requested_role": "resolver"}); err != nil {
 		t.Fatalf("LogEvent source writer block returned error: %v", err)
 	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                   "coder",
+		"sequence":                               1,
+		"source_mutating":                        true,
+		"receipt_valid":                          false,
+		"receipt_error":                          "receipt: missing required section: Validation",
+		"changed_file_manifest_present":          false,
+		"source_writer_lock_release_attempted":   true,
+		"source_writer_lock_released":            false,
+		"source_writer_lock_release_error":       "lock held by other step",
+		"suspicious_verdict_finding_combination": false,
+	}); err != nil {
+		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
+	}
 	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
 		t.Fatalf("CompleteChain returned error: %v", err)
 	}
@@ -674,12 +688,14 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChainMetrics returned error: %v", err)
 	}
-	if report.Health != "failing" || report.ReceiptWarningEvents != 1 || report.SourceWriterBlocks != 1 || report.ChangedFileEvents != 0 {
+	if report.Health != "failing" || report.ReceiptWarningEvents != 1 || report.SourceWriterBlocks != 1 || report.StepGuardrailFactEvents != 1 || report.ChangedFileEvents != 0 {
 		t.Fatalf("report = %+v, want failing guardrail counters", report)
 	}
 	for _, want := range []string{
 		"chain has 1 receipt_validation_warning event(s)",
 		"source writer guard blocked 1 spawn attempt(s)",
+		"step 1 receipt guardrail facts show invalid receipt: receipt: missing required section: Validation",
+		"step 1 source writer lock release failed: lock held by other step",
 		"step 1 source-writing role coder completed without changed-file manifest",
 	} {
 		if !hasRuntimeWarning(report.Warnings, want) {

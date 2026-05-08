@@ -144,6 +144,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	failHealth := false
 	attentionHealth := false
 	changedFileEventsByStep := map[string]bool{}
+	guardrailFactsByStep := map[string]stepGuardrailFactsEvent{}
 	flowAnalysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: detail.Steps, Events: detail.RecentEvents})
 	report.OpenFindingIDs = append([]string(nil), flowAnalysis.Findings.OpenIDs...)
 	report.ClosedFindingIDs = append([]string(nil), flowAnalysis.Findings.ClosedIDs...)
@@ -251,6 +252,43 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 			if event.StepID != "" {
 				changedFileEventsByStep[event.StepID] = true
 			}
+		case chain.EventStepGuardrailFacts:
+			report.StepGuardrailFactEvents++
+			facts, parseErr := parseStepGuardrailFactsEvent(event.EventData)
+			if parseErr == nil {
+				guardrailFactsByStep[event.StepID] = facts
+				if facts.SourceMutating && facts.ChangedFileManifestPresent && event.StepID != "" {
+					changedFileEventsByStep[event.StepID] = true
+				}
+				if !facts.ReceiptValid {
+					attentionHealth = true
+					reason := strings.TrimSpace(facts.ReceiptError)
+					if reason == "" {
+						reason = "receipt did not pass guardrail validation"
+					}
+					report.addWarning(fmt.Sprintf("step %d receipt guardrail facts show invalid receipt: %s", facts.Sequence, reason))
+				}
+				if facts.SourceMutating && !facts.SourceWriterLockReleaseAttempted {
+					failHealth = true
+					report.addWarning(fmt.Sprintf("step %d source writer lock release was not attempted", facts.Sequence))
+				}
+				if facts.SourceWriterLockReleaseAttempted && !facts.SourceWriterLockReleased {
+					failHealth = true
+					reason := strings.TrimSpace(facts.SourceWriterLockReleaseError)
+					if reason == "" {
+						reason = "release not confirmed"
+					}
+					report.addWarning(fmt.Sprintf("step %d source writer lock release failed: %s", facts.Sequence, reason))
+				}
+				if facts.SuspiciousVerdictFindingCombination {
+					attentionHealth = true
+					reason := strings.TrimSpace(facts.SuspiciousVerdictFindingReason)
+					if reason == "" {
+						reason = "suspicious verdict/finding combination"
+					}
+					report.addWarning(reason)
+				}
+			}
 		case chain.EventStepFailed:
 			report.StepFailedEvents++
 			failHealth = true
@@ -335,9 +373,14 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 		report.addWarning(fmt.Sprintf("chain has %d safety_limit_hit event(s)", report.SafetyLimitEvents))
 	}
 	for _, step := range detail.Steps {
+		facts, hasGuardrailFacts := guardrailFactsByStep[step.ID]
 		if step.Status == "completed" && appconfig.IsSourceWritingRole(step.Role, appconfig.AgentRoleConfig{}) && !changedFileEventsByStep[step.ID] {
 			attentionHealth = true
 			report.addWarning(fmt.Sprintf("step %d source-writing role %s completed without changed-file manifest", step.SequenceNum, step.Role))
+		}
+		if hasGuardrailFacts && facts.SourceMutating && facts.ChangedFileManifestPresent && strings.TrimSpace(facts.ChangedFileManifestError) != "" {
+			attentionHealth = true
+			report.addWarning(fmt.Sprintf("step %d changed-file manifest capture reported: %s", step.SequenceNum, facts.ChangedFileManifestError))
 		}
 	}
 	if isTerminalChainStatus(ch.Status) && report.ProcessStartedEvents != report.ProcessExitedEvents {
@@ -405,6 +448,15 @@ func isTerminalChainStatus(status string) bool {
 }
 
 func (r *ChainMetricsReport) addWarning(message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	for _, warning := range r.Warnings {
+		if warning.Message == message {
+			return
+		}
+	}
 	r.Warnings = append(r.Warnings, RuntimeWarning{Message: message})
 }
 
@@ -416,6 +468,24 @@ type receiptFindingEvent struct {
 	OpenFindingIDs   []string `json:"open_finding_ids"`
 	ClosedFindingIDs []string `json:"closed_finding_ids"`
 	AddressedIDs     []string `json:"addressed_ids"`
+}
+
+type stepGuardrailFactsEvent struct {
+	Role                                string   `json:"role"`
+	Sequence                            int      `json:"sequence"`
+	ReceiptPath                         string   `json:"receipt_path"`
+	SourceMutating                      bool     `json:"source_mutating"`
+	ReceiptValid                        bool     `json:"receipt_valid"`
+	ReceiptError                        string   `json:"receipt_error"`
+	ChangedFileManifestPresent          bool     `json:"changed_file_manifest_present"`
+	ChangedFileManifestError            string   `json:"changed_file_manifest_error"`
+	SourceWriterLockReleaseAttempted    bool     `json:"source_writer_lock_release_attempted"`
+	SourceWriterLockReleased            bool     `json:"source_writer_lock_released"`
+	SourceWriterLockReleaseError        string   `json:"source_writer_lock_release_error"`
+	SuspiciousVerdictFindingCombination bool     `json:"suspicious_verdict_finding_combination"`
+	SuspiciousVerdictFindingReason      string   `json:"suspicious_verdict_finding_reason"`
+	OpenFindingIDs                      []string `json:"open_finding_ids"`
+	AddressedIDs                        []string `json:"addressed_ids"`
 }
 
 func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {
@@ -434,6 +504,22 @@ func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {
 	if event.AddressedCount == 0 {
 		event.AddressedCount = len(event.AddressedIDs)
 	}
+	return event, nil
+}
+
+func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) {
+	var event stepGuardrailFactsEvent
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
+		return stepGuardrailFactsEvent{}, err
+	}
+	event.Role = strings.TrimSpace(event.Role)
+	event.ReceiptPath = strings.TrimSpace(event.ReceiptPath)
+	event.ReceiptError = strings.TrimSpace(event.ReceiptError)
+	event.ChangedFileManifestError = strings.TrimSpace(event.ChangedFileManifestError)
+	event.SourceWriterLockReleaseError = strings.TrimSpace(event.SourceWriterLockReleaseError)
+	event.SuspiciousVerdictFindingReason = strings.TrimSpace(event.SuspiciousVerdictFindingReason)
+	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
+	event.AddressedIDs = compactStrings(event.AddressedIDs)
 	return event, nil
 }
 

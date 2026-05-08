@@ -18,6 +18,7 @@ const (
 	EventStepProcessExited               EventType = "step_process_exited"
 	EventStepOutput                      EventType = "step_output"
 	EventStepChangedFiles                EventType = "step_changed_files"
+	EventStepGuardrailFacts              EventType = "step_guardrail_facts"
 	EventStepCompleted                   EventType = "step_completed"
 	EventStepFailed                      EventType = "step_failed"
 	EventReceiptValidation               EventType = "receipt_validation_warning"
