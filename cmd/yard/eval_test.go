@@ -19,7 +19,7 @@ func TestYardEvalListCommandPrintsSuites(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	for _, want := range []string{"chain-flow\t", "receipt-contract\t", "retrieval-contract\t"} {
+	for _, want := range []string{"chain-flow\t", "receipt-contract\t", "retrieval-contract\t", "tool-contract\t"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("stdout = %q, want %q", out.String(), want)
 		}

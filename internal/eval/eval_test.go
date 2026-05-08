@@ -14,7 +14,7 @@ func TestListSuitesIncludesDeterministicSuites(t *testing.T) {
 	for _, suite := range suites {
 		names = append(names, suite.Name)
 	}
-	assertStringSetForTest(t, names, []string{"chain-flow", "receipt-contract", "retrieval-contract"})
+	assertStringSetForTest(t, names, []string{"chain-flow", "receipt-contract", "retrieval-contract", "tool-contract"})
 }
 
 func TestReceiptContractSuitePassesAndReportsLegacyWarning(t *testing.T) {
@@ -82,6 +82,27 @@ func TestRetrievalContractSuitePassesAndReportsSources(t *testing.T) {
 	assertStringSetForTest(t, detailsStringSliceForTest(t, mixed, "included_paths"), []string{"docs/decisions/auth.md", "internal/auth/middleware.go", "internal/auth/service.go"})
 	stored := findEvalCase(t, report, "stored-unified-report")
 	assertStringSetForTest(t, detailsStringSliceForTest(t, stored, "excluded_paths"), []string{"docs/notes/search.md"})
+}
+
+func TestToolContractSuitePassesAndReportsApprovalBehavior(t *testing.T) {
+	report, err := Run(context.Background(), "tool-contract")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if report.Status != StatusPass {
+		t.Fatalf("status = %q, want pass: %+v", report.Status, report)
+	}
+	if report.Totals.Cases != 2 || report.Totals.CasesPassed != 2 {
+		t.Fatalf("case totals = %+v, want 2/2", report.Totals)
+	}
+	approval := findEvalCase(t, report, "approval-required-shell")
+	if approval.Details["executed"] != false || approval.Details["approval_status"] != "pending" {
+		t.Fatalf("approval details = %+v, want pending without execution", approval.Details)
+	}
+	allowed := findEvalCase(t, report, "allowed-shell")
+	if allowed.Details["executed"] != true || allowed.Details["success"] != true {
+		t.Fatalf("allowed details = %+v, want executed success", allowed.Details)
+	}
 }
 
 func TestEvaluateChainFlowReportsStoredChainPass(t *testing.T) {

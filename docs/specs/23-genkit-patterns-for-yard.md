@@ -459,6 +459,21 @@ Not implemented in this slice:
 - model-judged retrieval quality
 - retrieval ranking or orchestration changes
 
+### Implemented Tool Contract Slice
+
+Implemented on 2026-05-08:
+
+- `yard eval run tool-contract`
+- deterministic executor-level assertions for approval-required shell calls
+- deterministic assertion that allowed shell calls still execute when approval patterns do not match
+- provider-free and shell-free fake tool coverage for CI
+
+Not implemented in this slice:
+
+- repeated failing-call loop evals
+- read-only role mutating-tool evals
+- live tool behavior evals
+
 ### Acceptance Criteria
 
 - `yard eval run receipt-contract` can run in CI without provider credentials.

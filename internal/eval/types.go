@@ -91,6 +91,7 @@ func NewRunner() Runner {
 	r.register(receiptContractSuite{})
 	r.register(chainFlowSuite{})
 	r.register(retrievalContractSuite{})
+	r.register(toolContractSuite{})
 	return r
 }
 
