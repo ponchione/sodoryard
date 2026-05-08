@@ -159,6 +159,27 @@ func TestChainRenderShowsHealthBudgetsAndCurrentStep(t *testing.T) {
 	}
 }
 
+func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain:    chain.Chain{ID: "chain-1", Status: "completed", SourceTask: "first task"},
+		Health:   "attention",
+		Warnings: []operator.RuntimeWarning{{Message: "flow: chain completed after coder step 1 without later auditor"}},
+		Steps:    []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain warning view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestChainDetailHealthTreatsDryRunAsOK(t *testing.T) {
 	detail := &operator.ChainDetail{
 		Chain: chain.Chain{ID: "chain-dry", Status: "dry_run"},

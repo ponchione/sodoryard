@@ -53,6 +53,7 @@ func (m Model) renderChains() string {
 		if len(ch.SourceSpecs) > 0 {
 			detailLines = append(detailLines, fmt.Sprintf("specs: %s", trimOneLine(strings.Join(ch.SourceSpecs, ", "), 90)))
 		}
+		detailLines = append(detailLines, renderChainWarnings(m.detail.Warnings, 5)...)
 		detailLines = append(detailLines,
 			"",
 			m.styles.title.Render("Steps"),

@@ -606,6 +606,7 @@ func (m Model) renderConsoleChainDetail(detail operator.ChainDetail) string {
 	if len(detail.Chain.SourceSpecs) > 0 {
 		lines = append(lines, "specs: "+strings.Join(detail.Chain.SourceSpecs, ", "))
 	}
+	lines = append(lines, renderChainWarnings(detail.Warnings, 8)...)
 	lines = append(lines, "", "Steps:")
 	if len(detail.Steps) == 0 {
 		lines = append(lines, "No steps recorded.")

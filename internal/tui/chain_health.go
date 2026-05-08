@@ -14,6 +14,17 @@ func chainDetailHealth(detail *operator.ChainDetail) readinessState {
 	if detail == nil {
 		return readinessAttention
 	}
+	switch strings.TrimSpace(detail.Health) {
+	case "ok":
+		if len(detail.Warnings) == 0 {
+			return readinessOK
+		}
+		return readinessAttention
+	case "attention":
+		return readinessAttention
+	case "failing":
+		return readinessFailing
+	}
 	fail := false
 	attention := false
 	switch detail.Chain.Status {
@@ -63,6 +74,9 @@ func chainDetailHealth(detail *operator.ChainDetail) readinessState {
 	if detail.Chain.MaxResolverLoops > 0 && detail.Chain.ResolverLoops >= detail.Chain.MaxResolverLoops {
 		attention = true
 	}
+	if len(detail.Warnings) > 0 {
+		attention = true
+	}
 	if fail {
 		return readinessFailing
 	}
@@ -70,6 +84,23 @@ func chainDetailHealth(detail *operator.ChainDetail) readinessState {
 		return readinessAttention
 	}
 	return readinessOK
+}
+
+func renderChainWarnings(warnings []operator.RuntimeWarning, limit int) []string {
+	if len(warnings) == 0 {
+		return nil
+	}
+	if limit <= 0 || limit > len(warnings) {
+		limit = len(warnings)
+	}
+	lines := []string{"", "Warnings"}
+	for i := 0; i < limit; i++ {
+		lines = append(lines, "- "+warnings[i].Message)
+	}
+	if len(warnings) > limit {
+		lines = append(lines, fmt.Sprintf("- %d more warning(s)", len(warnings)-limit))
+	}
+	return lines
 }
 
 func renderChainHealth(styles styles, state readinessState) string {
