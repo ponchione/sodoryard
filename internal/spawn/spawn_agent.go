@@ -16,6 +16,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/id"
 	"github.com/ponchione/sodoryard/internal/outputcap"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/receipt"
@@ -45,9 +46,10 @@ type SpawnAgentTool struct {
 }
 
 const (
-	defaultAgentRunTimeout     = 30 * time.Minute
-	parentTimeoutGraceDuration = 10 * time.Second
-	sourceWriterGuardScanLimit = 1000
+	defaultAgentRunTimeout            = 30 * time.Minute
+	parentTimeoutGraceDuration        = 10 * time.Second
+	sourceWriterLockGraceDuration     = time.Minute
+	sourceWriterLockHeartbeatInterval = time.Minute
 )
 
 type spawnAgentInput struct {
@@ -81,17 +83,19 @@ type AgentStepResult struct {
 }
 
 type spawnStep struct {
-	input                 spawnAgentInput
-	roleName              string
-	roleCfg               appconfig.AgentRoleConfig
-	sequence              int
-	stepID                string
-	receiptPath           string
-	task                  string
-	sourceMutating        bool
-	chainRemainingTimeout time.Duration
-	maxTurns              int
-	maxTokens             int
+	input                     spawnAgentInput
+	roleName                  string
+	roleCfg                   appconfig.AgentRoleConfig
+	sequence                  int
+	stepID                    string
+	receiptPath               string
+	task                      string
+	sourceMutating            bool
+	chainRemainingTimeout     time.Duration
+	maxTurns                  int
+	maxTokens                 int
+	sourceWriterLockOwned     bool
+	sourceWriterLockExpiresAt time.Time
 }
 
 type engineRunOutcome struct {
@@ -104,14 +108,6 @@ type engineRunOutcome struct {
 
 type stepReceiptCompleter interface {
 	CompleteStepWithReceipt(context.Context, projectmemory.CompleteStepWithReceiptArgs) error
-}
-
-type activeSourceWriterStep struct {
-	ChainID     string
-	StepID      string
-	SequenceNum int
-	Role        string
-	Status      string
 }
 
 func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
@@ -178,6 +174,9 @@ func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (AgentS
 	if err != nil {
 		return AgentStepResult{}, "", err
 	}
+	if step.sourceWriterLockOwned {
+		defer t.releaseSourceWriterLock(detachedLockContext(ctx), step)
+	}
 	outcome := t.runEngineStep(ctx, step)
 	if step.sourceMutating {
 		t.captureChangedFiles(ctx, step)
@@ -217,17 +216,13 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 		return spawnStep{}, stopErr
 	}
 	sourceMutating := appconfig.IsSourceWritingRole(roleName, roleCfg)
-	if sourceMutating {
-		if err := t.enforceSourceWriterGuard(ctx, roleName); err != nil {
-			return spawnStep{}, err
-		}
-	}
 	steps, err := t.Store.ListSteps(ctx, t.ChainID)
 	if err != nil {
 		return spawnStep{}, fmt.Errorf("spawn_agent: list steps: %w", err)
 	}
 	seq := len(steps) + 1
 	receiptPath := receipt.StepPath(roleName, t.ChainID, seq)
+	stepID := id.New()
 	ch, err := t.Store.GetChain(ctx, t.ChainID)
 	if err != nil {
 		return spawnStep{}, fmt.Errorf("spawn_agent: load chain briefing state: %w", err)
@@ -245,15 +240,7 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 		ReceiptPath:         receiptPath,
 	})
 	task := taskWithHarnessContext(in.Task, t.ChainID, seq, receiptPath, briefing)
-	stepID, err := t.Store.StartStep(ctx, chain.StepSpec{ChainID: t.ChainID, SequenceNum: seq, Role: roleName, Task: in.Task, TaskContext: in.TaskContext})
-	if err != nil {
-		return spawnStep{}, fmt.Errorf("spawn_agent: create step: %w", err)
-	}
-	if err := t.Store.StepRunning(ctx, stepID); err != nil {
-		return spawnStep{}, fmt.Errorf("spawn_agent: start step: %w", err)
-	}
-	_ = t.Store.LogEvent(ctx, t.ChainID, stepID, chain.EventStepStarted, map[string]any{"role": roleName, "task": in.Task, "receipt_path": receiptPath})
-	return spawnStep{
+	step := spawnStep{
 		input:                 in,
 		roleName:              roleName,
 		roleCfg:               roleCfg,
@@ -265,93 +252,124 @@ func (t *SpawnAgentTool) prepareStep(ctx context.Context, in spawnAgentInput) (s
 		chainRemainingTimeout: chainRemainingTimeout,
 		maxTurns:              in.MaxTurns,
 		maxTokens:             in.MaxTokens,
-	}, nil
+	}
+	if sourceMutating {
+		if err := t.acquireSourceWriterLock(ctx, &step); err != nil {
+			return spawnStep{}, err
+		}
+	}
+	releaseOnError := true
+	defer func() {
+		if releaseOnError && step.sourceWriterLockOwned {
+			t.releaseSourceWriterLock(detachedLockContext(ctx), step)
+		}
+	}()
+	_, err = t.Store.StartStep(ctx, chain.StepSpec{StepID: stepID, ChainID: t.ChainID, SequenceNum: seq, Role: roleName, Task: in.Task, TaskContext: in.TaskContext})
+	if err != nil {
+		return spawnStep{}, fmt.Errorf("spawn_agent: create step: %w", err)
+	}
+	if err := t.Store.StepRunning(ctx, stepID); err != nil {
+		return spawnStep{}, fmt.Errorf("spawn_agent: start step: %w", err)
+	}
+	_ = t.Store.LogEvent(ctx, t.ChainID, stepID, chain.EventStepStarted, map[string]any{"role": roleName, "task": in.Task, "receipt_path": receiptPath})
+	releaseOnError = false
+	return step, nil
 }
 
-func (t *SpawnAgentTool) enforceSourceWriterGuard(ctx context.Context, requestedRole string) error {
-	active, err := t.findActiveSourceWriter(ctx)
+func (t *SpawnAgentTool) acquireSourceWriterLock(ctx context.Context, step *spawnStep) error {
+	if t.Store == nil {
+		return fmt.Errorf("spawn_agent: source writer guard: chain store is nil")
+	}
+	acquiredAt := t.now().UTC()
+	expiresAt := acquiredAt.Add(sourceWriterLockTTL(step.roleCfg, step.chainRemainingTimeout))
+	result, err := t.Store.AcquireProjectLock(ctx, chain.AcquireProjectLockParams{
+		LockName:     chain.SourceWriterLockName,
+		OwnerChainID: t.ChainID,
+		OwnerStepID:  step.stepID,
+		OwnerRole:    step.roleName,
+		AcquiredAt:   acquiredAt,
+		ExpiresAt:    expiresAt,
+		MetadataJSON: mustMarshalString(map[string]any{
+			"receipt_path":   step.receiptPath,
+			"sequence":       step.sequence,
+			"mutation_class": appconfig.MutationClassSourceWrite,
+		}),
+	})
 	if err != nil {
+		event := map[string]any{
+			"requested_role":     step.roleName,
+			"requested_step_id":  step.stepID,
+			"requested_sequence": step.sequence,
+			"lock_name":          chain.SourceWriterLockName,
+			"mutation_class":     appconfig.MutationClassSourceWrite,
+			"error":              err.Error(),
+		}
+		if lock, found, readErr := t.Store.GetProjectLock(ctx, chain.SourceWriterLockName); readErr == nil && found {
+			event["owner_chain_id"] = lock.OwnerChainID
+			event["owner_step_id"] = lock.OwnerStepID
+			event["owner_role"] = lock.OwnerRole
+			event["expires_at"] = lock.ExpiresAt.Format(time.RFC3339)
+		}
+		_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventSourceWriterBlocked, event)
 		return fmt.Errorf("spawn_agent: source writer guard: %w", err)
 	}
-	if active == nil {
-		return nil
-	}
-	_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventSourceWriterBlocked, map[string]any{
-		"requested_role":  requestedRole,
-		"active_chain_id": active.ChainID,
-		"active_step_id":  active.StepID,
-		"active_sequence": active.SequenceNum,
-		"active_role":     active.Role,
-		"active_status":   active.Status,
-		"guard":           "source_writer",
-		"mutation_class":  appconfig.MutationClassSourceWrite,
+	step.sourceWriterLockOwned = true
+	step.sourceWriterLockExpiresAt = result.Lock.ExpiresAt
+	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventSourceWriterLockAcquired, map[string]any{
+		"lock_name":      chain.SourceWriterLockName,
+		"owner_chain_id": t.ChainID,
+		"owner_step_id":  step.stepID,
+		"owner_role":     step.roleName,
+		"expires_at":     result.Lock.ExpiresAt.Format(time.RFC3339),
 	})
-	return fmt.Errorf("spawn_agent: source writer guard: active source-writing step %d (%s) in chain %s has role %s and status %s; refusing to start %s", active.SequenceNum, active.StepID, active.ChainID, active.Role, active.Status, requestedRole)
+	if result.ReplacedLockOwnerStepID != "" {
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventSourceWriterLockStaleReplaced, map[string]any{
+			"lock_name":           chain.SourceWriterLockName,
+			"previous_chain_id":   result.ReplacedLockOwnerChainID,
+			"previous_step_id":    result.ReplacedLockOwnerStepID,
+			"previous_role":       result.ReplacedLockOwnerRole,
+			"previous_expires_at": result.ReplacedLockExpiredAt.Format(time.RFC3339),
+		})
+	}
+	return nil
 }
 
-func (t *SpawnAgentTool) findActiveSourceWriter(ctx context.Context) (*activeSourceWriterStep, error) {
-	if active, err := t.findActiveSourceWriterInChain(ctx, t.ChainID); err != nil || active != nil {
-		return active, err
-	}
-	chains, err := t.Store.ListChains(ctx, sourceWriterGuardScanLimit)
+func (t *SpawnAgentTool) releaseSourceWriterLock(ctx context.Context, step spawnStep) {
+	err := t.Store.ReleaseProjectLock(ctx, chain.ReleaseProjectLockParams{
+		LockName:     chain.SourceWriterLockName,
+		OwnerChainID: t.ChainID,
+		OwnerStepID:  step.stepID,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("list chains: %w", err)
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventSourceWriterLockReleaseFailed, map[string]any{
+			"lock_name":      chain.SourceWriterLockName,
+			"owner_chain_id": t.ChainID,
+			"owner_step_id":  step.stepID,
+			"owner_role":     step.roleName,
+			"error":          err.Error(),
+		})
+		return
 	}
-	for _, ch := range chains {
-		if ch.ID == t.ChainID {
-			continue
-		}
-		active, err := t.findActiveSourceWriterInChain(ctx, ch.ID)
-		if err != nil {
-			return nil, err
-		}
-		if active != nil {
-			return active, nil
-		}
-	}
-	return nil, nil
+	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventSourceWriterLockReleased, map[string]any{
+		"lock_name":      chain.SourceWriterLockName,
+		"owner_chain_id": t.ChainID,
+		"owner_step_id":  step.stepID,
+		"owner_role":     step.roleName,
+	})
 }
 
-func (t *SpawnAgentTool) findActiveSourceWriterInChain(ctx context.Context, chainID string) (*activeSourceWriterStep, error) {
-	steps, err := t.Store.ListSteps(ctx, chainID)
-	if err != nil {
-		return nil, fmt.Errorf("list steps for chain %s: %w", chainID, err)
-	}
-	for _, step := range steps {
-		if !isActiveStepStatus(step.Status) {
-			continue
-		}
-		if !t.stepRoleIsSourceWriting(step.Role) {
-			continue
-		}
-		return &activeSourceWriterStep{
-			ChainID:     step.ChainID,
-			StepID:      step.ID,
-			SequenceNum: step.SequenceNum,
-			Role:        step.Role,
-			Status:      step.Status,
-		}, nil
-	}
-	return nil, nil
+func (t *SpawnAgentTool) heartbeatSourceWriterLock(ctx context.Context, step spawnStep) error {
+	expiresAt := t.now().UTC().Add(sourceWriterLockTTL(step.roleCfg, step.chainRemainingTimeout))
+	return t.Store.HeartbeatProjectLock(ctx, chain.HeartbeatProjectLockParams{
+		LockName:     chain.SourceWriterLockName,
+		OwnerChainID: t.ChainID,
+		OwnerStepID:  step.stepID,
+		ExpiresAt:    expiresAt,
+	})
 }
 
-func (t *SpawnAgentTool) stepRoleIsSourceWriting(roleName string) bool {
-	if t.Config != nil {
-		resolvedName, roleCfg, err := t.Config.ResolveAgentRole(roleName)
-		if err == nil {
-			return appconfig.IsSourceWritingRole(resolvedName, roleCfg)
-		}
-	}
-	return appconfig.IsSourceWritingRole(roleName, appconfig.AgentRoleConfig{})
-}
-
-func isActiveStepStatus(status string) bool {
-	switch status {
-	case "pending", "running":
-		return true
-	default:
-		return false
-	}
+func sourceWriterLockTTL(roleCfg appconfig.AgentRoleConfig, chainRemainingTimeout time.Duration) time.Duration {
+	return resolveStepRunTimeout(roleCfg, chainRemainingTimeout) + parentTimeoutGraceDuration + sourceWriterLockGraceDuration
 }
 
 func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engineRunOutcome {
@@ -360,6 +378,8 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 	stderr := outputcap.NewBuffer(outputcap.DefaultLimit)
 	var enginePID int
 	agentTimeout := resolveStepRunTimeout(step.roleCfg, step.chainRemainingTimeout)
+	stopHeartbeat := t.startSourceWriterLockHeartbeat(ctx, step)
+	defer stopHeartbeat()
 	res := t.runCommand(ctx, RunCommandInput{
 		Name:   t.EngineBinary,
 		Args:   buildEngineRunArgs(step, t.ChainID, agentTimeout),
@@ -389,6 +409,42 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 		stdout:       stdout.String(),
 		stderr:       stderr.String(),
 		durationSecs: durationSecs,
+	}
+}
+
+func (t *SpawnAgentTool) startSourceWriterLockHeartbeat(ctx context.Context, step spawnStep) func() {
+	if !step.sourceWriterLockOwned || t.Store == nil {
+		return func() {}
+	}
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(sourceWriterLockHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				lockCtx, cancelLock := context.WithTimeout(context.Background(), 30*time.Second)
+				if err := t.heartbeatSourceWriterLock(lockCtx, step); err != nil {
+					_ = t.Store.LogEvent(lockCtx, t.ChainID, step.stepID, chain.EventSourceWriterLockHeartbeatFailed, map[string]any{
+						"lock_name":      chain.SourceWriterLockName,
+						"owner_chain_id": t.ChainID,
+						"owner_step_id":  step.stepID,
+						"owner_role":     step.roleName,
+						"operation":      "heartbeat",
+						"error":          err.Error(),
+					})
+				}
+				cancelLock()
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
 	}
 }
 
@@ -499,9 +555,62 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
 	}
 	if err := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForRole(step.roleName)); err != nil {
-		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{"role": step.roleName, "receipt_path": step.receiptPath, "warning": err.Error()})
+		failMsg := fmt.Sprintf("validate receipt sections %s: %v", step.receiptPath, err)
+		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{"role": step.roleName, "receipt_path": step.receiptPath, "error": err.Error()})
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
+		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
 	}
+	t.logReceiptFindingFacts(ctx, step, parsed)
 	return receiptContent, parsed, nil
+}
+
+func (t *SpawnAgentTool) logReceiptFindingFacts(ctx context.Context, step spawnStep, parsed receipt.Receipt) {
+	if t == nil || t.Store == nil {
+		return
+	}
+	payload := map[string]any{
+		"role":         step.roleName,
+		"receipt_path": step.receiptPath,
+		"verdict":      string(parsed.Verdict),
+	}
+	switch step.roleName {
+	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
+		findings := receipt.ParseAuditFindings(parsed.RawBody, step.roleName)
+		findingIDs := make([]string, 0, len(findings))
+		openFindingIDs := make([]string, 0, len(findings))
+		closedFindingIDs := make([]string, 0, len(findings))
+		for _, finding := range findings {
+			if finding.ID == "" {
+				continue
+			}
+			findingIDs = append(findingIDs, finding.ID)
+			if finding.Status == "closed" {
+				closedFindingIDs = append(closedFindingIDs, finding.ID)
+			} else {
+				openFindingIDs = append(openFindingIDs, finding.ID)
+			}
+		}
+		payload["finding_count"] = len(findingIDs)
+		payload["open_count"] = len(openFindingIDs)
+		payload["closed_count"] = len(closedFindingIDs)
+		payload["finding_ids"] = findingIDs
+		payload["open_finding_ids"] = openFindingIDs
+		payload["closed_finding_ids"] = closedFindingIDs
+	case "resolver":
+		resolutions := receipt.ParseFindingResolutions(parsed.RawBody)
+		addressedIDs := make([]string, 0, len(resolutions))
+		for _, resolution := range resolutions {
+			if resolution.ID != "" {
+				addressedIDs = append(addressedIDs, resolution.ID)
+			}
+		}
+		payload["addressed_count"] = len(addressedIDs)
+		payload["addressed_ids"] = addressedIDs
+	default:
+		return
+	}
+	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptFindings, payload)
 }
 
 func (t *SpawnAgentTool) recordStepOutcome(ctx context.Context, step spawnStep, outcome engineRunOutcome, receiptContent string, parsed receipt.Receipt) (AgentStepResult, string, error) {
@@ -719,6 +828,21 @@ func yardBinaryForEngine(engineBinary string) string {
 		return "yard"
 	}
 	return filepath.Join(dir, "yard")
+}
+
+func detachedLockContext(ctx context.Context) context.Context {
+	if ctx != nil {
+		return context.WithoutCancel(ctx)
+	}
+	return context.Background()
+}
+
+func mustMarshalString(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }
 
 func (t *SpawnAgentTool) logStepOutput(ctx context.Context, stepID string, stream string, line string) {

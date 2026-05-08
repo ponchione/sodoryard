@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -56,19 +57,7 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 		if in.OnStderrLine != nil {
 			in.OnStderrLine("stderr line 1")
 		}
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 2
-tokens_used: 33
-duration_seconds: 5
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 33, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
 	}
 	tool.now = func() time.Time { return time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC) }
@@ -243,19 +232,7 @@ func TestSpawnAgentUsesProjectMemoryCompleteStepWithReceipt(t *testing.T) {
 		ProjectRoot:  t.TempDir(),
 	})
 	receiptPath := "receipts/coder/" + chainID + "-step-001.md"
-	receiptContent := `---
-agent: coder
-chain_id: spawn-shunter-receipt
-step: 1
-verdict: completed
-timestamp: 2026-05-06T14:00:00Z
-turns_used: 2
-tokens_used: 44
-duration_seconds: 6
----
-
-Done through Shunter atomic receipt completion.
-`
+	receiptContent := testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 44, testReceiptBody("Done through Shunter atomic receipt completion."))
 	tool.now = func() time.Time { return time.Date(2026, 5, 6, 14, 0, 0, 0, time.UTC) }
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		if err := backend.WriteDocument(ctx, receiptPath, receiptContent); err != nil {
@@ -322,19 +299,7 @@ func TestSpawnAgentPassesHeadlessRunLimits(t *testing.T) {
 	var gotArgs []string
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		gotArgs = append([]string(nil), in.Args...)
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 2
-tokens_used: 100
-duration_seconds: 5
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 100, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
 	}
 
@@ -366,19 +331,7 @@ func TestSpawnAgentAcceptsPersonaAliasAndUsesCanonicalRole(t *testing.T) {
 	var gotArgs []string
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		gotArgs = append([]string(nil), in.Args...)
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 1
-duration_seconds: 1
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
 	}
 
@@ -401,63 +354,86 @@ Done.
 }
 
 func TestSpawnAgentRejectsSecondSourceWriterAcrossProject(t *testing.T) {
-	ctx := context.Background()
-	store := chain.NewStore(newSpawnTestDB(t))
-	activeChainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "active-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	activeStepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: activeChainID, SequenceNum: 1, Role: "coder", Task: "do work"})
-	if err != nil {
-		t.Fatalf("StartStep returned error: %v", err)
-	}
-	if err := store.StepRunning(ctx, activeStepID); err != nil {
-		t.Fatalf("StepRunning returned error: %v", err)
-	}
-	chainID, _ := store.StartChain(ctx, chain.ChainSpec{ChainID: "blocked-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
-	tool := NewSpawnAgentTool(SpawnAgentDeps{
-		Store:   store,
-		Backend: &fakeBrainBackend{docs: map[string]string{}},
-		Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{
-			"coder":    {SystemPrompt: "builtin:coder"},
-			"resolver": {SystemPrompt: "builtin:resolver"},
-		}},
-		ChainID:      chainID,
-		EngineBinary: "tidmouth",
-		ProjectRoot:  t.TempDir(),
-	})
-	runCalled := false
-	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
-		runCalled = true
-		return RunResult{ExitCode: 0}
-	}
+	for _, tc := range []struct {
+		name          string
+		requestedRole string
+	}{
+		{name: "coder blocks coder", requestedRole: "coder"},
+		{name: "coder blocks resolver", requestedRole: "resolver"},
+		{name: "coder blocks test-writer", requestedRole: "test-writer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
+			if err != nil {
+				t.Fatalf("OpenBrainBackend: %v", err)
+			}
+			defer backend.Close()
+			store := chain.NewProjectMemoryStore(backend)
+			if _, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "active-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}); err != nil {
+				t.Fatalf("StartChain active returned error: %v", err)
+			}
+			if _, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "blocked-writer-chain", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}); err != nil {
+				t.Fatalf("StartChain blocked returned error: %v", err)
+			}
+			if _, err := store.AcquireProjectLock(ctx, chain.AcquireProjectLockParams{
+				LockName:     chain.SourceWriterLockName,
+				OwnerChainID: "active-writer-chain",
+				OwnerStepID:  "active-step",
+				OwnerRole:    "coder",
+				ExpiresAt:    time.Now().Add(time.Hour),
+			}); err != nil {
+				t.Fatalf("AcquireProjectLock active writer returned error: %v", err)
+			}
+			tool := NewSpawnAgentTool(SpawnAgentDeps{
+				Store:   store,
+				Backend: backend,
+				Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{
+					"coder":       {SystemPrompt: "builtin:coder"},
+					"resolver":    {SystemPrompt: "builtin:resolver"},
+					"test-writer": {SystemPrompt: "builtin:test-writer"},
+				}},
+				ChainID:      "blocked-writer-chain",
+				EngineBinary: "tidmouth",
+				ProjectRoot:  t.TempDir(),
+			})
+			runCalled := false
+			tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+				runCalled = true
+				return RunResult{ExitCode: 0}
+			}
 
-	_, err = tool.Execute(ctx, ".", []byte(`{"role":"resolver","task":"fix work"}`))
-	if err == nil || !strings.Contains(err.Error(), "source writer guard") {
-		t.Fatalf("error = %v, want source writer guard rejection", err)
-	}
-	if runCalled {
-		t.Fatal("runCommand called despite active source writer")
-	}
-	steps, err := store.ListSteps(ctx, chainID)
-	if err != nil {
-		t.Fatalf("ListSteps returned error: %v", err)
-	}
-	if len(steps) != 0 {
-		t.Fatalf("steps = %+v, want no blocked step row", steps)
-	}
-	events, err := store.ListEvents(ctx, chainID)
-	if err != nil {
-		t.Fatalf("ListEvents returned error: %v", err)
-	}
-	var blockedEvent bool
-	for _, event := range events {
-		if event.EventType == chain.EventSourceWriterBlocked &&
-			strings.Contains(event.EventData, `"requested_role":"resolver"`) &&
-			strings.Contains(event.EventData, `"active_chain_id":"active-writer-chain"`) &&
-			strings.Contains(event.EventData, `"active_role":"coder"`) {
-			blockedEvent = true
-		}
-	}
-	if !blockedEvent {
-		t.Fatalf("events = %+v, want source writer guard blocked event", events)
+			_, err = tool.Execute(ctx, ".", []byte(`{"role":"`+tc.requestedRole+`","task":"do work"}`))
+			if err == nil || !strings.Contains(err.Error(), "source writer guard") {
+				t.Fatalf("error = %v, want source writer guard rejection", err)
+			}
+			if runCalled {
+				t.Fatal("runCommand called despite active source writer")
+			}
+			steps, err := store.ListSteps(ctx, "blocked-writer-chain")
+			if err != nil {
+				t.Fatalf("ListSteps returned error: %v", err)
+			}
+			if len(steps) != 0 {
+				t.Fatalf("steps = %+v, want no blocked step row", steps)
+			}
+			events, err := store.ListEvents(ctx, "blocked-writer-chain")
+			if err != nil {
+				t.Fatalf("ListEvents returned error: %v", err)
+			}
+			var blockedEvent bool
+			for _, event := range events {
+				if event.EventType == chain.EventSourceWriterBlocked &&
+					strings.Contains(event.EventData, `"requested_role":"`+tc.requestedRole+`"`) &&
+					strings.Contains(event.EventData, `"lock_name":"source_writer"`) &&
+					strings.Contains(event.EventData, `"owner_role":"coder"`) {
+					blockedEvent = true
+				}
+			}
+			if !blockedEvent {
+				t.Fatalf("events = %+v, want source writer guard blocked event", events)
+			}
+		})
 	}
 }
 
@@ -488,19 +464,7 @@ func TestSpawnAgentAllowsReadOnlyRoleWhileSourceWriterRuns(t *testing.T) {
 	runCalled := false
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		runCalled = true
-		backend.docs["receipts/correctness-auditor/"+chainID+"-step-001.md"] = `---
-agent: correctness-auditor
-chain_id: readonly-chain
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 1
-duration_seconds: 1
----
-
-Audit complete.
-`
+		backend.docs["receipts/correctness-auditor/"+chainID+"-step-001.md"] = testReceiptContent("correctness-auditor", chainID, 1, receipt.VerdictCompleted, 1, testAuditorReceiptBody("Audit complete."))
 		return RunResult{ExitCode: 0}
 	}
 
@@ -626,19 +590,7 @@ func TestSpawnAgentPassesRoleTimeoutToSubprocess(t *testing.T) {
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		gotArgs = append([]string(nil), in.Args...)
 		gotTimeout = in.Timeout
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 1
-duration_seconds: 1
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
 	}
 
@@ -677,19 +629,7 @@ func TestSpawnAgentCapsSubprocessTimeoutToRemainingChainDuration(t *testing.T) {
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		gotArgs = append([]string(nil), in.Args...)
 		gotTimeout = in.Timeout
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 1
-duration_seconds: 1
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
 	}
 
@@ -718,19 +658,7 @@ func TestSpawnAgentFailsChainWhenStepExceedsTokenBudget(t *testing.T) {
 		ProjectRoot:  t.TempDir(),
 	})
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 11
-duration_seconds: 1
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 11, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
 	}
 
@@ -770,19 +698,7 @@ func TestSpawnAgentReturnsErrorForInfrastructureExitWithReceipt(t *testing.T) {
 	backend := &fakeBrainBackend{docs: map[string]string{}}
 	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
-		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 1
-duration_seconds: 1
----
-
-Done.
-`
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, testReceiptBody("Done."))
 		return RunResult{ExitCode: 1}
 	}
 
@@ -812,19 +728,7 @@ func TestSpawnAgentRunsReindexBeforeWhenRequested(t *testing.T) {
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		calls = append(calls, commandCall{name: in.Name, args: append([]string(nil), in.Args...), env: append([]string(nil), in.Env...)})
 		if len(calls) == 3 {
-			backend.docs["receipts/coder/"+chainID+"-step-001.md"] = `---
-agent: coder
-chain_id: ` + chainID + `
-step: 1
-verdict: completed
-timestamp: 2026-04-11T00:00:00Z
-turns_used: 1
-tokens_used: 1
-duration_seconds: 1
----
-
-Done.
-`
+			backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, testReceiptBody("Done."))
 		}
 		return RunResult{ExitCode: 0}
 	}
@@ -870,6 +774,137 @@ func TestSpawnAgentFailsWhenReceiptMissing(t *testing.T) {
 	safetyReceipt := backend.docs["receipts/coder/"+chainID+"-step-001.md"]
 	if !strings.Contains(safetyReceipt, "verdict: safety_limit") || !strings.Contains(safetyReceipt, "missing receipt") {
 		t.Fatalf("safety receipt = %q, want safety_limit receipt explaining missing receipt", safetyReceipt)
+	}
+}
+
+func TestSpawnAgentReleasesSourceWriterLockOnFailurePaths(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		run         func(context.Context, *projectmemory.BrainBackend, string) RunResult
+		wantErrText string
+	}{
+		{
+			name: "missing receipt",
+			run: func(context.Context, *projectmemory.BrainBackend, string) RunResult {
+				return RunResult{ExitCode: 1}
+			},
+			wantErrText: "missing receipt",
+		},
+		{
+			name: "invalid receipt contract",
+			run: func(ctx context.Context, backend *projectmemory.BrainBackend, chainID string) RunResult {
+				_ = backend.WriteDocument(ctx, "receipts/coder/"+chainID+"-step-001.md", `---
+agent: resolver
+chain_id: `+chainID+`
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+## Summary
+Wrong role.
+
+## Changes
+None.
+
+## Validation
+Not run.
+
+## Concerns
+Invalid agent.
+
+## Next Steps
+Fix receipt.
+`)
+				return RunResult{ExitCode: 0}
+			},
+			wantErrText: "invalid field: agent",
+		},
+		{
+			name: "infrastructure exit with receipt",
+			run: func(ctx context.Context, backend *projectmemory.BrainBackend, chainID string) RunResult {
+				_ = backend.WriteDocument(ctx, "receipts/coder/"+chainID+"-step-001.md", `---
+agent: coder
+chain_id: `+chainID+`
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: 1
+duration_seconds: 1
+---
+
+## Summary
+Done.
+
+## Changes
+None.
+
+## Validation
+Not run.
+
+## Concerns
+Engine exited non-zero.
+
+## Next Steps
+Inspect infrastructure failure.
+`)
+				return RunResult{ExitCode: 1}
+			},
+			wantErrText: "engine exited 1",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
+			if err != nil {
+				t.Fatalf("OpenBrainBackend: %v", err)
+			}
+			defer backend.Close()
+			store := chain.NewProjectMemoryStore(backend)
+			chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-lock-release", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+			if err != nil {
+				t.Fatalf("StartChain returned error: %v", err)
+			}
+			tool := NewSpawnAgentTool(SpawnAgentDeps{
+				Store:        store,
+				Backend:      backend,
+				Config:       &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {SystemPrompt: "builtin:coder"}}},
+				ChainID:      chainID,
+				EngineBinary: "tidmouth",
+				ProjectRoot:  t.TempDir(),
+			})
+			tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+				return tc.run(ctx, backend, chainID)
+			}
+
+			_, err = tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrText) {
+				t.Fatalf("error = %v, want %q", err, tc.wantErrText)
+			}
+			if lock, found, err := store.GetProjectLock(ctx, chain.SourceWriterLockName); err != nil || found {
+				t.Fatalf("source writer lock after failure = %+v found=%t err=%v, want released", lock, found, err)
+			}
+			events, err := store.ListEvents(ctx, chainID)
+			if err != nil {
+				t.Fatalf("ListEvents returned error: %v", err)
+			}
+			var acquired, released bool
+			for _, event := range events {
+				if event.EventType == chain.EventSourceWriterLockAcquired {
+					acquired = true
+				}
+				if event.EventType == chain.EventSourceWriterLockReleased {
+					released = true
+				}
+			}
+			if !acquired || !released {
+				t.Fatalf("events = %+v, want lock acquired and released events", events)
+			}
+		})
 	}
 }
 
@@ -919,6 +954,38 @@ None.
 	}
 }
 
+func TestSpawnAgentFailsWhenReceiptSectionsAreMissing(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, `## Summary
+Done.`)
+		return RunResult{ExitCode: 0}
+	}
+
+	_, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+	if err == nil || !strings.Contains(err.Error(), "missing required section") {
+		t.Fatalf("error = %v, want missing section failure", err)
+	}
+	steps, _ := store.ListSteps(ctx, chainID)
+	if len(steps) != 1 || steps[0].Status != "failed" || !strings.Contains(steps[0].ErrorMessage, "validate receipt sections") {
+		t.Fatalf("unexpected failed step: %+v", steps)
+	}
+	events, _ := store.ListEvents(ctx, chainID)
+	var validationEvent bool
+	for _, event := range events {
+		if event.EventType == chain.EventReceiptValidation && strings.Contains(event.EventData, `"error":"receipt: missing required section`) {
+			validationEvent = true
+		}
+	}
+	if !validationEvent {
+		t.Fatalf("events = %+v, want receipt validation error event", events)
+	}
+}
+
 func argValue(args []string, name string) string {
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] == name {
@@ -926,6 +993,46 @@ func argValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func testReceiptContent(role string, chainID string, step int, verdict receipt.Verdict, tokens int, body string) string {
+	return `---
+agent: ` + role + `
+chain_id: ` + chainID + `
+step: ` + strconv.Itoa(step) + `
+verdict: ` + string(verdict) + `
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 1
+tokens_used: ` + strconv.Itoa(tokens) + `
+duration_seconds: 1
+---
+
+` + strings.TrimSpace(body) + `
+`
+}
+
+func testReceiptBody(summary string) string {
+	return `## Summary
+` + summary + `
+
+## Changes
+None.
+
+## Validation
+Not run.
+
+## Concerns
+None.
+
+## Next Steps
+None.`
+}
+
+func testAuditorReceiptBody(summary string) string {
+	return testReceiptBody(summary) + `
+
+## Findings
+None.`
 }
 
 func TestSpawnAgentRejectsStepLimit(t *testing.T) {

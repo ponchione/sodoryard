@@ -68,6 +68,16 @@ func BuildStepBriefing(in StepBriefingInput) string {
 		}
 	}
 
+	openFindings := openFindingLines(in.Events)
+	if len(openFindings) > 0 {
+		b.WriteString("\nOpen audit findings:\n")
+		for _, finding := range openFindings {
+			b.WriteString("- ")
+			b.WriteString(finding)
+			b.WriteByte('\n')
+		}
+	}
+
 	return strings.TrimSpace(b.String())
 }
 
@@ -132,12 +142,16 @@ func receiptValidationWarnings(events []Event) []string {
 			Role        string `json:"role"`
 			ReceiptPath string `json:"receipt_path"`
 			Warning     string `json:"warning"`
+			Error       string `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
 			warnings = append(warnings, err.Error())
 			continue
 		}
 		warning := strings.TrimSpace(payload.Warning)
+		if warning == "" {
+			warning = strings.TrimSpace(payload.Error)
+		}
 		if warning == "" {
 			continue
 		}
@@ -154,4 +168,40 @@ func receiptValidationWarnings(events []Event) []string {
 		warnings = append(warnings, warning)
 	}
 	return warnings
+}
+
+func openFindingLines(events []Event) []string {
+	open := map[string]string{}
+	for _, event := range events {
+		if event.EventType != EventReceiptFindings {
+			continue
+		}
+		var payload struct {
+			Role             string   `json:"role"`
+			OpenFindingIDs   []string `json:"open_finding_ids"`
+			ClosedFindingIDs []string `json:"closed_finding_ids"`
+		}
+		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
+			continue
+		}
+		for _, id := range payload.ClosedFindingIDs {
+			delete(open, strings.TrimSpace(id))
+		}
+		for _, id := range payload.OpenFindingIDs {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				open[id] = strings.TrimSpace(payload.Role)
+			}
+		}
+	}
+	lines := make([]string, 0, len(open))
+	for id, role := range open {
+		if role == "" {
+			lines = append(lines, id)
+		} else {
+			lines = append(lines, fmt.Sprintf("%s from %s", id, role))
+		}
+	}
+	sort.Strings(lines)
+	return lines
 }

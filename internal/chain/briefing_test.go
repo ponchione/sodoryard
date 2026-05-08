@@ -30,6 +30,7 @@ func TestBuildStepBriefingIncludesReceiptsManifestAndWarnings(t *testing.T) {
 		Events: []Event{
 			{EventType: EventStepChangedFiles, EventData: `{"paths":["internal/b.go","internal/a.go"],"count":2}`},
 			{EventType: EventReceiptValidation, EventData: `{"role":"coder","receipt_path":"receipts/coder/chain-1-step-001.md","warning":"missing section"}`},
+			{EventType: EventReceiptFindings, EventData: `{"role":"correctness-auditor","open_finding_ids":["FIND-correctness-001"]}`},
 		},
 		CurrentStepSequence: 2,
 		CurrentRole:         "correctness-auditor",
@@ -44,6 +45,7 @@ func TestBuildStepBriefingIncludesReceiptsManifestAndWarnings(t *testing.T) {
 		"internal/a.go",
 		"internal/b.go",
 		"coder receipts/coder/chain-1-step-001.md: missing section",
+		"FIND-correctness-001 from correctness-auditor",
 	} {
 		if !strings.Contains(briefing, want) {
 			t.Fatalf("briefing missing %q:\n%s", want, briefing)
