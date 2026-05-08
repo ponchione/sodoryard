@@ -31,6 +31,30 @@ Those are lower-priority ideas and should not distract from the higher-impact ru
 
 ---
 
+## Relationship To Spec 22
+
+[[22-sequential-agent-guardrails]] is authoritative for the overlapping chain-safety contracts:
+
+- sequential mutating-agent invariants
+- role mutation classes and writer locks
+- typed receipt validity
+- audit finding IDs
+- changed-file manifests
+- pre-step briefings
+- post-step chain health warnings
+
+This document should extend those contracts, not redefine them. In particular:
+
+- The schema-backed receipt and finding work below should use the receipt/finding semantics from spec 22 as the canonical contract.
+- Chain templates should respect spec 22 role classes, transition rules, and writer-lock constraints.
+- Tool approval interrupts should build on spec 22 mutating-tool and mutating-role classification.
+- Eval suites should include spec 22 invariants as deterministic test cases once those slices land.
+- Tracing and middleware hooks may proceed independently because they are observability/plumbing work and can help implement or debug spec 22.
+
+If this document conflicts with spec 22 on chain safety, receipt semantics, findings, changed-file manifests, or flow health, spec 22 wins.
+
+---
+
 ## Selection Criteria
 
 An idea is worth stealing only if it improves one of Yard's live differentiators:
@@ -941,4 +965,3 @@ Why first:
 4. Should approval waits be allowed in default chain mode, or only when the operator opts in?
 5. How much token streaming needs durable persistence versus reconstructing final messages from conversation history?
 6. Should `yard eval` live under the public operator surface immediately, or start as an internal/dev command until fixtures stabilize?
-
