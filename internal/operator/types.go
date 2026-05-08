@@ -82,6 +82,8 @@ type ChainDetail struct {
 	Steps        []chain.Step
 	Receipts     []ReceiptSummary
 	RecentEvents []chain.Event
+	Health       string
+	Warnings     []RuntimeWarning
 }
 
 type ChainMetricsReport struct {
@@ -115,8 +117,13 @@ type ChainMetricsReport struct {
 	ReceiptWarningEvents              int
 	ReceiptFindingEvents              int
 	OpenFindingCount                  int
+	ClosedFindingCount                int
 	AddressedFindingCount             int
 	OpenFindingIDs                    []string
+	ClosedFindingIDs                  []string
+	AddressedFindingIDs               []string
+	ReopenedFindingIDs                []string
+	RepeatedResolverFindingIDs        []string
 	SourceWriterBlocks                int
 	SourceWriterLockAcquires          int
 	SourceWriterLockReleases          int

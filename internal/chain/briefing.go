@@ -17,6 +17,7 @@ type StepBriefingInput struct {
 }
 
 func BuildStepBriefing(in StepBriefingInput) string {
+	analysis := AnalyzeFlow(FlowAnalysisInput{Chain: in.Chain, Steps: in.Steps, Events: in.Events})
 	var b strings.Builder
 	writeBriefingLine(&b, "Chain ID", in.Chain.ID)
 	writeBriefingLine(&b, "Chain status", in.Chain.Status)
@@ -68,10 +69,29 @@ func BuildStepBriefing(in StepBriefingInput) string {
 		}
 	}
 
-	openFindings := openFindingLines(in.Events)
+	if len(analysis.Warnings) > 0 {
+		b.WriteString("\nChain flow warnings:\n")
+		for _, warning := range analysis.Warnings {
+			b.WriteString("- ")
+			b.WriteString(warning.Message)
+			b.WriteByte('\n')
+		}
+	}
+
+	openFindings := findingLines(analysis.Findings.OpenIDs, analysis.Findings)
 	if len(openFindings) > 0 {
 		b.WriteString("\nOpen audit findings:\n")
 		for _, finding := range openFindings {
+			b.WriteString("- ")
+			b.WriteString(finding)
+			b.WriteByte('\n')
+		}
+	}
+
+	closedFindings := findingLines(analysis.Findings.ClosedIDs, analysis.Findings)
+	if len(closedFindings) > 0 {
+		b.WriteString("\nClosed audit findings:\n")
+		for _, finding := range closedFindings {
 			b.WriteString("- ")
 			b.WriteString(finding)
 			b.WriteByte('\n')
@@ -170,37 +190,19 @@ func receiptValidationWarnings(events []Event) []string {
 	return warnings
 }
 
-func openFindingLines(events []Event) []string {
-	open := map[string]string{}
-	for _, event := range events {
-		if event.EventType != EventReceiptFindings {
-			continue
-		}
-		var payload struct {
-			Role             string   `json:"role"`
-			OpenFindingIDs   []string `json:"open_finding_ids"`
-			ClosedFindingIDs []string `json:"closed_finding_ids"`
-		}
-		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
-			continue
-		}
-		for _, id := range payload.ClosedFindingIDs {
-			delete(open, strings.TrimSpace(id))
-		}
-		for _, id := range payload.OpenFindingIDs {
-			id = strings.TrimSpace(id)
-			if id != "" {
-				open[id] = strings.TrimSpace(payload.Role)
-			}
-		}
+func findingLines(ids []string, lifecycle FindingLifecycle) []string {
+	sourceByID := map[string]string{}
+	for _, finding := range lifecycle.Findings {
+		sourceByID[finding.ID] = finding.SourceRole
 	}
-	lines := make([]string, 0, len(open))
-	for id, role := range open {
+	lines := make([]string, 0, len(ids))
+	for _, id := range ids {
+		role := strings.TrimSpace(sourceByID[id])
 		if role == "" {
 			lines = append(lines, id)
-		} else {
-			lines = append(lines, fmt.Sprintf("%s from %s", id, role))
+			continue
 		}
+		lines = append(lines, fmt.Sprintf("%s from %s", id, role))
 	}
 	sort.Strings(lines)
 	return lines

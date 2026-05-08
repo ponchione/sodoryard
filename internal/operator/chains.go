@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/ponchione/sodoryard/internal/chain"
@@ -53,7 +52,11 @@ func (s *Service) GetChainDetail(ctx context.Context, chainID string) (ChainDeta
 		return ChainDetail{}, err
 	}
 	receipts := s.receiptSummaries(ctx, chainID, steps)
-	return ChainDetail{Chain: *ch, Steps: steps, Receipts: receipts, RecentEvents: events}, nil
+	detail := ChainDetail{Chain: *ch, Steps: steps, Receipts: receipts, RecentEvents: events}
+	report := summarizeChainMetrics(detail)
+	detail.Health = report.Health
+	detail.Warnings = cloneRuntimeWarnings(report.Warnings)
+	return detail, nil
 }
 
 func (s *Service) GetChainMetrics(ctx context.Context, chainID string) (ChainMetricsReport, error) {
@@ -141,7 +144,15 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	failHealth := false
 	attentionHealth := false
 	changedFileEventsByStep := map[string]bool{}
-	openFindingIDs := map[string]bool{}
+	flowAnalysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: detail.Steps, Events: detail.RecentEvents})
+	report.OpenFindingIDs = append([]string(nil), flowAnalysis.Findings.OpenIDs...)
+	report.ClosedFindingIDs = append([]string(nil), flowAnalysis.Findings.ClosedIDs...)
+	report.AddressedFindingIDs = append([]string(nil), flowAnalysis.Findings.AddressedIDs...)
+	report.ReopenedFindingIDs = append([]string(nil), flowAnalysis.Findings.ReopenedIDs...)
+	report.RepeatedResolverFindingIDs = append([]string(nil), flowAnalysis.Findings.RepeatedResolverIDs...)
+	report.OpenFindingCount = len(report.OpenFindingIDs)
+	report.ClosedFindingCount = len(report.ClosedFindingIDs)
+	report.AddressedFindingCount = len(report.AddressedFindingIDs)
 
 	switch ch.Status {
 	case "completed", "dry_run":
@@ -250,14 +261,6 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 			report.ReceiptFindingEvents++
 			findingEvent, parseErr := parseReceiptFindingEvent(event.EventData)
 			if parseErr == nil {
-				report.OpenFindingCount += len(findingEvent.OpenFindingIDs)
-				report.AddressedFindingCount += findingEvent.AddressedCount
-				for _, id := range findingEvent.ClosedFindingIDs {
-					delete(openFindingIDs, id)
-				}
-				for _, id := range findingEvent.OpenFindingIDs {
-					openFindingIDs[id] = true
-				}
 				if findingEvent.OpenCount > 0 && findingEvent.Verdict != "fix_required" {
 					attentionHealth = true
 					report.addWarning(fmt.Sprintf("%s reported %d open finding(s) with verdict %s", valueOrUnknown(findingEvent.Role), findingEvent.OpenCount, valueOrUnknown(findingEvent.Verdict)))
@@ -305,12 +308,13 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	if report.ReceiptWarningEvents > 0 {
 		report.addWarning(fmt.Sprintf("chain has %d receipt_validation_warning event(s)", report.ReceiptWarningEvents))
 	}
-	if len(openFindingIDs) > 0 {
-		report.OpenFindingIDs = make([]string, 0, len(openFindingIDs))
-		for id := range openFindingIDs {
-			report.OpenFindingIDs = append(report.OpenFindingIDs, id)
-		}
-		sort.Strings(report.OpenFindingIDs)
+	if len(report.OpenFindingIDs) > 0 {
+		attentionHealth = true
+		report.addWarning(fmt.Sprintf("open audit findings: %s", strings.Join(report.OpenFindingIDs, ",")))
+	}
+	if len(report.ReopenedFindingIDs) > 0 {
+		attentionHealth = true
+		report.addWarning(fmt.Sprintf("reopened audit findings: %s", strings.Join(report.ReopenedFindingIDs, ",")))
 	}
 	if report.SourceWriterBlocks > 0 {
 		report.addWarning(fmt.Sprintf("source writer guard blocked %d spawn attempt(s)", report.SourceWriterBlocks))
@@ -339,6 +343,12 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	if isTerminalChainStatus(ch.Status) && report.ProcessStartedEvents != report.ProcessExitedEvents {
 		attentionHealth = true
 		report.addWarning(fmt.Sprintf("process events show started=%d exited=%d", report.ProcessStartedEvents, report.ProcessExitedEvents))
+	}
+	if len(flowAnalysis.Warnings) > 0 {
+		attentionHealth = true
+		for _, warning := range flowAnalysis.Warnings {
+			report.addWarning(warning.Message)
+		}
 	}
 
 	if failHealth {
@@ -405,6 +415,7 @@ type receiptFindingEvent struct {
 	AddressedCount   int      `json:"addressed_count"`
 	OpenFindingIDs   []string `json:"open_finding_ids"`
 	ClosedFindingIDs []string `json:"closed_finding_ids"`
+	AddressedIDs     []string `json:"addressed_ids"`
 }
 
 func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {
@@ -416,8 +427,12 @@ func parseReceiptFindingEvent(data string) (receiptFindingEvent, error) {
 	event.Verdict = strings.TrimSpace(event.Verdict)
 	event.OpenFindingIDs = compactStrings(event.OpenFindingIDs)
 	event.ClosedFindingIDs = compactStrings(event.ClosedFindingIDs)
+	event.AddressedIDs = compactStrings(event.AddressedIDs)
 	if event.OpenCount == 0 {
 		event.OpenCount = len(event.OpenFindingIDs)
+	}
+	if event.AddressedCount == 0 {
+		event.AddressedCount = len(event.AddressedIDs)
 	}
 	return event, nil
 }

@@ -811,6 +811,71 @@ func TestGetChainMetricsSummarizesReceiptFindingFacts(t *testing.T) {
 	}
 }
 
+func TestGetChainMetricsSummarizesFindingLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "finding-lifecycle-chain", SourceTask: "findings"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	steps := []struct {
+		id      string
+		seq     int
+		role    string
+		verdict string
+		event   map[string]any
+	}{
+		{id: "step-planner", seq: 1, role: "planner", verdict: "completed"},
+		{id: "step-coder", seq: 2, role: "coder", verdict: "completed"},
+		{id: "step-audit-open", seq: 3, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "open_finding_ids": []string{"FIND-correctness-001"}, "open_count": 1}},
+		{id: "step-resolver-one", seq: 4, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "addressed_ids": []string{"FIND-correctness-001"}, "addressed_count": 1}},
+		{id: "step-audit-closed", seq: 5, role: "correctness-auditor", verdict: "completed", event: map[string]any{"role": "correctness-auditor", "verdict": "completed", "closed_finding_ids": []string{"FIND-correctness-001"}, "closed_count": 1}},
+		{id: "step-audit-reopen", seq: 6, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "open_finding_ids": []string{"FIND-correctness-001"}, "open_count": 1}},
+		{id: "step-resolver-two", seq: 7, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "addressed_ids": []string{"FIND-correctness-001"}, "addressed_count": 1}},
+	}
+	for _, spec := range steps {
+		stepID, err := store.StartStep(ctx, chain.StepSpec{StepID: spec.id, ChainID: chainID, SequenceNum: spec.seq, Role: spec.role, Task: spec.role})
+		if err != nil {
+			t.Fatalf("StartStep %s returned error: %v", spec.id, err)
+		}
+		if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: spec.verdict, ReceiptPath: fmt.Sprintf("receipts/%s/finding-lifecycle-chain-step-%03d.md", spec.role, spec.seq), TokensUsed: 1, TurnsUsed: 1}); err != nil {
+			t.Fatalf("CompleteStep %s returned error: %v", spec.id, err)
+		}
+		if spec.event != nil {
+			if err := store.LogEvent(ctx, chainID, stepID, chain.EventReceiptFindings, spec.event); err != nil {
+				t.Fatalf("LogEvent %s returned error: %v", spec.id, err)
+			}
+		}
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: len(steps), TotalTokens: len(steps)}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.OpenFindingCount != 1 || report.ClosedFindingCount != 0 || report.AddressedFindingCount != 1 {
+		t.Fatalf("finding counts = open %d closed %d addressed %d, want 1/0/1", report.OpenFindingCount, report.ClosedFindingCount, report.AddressedFindingCount)
+	}
+	if !reflect.DeepEqual(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.ReopenedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.RepeatedResolverFindingIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding ID summaries = %+v", report)
+	}
+	for _, want := range []string{
+		"open audit findings: FIND-correctness-001",
+		"reopened audit findings: FIND-correctness-001",
+		"flow: repeated resolver loop for FIND-correctness-001 (2 resolver receipts)",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
 func TestListEventsAndEventsSince(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
