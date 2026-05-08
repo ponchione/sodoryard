@@ -266,6 +266,10 @@ func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (result
 	facts := newPostStepGuardrailFacts(step)
 	defer func() {
 		factCtx := detachedLockContext(ctx)
+		if err != nil {
+			facts.RunError = err.Error()
+		}
+		t.finalizePostStepGuardrailFacts(factCtx, step, facts)
 		if step.sourceWriterLockOwned {
 			facts.SourceWriterLockReleaseAttempted = true
 			if releaseErr := t.releaseSourceWriterLock(factCtx, step); releaseErr != nil {
@@ -273,9 +277,6 @@ func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (result
 			} else {
 				facts.SourceWriterLockReleased = true
 			}
-		}
-		if err != nil {
-			facts.RunError = err.Error()
 		}
 		t.logPostStepGuardrailFacts(factCtx, step, facts)
 	}()
@@ -854,8 +855,8 @@ func newPostStepGuardrailFacts(step spawnStep) *postStepGuardrailFacts {
 	}
 }
 
-func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spawnStep, facts *postStepGuardrailFacts) {
-	if t == nil || t.Store == nil || facts == nil {
+func (t *SpawnAgentTool) finalizePostStepGuardrailFacts(ctx context.Context, step spawnStep, facts *postStepGuardrailFacts) {
+	if t == nil || facts == nil {
 		return
 	}
 	facts.Role = step.roleName
@@ -875,6 +876,12 @@ func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spa
 	facts.ClosedFindingIDs = uniqueSorted(facts.ClosedFindingIDs)
 	facts.AddressedIDs = uniqueSorted(facts.AddressedIDs)
 	facts.ClaimedValidationCommands = uniqueStringsPreserveOrder(facts.ClaimedValidationCommands)
+}
+
+func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spawnStep, facts *postStepGuardrailFacts) {
+	if t == nil || t.Store == nil || facts == nil {
+		return
+	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepGuardrailFacts, facts)
 }
 

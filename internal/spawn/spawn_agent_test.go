@@ -230,25 +230,46 @@ Audit.
 	}
 }
 
+type lockCheckingCodeIndexBackend struct {
+	*projectmemory.BrainBackend
+	t                         *testing.T
+	store                     *chain.Store
+	chainID                   string
+	dirtyMarkedWhileLockOwned bool
+}
+
+func (b *lockCheckingCodeIndexBackend) MarkCodeIndexDirty(ctx context.Context, reason string) error {
+	b.t.Helper()
+	lock, found, err := b.store.GetProjectLock(ctx, chain.SourceWriterLockName)
+	if err != nil {
+		b.t.Fatalf("GetProjectLock during MarkCodeIndexDirty returned error: %v", err)
+	}
+	if found && lock.OwnerChainID == b.chainID {
+		b.dirtyMarkedWhileLockOwned = true
+	}
+	return b.BrainBackend.MarkCodeIndexDirty(ctx, reason)
+}
+
 func TestSpawnAgentMarksCodeIndexDirtyAfterChangedFiles(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
 	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
 		t.Skipf("git init failed: %v: %s", err, output)
 	}
-	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
+	rawBackend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
 	if err != nil {
 		t.Fatalf("OpenBrainBackend: %v", err)
 	}
-	defer backend.Close()
-	if err := backend.MarkCodeIndexClean(ctx, "abc123", time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC), []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
+	defer rawBackend.Close()
+	if err := rawBackend.MarkCodeIndexClean(ctx, "abc123", time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC), []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
 		t.Fatalf("MarkCodeIndexClean: %v", err)
 	}
-	store := chain.NewProjectMemoryStore(backend)
+	store := chain.NewProjectMemoryStore(rawBackend)
 	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "spawn-code-index-dirty", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 1000})
 	if err != nil {
 		t.Fatalf("StartChain returned error: %v", err)
 	}
+	backend := &lockCheckingCodeIndexBackend{BrainBackend: rawBackend, t: t, store: store, chainID: chainID}
 	tool := NewSpawnAgentTool(SpawnAgentDeps{
 		Store:        store,
 		Backend:      backend,
@@ -286,7 +307,10 @@ Audit.`)); err != nil {
 	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"write source"}`)); err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	state, found, err := backend.ReadCodeIndexState(ctx)
+	if !backend.dirtyMarkedWhileLockOwned {
+		t.Fatalf("code index dirty mark happened without the source writer lock held")
+	}
+	state, found, err := rawBackend.ReadCodeIndexState(ctx)
 	if err != nil {
 		t.Fatalf("ReadCodeIndexState: %v", err)
 	}
