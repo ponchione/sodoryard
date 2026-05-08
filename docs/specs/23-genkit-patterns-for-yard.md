@@ -796,6 +796,21 @@ Future factories:
 2. Preserve all existing config behavior.
 3. Make provider aliases and optional auth reporter/pinger delegation work exactly as today.
 
+### Implemented First Slice
+
+Implemented on 2026-05-08:
+
+- `internal/provider/factory` registry with factories for `codex`, `anthropic`, and `openai-compatible`
+- runtime provider construction now delegates through the default registry while preserving the existing `runtime.BuildProvider` helper
+- provider alias wrapping moved behind the factory boundary with `Pinger` and `AuthStatusReporter` delegation preserved
+- registry tests for default types, duplicate/unknown provider types, factory error propagation, Codex aliasing, and optional interface delegation
+
+Not implemented in this slice:
+
+- new provider types
+- dynamic plugin loading
+- changing provider config validation behavior
+
 ### Acceptance Criteria
 
 - Provider construction tests pass unchanged or with narrow updates.
