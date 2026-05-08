@@ -242,6 +242,10 @@ type stepGuardrailFactResponse struct {
 	ChangedFiles                     []string `json:"changed_files"`
 	CodeIndexStateSupported          bool     `json:"code_index_state_supported"`
 	CodeIndexStateFound              bool     `json:"code_index_state_found"`
+	CodeIndexDirtyMarkSupported      bool     `json:"code_index_dirty_mark_supported"`
+	CodeIndexDirtyMarkAttempted      bool     `json:"code_index_dirty_mark_attempted"`
+	CodeIndexDirtyMarked             bool     `json:"code_index_dirty_marked"`
+	CodeIndexDirtyMarkError          string   `json:"code_index_dirty_mark_error,omitempty"`
 	CodeIndexDirty                   bool     `json:"code_index_dirty"`
 	CodeIndexDirtyReason             string   `json:"code_index_dirty_reason,omitempty"`
 	CodeIndexStateError              string   `json:"code_index_state_error,omitempty"`
@@ -419,6 +423,10 @@ func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) 
 			ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
 			CodeIndexStateSupported:          facts.CodeIndexStateSupported,
 			CodeIndexStateFound:              facts.CodeIndexStateFound,
+			CodeIndexDirtyMarkSupported:      facts.CodeIndexDirtyMarkSupported,
+			CodeIndexDirtyMarkAttempted:      facts.CodeIndexDirtyMarkAttempted,
+			CodeIndexDirtyMarked:             facts.CodeIndexDirtyMarked,
+			CodeIndexDirtyMarkError:          facts.CodeIndexDirtyMarkError,
 			CodeIndexDirty:                   facts.CodeIndexDirty,
 			CodeIndexDirtyReason:             facts.CodeIndexDirtyReason,
 			CodeIndexStateError:              facts.CodeIndexStateError,

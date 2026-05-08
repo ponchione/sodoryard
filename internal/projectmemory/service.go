@@ -192,6 +192,11 @@ type ListCodeFileIndexStatesResponse struct {
 	States []CodeFileIndexState
 }
 
+type MarkCodeIndexDirtyRequest struct {
+	ProjectID string
+	Reason    string
+}
+
 type MarkCodeIndexCleanRequest struct {
 	ProjectID         string
 	LastIndexedCommit string
@@ -459,6 +464,13 @@ func (s *brainRPCService) ListCodeFileIndexStates(req ListCodeFileIndexStatesReq
 	}
 	resp.States = states
 	return nil
+}
+
+func (s *brainRPCService) MarkCodeIndexDirty(req MarkCodeIndexDirtyRequest, resp *EmptyResponse) error {
+	return s.backend.runtime.MarkCodeIndexDirty(context.Background(), MarkCodeIndexDirtyArgs{
+		ProjectID: firstNonEmpty(req.ProjectID, DefaultProjectID),
+		Reason:    req.Reason,
+	})
 }
 
 func (s *brainRPCService) MarkCodeIndexClean(req MarkCodeIndexCleanRequest, resp *EmptyResponse) error {

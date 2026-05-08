@@ -340,6 +340,16 @@ func TestCodeIndexStateTracksFilesAndRestart(t *testing.T) {
 	if err := backend.MarkCodeIndexClean(ctx, "def456", indexedAt.Add(time.Minute), []CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main-2", ChunkCount: 3}}, []string{"internal/app.go"}, ""); err != nil {
 		t.Fatalf("MarkCodeIndexClean update: %v", err)
 	}
+	if err := backend.MarkCodeIndexDirty(ctx, "source_write"); err != nil {
+		t.Fatalf("MarkCodeIndexDirty: %v", err)
+	}
+	state, found, err = backend.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("ReadCodeIndexState after dirty: %v", err)
+	}
+	if !found || !state.Dirty || state.DirtyReason != "source_write" || state.LastIndexedCommit != "def456" {
+		t.Fatalf("code index dirty state = %+v found=%t, want dirty source_write preserving def456", state, found)
+	}
 	fileStates, err = backend.ListCodeFileIndexStates(ctx)
 	if err != nil {
 		t.Fatalf("ListCodeFileIndexStates after update: %v", err)
@@ -360,8 +370,8 @@ func TestCodeIndexStateTracksFilesAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadCodeIndexState after restart: %v", err)
 	}
-	if !found || state.LastIndexedCommit != "def456" {
-		t.Fatalf("state after restart = %+v found=%t, want def456", state, found)
+	if !found || state.LastIndexedCommit != "def456" || !state.Dirty || state.DirtyReason != "source_write" {
+		t.Fatalf("state after restart = %+v found=%t, want dirty def456/source_write", state, found)
 	}
 }
 
@@ -1494,6 +1504,16 @@ func TestRPCClientUsesParentBrainBackend(t *testing.T) {
 	}
 	if !found || codeState.LastIndexedCommit != "rpc-commit" {
 		t.Fatalf("parent code index state after RPC = %+v found=%t, want rpc-commit", codeState, found)
+	}
+	if err := client.MarkCodeIndexDirty(ctx, "source_write"); err != nil {
+		t.Fatalf("client MarkCodeIndexDirty: %v", err)
+	}
+	codeState, found, err = backend.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("parent ReadCodeIndexState after RPC dirty: %v", err)
+	}
+	if !found || !codeState.Dirty || codeState.DirtyReason != "source_write" || codeState.LastIndexedCommit != "rpc-commit" {
+		t.Fatalf("parent code index state after RPC dirty = %+v found=%t, want dirty source_write", codeState, found)
 	}
 	if err := client.CreateConversation(ctx, CreateConversationArgs{ID: "rpc-conv", ProjectID: "rpc-project", Title: "RPC Conversation", CreatedAtUS: uint64(time.Now().UTC().UnixMicro())}); err != nil {
 		t.Fatalf("client CreateConversation: %v", err)

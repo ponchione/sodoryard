@@ -157,6 +157,10 @@ export interface StepGuardrailFact {
   changed_files: string[];
   code_index_state_supported: boolean;
   code_index_state_found: boolean;
+  code_index_dirty_mark_supported: boolean;
+  code_index_dirty_mark_attempted: boolean;
+  code_index_dirty_marked: boolean;
+  code_index_dirty_mark_error?: string;
   code_index_dirty: boolean;
   code_index_dirty_reason?: string;
   code_index_state_error?: string;

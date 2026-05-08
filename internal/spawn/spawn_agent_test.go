@@ -230,6 +230,95 @@ Audit.
 	}
 }
 
+func TestSpawnAgentMarksCodeIndexDirtyAfterChangedFiles(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
+		t.Skipf("git init failed: %v: %s", err, output)
+	}
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+	if err := backend.MarkCodeIndexClean(ctx, "abc123", time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC), []projectmemory.CodeFileIndexArg{{FilePath: "main.go", FileHash: "hash-main", ChunkCount: 1}}, nil, `{"source":"test"}`); err != nil {
+		t.Fatalf("MarkCodeIndexClean: %v", err)
+	}
+	store := chain.NewProjectMemoryStore(backend)
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "spawn-code-index-dirty", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 1000})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{
+		Store:        store,
+		Backend:      backend,
+		Config:       &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}},
+		ChainID:      chainID,
+		EngineBinary: "tidmouth",
+		ProjectRoot:  repo,
+	})
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile main.go returned error: %v", err)
+		}
+		if err := backend.WriteDocument(ctx, "receipts/coder/"+chainID+"-step-001.md", testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, `## Summary
+Updated main.go.
+
+## Changes
+Created main.go.
+
+## Changed Files
+- main.go
+
+## Validation
+- rtk make test
+
+## Concerns
+None.
+
+## Next Steps
+Audit.`)); err != nil {
+			t.Fatalf("WriteDocument receipt: %v", err)
+		}
+		return RunResult{ExitCode: 0}
+	}
+
+	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"write source"}`)); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	state, found, err := backend.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("ReadCodeIndexState: %v", err)
+	}
+	if !found || !state.Dirty || state.DirtyReason != "source_write" || state.LastIndexedCommit != "abc123" {
+		t.Fatalf("code index state = %+v found=%t, want dirty source_write preserving abc123", state, found)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var facts postStepGuardrailFacts
+	var factsSeen bool
+	for _, event := range events {
+		if event.EventType != chain.EventStepGuardrailFacts {
+			continue
+		}
+		factsSeen = true
+		if err := json.Unmarshal([]byte(event.EventData), &facts); err != nil {
+			t.Fatalf("decode guardrail facts: %v", err)
+		}
+	}
+	if !factsSeen {
+		t.Fatalf("events = %+v, want post-step guardrail facts", events)
+	}
+	if !facts.CodeIndexDirtyMarkSupported || !facts.CodeIndexDirtyMarkAttempted || !facts.CodeIndexDirtyMarked || facts.CodeIndexDirtyMarkError != "" {
+		t.Fatalf("guardrail facts code index dirty mark = %+v, want successful source_write mark", facts)
+	}
+	if !facts.CodeIndexStateFound || !facts.CodeIndexDirty || facts.CodeIndexDirtyReason != "source_write" {
+		t.Fatalf("guardrail facts code index state = %+v, want dirty source_write", facts)
+	}
+}
+
 func TestSpawnAgentRecordsChangedFileClaimMismatch(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()

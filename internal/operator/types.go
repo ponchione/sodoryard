@@ -138,6 +138,10 @@ type StepGuardrailFactSummary struct {
 	ChangedFiles                     []string
 	CodeIndexStateSupported          bool
 	CodeIndexStateFound              bool
+	CodeIndexDirtyMarkSupported      bool
+	CodeIndexDirtyMarkAttempted      bool
+	CodeIndexDirtyMarked             bool
+	CodeIndexDirtyMarkError          string
 	CodeIndexDirty                   bool
 	CodeIndexDirtyReason             string
 	CodeIndexStateError              string

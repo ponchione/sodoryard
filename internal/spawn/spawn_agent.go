@@ -141,6 +141,10 @@ type postStepGuardrailFacts struct {
 	ChangedFiles                        []string `json:"changed_files"`
 	CodeIndexStateSupported             bool     `json:"code_index_state_supported"`
 	CodeIndexStateFound                 bool     `json:"code_index_state_found"`
+	CodeIndexDirtyMarkSupported         bool     `json:"code_index_dirty_mark_supported"`
+	CodeIndexDirtyMarkAttempted         bool     `json:"code_index_dirty_mark_attempted"`
+	CodeIndexDirtyMarked                bool     `json:"code_index_dirty_marked"`
+	CodeIndexDirtyMarkError             string   `json:"code_index_dirty_mark_error,omitempty"`
 	CodeIndexDirty                      bool     `json:"code_index_dirty"`
 	CodeIndexDirtyReason                string   `json:"code_index_dirty_reason,omitempty"`
 	CodeIndexStateError                 string   `json:"code_index_state_error,omitempty"`
@@ -181,6 +185,10 @@ type receiptFindingFactSet struct {
 
 type codeIndexStateReader interface {
 	ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error)
+}
+
+type codeIndexDirtyMarker interface {
+	MarkCodeIndexDirty(context.Context, string) error
 }
 
 type brainIndexStateReader interface {
@@ -873,6 +881,17 @@ func (t *SpawnAgentTool) logPostStepGuardrailFacts(ctx context.Context, step spa
 func (t *SpawnAgentTool) capturePostStepIndexFacts(ctx context.Context, facts *postStepGuardrailFacts) {
 	if t == nil || facts == nil || t.Backend == nil {
 		return
+	}
+	if marker, ok := t.Backend.(codeIndexDirtyMarker); ok && marker != nil {
+		facts.CodeIndexDirtyMarkSupported = true
+		if facts.SourceMutating && facts.ChangedFileCount > 0 {
+			facts.CodeIndexDirtyMarkAttempted = true
+			if err := marker.MarkCodeIndexDirty(ctx, "source_write"); err != nil {
+				facts.CodeIndexDirtyMarkError = err.Error()
+			} else {
+				facts.CodeIndexDirtyMarked = true
+			}
+		}
 	}
 	if reader, ok := t.Backend.(codeIndexStateReader); ok && reader != nil {
 		facts.CodeIndexStateSupported = true

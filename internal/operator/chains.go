@@ -302,6 +302,22 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 					attentionHealth = true
 					report.addWarning(fmt.Sprintf("step %d changed files but code index state was not marked stale", facts.Sequence))
 				}
+				if facts.SourceMutating && facts.ChangedFileCount > 0 && !facts.CodeIndexDirtyMarkSupported && !facts.CodeIndexStateFound {
+					attentionHealth = true
+					report.addWarning(fmt.Sprintf("step %d changed files but code index dirty marking is unavailable", facts.Sequence))
+				}
+				if facts.SourceMutating && facts.ChangedFileCount > 0 && facts.CodeIndexDirtyMarkSupported && !facts.CodeIndexDirtyMarkAttempted {
+					attentionHealth = true
+					report.addWarning(fmt.Sprintf("step %d changed files but code index dirty marking was not attempted", facts.Sequence))
+				}
+				if facts.CodeIndexDirtyMarkAttempted && !facts.CodeIndexDirtyMarked {
+					attentionHealth = true
+					reason := strings.TrimSpace(facts.CodeIndexDirtyMarkError)
+					if reason == "" {
+						reason = "mark not confirmed"
+					}
+					report.addWarning(fmt.Sprintf("step %d failed to mark code index stale: %s", facts.Sequence, reason))
+				}
 				if !facts.ReceiptValid {
 					attentionHealth = true
 					reason := strings.TrimSpace(facts.ReceiptError)
@@ -534,6 +550,10 @@ type stepGuardrailFactsEvent struct {
 	ChangedFiles                        []string `json:"changed_files"`
 	CodeIndexStateSupported             bool     `json:"code_index_state_supported"`
 	CodeIndexStateFound                 bool     `json:"code_index_state_found"`
+	CodeIndexDirtyMarkSupported         bool     `json:"code_index_dirty_mark_supported"`
+	CodeIndexDirtyMarkAttempted         bool     `json:"code_index_dirty_mark_attempted"`
+	CodeIndexDirtyMarked                bool     `json:"code_index_dirty_marked"`
+	CodeIndexDirtyMarkError             string   `json:"code_index_dirty_mark_error"`
 	CodeIndexDirty                      bool     `json:"code_index_dirty"`
 	CodeIndexDirtyReason                string   `json:"code_index_dirty_reason"`
 	CodeIndexStateError                 string   `json:"code_index_state_error"`
@@ -585,6 +605,7 @@ func parseStepGuardrailFactsEvent(data string) (stepGuardrailFactsEvent, error) 
 	event.ReceiptPath = strings.TrimSpace(event.ReceiptPath)
 	event.ReceiptError = strings.TrimSpace(event.ReceiptError)
 	event.ChangedFileManifestError = strings.TrimSpace(event.ChangedFileManifestError)
+	event.CodeIndexDirtyMarkError = strings.TrimSpace(event.CodeIndexDirtyMarkError)
 	event.CodeIndexDirtyReason = strings.TrimSpace(event.CodeIndexDirtyReason)
 	event.CodeIndexStateError = strings.TrimSpace(event.CodeIndexStateError)
 	event.BrainIndexDirtyReason = strings.TrimSpace(event.BrainIndexDirtyReason)
@@ -666,6 +687,10 @@ func summarizeChainGuardrails(ch chain.Chain, steps []chain.Step, events []chain
 				ChangedFiles:                     append([]string(nil), facts.ChangedFiles...),
 				CodeIndexStateSupported:          facts.CodeIndexStateSupported,
 				CodeIndexStateFound:              facts.CodeIndexStateFound,
+				CodeIndexDirtyMarkSupported:      facts.CodeIndexDirtyMarkSupported,
+				CodeIndexDirtyMarkAttempted:      facts.CodeIndexDirtyMarkAttempted,
+				CodeIndexDirtyMarked:             facts.CodeIndexDirtyMarked,
+				CodeIndexDirtyMarkError:          facts.CodeIndexDirtyMarkError,
 				CodeIndexDirty:                   facts.CodeIndexDirty,
 				CodeIndexDirtyReason:             facts.CodeIndexDirtyReason,
 				CodeIndexStateError:              facts.CodeIndexStateError,

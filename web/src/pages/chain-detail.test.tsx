@@ -117,6 +117,9 @@ describe("ChainDetailPage", () => {
             changed_files: ["internal/example.go"],
             code_index_state_supported: true,
             code_index_state_found: true,
+            code_index_dirty_mark_supported: true,
+            code_index_dirty_mark_attempted: true,
+            code_index_dirty_marked: true,
             code_index_dirty: true,
             code_index_dirty_reason: "source_write",
             brain_index_state_supported: true,
@@ -151,6 +154,7 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText("Validation: rtk make test")).toBeInTheDocument();
     expect(screen.getByText(/acquired 1 \/ released 1/)).toBeInTheDocument();
     expect(screen.getAllByText(/internal\/example.go/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/code_index_marked=yes/)).toBeInTheDocument();
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
   });

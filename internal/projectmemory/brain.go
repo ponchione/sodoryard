@@ -139,6 +139,13 @@ func (b *BrainBackend) ListCodeFileIndexStates(ctx context.Context) ([]CodeFileI
 	return b.runtime.ListCodeFileIndexStates(ctx)
 }
 
+func (b *BrainBackend) MarkCodeIndexDirty(ctx context.Context, reason string) error {
+	return b.runtime.MarkCodeIndexDirty(ctx, MarkCodeIndexDirtyArgs{
+		ProjectID: DefaultProjectID,
+		Reason:    reason,
+	})
+}
+
 func (b *BrainBackend) MarkCodeIndexClean(ctx context.Context, revision string, indexedAt time.Time, files []CodeFileIndexArg, deletedPaths []string, metadataJSON string) error {
 	return b.runtime.MarkCodeIndexClean(ctx, MarkCodeIndexCleanArgs{
 		ProjectID:         DefaultProjectID,

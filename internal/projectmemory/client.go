@@ -116,6 +116,13 @@ func (c *Client) ListCodeFileIndexStates(ctx context.Context) ([]CodeFileIndexSt
 	return resp.States, nil
 }
 
+func (c *Client) MarkCodeIndexDirty(ctx context.Context, reason string) error {
+	return c.call(ctx, "Brain.MarkCodeIndexDirty", MarkCodeIndexDirtyRequest{
+		ProjectID: DefaultProjectID,
+		Reason:    reason,
+	}, &EmptyResponse{})
+}
+
 func (c *Client) MarkCodeIndexClean(ctx context.Context, revision string, indexedAt time.Time, files []CodeFileIndexArg, deletedPaths []string, metadataJSON string) error {
 	return c.call(ctx, "Brain.MarkCodeIndexClean", MarkCodeIndexCleanRequest{
 		ProjectID:         DefaultProjectID,

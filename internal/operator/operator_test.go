@@ -734,6 +734,42 @@ func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	}
 }
 
+func TestGetChainMetricsWarnsWhenCodeIndexDirtyMarkingUnavailable(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-index-mark-unavailable", SourceTask: "guardrails", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-index-mark-unavailable-step-001.md"}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                          "coder",
+		"sequence":                      1,
+		"source_mutating":               true,
+		"receipt_valid":                 true,
+		"changed_file_manifest_present": true,
+		"changed_file_count":            1,
+		"changed_files":                 []string{"internal/example.go"},
+	}); err != nil {
+		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if !hasRuntimeWarning(report.Warnings, "step 1 changed files but code index dirty marking is unavailable") {
+		t.Fatalf("warnings = %+v, want code index dirty marking unavailable warning", report.Warnings)
+	}
+}
+
 func TestProjectLocksListAndForceReleaseAuditsOperatorAction(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
