@@ -1007,6 +1007,21 @@ Not implemented in this slice:
 - separate retriever interface wrappers for each source
 - live retrieval eval suite assertions over fixture projects
 
+### Implemented Source Wrapper Slice
+
+Implemented on 2026-05-08:
+
+- source-level `RetrievalRequest` and `SourceRetriever` contract
+- code-search source retriever wrapper that returns normalized `RetrievalResult` metadata
+- brain-search source retriever wrapper that returns normalized `RetrievalResult` metadata
+- tests verify wrappers preserve current context config and brain graph-hop settings
+
+Not implemented in this slice:
+
+- replacing the current retrieval orchestrator with source wrappers
+- wrappers for graph, conventions, git context, or explicit files
+- ranking experiments across normalized source results
+
 ### Acceptance Criteria
 
 - Context reports show consistent metadata across code and brain hits.
