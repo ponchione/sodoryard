@@ -1,6 +1,6 @@
 # 22 - Sequential Agent Guardrails
 
-**Status:** Working implementation plan
+**Status:** Implemented guardrails; optional read-only fan-out remains future work
 **Last Updated:** 2026-05-08
 **Owner:** Mitchell
 
@@ -54,6 +54,33 @@ The current implementation already leans sequential:
 - The orchestrator prompt already instructs read receipt -> decide -> spawn next.
 
 However, this is partly an emergent property of the current tool implementation. The code should make the intended invariant explicit so future launch modes, manual rosters, or read-only fan-out cannot accidentally introduce parallel writers.
+
+## Implementation Status
+
+The mutating-step guardrails described in this spec are now implemented in the runtime and surfaced through metrics, operator detail, TUI, web inspector, and chain event logs.
+
+Implemented:
+
+- Built-in role mutation classes and config validation for obvious capability conflicts.
+- Project-scoped `source_writer` lock acquisition, heartbeat, release, stale replacement facts, and operator force-release audit events.
+- Source-writing step rejection while a live source-writer lock is held.
+- Required receipt schema and required body sections, including `## Changed Files` for source-writing roles.
+- Synthetic safety receipts for missing step receipts.
+- Durable changed-file manifests from read-only `git status --short --untracked-files=all` inspection after source-writing steps.
+- Changed-file receipt claim parsing, including `None`, quoted paths, and `old -> new` rename notation.
+- Claim-vs-manifest mismatch facts and warnings.
+- Audit finding IDs, finding lifecycle facts, resolver-addressed facts, reopened/closed/addressed tracking, and repeated resolver loop warnings.
+- Pre-step chain briefings with recent receipts, finding lifecycle, changed-file manifests, lock release facts, and code/brain index facts.
+- Post-step guardrail fact events for receipt validity, verdict/finding consistency, changed files, source-writer lock release, validation commands, and index state.
+- Shunter/RPC code-index dirty marking after source-writing steps with changed files.
+- Metrics warnings for invalid receipts, missing manifests, claim mismatches, unresolved/reopened findings, resolver loops, lock failures, dirty-mark failures, and changed files with a clean code index.
+- CLI, TUI, web, and operator/API drilldowns for the durable guardrail facts above.
+- Focused tests covering launch-mode flow analyzer edges and synthetic full guardrail event chains.
+
+Remaining future work:
+
+- Optional read-only parallel fan-out. This is still intentionally unimplemented and must remain explicitly classified, receipt-path constrained, and unable to mutate source/project state.
+- Additional live dogfooding smoke runs against a configured provider/model can continue to exercise real chains, but they are validation work rather than missing guardrail mechanics.
 
 ---
 
