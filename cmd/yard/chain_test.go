@@ -134,6 +134,58 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := logs.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
 		t.Fatalf("logs verbosity flag = %#v, want default normal", flag)
 	}
+	chainEval := newYardChainEvalCmd(&configPath)
+	if flag := chainEval.Flags().Lookup("json"); flag == nil {
+		t.Fatal("expected chain eval json flag")
+	}
+}
+
+func TestYardChainEvalCommandPrintsStoredChainReport(t *testing.T) {
+	ctx := context.Background()
+	configPath, cfg := writeYardChainControlConfig(t, "http://localhost:1")
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	backend := &yardChainTestBrainBackend{docs: map[string]string{}}
+	withYardOperatorTestRuntime(t, cfg.ProjectRoot, store, backend)
+
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-eval-ok", SourceTask: "evaluate stored chain"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	for _, spec := range []chain.StepSpec{
+		{StepID: "step-planner", ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"},
+		{StepID: "step-coder", ChainID: chainID, SequenceNum: 2, Role: "coder", Task: "code"},
+		{StepID: "step-auditor", ChainID: chainID, SequenceNum: 3, Role: "correctness-auditor", Task: "audit"},
+	} {
+		stepID, err := store.StartStep(ctx, spec)
+		if err != nil {
+			t.Fatalf("StartStep returned error: %v", err)
+		}
+		if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed"}); err != nil {
+			t.Fatalf("CompleteStep returned error: %v", err)
+		}
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 3}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "ok"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	cmd := newYardChainEvalCmd(&configPath)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v\nstdout=%s", err, out.String())
+	}
+	for _, want := range []string{
+		"suite=chain-flow status=pass",
+		"case=chain-eval-ok status=pass",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("stdout = %q, want %q", out.String(), want)
+		}
+	}
 }
 
 func TestYardChainReceiptCommandPrintsStepReceipt(t *testing.T) {

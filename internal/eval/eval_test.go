@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/ponchione/sodoryard/internal/chain"
 )
 
 func TestListSuitesIncludesDeterministicSuites(t *testing.T) {
@@ -61,6 +63,42 @@ func TestChainFlowSuitePassesAndReportsExpectedWarnings(t *testing.T) {
 	conflictCase := findEvalCase(t, report, "source-writer-conflict")
 	if !caseWarningsContain(conflictCase, "multiple source-writing steps running") {
 		t.Fatalf("source writer warnings = %+v, want conflict warning", conflictCase.Warnings)
+	}
+}
+
+func TestEvaluateChainFlowReportsStoredChainPass(t *testing.T) {
+	report := EvaluateChainFlow(
+		chain.Chain{ID: "chain-ok", Status: "completed"},
+		[]chain.Step{
+			{ID: "step-planner", ChainID: "chain-ok", SequenceNum: 1, Role: "planner", Status: "completed"},
+			{ID: "step-coder", ChainID: "chain-ok", SequenceNum: 2, Role: "coder", Status: "completed"},
+			{ID: "step-auditor", ChainID: "chain-ok", SequenceNum: 3, Role: "correctness-auditor", Status: "completed"},
+		},
+		nil,
+	)
+	if report.Status != StatusPass {
+		t.Fatalf("status = %q, want pass: %+v", report.Status, report)
+	}
+	c := findEvalCase(t, report, "chain-ok")
+	if c.Details["step_count"] != 3 {
+		t.Fatalf("details = %+v, want step_count=3", c.Details)
+	}
+}
+
+func TestEvaluateChainFlowFailsOnStoredChainWarnings(t *testing.T) {
+	report := EvaluateChainFlow(
+		chain.Chain{ID: "chain-warn", Status: "completed"},
+		[]chain.Step{
+			{ID: "step-coder", ChainID: "chain-warn", SequenceNum: 1, Role: "coder", Status: "completed"},
+		},
+		nil,
+	)
+	if report.Status != StatusFail {
+		t.Fatalf("status = %q, want fail: %+v", report.Status, report)
+	}
+	c := findEvalCase(t, report, "chain-warn")
+	if !caseWarningsContain(c, "coder step 1 started before planner") {
+		t.Fatalf("warnings = %+v, want coder-before-planner warning", c.Warnings)
 	}
 }
 

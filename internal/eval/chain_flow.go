@@ -27,6 +27,16 @@ type chainFlowFixture struct {
 	ExpectedSourceWriterConflicts []string    `json:"expected_source_writer_conflicts"`
 }
 
+type chainFlowExpectations struct {
+	WarningCodes          []string
+	OpenFindingIDs        []string
+	ClosedFindingIDs      []string
+	AddressedFindingIDs   []string
+	ReopenedFindingIDs    []string
+	RepeatedResolverIDs   []string
+	SourceWriterConflicts []string
+}
+
 type flowChain struct {
 	ID                string `json:"id"`
 	Status            string `json:"status"`
@@ -131,6 +141,41 @@ func evaluateChainFlowFixture(path string) (CaseResult, error) {
 	}
 	result.addAssertion("decode events", true, "", "valid events", "valid events")
 
+	return evaluateChainFlowData(fixture.Name, ch, steps, events, &chainFlowExpectations{
+		WarningCodes:          fixture.ExpectedWarningCodes,
+		OpenFindingIDs:        fixture.ExpectedOpenFindingIDs,
+		ClosedFindingIDs:      fixture.ExpectedClosedFindingIDs,
+		AddressedFindingIDs:   fixture.ExpectedAddressedFindingIDs,
+		ReopenedFindingIDs:    fixture.ExpectedReopenedFindingIDs,
+		RepeatedResolverIDs:   fixture.ExpectedRepeatedResolverIDs,
+		SourceWriterConflicts: fixture.ExpectedSourceWriterConflicts,
+	}), nil
+}
+
+// EvaluateChainFlow evaluates persisted chain data against deterministic flow
+// invariants. It is intentionally provider-free so it can run after a
+// dogfooding chain without requiring live model credentials.
+func EvaluateChainFlow(ch chain.Chain, steps []chain.Step, events []chain.Event) Report {
+	info := chainFlowSuite{}.Info()
+	report := newReport(info)
+	name := strings.TrimSpace(ch.ID)
+	if name == "" {
+		name = "chain"
+	}
+	report.addCase(evaluateChainFlowData(name, ch, steps, events, nil))
+	report.finalize()
+	return report
+}
+
+func evaluateChainFlowData(name string, ch chain.Chain, steps []chain.Step, events []chain.Event, expectations *chainFlowExpectations) CaseResult {
+	result := newCase(name)
+	result.Details["chain_id"] = ch.ID
+	result.Details["status"] = ch.Status
+	result.Details["step_count"] = len(steps)
+	result.Details["event_count"] = len(events)
+
+	result.addAssertion("chain id present", strings.TrimSpace(ch.ID) != "", "chain id is empty", "non-empty chain id", ch.ID)
+
 	analysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: steps, Events: events})
 	warningCodes := make([]string, 0, len(analysis.Warnings))
 	for _, warning := range analysis.Warnings {
@@ -157,14 +202,25 @@ func evaluateChainFlowFixture(path string) (CaseResult, error) {
 		})
 	}
 
-	assertStringSet(&result, "flow warning codes", warningCodes, fixture.ExpectedWarningCodes)
-	assertStringSet(&result, "open finding ids", analysis.Findings.OpenIDs, fixture.ExpectedOpenFindingIDs)
-	assertStringSet(&result, "closed finding ids", analysis.Findings.ClosedIDs, fixture.ExpectedClosedFindingIDs)
-	assertStringSet(&result, "addressed finding ids", analysis.Findings.AddressedIDs, fixture.ExpectedAddressedFindingIDs)
-	assertStringSet(&result, "reopened finding ids", analysis.Findings.ReopenedIDs, fixture.ExpectedReopenedFindingIDs)
-	assertStringSet(&result, "repeated resolver ids", analysis.Findings.RepeatedResolverIDs, fixture.ExpectedRepeatedResolverIDs)
-	assertStringSet(&result, "source writer conflicts", sourceWriterConflicts, fixture.ExpectedSourceWriterConflicts)
-	return result, nil
+	if expectations != nil {
+		assertStringSet(&result, "flow warning codes", warningCodes, expectations.WarningCodes)
+		assertStringSet(&result, "open finding ids", analysis.Findings.OpenIDs, expectations.OpenFindingIDs)
+		assertStringSet(&result, "closed finding ids", analysis.Findings.ClosedIDs, expectations.ClosedFindingIDs)
+		assertStringSet(&result, "addressed finding ids", analysis.Findings.AddressedIDs, expectations.AddressedFindingIDs)
+		assertStringSet(&result, "reopened finding ids", analysis.Findings.ReopenedIDs, expectations.ReopenedFindingIDs)
+		assertStringSet(&result, "repeated resolver ids", analysis.Findings.RepeatedResolverIDs, expectations.RepeatedResolverIDs)
+		assertStringSet(&result, "source writer conflicts", sourceWriterConflicts, expectations.SourceWriterConflicts)
+		return result
+	}
+
+	successStatus := ch.Status == "completed" || ch.Status == "dry_run"
+	result.addAssertion("chain success status", successStatus, fmt.Sprintf("chain status is %s", ch.Status), "completed or dry_run", ch.Status)
+	assertStringSet(&result, "flow warning codes", warningCodes, nil)
+	assertStringSet(&result, "source writer conflicts", sourceWriterConflicts, nil)
+	if successStatus {
+		assertStringSet(&result, "open finding ids", analysis.Findings.OpenIDs, nil)
+	}
+	return result
 }
 
 func (f flowChain) toChain() chain.Chain {

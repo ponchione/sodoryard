@@ -412,7 +412,21 @@ Not implemented in this slice:
 
 - live model evaluation
 - retrieval evaluation
+- baseline comparison
+
+### Implemented Chain Eval Slice
+
+Implemented on 2026-05-08:
+
 - `yard chain eval <chain-id>`
+- read-only evaluation of persisted chain rows, steps, and events
+- deterministic assertions for successful chain status, flow warning codes, source-writer conflicts, and unresolved findings on completed chains
+- human-readable and JSON output using the same eval report shape as `yard eval run`
+
+Not implemented in this slice:
+
+- live model evaluation
+- retrieval evaluation
 - baseline comparison
 
 ### Acceptance Criteria
