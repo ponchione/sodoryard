@@ -61,7 +61,8 @@ type Router struct {
 	mu         sync.RWMutex
 	logger     *slog.Logger
 	store      tracking.SubCallStore
-	tracer     tracepkg.Recorder
+	hooks      []provider.ProviderHook
+	traceHook  provider.ProviderHook
 	modelIndex map[string]string // modelID → provider name; rebuilt on RegisterProvider
 }
 
@@ -91,7 +92,17 @@ func NewRouter(config RouterConfig, store tracking.SubCallStore, logger *slog.Lo
 func (r *Router) SetTraceRecorder(recorder tracepkg.Recorder) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.tracer = recorder
+	if recorder == nil {
+		r.traceHook = nil
+		return
+	}
+	r.traceHook = providerTraceHook{recorder: recorder}
+}
+
+func (r *Router) SetProviderHooks(hooks ...provider.ProviderHook) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hooks = append([]provider.ProviderHook(nil), hooks...)
 }
 
 // RegisterProvider adds a provider to the router. The provider is keyed by its
@@ -207,7 +218,7 @@ func (r *Router) ProviderHealthMap() map[string]*ProviderHealth {
 // per-request override and default configuration.
 func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
 	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (*provider.Response, error) {
-		return r.completeWithSpan(ctx, p, callReq)
+		return r.completeWithHooks(ctx, p, callReq)
 	})
 }
 
@@ -215,70 +226,136 @@ func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider
 // per-request override and default configuration.
 func (r *Router) Stream(ctx context.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
 	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (<-chan provider.StreamEvent, error) {
-		return r.streamWithSpan(ctx, p, callReq)
+		return r.streamWithHooks(ctx, p, callReq)
 	})
 }
 
-func (r *Router) completeWithSpan(ctx context.Context, p provider.Provider, req *provider.Request) (*provider.Response, error) {
-	spanCtx, span := tracepkg.StartSpan(ctx, r.traceRecorder(), providerSpanStart(p, req, "complete"))
-	resp, err := p.Complete(spanCtx, req)
-	status := tracepkg.StatusForError(err)
-	span.End(context.Background(), status, err)
-	return resp, err
+func (r *Router) completeWithHooks(ctx context.Context, p provider.Provider, req *provider.Request) (*provider.Response, error) {
+	hooks := r.providerHooks()
+	call := providerCall(p, req, "complete")
+	hookCtx, ran, beforeErr := provider.RunProviderBeforeHooks(ctx, hooks, call)
+	if beforeErr != nil {
+		_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, provider.Usage{}, beforeErr)
+		return nil, beforeErr
+	}
+
+	resp, err := p.Complete(hookCtx, req)
+	usage := provider.Usage{}
+	if resp != nil {
+		usage = resp.Usage
+	}
+	afterErr := provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, usage, err)
+	if err != nil {
+		return resp, err
+	}
+	if afterErr != nil {
+		return resp, afterErr
+	}
+	return resp, nil
 }
 
-func (r *Router) streamWithSpan(ctx context.Context, p provider.Provider, req *provider.Request) (<-chan provider.StreamEvent, error) {
-	spanCtx, span := tracepkg.StartSpan(ctx, r.traceRecorder(), providerSpanStart(p, req, "stream"))
-	ch, err := p.Stream(spanCtx, req)
+func (r *Router) streamWithHooks(ctx context.Context, p provider.Provider, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	hooks := r.providerHooks()
+	call := providerCall(p, req, "stream")
+	hookCtx, ran, beforeErr := provider.RunProviderBeforeHooks(ctx, hooks, call)
+	if beforeErr != nil {
+		_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, provider.Usage{}, beforeErr)
+		return nil, beforeErr
+	}
+
+	ch, err := p.Stream(hookCtx, req)
 	if err != nil {
-		span.End(context.Background(), tracepkg.StatusForError(err), err)
+		_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, provider.Usage{}, err)
 		return nil, err
 	}
 	out := make(chan provider.StreamEvent)
 	go func() {
 		defer close(out)
-		status := tracepkg.StatusOK
 		var streamErr error
+		var finalUsage provider.Usage
 		for event := range ch {
+			switch e := event.(type) {
+			case provider.StreamUsage:
+				finalUsage = e.Usage
+			case provider.StreamDone:
+				finalUsage = e.Usage
+			}
 			if streamEventErr, fatal := fatalStreamError(event); fatal {
-				status = tracepkg.StatusError
 				streamErr = streamEventErr
 			}
 			select {
 			case out <- event:
-			case <-spanCtx.Done():
-				status = tracepkg.StatusCancelled
-				streamErr = spanCtx.Err()
-				span.End(context.Background(), status, streamErr)
+			case <-hookCtx.Done():
+				streamErr = hookCtx.Err()
+				_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, finalUsage, streamErr)
 				return
 			}
 		}
-		span.End(context.Background(), status, streamErr)
+		if afterErr := provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, finalUsage, streamErr); afterErr != nil {
+			select {
+			case out <- provider.StreamError{Err: afterErr, Message: afterErr.Error(), Fatal: true}:
+			case <-hookCtx.Done():
+			}
+		}
 	}()
 	return out, nil
 }
 
-func (r *Router) traceRecorder() tracepkg.Recorder {
+func (r *Router) providerHooks() []provider.ProviderHook {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.tracer
+	hooks := make([]provider.ProviderHook, 0, len(r.hooks)+1)
+	if r.traceHook != nil {
+		hooks = append(hooks, r.traceHook)
+	}
+	hooks = append(hooks, r.hooks...)
+	return hooks
 }
 
-func providerSpanStart(p provider.Provider, req *provider.Request, operation string) tracepkg.SpanStart {
+func providerCall(p provider.Provider, req *provider.Request, operation string) provider.ProviderCall {
 	providerName := ""
 	if p != nil {
 		providerName = p.Name()
 	}
-	attrs := map[string]any{
-		"operation": operation,
-		"provider":  providerName,
+	return provider.ProviderCall{
+		Provider:  providerName,
+		Operation: operation,
+		Request:   req,
 	}
+}
+
+type providerTraceHook struct {
+	recorder tracepkg.Recorder
+}
+
+type providerTraceSpanKey struct{}
+
+func (h providerTraceHook) BeforeProviderCall(ctx context.Context, call provider.ProviderCall) (context.Context, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, h.recorder, providerSpanStart(call))
+	return context.WithValue(spanCtx, providerTraceSpanKey{}, span), nil
+}
+
+func (h providerTraceHook) AfterProviderCall(ctx context.Context, _ provider.ProviderCall, _ provider.Usage, callErr error) error {
+	span, _ := ctx.Value(providerTraceSpanKey{}).(*tracepkg.ActiveSpan)
+	if span == nil {
+		return nil
+	}
+	span.End(context.Background(), tracepkg.StatusForError(callErr), callErr)
+	return nil
+}
+
+func providerSpanStart(call provider.ProviderCall) tracepkg.SpanStart {
+	attrs := map[string]any{
+		"operation": call.Operation,
+		"provider":  call.Provider,
+	}
+	req := call.Request
 	if req != nil {
 		attrs["model"] = req.Model
 		attrs["purpose"] = req.Purpose
 		attrs["tool_count"] = len(req.Tools)
 		return tracepkg.SpanStart{
-			Name:           "provider." + operation,
+			Name:           "provider." + call.Operation,
 			Kind:           tracepkg.KindProvider,
 			ConversationID: req.ConversationID,
 			TurnNumber:     req.TurnNumber,
@@ -286,7 +363,7 @@ func providerSpanStart(p provider.Provider, req *provider.Request, operation str
 			Attributes:     attrs,
 		}
 	}
-	return tracepkg.SpanStart{Name: "provider." + operation, Kind: tracepkg.KindProvider, Attributes: attrs}
+	return tracepkg.SpanStart{Name: "provider." + call.Operation, Kind: tracepkg.KindProvider, Attributes: attrs}
 }
 
 func fatalStreamError(event provider.StreamEvent) (error, bool) {
@@ -294,7 +371,13 @@ func fatalStreamError(event provider.StreamEvent) (error, bool) {
 	if !ok || !streamErr.Fatal {
 		return nil, false
 	}
-	return streamErr.Err, true
+	if streamErr.Err != nil {
+		return streamErr.Err, true
+	}
+	if streamErr.Message != "" {
+		return errors.New(streamErr.Message), true
+	}
+	return errors.New("fatal provider stream error"), true
 }
 
 func routeCall[T any](

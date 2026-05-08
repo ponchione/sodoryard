@@ -27,12 +27,14 @@ type ExecutorConfig struct {
 // It is the single entry point for all tool dispatch — the agent loop never
 // calls tools directly.
 type Executor struct {
-	registry *Registry
-	recorder *ToolExecutionRecorder
-	tracer   tracepkg.Recorder
-	config   ExecutorConfig
-	logger   *slog.Logger
-	nowFn    func() time.Time // injectable for testing
+	registry  *Registry
+	recorder  *ToolExecutionRecorder
+	tracer    tracepkg.Recorder
+	hooks     []Hook
+	traceHook Hook
+	config    ExecutorConfig
+	logger    *slog.Logger
+	nowFn     func() time.Time // injectable for testing
 }
 
 // NewExecutor creates an executor backed by the given registry.
@@ -57,6 +59,15 @@ func (e *Executor) SetRecorder(recorder *ToolExecutionRecorder) {
 
 func (e *Executor) SetTraceRecorder(recorder tracepkg.Recorder) {
 	e.tracer = recorder
+	if recorder == nil {
+		e.traceHook = nil
+		return
+	}
+	e.traceHook = traceToolHook{recorder: recorder}
+}
+
+func (e *Executor) SetHooks(hooks ...Hook) {
+	e.hooks = append([]Hook(nil), hooks...)
 }
 
 // Execute dispatches a batch of tool calls with purity-based strategy:
@@ -188,17 +199,20 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 
 // executeSingle runs a single tool call with panic recovery and timing.
 func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (result ToolResult) {
-	spanCtx, span := tracepkg.StartSpan(ctx, e.tracer, tracepkg.SpanStart{
-		Name: "tool." + call.Name,
-		Kind: tracepkg.KindTool,
-		Attributes: map[string]any{
-			"tool_name":    call.Name,
-			"tool_call_id": call.ID,
-			"purity":       t.ToolPurity().String(),
-		},
-	})
-	ctx = spanCtx
 	start := e.nowFn()
+	hooks := e.executionHooks()
+	hookCtx, ran, beforeErr := runBeforeHooks(ctx, hooks, call, t)
+	if beforeErr != nil {
+		result = ToolResult{
+			CallID:     call.ID,
+			Content:    fmt.Sprintf("Tool %q blocked before execution: %v", call.Name, beforeErr),
+			Success:    false,
+			Error:      beforeErr.Error(),
+			DurationMs: e.nowFn().Sub(start).Milliseconds(),
+		}
+		return e.finishToolHooks(hookCtx, hooks[:ran], call, result)
+	}
+	ctx = hookCtx
 
 	// Panic recovery — tool panics become failed results, not crashes.
 	defer func() {
@@ -216,22 +230,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (re
 				"panic", r,
 			)
 		}
-		result.Details = withTraceSpanDetails(result.Details, span.ID())
-		status := tracepkg.StatusOK
-		var spanErr error
-		if !result.Success {
-			status = tracepkg.StatusError
-			if result.Error != "" {
-				spanErr = errors.New(result.Error)
-			} else {
-				spanErr = errors.New(result.Content)
-			}
-			if ctx.Err() != nil {
-				status = tracepkg.StatusCancelled
-				spanErr = ctx.Err()
-			}
-		}
-		span.End(context.Background(), status, spanErr)
+		result = e.finishToolHooks(ctx, hooks[:ran], call, result)
 	}()
 
 	tr, err := t.Execute(ctx, e.config.ProjectRoot, call.Arguments)
@@ -250,6 +249,30 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (re
 	tr.CallID = call.ID
 	tr.DurationMs = duration.Milliseconds()
 	return *tr
+}
+
+func (e *Executor) executionHooks() []Hook {
+	hooks := make([]Hook, 0, len(e.hooks)+1)
+	if e.traceHook != nil {
+		hooks = append(hooks, e.traceHook)
+	}
+	hooks = append(hooks, e.hooks...)
+	return hooks
+}
+
+func (e *Executor) finishToolHooks(ctx context.Context, hooks []Hook, call ToolCall, result ToolResult) ToolResult {
+	next, err := runAfterHooks(ctx, hooks, call, result)
+	if err == nil {
+		return next
+	}
+	if next.Success {
+		next.Success = false
+		next.Content = fmt.Sprintf("Tool %q hook failed: %v", call.Name, err)
+	}
+	if next.Error == "" {
+		next.Error = err.Error()
+	}
+	return next
 }
 
 // ExecuteWithMeta dispatches tool calls and records analytics for each
@@ -275,6 +298,49 @@ func (e *Executor) ExecuteWithMeta(ctx context.Context, calls []ToolCall, meta E
 	}
 
 	return results
+}
+
+type traceToolHook struct {
+	recorder tracepkg.Recorder
+}
+
+type traceToolSpanKey struct{}
+
+func (h traceToolHook) BeforeTool(ctx context.Context, call ToolCall, t Tool) (context.Context, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, h.recorder, tracepkg.SpanStart{
+		Name: "tool." + call.Name,
+		Kind: tracepkg.KindTool,
+		Attributes: map[string]any{
+			"tool_name":    call.Name,
+			"tool_call_id": call.ID,
+			"purity":       t.ToolPurity().String(),
+		},
+	})
+	return context.WithValue(spanCtx, traceToolSpanKey{}, span), nil
+}
+
+func (h traceToolHook) AfterTool(ctx context.Context, _ ToolCall, result ToolResult) (ToolResult, error) {
+	span, _ := ctx.Value(traceToolSpanKey{}).(*tracepkg.ActiveSpan)
+	if span == nil {
+		return result, nil
+	}
+	result.Details = withTraceSpanDetails(result.Details, span.ID())
+	status := tracepkg.StatusOK
+	var spanErr error
+	if !result.Success {
+		status = tracepkg.StatusError
+		if result.Error != "" {
+			spanErr = errors.New(result.Error)
+		} else {
+			spanErr = errors.New(result.Content)
+		}
+		if ctx.Err() != nil {
+			status = tracepkg.StatusCancelled
+			spanErr = ctx.Err()
+		}
+	}
+	span.End(context.Background(), status, spanErr)
+	return result, nil
 }
 
 func withTraceSpanDetails(details []byte, spanID string) []byte {
