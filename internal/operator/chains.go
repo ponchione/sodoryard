@@ -578,6 +578,7 @@ func summarizeChainGuardrails(ch chain.Chain, steps []chain.Step, events []chain
 		AddressedFindingIDs:        append([]string(nil), analysis.Findings.AddressedIDs...),
 		ReopenedFindingIDs:         append([]string(nil), analysis.Findings.ReopenedIDs...),
 		RepeatedResolverFindingIDs: append([]string(nil), analysis.Findings.RepeatedResolverIDs...),
+		Findings:                   findingLifecycleMetrics(analysis.Findings.Findings),
 	}
 	stepsByID := map[string]chain.Step{}
 	for _, step := range steps {

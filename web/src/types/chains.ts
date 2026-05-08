@@ -94,9 +94,28 @@ export interface ChainGuardrails {
   addressed_finding_ids: string[];
   reopened_finding_ids: string[];
   repeated_resolver_finding_ids: string[];
+  findings: GuardrailFinding[];
   lock_health: GuardrailLockHealth;
   changed_files: ChangedFileManifest[];
   step_facts: StepGuardrailFact[];
+}
+
+export interface GuardrailFinding {
+  id: string;
+  source_role: string;
+  status: string;
+  severity?: string;
+  evidence?: string;
+  summary?: string;
+  required_fix?: string;
+  resolution?: string;
+  files_changed: string[];
+  validation: string[];
+  addressed_count: number;
+  closed_count: number;
+  reopened_count: number;
+  first_seen_step: number;
+  last_updated_step: number;
 }
 
 export interface GuardrailLockHealth {

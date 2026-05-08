@@ -60,6 +60,25 @@ describe("ChainDetailPage", () => {
         addressed_finding_ids: ["FIND-correctness-001"],
         reopened_finding_ids: ["FIND-correctness-001"],
         repeated_resolver_finding_ids: ["FIND-correctness-001"],
+        findings: [
+          {
+            id: "FIND-correctness-001",
+            source_role: "correctness-auditor",
+            status: "addressed",
+            severity: "high",
+            evidence: "internal/example.go:42",
+            summary: "nil panic",
+            required_fix: "guard nil",
+            resolution: "fixed",
+            files_changed: ["internal/example.go"],
+            validation: ["rtk make test"],
+            addressed_count: 2,
+            closed_count: 0,
+            reopened_count: 1,
+            first_seen_step: 1,
+            last_updated_step: 3,
+          },
+        ],
         lock_health: {
           acquired: 1,
           released: 1,
@@ -114,8 +133,11 @@ describe("ChainDetailPage", () => {
     expect(await screen.findByText("Guardrail Warnings")).toBeInTheDocument();
     expect(screen.getByText("Guardrail Details")).toBeInTheDocument();
     expect(screen.getByText("Open: FIND-correctness-001")).toBeInTheDocument();
+    expect(screen.getByText("FIND-correctness-001 addressed / high")).toBeInTheDocument();
+    expect(screen.getByText("internal/example.go:42")).toBeInTheDocument();
+    expect(screen.getByText("Validation: rtk make test")).toBeInTheDocument();
     expect(screen.getByText(/acquired 1 \/ released 1/)).toBeInTheDocument();
-    expect(screen.getByText(/internal\/example.go/)).toBeInTheDocument();
+    expect(screen.getAllByText(/internal\/example.go/).length).toBeGreaterThan(0);
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
   });

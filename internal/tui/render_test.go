@@ -168,7 +168,10 @@ func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 		Guardrails: operator.ChainGuardrailDetails{
 			OpenFindingIDs:      []string{"FIND-correctness-001"},
 			AddressedFindingIDs: []string{"FIND-correctness-001"},
-			LockHealth:          operator.GuardrailLockHealth{Acquired: 1, Released: 1},
+			Findings: []operator.FindingLifecycleMetric{
+				{ID: "FIND-correctness-001", SourceRole: "correctness-auditor", Status: "addressed", Severity: "high", Evidence: "internal/example.go:42", Resolution: "fixed", FilesChanged: []string{"internal/example.go"}, Validation: []string{"rtk make test"}, AddressedCount: 2, ReopenedCount: 1},
+			},
+			LockHealth: operator.GuardrailLockHealth{Acquired: 1, Released: 1},
 			ChangedFiles: []operator.ChangedFileManifest{
 				{StepID: "step-1", SequenceNum: 1, Role: "coder", Paths: []string{"internal/example.go"}},
 			},
@@ -184,7 +187,7 @@ func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor", "Guardrails", "open=FIND-correctness-001", "source_writer_lock acquired=1 released=1", "internal/example.go", "receipt_valid=true"} {
+	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor", "Guardrails", "open=FIND-correctness-001", "finding id=FIND-correctness-001 source=correctness-auditor", "status=addressed addressed=2", "severity=high", "validation=rtk make test", "source_writer_lock acquired=1 released=1", "internal/example.go", "receipt_valid=true"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chain warning view missing %q:\n%s", want, view)
 		}

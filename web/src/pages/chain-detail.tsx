@@ -150,6 +150,35 @@ export function ChainDetailPage() {
                   <p className="text-warning">
                     Repeated resolver: {formatIDs(detail.guardrails.repeated_resolver_finding_ids)}
                   </p>
+                  {detail.guardrails.findings.length > 0 && (
+                    <div className="space-y-1 border-t border-border/70 pt-2">
+                      {detail.guardrails.findings.slice(0, 3).map((finding) => (
+                        <div key={`${finding.id}:${finding.source_role}`} className="space-y-1">
+                          <p className="font-mono text-foreground">
+                            {finding.id} {finding.status}
+                            {finding.severity ? ` / ${finding.severity}` : ""}
+                          </p>
+                          <p className="text-muted-foreground">
+                            {finding.source_role || "unknown"} addressed={finding.addressed_count} closed=
+                            {finding.closed_count} reopened={finding.reopened_count}
+                          </p>
+                          {finding.evidence && <p className="font-mono text-muted-foreground">{finding.evidence}</p>}
+                          {finding.summary && <p className="text-muted-foreground">{finding.summary}</p>}
+                          {finding.resolution && <p className="text-muted-foreground">Resolution: {finding.resolution}</p>}
+                          {finding.files_changed.length > 0 && (
+                            <p className="font-mono text-muted-foreground">
+                              Files: {finding.files_changed.join(", ")}
+                            </p>
+                          )}
+                          {finding.validation.length > 0 && (
+                            <p className="font-mono text-muted-foreground">
+                              Validation: {finding.validation.join("; ")}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Source Writer Lock</div>

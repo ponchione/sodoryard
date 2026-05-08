@@ -965,6 +965,13 @@ func TestGetChainMetricsSummarizesFindingLifecycleFacts(t *testing.T) {
 	if got := report.FindingLifecycle[0]; got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Status != "addressed" || got.Severity != "high" || got.Resolution != "fixed" || got.AddressedCount != 2 || got.ReopenedCount != 1 {
 		t.Fatalf("FindingLifecycle[0] = %+v, want merged lifecycle details", got)
 	}
+	detail, err := svc.GetChainDetail(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainDetail returned error: %v", err)
+	}
+	if len(detail.Guardrails.Findings) != 1 || detail.Guardrails.Findings[0].ID != "FIND-correctness-001" || detail.Guardrails.Findings[0].Severity != "high" {
+		t.Fatalf("detail guardrail findings = %+v, want lifecycle detail", detail.Guardrails.Findings)
+	}
 	for _, want := range []string{
 		"open audit findings: FIND-correctness-001",
 		"reopened audit findings: FIND-correctness-001",

@@ -67,6 +67,20 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "accepted", ReceiptPath: receiptPath, TokensUsed: 42}); err != nil {
 		t.Fatalf("CompleteStep returned error: %v", err)
 	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventFindingLifecycleFacts, map[string]any{
+		"role": "correctness-auditor",
+		"facts": []map[string]any{{
+			"id":          "FIND-correctness-001",
+			"source_role": "correctness-auditor",
+			"action":      "opened",
+			"status":      "open",
+			"severity":    "high",
+			"evidence":    "internal/example.go:42",
+			"summary":     "nil panic",
+		}},
+	}); err != nil {
+		t.Fatalf("LogEvent finding facts returned error: %v", err)
+	}
 	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
 		t.Fatalf("CompleteChain returned error: %v", err)
 	}
@@ -114,6 +128,13 @@ func TestChainInspectorEndpoints(t *testing.T) {
 			Step string `json:"step"`
 			Path string `json:"path"`
 		} `json:"receipts"`
+		Guardrails struct {
+			Findings []struct {
+				ID       string `json:"id"`
+				Severity string `json:"severity"`
+				Evidence string `json:"evidence"`
+			} `json:"findings"`
+		} `json:"guardrails"`
 	}
 	getJSON(t, base+"/api/chains/"+chainID, &detail)
 	if detail.Chain.ID != chainID || len(detail.Steps) != 1 || detail.Steps[0].Role != "coder" {
@@ -121,6 +142,9 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(detail.Receipts) != 1 || detail.Receipts[0].Path != receiptPath {
 		t.Fatalf("receipts = %+v, want step receipt", detail.Receipts)
+	}
+	if len(detail.Guardrails.Findings) != 1 || detail.Guardrails.Findings[0].ID != "FIND-correctness-001" || detail.Guardrails.Findings[0].Severity != "high" || detail.Guardrails.Findings[0].Evidence != "internal/example.go:42" {
+		t.Fatalf("guardrail findings = %+v, want lifecycle detail", detail.Guardrails.Findings)
 	}
 
 	var receipt struct {

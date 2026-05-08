@@ -115,6 +115,25 @@ func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
 		joinOrNone(details.ReopenedFindingIDs),
 		joinOrNone(details.RepeatedResolverFindingIDs),
 	))
+	for i, finding := range details.Findings {
+		if i >= 3 {
+			lines = append(lines, fmt.Sprintf("- %d more finding lifecycle record(s)", len(details.Findings)-i))
+			break
+		}
+		lines = append(lines, fmt.Sprintf("- finding id=%s source=%s status=%s addressed=%d closed=%d reopened=%d severity=%s evidence=%s resolution=%s files=%s validation=%s",
+			valueOrUnknown(finding.ID),
+			valueOrUnknown(finding.SourceRole),
+			valueOrUnknown(finding.Status),
+			finding.AddressedCount,
+			finding.ClosedCount,
+			finding.ReopenedCount,
+			valueOrNone(finding.Severity),
+			valueOrNone(finding.Evidence),
+			valueOrNone(finding.Resolution),
+			joinOrNone(finding.FilesChanged),
+			joinOrNone(finding.Validation),
+		))
+	}
 	lock := details.LockHealth
 	lines = append(lines, fmt.Sprintf("- source_writer_lock acquired=%d released=%d unreleased=%d blocked=%d release_failed=%d heartbeat_failed=%d",
 		lock.Acquired,
@@ -161,6 +180,7 @@ func guardrailDetailsEmpty(details operator.ChainGuardrailDetails) bool {
 		len(details.AddressedFindingIDs) == 0 &&
 		len(details.ReopenedFindingIDs) == 0 &&
 		len(details.RepeatedResolverFindingIDs) == 0 &&
+		len(details.Findings) == 0 &&
 		len(details.ChangedFiles) == 0 &&
 		len(details.StepFacts) == 0 &&
 		details.LockHealth == (operator.GuardrailLockHealth{})

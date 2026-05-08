@@ -93,6 +93,7 @@ type ChainGuardrailDetails struct {
 	AddressedFindingIDs        []string
 	ReopenedFindingIDs         []string
 	RepeatedResolverFindingIDs []string
+	Findings                   []FindingLifecycleMetric
 	LockHealth                 GuardrailLockHealth
 	ChangedFiles               []ChangedFileManifest
 	StepFacts                  []StepGuardrailFactSummary

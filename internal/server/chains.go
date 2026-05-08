@@ -179,9 +179,28 @@ type chainGuardrailResponse struct {
 	AddressedFindingIDs        []string                      `json:"addressed_finding_ids"`
 	ReopenedFindingIDs         []string                      `json:"reopened_finding_ids"`
 	RepeatedResolverFindingIDs []string                      `json:"repeated_resolver_finding_ids"`
+	Findings                   []findingLifecycleResponse    `json:"findings"`
 	LockHealth                 guardrailLockHealthResponse   `json:"lock_health"`
 	ChangedFiles               []changedFileManifestResponse `json:"changed_files"`
 	StepFacts                  []stepGuardrailFactResponse   `json:"step_facts"`
+}
+
+type findingLifecycleResponse struct {
+	ID              string   `json:"id"`
+	SourceRole      string   `json:"source_role"`
+	Status          string   `json:"status"`
+	Severity        string   `json:"severity,omitempty"`
+	Evidence        string   `json:"evidence,omitempty"`
+	Summary         string   `json:"summary,omitempty"`
+	RequiredFix     string   `json:"required_fix,omitempty"`
+	Resolution      string   `json:"resolution,omitempty"`
+	FilesChanged    []string `json:"files_changed"`
+	Validation      []string `json:"validation"`
+	AddressedCount  int      `json:"addressed_count"`
+	ClosedCount     int      `json:"closed_count"`
+	ReopenedCount   int      `json:"reopened_count"`
+	FirstSeenStep   int      `json:"first_seen_step"`
+	LastUpdatedStep int      `json:"last_updated_step"`
 }
 
 type guardrailLockHealthResponse struct {
@@ -333,6 +352,26 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 }
 
 func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) chainGuardrailResponse {
+	findings := make([]findingLifecycleResponse, 0, len(details.Findings))
+	for _, finding := range details.Findings {
+		findings = append(findings, findingLifecycleResponse{
+			ID:              finding.ID,
+			SourceRole:      finding.SourceRole,
+			Status:          finding.Status,
+			Severity:        finding.Severity,
+			Evidence:        finding.Evidence,
+			Summary:         finding.Summary,
+			RequiredFix:     finding.RequiredFix,
+			Resolution:      finding.Resolution,
+			FilesChanged:    append([]string(nil), finding.FilesChanged...),
+			Validation:      append([]string(nil), finding.Validation...),
+			AddressedCount:  finding.AddressedCount,
+			ClosedCount:     finding.ClosedCount,
+			ReopenedCount:   finding.ReopenedCount,
+			FirstSeenStep:   finding.FirstSeenStep,
+			LastUpdatedStep: finding.LastUpdatedStep,
+		})
+	}
 	changedFiles := make([]changedFileManifestResponse, 0, len(details.ChangedFiles))
 	for _, manifest := range details.ChangedFiles {
 		changedFiles = append(changedFiles, changedFileManifestResponse{
@@ -372,6 +411,7 @@ func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) 
 		AddressedFindingIDs:        append([]string(nil), details.AddressedFindingIDs...),
 		ReopenedFindingIDs:         append([]string(nil), details.ReopenedFindingIDs...),
 		RepeatedResolverFindingIDs: append([]string(nil), details.RepeatedResolverFindingIDs...),
+		Findings:                   findings,
 		LockHealth: guardrailLockHealthResponse{
 			Acquired:          details.LockHealth.Acquired,
 			Released:          details.LockHealth.Released,
