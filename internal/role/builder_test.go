@@ -129,6 +129,26 @@ func TestBuildRegistryBrainToolsCarryScopedBrainPolicy(t *testing.T) {
 	}
 }
 
+func TestBuildRegistryReadOnlyRoleDisablesBrainMutationLogs(t *testing.T) {
+	cfg := &appconfig.Config{}
+	cfg.Brain = appconfig.BrainConfig{Enabled: true, LogBrainQueries: true, LogBrainOperations: true}
+
+	_, scopedBrainCfg, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{
+		MutationClass:   appconfig.MutationClassReadOnly,
+		Tools:           []string{"brain"},
+		BrainWritePaths: []string{"receipts/auditor/**"},
+	}, BuilderDeps{ProjectID: "/tmp/project"})
+	if err != nil {
+		t.Fatalf("BuildRegistry returned error: %v", err)
+	}
+	if scopedBrainCfg.LogBrainQueries || scopedBrainCfg.LogBrainOperations {
+		t.Fatalf("read-only brain config logs = queries:%t operations:%t, want both disabled", scopedBrainCfg.LogBrainQueries, scopedBrainCfg.LogBrainOperations)
+	}
+	if !cfg.Brain.LogBrainQueries || !cfg.Brain.LogBrainOperations {
+		t.Fatalf("base config brain logging was mutated: %#v", cfg.Brain)
+	}
+}
+
 func TestBuildRegistryOmitsBrainToolsWhenBrainDisabled(t *testing.T) {
 	cfg := &appconfig.Config{}
 	cfg.Brain = appconfig.BrainConfig{Enabled: false}

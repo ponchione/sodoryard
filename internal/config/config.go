@@ -69,15 +69,25 @@ type Config struct {
 }
 
 type AgentRoleConfig struct {
-	SystemPrompt    string   `yaml:"system_prompt"`
-	Tools           []string `yaml:"tools"`
-	CustomTools     []string `yaml:"custom_tools"`
-	BrainWritePaths []string `yaml:"brain_write_paths"`
-	BrainDenyPaths  []string `yaml:"brain_deny_paths"`
-	MaxTurns        int      `yaml:"max_turns"`
-	MaxTokens       int      `yaml:"max_tokens"`
-	Timeout         Duration `yaml:"timeout"`
+	SystemPrompt    string        `yaml:"system_prompt"`
+	MutationClass   MutationClass `yaml:"mutation_class"`
+	Tools           []string      `yaml:"tools"`
+	CustomTools     []string      `yaml:"custom_tools"`
+	BrainWritePaths []string      `yaml:"brain_write_paths"`
+	BrainDenyPaths  []string      `yaml:"brain_deny_paths"`
+	MaxTurns        int           `yaml:"max_turns"`
+	MaxTokens       int           `yaml:"max_tokens"`
+	Timeout         Duration      `yaml:"timeout"`
 }
+
+type MutationClass string
+
+const (
+	MutationClassOrchestrator MutationClass = "orchestrator"
+	MutationClassSourceWrite  MutationClass = "source_write"
+	MutationClassBrainWrite   MutationClass = "brain_write"
+	MutationClassReadOnly     MutationClass = "read_only"
+)
 
 type Duration time.Duration
 
@@ -643,9 +653,20 @@ func (c *Config) normalize() {
 	c.Index.Exclude = appendMissingStrings(c.Index.Exclude, c.requiredIndexExcludePatterns()...)
 	c.normalizeMemory()
 	c.normalizeLocalServices()
+	c.normalizeAgentRoles()
 
 	c.ServerHost = c.Server.Host
 	c.ServerPort = c.Server.Port
+}
+
+func (c *Config) normalizeAgentRoles() {
+	if c == nil || len(c.AgentRoles) == 0 {
+		return
+	}
+	for name, role := range c.AgentRoles {
+		role.MutationClass = normalizeRoleMutationClass(name, role)
+		c.AgentRoles[name] = role
+	}
 }
 
 func (c *Config) normalizeProviders() {
@@ -1070,6 +1091,9 @@ func (c *Config) validateAgentRoles() error {
 				return fmt.Errorf("invalid field agent_roles.%s.tools (unsupported tool group %q; expected %s)", name, group, toolgroup.Message())
 			}
 		}
+		if err := validateAgentRoleMutationClass(name, role); err != nil {
+			return err
+		}
 		if role.MaxTurns <= 0 && role.MaxTurns != 0 {
 			return fmt.Errorf("invalid field agent_roles.%s.max_turns=%d (must be > 0 when specified)", name, role.MaxTurns)
 		}
@@ -1081,6 +1105,71 @@ func (c *Config) validateAgentRoles() error {
 		}
 	}
 	return nil
+}
+
+func validateAgentRoleMutationClass(name string, role AgentRoleConfig) error {
+	mutationClass := normalizeRoleMutationClass(name, role)
+	if !validMutationClass(mutationClass) {
+		return fmt.Errorf("invalid field agent_roles.%s.mutation_class=%q (expected orchestrator, source_write, brain_write, or read_only)", name, role.MutationClass)
+	}
+	disallowedGroups := map[string]struct{}{}
+	disallowedCustomTools := map[string]struct{}{}
+	disallowAllCustomTools := false
+	switch mutationClass {
+	case MutationClassOrchestrator:
+		for _, group := range []string{toolgroup.File, toolgroup.FileRead, toolgroup.Git, toolgroup.Shell, toolgroup.Search, toolgroup.Directory, toolgroup.Test, toolgroup.SQLC} {
+			disallowedGroups[group] = struct{}{}
+		}
+		for _, customTool := range role.CustomTools {
+			name := strings.TrimSpace(customTool)
+			if name == "" || name == "spawn_agent" || name == "chain_complete" {
+				continue
+			}
+			disallowedCustomTools[name] = struct{}{}
+		}
+	case MutationClassSourceWrite:
+		for _, name := range []string{"spawn_agent", "chain_complete"} {
+			disallowedCustomTools[name] = struct{}{}
+		}
+	case MutationClassBrainWrite:
+		for _, group := range []string{toolgroup.File, toolgroup.Shell, toolgroup.Test, toolgroup.SQLC} {
+			disallowedGroups[group] = struct{}{}
+		}
+		disallowAllCustomTools = true
+	case MutationClassReadOnly:
+		for _, group := range []string{toolgroup.File, toolgroup.Shell, toolgroup.Test, toolgroup.SQLC} {
+			disallowedGroups[group] = struct{}{}
+		}
+		disallowAllCustomTools = true
+	}
+	for _, group := range role.Tools {
+		normalized := strings.TrimSpace(group)
+		if _, disallowed := disallowedGroups[normalized]; disallowed {
+			return fmt.Errorf("invalid field agent_roles.%s.tools (tool group %q is not allowed for mutation_class %q)", name, group, mutationClass)
+		}
+	}
+	for _, customTool := range role.CustomTools {
+		normalized := strings.TrimSpace(customTool)
+		if normalized == "" {
+			continue
+		}
+		if disallowAllCustomTools {
+			return fmt.Errorf("invalid field agent_roles.%s.custom_tools (custom tool %q is not allowed for mutation_class %q)", name, customTool, mutationClass)
+		}
+		if _, disallowed := disallowedCustomTools[normalized]; disallowed {
+			return fmt.Errorf("invalid field agent_roles.%s.custom_tools (custom tool %q is not allowed for mutation_class %q)", name, customTool, mutationClass)
+		}
+	}
+	return nil
+}
+
+func validMutationClass(value MutationClass) bool {
+	switch value {
+	case MutationClassOrchestrator, MutationClassSourceWrite, MutationClassBrainWrite, MutationClassReadOnly:
+		return true
+	default:
+		return false
+	}
 }
 
 func expandPath(path string) (string, error) {

@@ -99,6 +99,58 @@ func builtinRoleForAgentRole(roleName string, roleCfg AgentRoleConfig) string {
 	return ""
 }
 
+func normalizeRoleMutationClass(roleName string, roleCfg AgentRoleConfig) MutationClass {
+	if trimmed := strings.TrimSpace(string(roleCfg.MutationClass)); trimmed != "" {
+		return MutationClass(trimmed)
+	}
+	if builtinRole := builtinRoleForAgentRole(roleName, roleCfg); builtinRole != "" {
+		if mutationClass := builtinRoleMutationClass(builtinRole); mutationClass != "" {
+			return mutationClass
+		}
+	}
+	if mutationClass := builtinRoleMutationClass(roleName); mutationClass != "" {
+		return mutationClass
+	}
+	return inferMutationClassFromTools(roleCfg)
+}
+
+func builtinRoleMutationClass(roleName string) MutationClass {
+	switch strings.TrimSpace(roleName) {
+	case "orchestrator":
+		return MutationClassOrchestrator
+	case "coder", "resolver", "test-writer":
+		return MutationClassSourceWrite
+	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
+		return MutationClassReadOnly
+	case "planner", "epic-decomposer", "task-decomposer", "docs-arbiter":
+		return MutationClassBrainWrite
+	default:
+		return ""
+	}
+}
+
+func inferMutationClassFromTools(roleCfg AgentRoleConfig) MutationClass {
+	for _, group := range roleCfg.Tools {
+		switch strings.TrimSpace(group) {
+		case "file", "shell", "test", "sqlc":
+			return MutationClassSourceWrite
+		}
+	}
+	if len(roleCfg.BrainWritePaths) > 0 {
+		return MutationClassBrainWrite
+	}
+	for _, group := range roleCfg.Tools {
+		if strings.TrimSpace(group) == "brain" {
+			return MutationClassBrainWrite
+		}
+	}
+	return MutationClassReadOnly
+}
+
+func IsSourceWritingRole(roleName string, roleCfg AgentRoleConfig) bool {
+	return normalizeRoleMutationClass(roleName, roleCfg) == MutationClassSourceWrite
+}
+
 func normalizeAgentRoleReference(value string) string {
 	lower := strings.ToLower(strings.TrimSpace(value))
 	return strings.Map(func(r rune) rune {

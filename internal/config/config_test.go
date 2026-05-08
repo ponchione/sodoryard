@@ -745,6 +745,9 @@ func TestLoadParsesAgentRolesAndBrainWritePolicies(t *testing.T) {
 	if !slices.Equal(role.CustomTools, []string{"external.reviewer"}) {
 		t.Fatalf("role.CustomTools = %#v, want [external.reviewer]", role.CustomTools)
 	}
+	if role.MutationClass != MutationClassSourceWrite {
+		t.Fatalf("role.MutationClass = %q, want source_write", role.MutationClass)
+	}
 	if !slices.Equal(role.BrainWritePaths, []string{"receipts/**"}) {
 		t.Fatalf("role.BrainWritePaths = %#v, want [receipts/**]", role.BrainWritePaths)
 	}
@@ -787,6 +790,9 @@ func TestLoadAcceptsFileReadAgentRoleToolGroup(t *testing.T) {
 	if !slices.Equal(role.Tools, []string{"brain", "file:read", "git"}) {
 		t.Fatalf("role.Tools = %#v, want [brain file:read git]", role.Tools)
 	}
+	if role.MutationClass != MutationClassBrainWrite {
+		t.Fatalf("role.MutationClass = %q, want brain_write", role.MutationClass)
+	}
 }
 
 func TestLoadAcceptsUtilityAgentRoleToolGroups(t *testing.T) {
@@ -816,6 +822,9 @@ func TestLoadAcceptsUtilityAgentRoleToolGroups(t *testing.T) {
 	}
 	if !slices.Equal(role.Tools, []string{"directory", "test", "sqlc"}) {
 		t.Fatalf("role.Tools = %#v, want [directory test sqlc]", role.Tools)
+	}
+	if role.MutationClass != MutationClassSourceWrite {
+		t.Fatalf("role.MutationClass = %q, want source_write", role.MutationClass)
 	}
 }
 
@@ -864,6 +873,9 @@ func TestLoadParsesReadOnlyFileRoleAndCustomTools(t *testing.T) {
 	if !slices.Equal(auditorRole.BrainDenyPaths, []string{"plans/**"}) {
 		t.Fatalf("auditorRole.BrainDenyPaths = %#v, want [plans/**]", auditorRole.BrainDenyPaths)
 	}
+	if auditorRole.MutationClass != MutationClassReadOnly {
+		t.Fatalf("auditorRole.MutationClass = %q, want read_only", auditorRole.MutationClass)
+	}
 
 	orchestratorRole, ok := cfg.AgentRoles["orchestrator"]
 	if !ok {
@@ -871,6 +883,9 @@ func TestLoadParsesReadOnlyFileRoleAndCustomTools(t *testing.T) {
 	}
 	if !slices.Equal(orchestratorRole.CustomTools, []string{"spawn_agent", "chain_complete"}) {
 		t.Fatalf("orchestratorRole.CustomTools = %#v, want [spawn_agent chain_complete]", orchestratorRole.CustomTools)
+	}
+	if orchestratorRole.MutationClass != MutationClassOrchestrator {
+		t.Fatalf("orchestratorRole.MutationClass = %q, want orchestrator", orchestratorRole.MutationClass)
 	}
 }
 
@@ -911,6 +926,30 @@ func TestLoadRejectsInvalidAgentRoles(t *testing.T) {
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    timeout: -1s\n",
 			wantSubstr: "agent_roles.reviewer.timeout=-1s",
+		},
+		{
+			name: "invalid mutation class",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    mutation_class: maybe\n",
+			wantSubstr: "agent_roles.reviewer.mutation_class=\"maybe\"",
+		},
+		{
+			name: "read only role with file write tools",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    mutation_class: read_only\n    tools:\n      - file\n",
+			wantSubstr: "tool group \"file\" is not allowed for mutation_class \"read_only\"",
+		},
+		{
+			name: "read only role with shell tools",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    mutation_class: read_only\n    tools:\n      - shell\n",
+			wantSubstr: "tool group \"shell\" is not allowed for mutation_class \"read_only\"",
+		},
+		{
+			name: "source writing role cannot dispatch chains",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  coder:\n    system_prompt: builtin:coder\n    mutation_class: source_write\n    custom_tools:\n      - spawn_agent\n",
+			wantSubstr: "custom tool \"spawn_agent\" is not allowed for mutation_class \"source_write\"",
 		},
 	}
 
