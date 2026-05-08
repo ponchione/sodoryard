@@ -107,7 +107,7 @@ func renderYardChainMetrics(out io.Writer, report operator.ChainMetricsReport) {
 	_, _ = fmt.Fprintf(out, "turns step_sum=%d\n", report.StepTurnTotal)
 	_, _ = fmt.Fprintf(out, "duration recorded=%ds step_sum=%ds budget=%ds pct=%.1f\n", report.TotalDurationSecs, report.StepDurationSecs, report.MaxDurationSecs, report.DurationBudgetPct)
 	_, _ = fmt.Fprintf(out, "resolver_loops used=%d budget=%d pct=%.1f\n", report.ResolverLoops, report.MaxResolverLoops, report.ResolverLoopPct)
-	_, _ = fmt.Fprintf(out, "events total=%d output=%d step_failed=%d safety_limit=%d reindex_started=%d reindex_done=%d process_started=%d process_exited=%d\n", report.EventTotal, report.OutputEvents, report.StepFailedEvents, report.SafetyLimitEvents, report.ReindexStartedEvents, report.ReindexDoneEvents, report.ProcessStartedEvents, report.ProcessExitedEvents)
+	_, _ = fmt.Fprintf(out, "events total=%d output=%d changed_files=%d receipt_warnings=%d source_writer_blocks=%d step_failed=%d safety_limit=%d reindex_started=%d reindex_done=%d process_started=%d process_exited=%d\n", report.EventTotal, report.OutputEvents, report.ChangedFileEvents, report.ReceiptWarningEvents, report.SourceWriterBlocks, report.StepFailedEvents, report.SafetyLimitEvents, report.ReindexStartedEvents, report.ReindexDoneEvents, report.ProcessStartedEvents, report.ProcessExitedEvents)
 	_, _ = fmt.Fprintf(out, "warnings=%d\n", len(report.Warnings))
 	for _, warning := range report.Warnings {
 		_, _ = fmt.Fprintf(out, "warning: %s\n", warning.Message)

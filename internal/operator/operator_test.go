@@ -642,6 +642,52 @@ func TestGetChainMetricsFlagsDogfoodingWarnings(t *testing.T) {
 	}
 }
 
+func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-guardrails", SourceTask: "guardrails", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: 100 * time.Second, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-guardrails-step-001.md", TokensUsed: 10, TurnsUsed: 1}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 10}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventReceiptValidation, map[string]any{"warning": "missing section"}); err != nil {
+		t.Fatalf("LogEvent receipt warning returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventSourceWriterBlocked, map[string]any{"requested_role": "resolver"}); err != nil {
+		t.Fatalf("LogEvent source writer block returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.Health != "failing" || report.ReceiptWarningEvents != 1 || report.SourceWriterBlocks != 1 || report.ChangedFileEvents != 0 {
+		t.Fatalf("report = %+v, want failing guardrail counters", report)
+	}
+	for _, want := range []string{
+		"chain has 1 receipt_validation_warning event(s)",
+		"source writer guard blocked 1 spawn attempt(s)",
+		"step 1 source-writing role coder completed without changed-file manifest",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
 func TestListEventsAndEventsSince(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))

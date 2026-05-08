@@ -111,6 +111,9 @@ type ChainMetricsReport struct {
 	EventTotal           int
 	OutputEvents         int
 	StepFailedEvents     int
+	ChangedFileEvents    int
+	ReceiptWarningEvents int
+	SourceWriterBlocks   int
 	SafetyLimitEvents    int
 	ReindexStartedEvents int
 	ReindexDoneEvents    int

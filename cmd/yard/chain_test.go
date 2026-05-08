@@ -262,7 +262,7 @@ func TestYardChainMetricsCommandPrintsDogfoodingSummary(t *testing.T) {
 		"turns step_sum=0\n" +
 		"duration recorded=3s step_sum=3s budget=100s pct=3.0\n" +
 		"resolver_loops used=0 budget=2 pct=0.0\n" +
-		"events total=3 output=1 step_failed=0 safety_limit=0 reindex_started=0 reindex_done=0 process_started=1 process_exited=1\n" +
+		"events total=3 output=1 changed_files=0 receipt_warnings=0 source_writer_blocks=0 step_failed=0 safety_limit=0 reindex_started=0 reindex_done=0 process_started=1 process_exited=1\n" +
 		"warnings=3\n" +
 		"warning: step 1 completed without a receipt path\n" +
 		"warning: step 1 completed without token usage\n" +

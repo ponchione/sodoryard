@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ponchione/sodoryard/internal/chain"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 )
 
 const defaultChainListLimit = 20
@@ -136,6 +137,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	report.StepBudgetPct = pct(maxInt(ch.TotalSteps, len(detail.Steps)), ch.MaxSteps)
 	failHealth := false
 	attentionHealth := false
+	changedFileEventsByStep := map[string]bool{}
 
 	switch ch.Status {
 	case "completed", "dry_run":
@@ -229,8 +231,19 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 		switch event.EventType {
 		case chain.EventStepOutput:
 			report.OutputEvents++
+		case chain.EventStepChangedFiles:
+			report.ChangedFileEvents++
+			if event.StepID != "" {
+				changedFileEventsByStep[event.StepID] = true
+			}
 		case chain.EventStepFailed:
 			report.StepFailedEvents++
+			failHealth = true
+		case chain.EventReceiptValidation:
+			report.ReceiptWarningEvents++
+			attentionHealth = true
+		case chain.EventSourceWriterBlocked:
+			report.SourceWriterBlocks++
 			failHealth = true
 		case chain.EventSafetyLimitHit:
 			report.SafetyLimitEvents++
@@ -248,8 +261,20 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	if report.StepFailedEvents > 0 {
 		report.addWarning(fmt.Sprintf("chain has %d step_failed event(s)", report.StepFailedEvents))
 	}
+	if report.ReceiptWarningEvents > 0 {
+		report.addWarning(fmt.Sprintf("chain has %d receipt_validation_warning event(s)", report.ReceiptWarningEvents))
+	}
+	if report.SourceWriterBlocks > 0 {
+		report.addWarning(fmt.Sprintf("source writer guard blocked %d spawn attempt(s)", report.SourceWriterBlocks))
+	}
 	if report.SafetyLimitEvents > 0 {
 		report.addWarning(fmt.Sprintf("chain has %d safety_limit_hit event(s)", report.SafetyLimitEvents))
+	}
+	for _, step := range detail.Steps {
+		if step.Status == "completed" && appconfig.IsSourceWritingRole(step.Role, appconfig.AgentRoleConfig{}) && !changedFileEventsByStep[step.ID] {
+			attentionHealth = true
+			report.addWarning(fmt.Sprintf("step %d source-writing role %s completed without changed-file manifest", step.SequenceNum, step.Role))
+		}
 	}
 	if isTerminalChainStatus(ch.Status) && report.ProcessStartedEvents != report.ProcessExitedEvents {
 		attentionHealth = true
