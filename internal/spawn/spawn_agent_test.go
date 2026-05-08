@@ -133,11 +133,28 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	if ch.TotalSteps != 1 || ch.TotalTokens != 33 {
 		t.Fatalf("unexpected chain metrics: %+v", ch)
 	}
-	if len(traceRecorder.spans) != 1 || traceRecorder.spans[0].Kind != tracepkg.KindChain || traceRecorder.spans[0].ChainID != chainID || traceRecorder.spans[0].StepID != stepID {
-		t.Fatalf("trace spans = %+v, want spawn lifecycle span", traceRecorder.spans)
+	var sawSpawnSpan, sawReceiptReadSpan, sawReceiptCompleteSpan bool
+	for _, span := range traceRecorder.spans {
+		if span.Kind == tracepkg.KindChain && span.Name == "spawn_agent.step" && span.ChainID == chainID && span.StepID == stepID {
+			sawSpawnSpan = true
+		}
+		if span.Kind == tracepkg.KindReceipt && span.Name == "receipt.read" && span.ChainID == chainID && span.StepID == stepID {
+			sawReceiptReadSpan = true
+		}
+		if span.Kind == tracepkg.KindReceipt && span.Name == "receipt.complete_step" && span.ChainID == chainID && span.StepID == stepID {
+			sawReceiptCompleteSpan = true
+		}
 	}
-	if len(traceRecorder.ends) != 1 || traceRecorder.ends[0].Status != tracepkg.StatusOK {
-		t.Fatalf("trace ends = %+v, want completed spawn span", traceRecorder.ends)
+	if !sawSpawnSpan || !sawReceiptReadSpan || !sawReceiptCompleteSpan {
+		t.Fatalf("trace spans = %+v, want spawn and receipt spans", traceRecorder.spans)
+	}
+	if len(traceRecorder.ends) < 3 {
+		t.Fatalf("trace ends = %+v, want completed spawn and receipt spans", traceRecorder.ends)
+	}
+	for _, end := range traceRecorder.ends {
+		if end.Status != tracepkg.StatusOK {
+			t.Fatalf("trace ends = %+v, want ok spans", traceRecorder.ends)
+		}
 	}
 	events, err := store.ListEvents(ctx, chainID)
 	if err != nil {
@@ -1123,7 +1140,8 @@ func TestSpawnAgentRunsReindexBeforeWhenRequested(t *testing.T) {
 	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
 	backend := &fakeBrainBackend{docs: map[string]string{}}
 	expectedEnv := []string{"SODORYARD_MEMORY_ENDPOINT=unix:/tmp/memory.sock"}
-	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{Brain: appconfig.BrainConfig{Enabled: true}, AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir(), SubprocessEnv: expectedEnv})
+	traceRecorder := &spawnTraceRecorder{}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{Brain: appconfig.BrainConfig{Enabled: true}, AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir(), SubprocessEnv: expectedEnv, TraceRecorder: traceRecorder})
 	type commandCall struct {
 		name string
 		args []string
@@ -1150,10 +1168,30 @@ func TestSpawnAgentRunsReindexBeforeWhenRequested(t *testing.T) {
 	if !strings.Contains(strings.Join(calls[0].args, " "), "--quiet") {
 		t.Fatalf("code reindex args = %v, want --quiet", calls[0].args)
 	}
-	for _, call := range calls {
+	for _, call := range calls[:2] {
 		if strings.Join(call.env, "\n") != strings.Join(expectedEnv, "\n") {
 			t.Fatalf("%s env = %v, want %v", call.name, call.env, expectedEnv)
 		}
+	}
+	if !envContainsPrefix(calls[2].env, expectedEnv[0]) || !envContainsPrefix(calls[2].env, tracepkg.EnvTraceID+"=") {
+		t.Fatalf("spawn env = %v, want memory endpoint plus trace linkage", calls[2].env)
+	}
+	var sawReindexChain, sawReindexCode, sawReindexBrain bool
+	for _, span := range traceRecorder.spans {
+		if span.Kind != tracepkg.KindReindex || span.ChainID != chainID {
+			continue
+		}
+		switch span.Name {
+		case "reindex.chain":
+			sawReindexChain = true
+		case "reindex.code":
+			sawReindexCode = true
+		case "reindex.brain":
+			sawReindexBrain = true
+		}
+	}
+	if !sawReindexChain || !sawReindexCode || !sawReindexBrain {
+		t.Fatalf("trace spans = %+v, want reindex chain/code/brain spans", traceRecorder.spans)
 	}
 }
 

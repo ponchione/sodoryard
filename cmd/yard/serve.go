@@ -112,6 +112,7 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		PromptBuilder:       agent.NewPromptBuilder(logger),
 		TitleGenerator:      titleGen,
 		CompressionEngine:   rt.CompressionEngine,
+		TraceRecorder:       rt.TraceRecorder,
 		Config:              rtpkg.BuildAgentLoopConfig(cfg, cfg.Agent.MaxIterationsPerTurn, ""),
 		Logger:              logger,
 	})

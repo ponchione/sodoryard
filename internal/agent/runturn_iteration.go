@@ -89,7 +89,7 @@ func (l *AgentLoop) buildIterationRequest(ctx stdctx.Context, turnExec *turnExec
 		return nil, fmt.Errorf("agent loop: build prompt for iteration %d: %w", iterExec.number, err)
 	}
 
-	if !l.tryPreflightCompression(ctx, turnExec.req.ConversationID, promptReq, turnExec.req.ModelContextLimit) {
+	if !l.tryPreflightCompression(ctx, turnExec.req.ConversationID, promptReq, turnExec.req.ModelContextLimit, iterExec.number) {
 		return promptReq, nil
 	}
 
@@ -128,7 +128,7 @@ func (l *AgentLoop) runProviderIteration(ctx stdctx.Context, turnExec *turnExecu
 	}
 
 	turnExec.totalUsage = turnExec.totalUsage.Add(result.Usage)
-	if l.tryPostResponseCompression(ctx, turnExec.req.ConversationID, result.Usage.InputTokens, turnExec.req.ModelContextLimit) {
+	if l.tryPostResponseCompression(ctx, turnExec.req.ConversationID, result.Usage.InputTokens, turnExec.req.ModelContextLimit, iterExec.number) {
 		turnExec.historyNeedsRefresh = true
 	}
 	return result, nil

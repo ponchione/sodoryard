@@ -292,6 +292,7 @@ func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.C
 		TitleGenerator:      titleGen,
 		EventSink:           sink,
 		CompressionEngine:   rt.CompressionEngine,
+		TraceRecorder:       rt.TraceRecorder,
 		Config:              rtpkg.BuildAgentLoopConfig(cfg, loopMaxTurns, systemPrompt),
 		Logger:              rt.Logger,
 	})

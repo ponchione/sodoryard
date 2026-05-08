@@ -145,6 +145,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		cfg.Context,
 		contextReportStore,
 	)
+	contextAssembler.SetTraceRecorder(traceRecorder)
 
 	return &EngineRuntime{
 		Config:              cfg,

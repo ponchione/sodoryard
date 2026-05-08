@@ -11,10 +11,14 @@ import (
 )
 
 const (
-	KindProvider  = "provider"
-	KindToolBatch = "tool_batch"
-	KindTool      = "tool"
-	KindChain     = "chain"
+	KindProvider    = "provider"
+	KindToolBatch   = "tool_batch"
+	KindTool        = "tool"
+	KindChain       = "chain"
+	KindContext     = "context"
+	KindCompression = "compression"
+	KindReceipt     = "receipt"
+	KindReindex     = "reindex"
 
 	StatusRunning   = "running"
 	StatusOK        = "ok"

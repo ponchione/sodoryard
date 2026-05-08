@@ -250,6 +250,25 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		t.Fatalf("timeline = %+v, want serialized provider failure span", detail.Timeline)
 	}
 
+	var timeline []struct {
+		Source string `json:"source"`
+		Kind   string `json:"kind"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		StepID string `json:"step_id"`
+		Error  string `json:"error"`
+	}
+	getJSON(t, base+"/api/chains/"+chainID+"/timeline", &timeline)
+	sawTimelineEndpointSpan := false
+	for _, item := range timeline {
+		if item.Source == "span" && item.Kind == tracepkg.KindProvider && item.Name == "provider.stream" && item.Status == tracepkg.StatusError && item.StepID == stepID && item.Error == "provider failed" {
+			sawTimelineEndpointSpan = true
+		}
+	}
+	if !sawTimelineEndpointSpan {
+		t.Fatalf("timeline endpoint = %+v, want provider failure span", timeline)
+	}
+
 	var receipt struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`

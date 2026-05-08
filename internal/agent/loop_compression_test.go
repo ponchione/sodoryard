@@ -13,6 +13,7 @@ import (
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	"github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/provider"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // --- Compression stubs ---
@@ -44,6 +45,38 @@ func (s *compressionEngineStub) Compress(_ stdctx.Context, conversationID string
 		return nil, s.err
 	}
 	return s.result, nil
+}
+
+type compressionTraceRecorder struct {
+	mu    sync.Mutex
+	spans []tracepkg.Span
+	ends  []tracepkg.SpanEnd
+}
+
+func (r *compressionTraceRecorder) StartSpan(_ stdctx.Context, span tracepkg.Span) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans = append(r.spans, span)
+	return nil
+}
+
+func (r *compressionTraceRecorder) EndSpan(_ stdctx.Context, end tracepkg.SpanEnd) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ends = append(r.ends, end)
+	return nil
+}
+
+func (r *compressionTraceRecorder) ListSpans(stdctx.Context, tracepkg.Query) ([]tracepkg.Span, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tracepkg.Span(nil), r.spans...), nil
+}
+
+func (r *compressionTraceRecorder) snapshot() ([]tracepkg.Span, []tracepkg.SpanEnd) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tracepkg.Span(nil), r.spans...), append([]tracepkg.SpanEnd(nil), r.ends...)
 }
 
 type titleGeneratorStub struct {
@@ -416,6 +449,7 @@ func TestRunTurnPreflightCompressionTriggered(t *testing.T) {
 			CompressedMessages: 5,
 		},
 	}
+	traces := &compressionTraceRecorder{}
 
 	loop := NewAgentLoop(AgentLoopDeps{
 		ContextAssembler:    assembler,
@@ -429,6 +463,7 @@ func TestRunTurnPreflightCompressionTriggered(t *testing.T) {
 		PromptBuilder:     NewPromptBuilder(nil),
 		EventSink:         sink,
 		CompressionEngine: compression,
+		TraceRecorder:     traces,
 		Config: AgentLoopConfig{
 			// Set a very low compression threshold so preflight triggers.
 			ContextConfig: config.ContextConfig{
@@ -458,6 +493,24 @@ func TestRunTurnPreflightCompressionTriggered(t *testing.T) {
 	}
 	if calls[0] != "conv-preflight" {
 		t.Fatalf("Compress called with %q, want %q", calls[0], "conv-preflight")
+	}
+	spans, ends := traces.snapshot()
+	var sawPreflight bool
+	for _, span := range spans {
+		if span.Kind == tracepkg.KindCompression && span.Name == "compression.preflight" && span.ConversationID == "conv-preflight" && span.TurnNumber == 1 && span.Iteration == 1 {
+			sawPreflight = true
+		}
+	}
+	if !sawPreflight {
+		t.Fatalf("compression spans = %+v, want preflight compression span", spans)
+	}
+	if len(ends) == 0 {
+		t.Fatalf("compression span ends = %+v, want at least one end", ends)
+	}
+	for _, end := range ends {
+		if end.Status != tracepkg.StatusOK {
+			t.Fatalf("compression span ends = %+v, want ok ends", ends)
+		}
 	}
 
 	// Should have emitted StateCompressing.

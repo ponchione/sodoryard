@@ -670,7 +670,22 @@ func buildEngineRunArgs(step spawnStep, chainID string, agentTimeout time.Durati
 	return args
 }
 
-func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, outcome engineRunOutcome, facts *postStepGuardrailFacts) (string, receipt.Receipt, error) {
+func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, outcome engineRunOutcome, facts *postStepGuardrailFacts) (receiptContent string, parsed receipt.Receipt, err error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, t.TraceRecorder, tracepkg.SpanStart{
+		Name:    "receipt.read",
+		Kind:    tracepkg.KindReceipt,
+		ChainID: t.ChainID,
+		StepID:  step.stepID,
+		Attributes: map[string]any{
+			"role":         step.roleName,
+			"sequence":     step.sequence,
+			"receipt_path": step.receiptPath,
+		},
+	})
+	ctx = spanCtx
+	defer func() {
+		span.End(context.Background(), tracepkg.StatusForError(err), err)
+	}()
 	receiptContent, readErr := t.Backend.ReadDocument(ctx, step.receiptPath)
 	if readErr != nil {
 		failMsg := fmt.Sprintf("missing receipt %s after exit_code=%d stdout=%q stderr=%q", step.receiptPath, outcome.exitCode, outcome.stdout, outcome.stderr)
@@ -687,12 +702,13 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(receipt.VerdictSafetyLimit), ReceiptPath: receiptPath, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
-		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %s", failMsg)
+		err = fmt.Errorf("spawn_agent: %s", failMsg)
+		return "", receipt.Receipt{}, err
 	}
 	if facts != nil {
 		facts.ReceiptPresent = true
 	}
-	parsed, err := receipt.Parse([]byte(receiptContent))
+	parsed, err = receipt.Parse([]byte(receiptContent))
 	if err != nil {
 		failMsg := fmt.Sprintf("parse receipt %s: %v", step.receiptPath, err)
 		if facts != nil {
@@ -700,7 +716,8 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
-		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
+		err = fmt.Errorf("spawn_agent: %w", err)
+		return "", receipt.Receipt{}, err
 	}
 	if facts != nil {
 		facts.ReceiptSchemaValid = true
@@ -716,27 +733,29 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 			facts.ChangedFileClaimMatchesManifest = len(facts.ChangedFileClaimExtra) == 0 && len(facts.ChangedFileManifestUnclaimed) == 0
 		}
 	}
-	if err := receipt.ValidateForStep(parsed, receipt.StepValidation{Agent: step.roleName, ChainID: t.ChainID, Step: step.sequence}); err != nil {
-		failMsg := fmt.Sprintf("validate receipt %s: %v", step.receiptPath, err)
+	if validateErr := receipt.ValidateForStep(parsed, receipt.StepValidation{Agent: step.roleName, ChainID: t.ChainID, Step: step.sequence}); validateErr != nil {
+		failMsg := fmt.Sprintf("validate receipt %s: %v", step.receiptPath, validateErr)
 		if facts != nil {
-			facts.ReceiptError = err.Error()
+			facts.ReceiptError = validateErr.Error()
 		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
-		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
+		err = fmt.Errorf("spawn_agent: %w", validateErr)
+		return "", receipt.Receipt{}, err
 	}
 	if facts != nil {
 		facts.ReceiptStepValid = true
 	}
-	if err := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForStep(step.roleName, step.sourceMutating)); err != nil {
-		failMsg := fmt.Sprintf("validate receipt sections %s: %v", step.receiptPath, err)
+	if validateErr := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForStep(step.roleName, step.sourceMutating)); validateErr != nil {
+		failMsg := fmt.Sprintf("validate receipt sections %s: %v", step.receiptPath, validateErr)
 		if facts != nil {
-			facts.ReceiptError = err.Error()
+			facts.ReceiptError = validateErr.Error()
 		}
 		_ = t.Store.FailStep(ctx, chain.CompleteStepParams{StepID: step.stepID, Verdict: string(parsed.Verdict), ReceiptPath: step.receiptPath, TokensUsed: parsed.TokensUsed, TurnsUsed: parsed.TurnsUsed, ExitCode: intPtr(outcome.exitCode), ErrorMessage: failMsg, DurationSecs: outcome.durationSecs})
-		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{"role": step.roleName, "receipt_path": step.receiptPath, "error": err.Error()})
+		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptValidation, map[string]any{"role": step.roleName, "receipt_path": step.receiptPath, "error": validateErr.Error()})
 		_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventStepFailed, map[string]any{"error": failMsg, "exit_code": outcome.exitCode})
-		return "", receipt.Receipt{}, fmt.Errorf("spawn_agent: %w", err)
+		err = fmt.Errorf("spawn_agent: %w", validateErr)
+		return "", receipt.Receipt{}, err
 	}
 	if facts != nil {
 		facts.ReceiptSectionsValid = true
@@ -1084,7 +1103,29 @@ func (t *SpawnAgentTool) recordStepOutcome(ctx context.Context, step spawnStep, 
 	return result, receiptContent, nil
 }
 
-func (t *SpawnAgentTool) completeStepWithReceipt(ctx context.Context, step spawnStep, completeParams chain.CompleteStepParams, metrics chain.ChainMetrics, receiptContent string, events []projectmemory.CompleteStepWithReceiptEvent) error {
+func (t *SpawnAgentTool) completeStepWithReceipt(ctx context.Context, step spawnStep, completeParams chain.CompleteStepParams, metrics chain.ChainMetrics, receiptContent string, events []projectmemory.CompleteStepWithReceiptEvent) (err error) {
+	backend := "sqlite"
+	if completer, ok := t.Backend.(stepReceiptCompleter); ok && completer != nil {
+		backend = "project_memory"
+	}
+	spanCtx, span := tracepkg.StartSpan(ctx, t.TraceRecorder, tracepkg.SpanStart{
+		Name:    "receipt.complete_step",
+		Kind:    tracepkg.KindReceipt,
+		ChainID: t.ChainID,
+		StepID:  step.stepID,
+		Attributes: map[string]any{
+			"role":         step.roleName,
+			"sequence":     step.sequence,
+			"receipt_path": step.receiptPath,
+			"backend":      backend,
+			"status":       completeParams.Status,
+			"verdict":      completeParams.Verdict,
+		},
+	})
+	ctx = spanCtx
+	defer func() {
+		span.End(context.Background(), tracepkg.StatusForError(err), err)
+	}()
 	if completer, ok := t.Backend.(stepReceiptCompleter); ok && completer != nil {
 		now := t.now
 		if now == nil {
@@ -1202,9 +1243,25 @@ func (t *SpawnAgentTool) stopIfChainNotRunnable(ctx context.Context) error {
 	return fmt.Errorf("spawn_agent: chain %s is %s", t.ChainID, ch.Status)
 }
 
-func (t *SpawnAgentTool) reindex(ctx context.Context) error {
+func (t *SpawnAgentTool) reindex(ctx context.Context) (err error) {
 	start := t.now()
-	_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventReindexStarted, map[string]any{"indexes": []string{"code", "brain"}})
+	indexes := []string{"code"}
+	if t.Config != nil && t.Config.Brain.Enabled {
+		indexes = append(indexes, "brain")
+	}
+	spanCtx, span := tracepkg.StartSpan(ctx, t.TraceRecorder, tracepkg.SpanStart{
+		Name:    "reindex.chain",
+		Kind:    tracepkg.KindReindex,
+		ChainID: t.ChainID,
+		Attributes: map[string]any{
+			"indexes": indexes,
+		},
+	})
+	ctx = spanCtx
+	defer func() {
+		span.End(context.Background(), tracepkg.StatusForError(err), err)
+	}()
+	_ = t.Store.LogEvent(ctx, t.ChainID, "", chain.EventReindexStarted, map[string]any{"indexes": indexes})
 	if err := t.runReindexCommand(ctx, "code", t.EngineBinary, []string{"index", "--config", appconfig.ConfigFilename, "--quiet"}); err != nil {
 		return err
 	}
@@ -1217,7 +1274,21 @@ func (t *SpawnAgentTool) reindex(ctx context.Context) error {
 	return nil
 }
 
-func (t *SpawnAgentTool) runReindexCommand(ctx context.Context, indexName string, commandName string, args []string) error {
+func (t *SpawnAgentTool) runReindexCommand(ctx context.Context, indexName string, commandName string, args []string) (err error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, t.TraceRecorder, tracepkg.SpanStart{
+		Name:    "reindex." + indexName,
+		Kind:    tracepkg.KindReindex,
+		ChainID: t.ChainID,
+		Attributes: map[string]any{
+			"index":   indexName,
+			"command": commandName,
+			"args":    append([]string(nil), args...),
+		},
+	})
+	ctx = spanCtx
+	defer func() {
+		span.End(context.Background(), tracepkg.StatusForError(err), err)
+	}()
 	res := t.runCommand(ctx, RunCommandInput{Name: commandName, Args: args, Env: t.SubprocessEnv, Dir: t.ProjectRoot, Timeout: 10 * time.Minute})
 	if res.Err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("%s index exited %d: %v", indexName, res.ExitCode, res.Err)

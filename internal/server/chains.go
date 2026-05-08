@@ -21,6 +21,7 @@ func NewChainInspectorHandler(s *Server, svc *operator.Service, logger *slog.Log
 	s.HandleFunc("GET /api/runtime/status", h.handleRuntimeStatus)
 	s.HandleFunc("GET /api/chains", h.handleListChains)
 	s.HandleFunc("GET /api/chains/{id}", h.handleGetChain)
+	s.HandleFunc("GET /api/chains/{id}/timeline", h.handleTimeline)
 	s.HandleFunc("GET /api/chains/{id}/events", h.handleEvents)
 	s.HandleFunc("GET /api/chains/{id}/receipts", h.handleReceiptList)
 	s.HandleFunc("GET /api/chains/{id}/receipt", h.handleReceipt)
@@ -87,6 +88,25 @@ func (h *ChainInspectorHandler) handleEvents(w http.ResponseWriter, r *http.Requ
 	out := make([]chainEventResponse, 0, len(events))
 	for _, event := range events {
 		out = append(out, chainEventResponseFromChain(event))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *ChainInspectorHandler) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	chainID := strings.TrimSpace(r.PathValue("id"))
+	if chainID == "" {
+		writeError(w, http.StatusBadRequest, "chain id is required")
+		return
+	}
+	timeline, err := h.svc.GetChainTimeline(r.Context(), chainID)
+	if err != nil {
+		h.logger.Warn("list chain timeline", "chain_id", chainID, "error", err)
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	out := make([]chainTimelineResponse, 0, len(timeline))
+	for _, item := range timeline {
+		out = append(out, chainTimelineResponseFromOperator(item))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

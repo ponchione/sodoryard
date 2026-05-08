@@ -119,6 +119,7 @@ type AgentLoopDeps struct {
 	PromptBuilder       *PromptBuilder
 	EventSink           EventSink
 	CompressionEngine   CompressionEngine
+	TraceRecorder       tracepkg.Recorder
 	ToolResultStore     ToolResultStore
 	TitleGenerator      TitleGenerator
 	Config              AgentLoopConfig
@@ -166,6 +167,7 @@ type AgentLoop struct {
 	promptBuilder       *PromptBuilder
 	events              *MultiSink
 	compressionEngine   CompressionEngine
+	traceRecorder       tracepkg.Recorder
 	toolResultStore     ToolResultStore
 	toolOutputManager   *ToolOutputManager
 	titleGenerator      TitleGenerator
@@ -202,6 +204,7 @@ func NewAgentLoop(deps AgentLoopDeps) *AgentLoop {
 		promptBuilder:       deps.PromptBuilder,
 		events:              events,
 		compressionEngine:   deps.CompressionEngine,
+		traceRecorder:       deps.TraceRecorder,
 		toolResultStore:     deps.ToolResultStore,
 		titleGenerator:      deps.TitleGenerator,
 		cfg:                 withDefaultConfig(deps.Config),
@@ -378,7 +381,7 @@ func (l *AgentLoop) PrepareTurnContext(
 // tryPreflightCompression checks whether the rough char-count estimate of
 // the built prompt exceeds the compression threshold. If so and a compression
 // engine is available, it runs compression and returns true.
-func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID string, req *provider.Request, modelContextLimit int) bool {
+func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID string, req *provider.Request, modelContextLimit int, iteration int) bool {
 	if l.compressionEngine == nil {
 		return false
 	}
@@ -394,7 +397,10 @@ func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID s
 	)
 	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
 
-	result, err := l.compressionEngine.Compress(ctx, conversationID, l.contextCfg)
+	result, err := l.runCompressionWithSpan(ctx, "preflight", conversationID, iteration, map[string]any{
+		"estimated_chars":     chars,
+		"model_context_limit": modelContextLimit,
+	})
 	if err != nil {
 		l.logger.Error("preflight compression failed",
 			"conversation_id", conversationID,
@@ -421,7 +427,7 @@ func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID s
 // the API response exceeds the compression threshold. If so, compresses before
 // the next iteration. This is fire-and-forget — compression failure here is
 // logged but non-fatal.
-func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationID string, promptTokens int, modelContextLimit int) bool {
+func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationID string, promptTokens int, modelContextLimit int, iteration int) bool {
 	if l.compressionEngine == nil {
 		return false
 	}
@@ -436,7 +442,10 @@ func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationI
 	)
 	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
 
-	result, err := l.compressionEngine.Compress(ctx, conversationID, l.contextCfg)
+	result, err := l.runCompressionWithSpan(ctx, "post_response", conversationID, iteration, map[string]any{
+		"prompt_tokens":       promptTokens,
+		"model_context_limit": modelContextLimit,
+	})
 	if err != nil {
 		l.logger.Error("post-response compression failed",
 			"conversation_id", conversationID,
@@ -491,7 +500,9 @@ func (l *AgentLoop) tryEmergencyCompression(
 	)
 	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
 
-	compResult, compErr := l.compressionEngine.Compress(ctx, turnExec.req.ConversationID, l.contextCfg)
+	compResult, compErr := l.runCompressionWithSpan(ctx, "emergency", turnExec.req.ConversationID, iteration, map[string]any{
+		"model_context_limit": turnExec.req.ModelContextLimit,
+	})
 	if compErr != nil {
 		l.emit(ErrorEvent{
 			ErrorCode:   "compression_failed",
@@ -545,6 +556,23 @@ func (l *AgentLoop) tryEmergencyCompression(
 	}
 
 	return result, nil
+}
+
+func (l *AgentLoop) runCompressionWithSpan(ctx stdctx.Context, phase string, conversationID string, iteration int, attrs map[string]any) (*contextpkg.CompressionResult, error) {
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
+	attrs["phase"] = phase
+	spanCtx, span := tracepkg.StartSpan(ctx, l.traceRecorder, tracepkg.SpanStart{
+		Name:           "compression." + phase,
+		Kind:           tracepkg.KindCompression,
+		ConversationID: conversationID,
+		Iteration:      iteration,
+		Attributes:     attrs,
+	})
+	result, err := l.compressionEngine.Compress(spanCtx, conversationID, l.contextCfg)
+	span.End(stdctx.Background(), tracepkg.StatusForError(err), err)
+	return result, err
 }
 
 func (l *AgentLoop) buildPromptConfig(contextPackage *contextpkg.FullContextPackage, history []db.Message, currentTurnMessages []provider.Message, toolDefinitions []provider.ToolDefinition, providerName, modelName string, contextLimit int, disableTools bool, conversationID string, turnNumber, iteration int) PromptConfig {
