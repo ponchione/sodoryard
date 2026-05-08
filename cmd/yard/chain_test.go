@@ -449,6 +449,42 @@ func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 	}
 }
 
+func TestYardChainLogsCommandSupportsAfterIDCursor(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-logs-after", SourceTask: "logs"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventStepStarted, map[string]any{"role": "planner", "task": "old"}); err != nil {
+		t.Fatalf("LogEvent old returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventStepStarted, map[string]any{"role": "coder", "task": "new"}); err != nil {
+		t.Fatalf("LogEvent new returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	var out bytes.Buffer
+	cmd := newYardChainLogsCmd(&cfgPath)
+	cmd.SetContext(ctx)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID, "--after-id", fmt.Sprint(events[0].ID)})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(out.String(), `task="old"`) {
+		t.Fatalf("stdout = %q, want cursor to skip old event", out.String())
+	}
+	if !strings.Contains(out.String(), `task="new"`) {
+		t.Fatalf("stdout = %q, want cursor to include new event", out.String())
+	}
+}
+
 func TestApplyYardChainOverrides(t *testing.T) {
 	cfg := &appconfig.Config{ProjectRoot: "/old/project"}
 	flags := yardChainFlags{ProjectRoot: "/new/project"}

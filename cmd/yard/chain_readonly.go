@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/operator"
 )
 
@@ -59,22 +60,32 @@ func newYardChainMetricsCmd(configPath *string) *cobra.Command {
 func newYardChainLogsCmd(configPath *string) *cobra.Command {
 	var follow bool
 	var verbosity string
+	var afterID int64
 	cmd := &cobra.Command{Use: "logs <chain-id>", Short: "Show chain event log", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if afterID < 0 {
+			return fmt.Errorf("--after-id must be >= 0")
+		}
 		svc, err := openYardReadOnlyOperator(cmd.Context(), *configPath)
 		if err != nil {
 			return err
 		}
 		defer svc.Close()
 		if !follow {
-			events, err := svc.ListEvents(cmd.Context(), args[0])
+			var events []chain.Event
+			if afterID > 0 {
+				events, err = svc.ListEventsSince(cmd.Context(), args[0], afterID)
+			} else {
+				events, err = svc.ListEvents(cmd.Context(), args[0])
+			}
 			if err != nil {
 				return err
 			}
 			renderYardChainEvents(cmd.OutOrStdout(), events, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
 			return nil
 		}
-		return yardFollowOperatorChainEvents(cmd.Context(), cmd.OutOrStdout(), svc, args[0], 0, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
+		return yardFollowOperatorChainEvents(cmd.Context(), cmd.OutOrStdout(), svc, args[0], afterID, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
 	}}
+	cmd.Flags().Int64Var(&afterID, "after-id", 0, "Only print events with an id greater than this cursor")
 	cmd.Flags().BoolVar(&follow, "follow", false, "Poll and print new events until the chain stops")
 	cmd.Flags().StringVar(&verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")
 	return cmd

@@ -1049,6 +1049,21 @@ For interactive conversations:
 3. Add tests for replay-then-tail behavior.
 4. Defer token-level durable streaming unless browser refresh loses important state.
 
+### Implemented CLI Cursor Slice
+
+Implemented on 2026-05-08:
+
+- `yard chain logs --after-id <event-id>`
+- non-follow log reads can resume from a persisted event cursor using existing chain event IDs
+- follow mode can replay missing events after a cursor before tailing new persisted events
+- CLI tests cover duplicate suppression for already-seen event IDs
+
+Not implemented in this slice:
+
+- TUI/web reconnect from the last seen event ID
+- interactive conversation replay
+- token-level durable streaming
+
 ### Acceptance Criteria
 
 - Restarting the TUI or refreshing the browser does not lose chain progress context.
