@@ -1081,6 +1081,20 @@ Not implemented in this slice:
 - interactive conversation replay
 - token-level durable streaming
 
+### Implemented Web Event Cursor Slice
+
+Implemented on 2026-05-08:
+
+- `GET /api/chains/{id}/events?after_id=<event-id>`
+- browser/API consumers can replay only persisted chain events after their last seen cursor
+- server tests cover full event reads and after-cursor duplicate suppression
+
+Not implemented in this slice:
+
+- browser polling/reconnect UI changes
+- WebSocket replay from a cursor
+- interactive conversation replay
+
 ### Acceptance Criteria
 
 - Restarting the TUI or refreshing the browser does not lose chain progress context.

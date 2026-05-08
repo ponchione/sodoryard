@@ -269,6 +269,23 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		t.Fatalf("timeline endpoint = %+v, want provider failure span", timeline)
 	}
 
+	var events []struct {
+		ID        int64  `json:"id"`
+		EventType string `json:"event_type"`
+	}
+	getJSON(t, base+"/api/chains/"+chainID+"/events", &events)
+	if len(events) != 2 || events[0].EventType != string(chain.EventFindingLifecycleFacts) || events[1].EventType != string(chain.EventStepGuardrailFacts) {
+		t.Fatalf("events endpoint = %+v, want both chain events", events)
+	}
+	var eventsAfter []struct {
+		ID        int64  `json:"id"`
+		EventType string `json:"event_type"`
+	}
+	getJSON(t, fmt.Sprintf("%s/api/chains/%s/events?after_id=%d", base, chainID, events[0].ID), &eventsAfter)
+	if len(eventsAfter) != 1 || eventsAfter[0].ID != events[1].ID {
+		t.Fatalf("events after cursor = %+v, want only second event %+v", eventsAfter, events[1])
+	}
+
 	var receipt struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`

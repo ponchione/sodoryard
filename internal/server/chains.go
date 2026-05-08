@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -79,7 +80,17 @@ func (h *ChainInspectorHandler) handleEvents(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "chain id is required")
 		return
 	}
-	events, err := h.svc.ListEvents(r.Context(), chainID)
+	afterID, err := parseChainEventAfterID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var events []chain.Event
+	if afterID > 0 {
+		events, err = h.svc.ListEventsSince(r.Context(), chainID, afterID)
+	} else {
+		events, err = h.svc.ListEvents(r.Context(), chainID)
+	}
 	if err != nil {
 		h.logger.Warn("list chain events", "chain_id", chainID, "error", err)
 		writeError(w, http.StatusNotFound, err.Error())
@@ -90,6 +101,18 @@ func (h *ChainInspectorHandler) handleEvents(w http.ResponseWriter, r *http.Requ
 		out = append(out, chainEventResponseFromChain(event))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func parseChainEventAfterID(r *http.Request) (int64, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("after_id"))
+	if raw == "" {
+		return 0, nil
+	}
+	afterID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || afterID < 0 {
+		return 0, fmt.Errorf("after_id must be a non-negative integer")
+	}
+	return afterID, nil
 }
 
 func (h *ChainInspectorHandler) handleTimeline(w http.ResponseWriter, r *http.Request) {
