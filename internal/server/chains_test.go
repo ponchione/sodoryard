@@ -81,6 +81,26 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("LogEvent finding facts returned error: %v", err)
 	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                 "coder",
+		"sequence":                             1,
+		"source_mutating":                      true,
+		"receipt_valid":                        true,
+		"changed_file_manifest_present":        true,
+		"changed_file_count":                   1,
+		"changed_files":                        []string{"internal/example.go"},
+		"code_index_dirty_mark_supported":      true,
+		"code_index_dirty_mark_attempted":      true,
+		"code_index_dirty_marked":              true,
+		"code_index_state_supported":           true,
+		"code_index_state_found":               true,
+		"code_index_dirty":                     true,
+		"code_index_dirty_reason":              "source_write",
+		"source_writer_lock_release_attempted": true,
+		"source_writer_lock_released":          true,
+	}); err != nil {
+		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
+	}
 	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
 		t.Fatalf("CompleteChain returned error: %v", err)
 	}
@@ -134,6 +154,17 @@ func TestChainInspectorEndpoints(t *testing.T) {
 				Severity string `json:"severity"`
 				Evidence string `json:"evidence"`
 			} `json:"findings"`
+			StepFacts []struct {
+				SequenceNum                 int      `json:"sequence_num"`
+				Role                        string   `json:"role"`
+				CodeIndexDirtyMarkSupported bool     `json:"code_index_dirty_mark_supported"`
+				CodeIndexDirtyMarkAttempted bool     `json:"code_index_dirty_mark_attempted"`
+				CodeIndexDirtyMarked        bool     `json:"code_index_dirty_marked"`
+				CodeIndexDirty              bool     `json:"code_index_dirty"`
+				CodeIndexDirtyReason        string   `json:"code_index_dirty_reason"`
+				ChangedFiles                []string `json:"changed_files"`
+				SourceWriterLockReleased    bool     `json:"source_writer_lock_released"`
+			} `json:"step_facts"`
 		} `json:"guardrails"`
 	}
 	getJSON(t, base+"/api/chains/"+chainID, &detail)
@@ -145,6 +176,16 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(detail.Guardrails.Findings) != 1 || detail.Guardrails.Findings[0].ID != "FIND-correctness-001" || detail.Guardrails.Findings[0].Severity != "high" || detail.Guardrails.Findings[0].Evidence != "internal/example.go:42" {
 		t.Fatalf("guardrail findings = %+v, want lifecycle detail", detail.Guardrails.Findings)
+	}
+	if len(detail.Guardrails.StepFacts) != 1 {
+		t.Fatalf("guardrail step facts = %+v, want one fact event", detail.Guardrails.StepFacts)
+	}
+	facts := detail.Guardrails.StepFacts[0]
+	if facts.SequenceNum != 1 || facts.Role != "coder" || !facts.CodeIndexDirtyMarkSupported || !facts.CodeIndexDirtyMarkAttempted || !facts.CodeIndexDirtyMarked || !facts.CodeIndexDirty || facts.CodeIndexDirtyReason != "source_write" || !facts.SourceWriterLockReleased {
+		t.Fatalf("guardrail step facts = %+v, want index mark and lock facts", facts)
+	}
+	if len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "internal/example.go" {
+		t.Fatalf("guardrail changed files = %+v, want internal/example.go", facts.ChangedFiles)
 	}
 
 	var receipt struct {
