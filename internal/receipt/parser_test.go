@@ -198,6 +198,9 @@ Done.
 ## Changes
 Changed files.
 
+## Changed Files
+- internal/example.go
+
 ## Validation
 make test
 
@@ -213,6 +216,38 @@ Audit.
 	err := ValidateRequiredSections(body, RequiredSectionsForRole("correctness-auditor"))
 	if !errors.Is(err, ErrMissingSection) || !strings.Contains(err.Error(), "Findings") {
 		t.Fatalf("ValidateRequiredSections error = %v, want missing Findings", err)
+	}
+}
+
+func TestSourceWritingRequiredSectionsIncludeChangedFiles(t *testing.T) {
+	body := `
+## Summary
+Done.
+
+## Changes
+Changed files.
+
+## Validation
+make test
+
+## Concerns
+None.
+
+## Next Steps
+Audit.
+`
+	for _, role := range []string{"coder", "resolver", "test-writer"} {
+		err := ValidateRequiredSections(body, RequiredSectionsForRole(role))
+		if !errors.Is(err, ErrMissingSection) || !strings.Contains(err.Error(), "Changed Files") {
+			t.Fatalf("%s ValidateRequiredSections error = %v, want missing Changed Files", role, err)
+		}
+	}
+	err := ValidateRequiredSections(body, RequiredSectionsForStep("custom-writer", true))
+	if !errors.Is(err, ErrMissingSection) || !strings.Contains(err.Error(), "Changed Files") {
+		t.Fatalf("custom writer ValidateRequiredSections error = %v, want missing Changed Files", err)
+	}
+	if err := ValidateRequiredSections(body, RequiredSectionsForStep("custom-reader", false)); err != nil {
+		t.Fatalf("custom reader ValidateRequiredSections returned error: %v", err)
 	}
 }
 

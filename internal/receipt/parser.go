@@ -164,7 +164,14 @@ func ValidateForStep(r Receipt, expected StepValidation) error {
 }
 
 func RequiredSectionsForRole(role string) []string {
+	return RequiredSectionsForStep(role, builtinSourceWritingReceiptRole(role))
+}
+
+func RequiredSectionsForStep(role string, sourceMutating bool) []string {
 	sections := []string{"Summary", "Changes", "Validation", "Concerns", "Next Steps"}
+	if sourceMutating {
+		sections = insertSectionAfter(sections, "Changes", "Changed Files")
+	}
 	switch strings.TrimSpace(role) {
 	case "correctness-auditor", "quality-auditor", "performance-auditor", "security-auditor", "integration-auditor":
 		sections = append(sections, "Findings")
@@ -172,6 +179,36 @@ func RequiredSectionsForRole(role string) []string {
 		sections = append(sections, "Findings Addressed")
 	}
 	return sections
+}
+
+func builtinSourceWritingReceiptRole(role string) bool {
+	switch strings.TrimSpace(role) {
+	case "coder", "resolver", "test-writer":
+		return true
+	default:
+		return false
+	}
+}
+
+func insertSectionAfter(sections []string, after string, section string) []string {
+	for _, existing := range sections {
+		if normalizeReceiptSection(existing) == normalizeReceiptSection(section) {
+			return sections
+		}
+	}
+	out := make([]string, 0, len(sections)+1)
+	inserted := false
+	for _, existing := range sections {
+		out = append(out, existing)
+		if !inserted && normalizeReceiptSection(existing) == normalizeReceiptSection(after) {
+			out = append(out, section)
+			inserted = true
+		}
+	}
+	if !inserted {
+		out = append(out, section)
+	}
+	return out
 }
 
 func ValidateRequiredSections(body string, required []string) error {

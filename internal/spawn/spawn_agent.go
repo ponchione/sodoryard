@@ -673,7 +673,7 @@ func (t *SpawnAgentTool) readStepReceipt(ctx context.Context, step spawnStep, ou
 	if facts != nil {
 		facts.ReceiptStepValid = true
 	}
-	if err := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForRole(step.roleName)); err != nil {
+	if err := receipt.ValidateRequiredSections(parsed.RawBody, receipt.RequiredSectionsForStep(step.roleName, step.sourceMutating)); err != nil {
 		failMsg := fmt.Sprintf("validate receipt sections %s: %v", step.receiptPath, err)
 		if facts != nil {
 			facts.ReceiptError = err.Error()
@@ -1191,6 +1191,9 @@ The harness wrote this safety receipt because the step did not produce a valid r
 
 ## Changes
 No source changes were recorded by this synthetic receipt.
+
+## Changed Files
+None.
 
 ## Validation
 The harness could not validate the step output.

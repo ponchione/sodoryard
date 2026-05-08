@@ -101,6 +101,9 @@ func TestEnsureReceiptWritesFallbackWhenMissing(t *testing.T) {
 	if !strings.Contains(backend.docs[path], "finished work") {
 		t.Fatalf("fallback receipt content = %q, want final text", backend.docs[path])
 	}
+	if !strings.Contains(backend.docs[path], "## Changed Files") {
+		t.Fatalf("fallback receipt content = %q, want Changed Files section", backend.docs[path])
+	}
 }
 
 func TestEnsureReceiptUsesExistingValidReceipt(t *testing.T) {

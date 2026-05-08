@@ -1014,6 +1014,9 @@ func TestSpawnAgentFailsWhenReceiptMissing(t *testing.T) {
 	if !strings.Contains(safetyReceipt, "verdict: safety_limit") || !strings.Contains(safetyReceipt, "missing receipt") {
 		t.Fatalf("safety receipt = %q, want safety_limit receipt explaining missing receipt", safetyReceipt)
 	}
+	if !strings.Contains(safetyReceipt, "## Changed Files") {
+		t.Fatalf("safety receipt = %q, want Changed Files section", safetyReceipt)
+	}
 }
 
 func TestSpawnAgentReleasesSourceWriterLockOnFailurePaths(t *testing.T) {
@@ -1049,6 +1052,9 @@ Wrong role.
 ## Changes
 None.
 
+## Changed Files
+None.
+
 ## Validation
 Not run.
 
@@ -1080,6 +1086,9 @@ duration_seconds: 1
 Done.
 
 ## Changes
+None.
+
+## Changed Files
 None.
 
 ## Validation
@@ -1169,6 +1178,9 @@ duration_seconds: 1
 Done.
 
 ## Changes
+None.
+
+## Changed Files
 None.
 
 ## Validation
@@ -1266,6 +1278,9 @@ func testReceiptBody(summary string) string {
 ` + summary + `
 
 ## Changes
+None.
+
+## Changed Files
 None.
 
 ## Validation
