@@ -211,7 +211,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 	if err != nil {
 		return nil, err
 	}
-	loop := deps.NewTurnRunner(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), CompressionEngine: rt.CompressionEngine, Config: rtpkg.BuildAgentLoopConfig(cfg, roleCfg.MaxTurns, systemPrompt), Logger: rt.Logger})
+	loop := deps.NewTurnRunner(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot, TraceRecorder: rt.TraceRecorder}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), CompressionEngine: rt.CompressionEngine, Config: rtpkg.BuildAgentLoopConfig(cfg, roleCfg.MaxTurns, systemPrompt), Logger: rt.Logger})
 	defer loop.Close()
 
 	steps, err := rt.ChainStore.ListSteps(ctx, chainID)
@@ -225,7 +225,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
 	}
 	defer cancelRun()
-	if _, err := loop.RunTurn(runCtx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit}); err != nil {
+	if _, err := loop.RunTurn(runCtx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit, ChainID: chainID}); err != nil {
 		if handled, handleErr := handleInterruption(runCtx, rt.ChainStore, chainID, err, opts.OnMessage); handled || handleErr != nil {
 			if handleErr != nil {
 				return nil, handleErr
@@ -373,6 +373,7 @@ func withDefaultDeps(deps Deps) Deps {
 				EngineBinary:  "tidmouth",
 				ProjectRoot:   rt.Config.ProjectRoot,
 				SubprocessEnv: rt.MemoryEndpointEnv,
+				TraceRecorder: rt.TraceRecorder,
 			})
 		}
 	}

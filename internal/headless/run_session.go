@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/role"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type ExitCode int
@@ -35,6 +37,7 @@ type RunRequest struct {
 	MaxTokens   int
 	Timeout     time.Duration
 	ReceiptPath string
+	StepID      string
 	Quiet       bool
 	ProjectRoot string
 }
@@ -110,12 +113,23 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 		return nil, err
 	}
 	req.Role = roleName
+	req.ChainID = chainID
+	if strings.TrimSpace(req.StepID) == "" {
+		req.StepID = os.Getenv(tracepkg.EnvStepID)
+	}
 	receiptPath := ResolveReceiptPath(req.Role, chainID, req.ReceiptPath)
 	roleCfg = scopeReadOnlyRoleToReceiptPath(roleCfg, receiptPath)
 
 	timeout := resolveRunTimeout(roleCfg, req.Timeout)
 	ctx, cancel := context.WithTimeout(parentContext(parentCtx), timeout)
 	defer cancel()
+	ctx = tracepkg.ContextFromEnv(ctx)
+	ctx = tracepkg.ContextWithScope(ctx, tracepkg.Scope{
+		ChainID:      chainID,
+		StepID:       req.StepID,
+		TraceID:      os.Getenv(tracepkg.EnvTraceID),
+		ParentSpanID: os.Getenv(tracepkg.EnvParentSpanID),
+	})
 
 	rt, err := deps.BuildRuntime(ctx, cfg)
 	if err != nil {
@@ -259,6 +273,7 @@ func prepareRunRequest(configPath string, req RunRequest, newChainID func() stri
 func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.Config, req RunRequest, taskText string, systemPrompt string, rt *rtpkg.EngineRuntime, registry *tool.Registry, loopMaxTurns int, deps Deps) (*agent.TurnResult, error, error) {
 	executor := tool.NewExecutor(registry, tool.ExecutorConfig{MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens, ProjectRoot: cfg.ProjectRoot}, rt.Logger)
 	executor.SetRecorder(rt.ToolRecorder)
+	executor.SetTraceRecorder(rt.TraceRecorder)
 	adapter := tool.NewAgentLoopAdapter(executor)
 
 	var sink agent.EventSink
@@ -295,6 +310,8 @@ func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.C
 		TurnNumber:        1,
 		Message:           taskText,
 		ModelContextLimit: modelContextLimit,
+		ChainID:           req.ChainID,
+		StepID:            req.StepID,
 	})
 	return turnResult, turnErr, nil
 }

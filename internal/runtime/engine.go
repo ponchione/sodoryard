@@ -24,6 +24,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 	"github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // EngineRuntime holds all runtime dependencies required to serve engine
@@ -42,6 +43,7 @@ type EngineRuntime struct {
 	ContextAssembler    *contextpkg.ContextAssembler
 	CompressionEngine   agent.CompressionEngine
 	ToolRecorder        *tool.ToolExecutionRecorder
+	TraceRecorder       tracepkg.Recorder
 	ChainStore          *chain.Store
 	Cleanup             func()
 }
@@ -86,11 +88,17 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		return closeOnError(err)
 	}
 	cleanup = ChainCleanup(cleanup, closeMemoryBackend)
+	traceRecorder, closeTraceRecorder, err := BuildTraceRecorder(ctx, cfg)
+	if err != nil {
+		return closeOnError(err)
+	}
+	cleanup = ChainCleanup(cleanup, closeTraceRecorder)
 
 	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
 		ProviderNames: providerMapNames(cfg.Providers),
 		LogAuthStatus: true,
 		MemoryBackend: memoryBackend,
+		TraceRecorder: traceRecorder,
 	})
 	if err != nil {
 		return closeOnError(err)
@@ -152,6 +160,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		ContextAssembler:    contextAssembler,
 		CompressionEngine:   compressionEngine,
 		ToolRecorder:        toolRecorder,
+		TraceRecorder:       traceRecorder,
 		ChainStore:          chainStore,
 		Cleanup:             cleanup,
 	}, nil
@@ -303,6 +312,24 @@ func BuildToolExecutionRecorder(cfg *appconfig.Config, queries *appdb.Queries, m
 		return tool.NewProjectMemoryToolExecutionRecorder(recorder), nil
 	}
 	return tool.NewToolExecutionRecorder(queries), nil
+}
+
+func BuildTraceRecorder(ctx context.Context, cfg *appconfig.Config) (tracepkg.Recorder, func(), error) {
+	if cfg == nil || !cfg.Trace.Enabled {
+		return tracepkg.NoopRecorder{}, func() {}, nil
+	}
+	database, err := appdb.OpenDB(ctx, cfg.TraceDBPath())
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("open trace database: %w", err)
+	}
+	cleanup := func() {
+		_ = database.Close()
+	}
+	if err := appdb.EnsureTraceSchema(ctx, database); err != nil {
+		cleanup()
+		return nil, func() {}, err
+	}
+	return tracepkg.NewSQLiteRecorder(database), cleanup, nil
 }
 
 func BuildContextReportStore(cfg *appconfig.Config, database *sql.DB, memoryBackend any) (contextpkg.ReportStore, error) {

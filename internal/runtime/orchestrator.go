@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,6 +23,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/role"
 	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
 	"github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // OrchestratorRuntime holds all shared dependencies needed to run a chain
@@ -38,6 +41,7 @@ type OrchestratorRuntime struct {
 	ContextAssembler    agent.ContextAssembler
 	CompressionEngine   agent.CompressionEngine
 	ChainStore          *chain.Store
+	TraceRecorder       tracepkg.Recorder
 	MemoryEndpointEnv   []string
 	Cleanup             func()
 }
@@ -59,21 +63,60 @@ func (NoopContextAssembler) UpdateQuality(context.Context, string, int, bool, []
 // It is used by the orchestrator agent loop to dispatch tool calls into the
 // registered spawn_agent and chain_complete tools.
 type RegistryToolExecutor struct {
-	Registry    *tool.Registry
-	ProjectRoot string
+	Registry      *tool.Registry
+	ProjectRoot   string
+	TraceRecorder tracepkg.Recorder
 }
 
 func (e *RegistryToolExecutor) Execute(ctx context.Context, call provider.ToolCall) (*provider.ToolResult, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, e.TraceRecorder, tracepkg.SpanStart{
+		Name: "tool." + call.Name,
+		Kind: tracepkg.KindTool,
+		Attributes: map[string]any{
+			"tool_name":    call.Name,
+			"tool_call_id": call.ID,
+		},
+	})
+	ctx = spanCtx
+	var result *provider.ToolResult
+	var execErr error
+	defer func() {
+		status := tracepkg.StatusOK
+		var err error
+		if execErr != nil {
+			err = execErr
+			status = tracepkg.StatusForError(execErr)
+		} else if result != nil && result.IsError {
+			err = errors.New(result.Content)
+			status = tracepkg.StatusError
+		}
+		span.End(context.Background(), status, err)
+	}()
 	t, ok := e.Registry.Get(call.Name)
 	if !ok {
-		return &provider.ToolResult{ToolUseID: call.ID, Content: fmt.Sprintf("Unknown tool: %s", call.Name), IsError: true}, nil
+		result = &provider.ToolResult{ToolUseID: call.ID, Content: fmt.Sprintf("Unknown tool: %s", call.Name), IsError: true}
+		return result, nil
 	}
-	result, err := t.Execute(ctx, e.ProjectRoot, call.Input)
+	toolResult, err := t.Execute(ctx, e.ProjectRoot, call.Input)
 	if err != nil {
+		execErr = err
 		return nil, err
 	}
-	result.CallID = call.ID
-	return &provider.ToolResult{ToolUseID: call.ID, Content: result.Content, IsError: !result.Success, Details: result.Details}, nil
+	toolResult.CallID = call.ID
+	toolResult.Details = attachTraceSpanDetails(toolResult.Details, span.ID())
+	result = &provider.ToolResult{ToolUseID: call.ID, Content: toolResult.Content, IsError: !toolResult.Success, Details: toolResult.Details}
+	return result, nil
+}
+
+func attachTraceSpanDetails(details json.RawMessage, spanID string) json.RawMessage {
+	if strings.TrimSpace(spanID) == "" {
+		return details
+	}
+	fields := map[string]any{"trace_span_id": spanID}
+	if len(details) == 0 {
+		return provider.NewToolResultDetails("tool_execution", fields)
+	}
+	return provider.MergeToolResultDetails(details, fields)
 }
 
 // BuildOrchestratorRuntime constructs and returns a fully initialised
@@ -111,6 +154,14 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		cleanup()
 		return nil, fmt.Errorf("start project memory RPC: %w", err)
 	}
+	traceRecorder, closeTraceRecorder, err := BuildTraceRecorder(ctx, cfg)
+	if err != nil {
+		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
+		cleanup()
+		return nil, fmt.Errorf("build trace recorder: %w", err)
+	}
 
 	// Only register providers the YAML explicitly listed. This avoids
 	// registering Default() providers that the operator's config never asked
@@ -118,8 +169,10 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
 		ProviderNames: cfg.ProviderNamesForSurfaces(),
 		MemoryBackend: memoryBackend,
+		TraceRecorder: traceRecorder,
 	})
 	if err != nil {
+		closeTraceRecorder()
 		closeMemoryRPC()
 		closeMemoryBackend()
 		closeBrainBackend()
@@ -129,6 +182,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 
 	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, memoryBackend, logger)
 	if err != nil {
+		closeTraceRecorder()
 		closeMemoryRPC()
 		closeMemoryBackend()
 		closeBrainBackend()
@@ -138,6 +192,7 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 	chainStore, err := BuildChainStore(cfg, database, memoryBackend)
 	if err != nil {
 		closeConversationManager()
+		closeTraceRecorder()
 		closeMemoryRPC()
 		closeMemoryBackend()
 		closeBrainBackend()
@@ -157,12 +212,14 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		ContextAssembler:    NoopContextAssembler{},
 		CompressionEngine:   BuildCompressionEngine(cfg, database, memoryBackend, provRouter),
 		ChainStore:          chainStore,
+		TraceRecorder:       traceRecorder,
 		MemoryEndpointEnv:   memoryEndpointEnv,
 		Cleanup: func() {
 			// Drain in-flight sub-call writes before closing the DB so stream
 			// goroutines don't race against database.Close() (TECH-DEBT R5).
 			provRouter.DrainTracking()
 			closeConversationManager()
+			closeTraceRecorder()
 			closeMemoryRPC()
 			closeMemoryBackend()
 			closeBrainBackend()
@@ -264,6 +321,7 @@ func BuildOrchestratorRegistry(rt *OrchestratorRuntime, roleCfg appconfig.AgentR
 				EngineBinary:  "tidmouth",
 				ProjectRoot:   rt.Config.ProjectRoot,
 				SubprocessEnv: rt.MemoryEndpointEnv,
+				TraceRecorder: rt.TraceRecorder,
 			})
 		},
 		"chain_complete": func() tool.Tool {

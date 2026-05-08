@@ -53,7 +53,8 @@ func (s *Service) GetChainDetail(ctx context.Context, chainID string) (ChainDeta
 		return ChainDetail{}, err
 	}
 	receipts := s.receiptSummaries(ctx, chainID, steps)
-	detail := ChainDetail{Chain: *ch, Steps: steps, Receipts: receipts, RecentEvents: events}
+	timeline := s.buildChainTimeline(ctx, chainID, events)
+	detail := ChainDetail{Chain: *ch, Steps: steps, Receipts: receipts, RecentEvents: events, Timeline: timeline}
 	report := summarizeChainMetrics(detail)
 	detail.Health = report.Health
 	detail.Warnings = cloneRuntimeWarnings(report.Warnings)

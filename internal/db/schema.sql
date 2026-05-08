@@ -174,6 +174,29 @@ CREATE INDEX idx_brain_links_source ON brain_links(project_id, source_path);
 CREATE INDEX idx_brain_links_target ON brain_links(project_id, target_path);
 CREATE INDEX idx_index_state_project ON index_state(project_id);
 
+CREATE TABLE IF NOT EXISTS trace_spans (
+    id              TEXT PRIMARY KEY,
+    trace_id        TEXT NOT NULL,
+    parent_id       TEXT,
+    conversation_id TEXT,
+    chain_id        TEXT,
+    step_id         TEXT,
+    turn_number     INTEGER NOT NULL DEFAULT 0,
+    iteration       INTEGER NOT NULL DEFAULT 0,
+    name            TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    attributes_json TEXT NOT NULL DEFAULT '{}',
+    error           TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_chain ON trace_spans(chain_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_conversation ON trace_spans(conversation_id, turn_number, iteration);
+
 -- ---------------------------------------------------------------------------
 -- Phase 3: SirTopham chain orchestrator state
 -- ---------------------------------------------------------------------------

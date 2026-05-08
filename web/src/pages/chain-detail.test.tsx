@@ -54,6 +54,30 @@ describe("ChainDetailPage", () => {
       ],
       receipts: [],
       recent_events: [],
+      timeline: [
+        {
+          id: "event:1",
+          source: "event",
+          kind: "event",
+          name: "step_started",
+          started_at: "2026-05-01T12:00:05Z",
+          step_id: "step-1",
+          event_data: "{\"role\":\"coder\"}",
+        },
+        {
+          id: "span:span-1",
+          source: "span",
+          kind: "provider",
+          name: "provider.stream",
+          status: "error",
+          started_at: "2026-05-01T12:00:06Z",
+          duration_ms: 1250,
+          step_id: "step-1",
+          turn_number: 1,
+          iteration: 1,
+          error: "provider failed",
+        },
+      ],
       guardrails: {
         open_finding_ids: ["FIND-correctness-001"],
         closed_finding_ids: [],
@@ -177,5 +201,9 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText(/validation=rtk make test/)).toBeInTheDocument();
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
+    expect(screen.getByText("Timeline")).toBeInTheDocument();
+    expect(screen.getByText("provider.stream")).toBeInTheDocument();
+    expect(screen.getByText(/turn=1 \/ iter=1 \/ 1250ms/)).toBeInTheDocument();
+    expect(screen.getByText("provider failed")).toBeInTheDocument();
   });
 });

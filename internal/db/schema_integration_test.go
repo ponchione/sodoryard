@@ -362,6 +362,29 @@ func TestEnsureLaunchSchemaCreatesTables(t *testing.T) {
 	}
 }
 
+func TestEnsureTraceSchemaCreatesTable(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+
+	if _, err := InitIfNeeded(ctx, db); err != nil {
+		t.Fatalf("InitIfNeeded returned error: %v", err)
+	}
+	if err := EnsureTraceSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureTraceSchema returned error: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='trace_spans'`).Scan(&count); err != nil {
+		t.Fatalf("query sqlite_master returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("trace_spans count = %d, want 1", count)
+	}
+	if err := EnsureTraceSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureTraceSchema second call returned error: %v", err)
+	}
+}
+
 func TestBrainDocumentQueriesUpsertListAndFetchByPath(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)

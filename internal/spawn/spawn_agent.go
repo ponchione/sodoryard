@@ -21,6 +21,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/receipt"
 	"github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type SpawnAgentDeps struct {
@@ -31,6 +32,7 @@ type SpawnAgentDeps struct {
 	EngineBinary  string
 	ProjectRoot   string
 	SubprocessEnv []string
+	TraceRecorder tracepkg.Recorder
 }
 
 type SpawnAgentTool struct {
@@ -41,6 +43,7 @@ type SpawnAgentTool struct {
 	EngineBinary  string
 	ProjectRoot   string
 	SubprocessEnv []string
+	TraceRecorder tracepkg.Recorder
 	runCommand    func(context.Context, RunCommandInput) RunResult
 	now           func() time.Time
 }
@@ -209,6 +212,7 @@ func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
 		EngineBinary:  engineBinary,
 		ProjectRoot:   deps.ProjectRoot,
 		SubprocessEnv: deps.SubprocessEnv,
+		TraceRecorder: deps.TraceRecorder,
 		runCommand:    RunCommand,
 		now:           time.Now,
 	}
@@ -486,12 +490,27 @@ func sourceWriterLockTTL(roleCfg appconfig.AgentRoleConfig, chainRemainingTimeou
 
 func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engineRunOutcome {
 	start := t.now()
+	spanCtx, span := tracepkg.StartSpan(ctx, t.TraceRecorder, tracepkg.SpanStart{
+		Name:    "spawn_agent.step",
+		Kind:    tracepkg.KindChain,
+		ChainID: t.ChainID,
+		StepID:  step.stepID,
+		Attributes: map[string]any{
+			"role":            step.roleName,
+			"sequence":        step.sequence,
+			"receipt_path":    step.receiptPath,
+			"source_mutating": step.sourceMutating,
+		},
+	})
+	ctx = spanCtx
 	stdout := outputcap.NewBuffer(outputcap.DefaultLimit)
 	stderr := outputcap.NewBuffer(outputcap.DefaultLimit)
 	var enginePID int
 	agentTimeout := resolveStepRunTimeout(step.roleCfg, step.chainRemainingTimeout)
 	stopHeartbeat := t.startSourceWriterLockHeartbeat(ctx, step)
 	defer stopHeartbeat()
+	childEnv := append([]string(nil), t.SubprocessEnv...)
+	childEnv = append(childEnv, tracepkg.EnvForChild(span, t.ChainID, step.stepID)...)
 	res := t.runCommand(ctx, RunCommandInput{
 		Name:   t.EngineBinary,
 		Args:   buildEngineRunArgs(step, t.ChainID, agentTimeout),
@@ -507,7 +526,7 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 			enginePID = pid
 			t.logStepProcessStarted(ctx, step.stepID, step.roleName, pid)
 		},
-		Env:     t.SubprocessEnv,
+		Env:     childEnv,
 		Dir:     t.ProjectRoot,
 		Timeout: agentTimeout + parentTimeoutGraceDuration,
 	})
@@ -515,6 +534,15 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 		t.logStepProcessExited(ctx, step.stepID, enginePID, res.ExitCode)
 	}
 	durationSecs := int(t.now().Sub(start).Round(time.Second) / time.Second)
+	status := tracepkg.StatusForError(res.Err)
+	var spanErr error
+	if res.Err != nil {
+		spanErr = res.Err
+	} else if infrastructureExitCode(res.ExitCode) {
+		status = tracepkg.StatusError
+		spanErr = fmt.Errorf("engine exited %d", res.ExitCode)
+	}
+	span.End(context.Background(), status, spanErr)
 	return engineRunOutcome{
 		exitCode:     res.ExitCode,
 		err:          res.Err,
@@ -632,7 +660,7 @@ func addGitStatusPath(seen map[string]struct{}, raw string) {
 }
 
 func buildEngineRunArgs(step spawnStep, chainID string, agentTimeout time.Duration) []string {
-	args := []string{"run", "--config", appconfig.ConfigFilename, "--role", step.roleName, "--task", step.task, "--chain-id", chainID, "--receipt-path", step.receiptPath, "--timeout", agentTimeout.String()}
+	args := []string{"run", "--config", appconfig.ConfigFilename, "--role", step.roleName, "--task", step.task, "--chain-id", chainID, "--step-id", step.stepID, "--receipt-path", step.receiptPath, "--timeout", agentTimeout.String()}
 	if step.maxTurns > 0 {
 		args = append(args, "--max-turns", fmt.Sprintf("%d", step.maxTurns))
 	}

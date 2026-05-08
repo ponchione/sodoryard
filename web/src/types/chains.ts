@@ -88,6 +88,29 @@ export interface ChainEvent {
   created_at: string;
 }
 
+export interface ChainTimelineItem {
+  id: string;
+  source: "event" | "span" | string;
+  kind: string;
+  name: string;
+  status?: string;
+  trace_id?: string;
+  span_id?: string;
+  parent_span_id?: string;
+  conversation_id?: string;
+  chain_id?: string;
+  step_id?: string;
+  turn_number?: number;
+  iteration?: number;
+  started_at: string;
+  ended_at?: string;
+  duration_ms?: number;
+  attributes?: Record<string, unknown>;
+  error?: string;
+  event_type?: string;
+  event_data?: string;
+}
+
 export interface ChainGuardrails {
   open_finding_ids: string[];
   closed_finding_ids: string[];
@@ -214,6 +237,7 @@ export interface ChainDetail {
   steps: ChainStep[];
   receipts: ReceiptSummary[];
   recent_events: ChainEvent[];
+  timeline?: ChainTimelineItem[];
   health: string;
   warnings: RuntimeWarning[];
   guardrails: ChainGuardrails;

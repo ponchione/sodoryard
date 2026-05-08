@@ -65,6 +65,7 @@ type Config struct {
 	Context       ContextConfig              `yaml:"context"`
 	Memory        MemoryConfig               `yaml:"memory"`
 	Brain         BrainConfig                `yaml:"brain"`
+	Trace         TraceConfig                `yaml:"trace"`
 	LocalServices LocalServicesConfig        `yaml:"local_services"`
 }
 
@@ -236,6 +237,11 @@ type MemoryRPCConfig struct {
 	Path      string `yaml:"path"`
 }
 
+type TraceConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	SQLitePath string `yaml:"sqlite_path"`
+}
+
 type LocalServicesConfig struct {
 	Enabled                    bool                      `yaml:"enabled"`
 	Mode                       string                    `yaml:"mode"`
@@ -378,6 +384,10 @@ func Default() *Config {
 			LogBrainOperations:      true,
 			LintStaleDays:           90,
 			LintOrphanAllowlist:     nil,
+		},
+		Trace: TraceConfig{
+			Enabled:    true,
+			SQLitePath: ".yard/trace.db",
 		},
 		LocalServices: LocalServicesConfig{
 			Enabled:                    true,
@@ -562,6 +572,14 @@ func (c *Config) DatabasePath() string {
 	return filepath.Join(c.StateDir(), StateDBName)
 }
 
+func (c *Config) TraceDBPath() string {
+	path := strings.TrimSpace(c.Trace.SQLitePath)
+	if path == "" {
+		path = ".yard/trace.db"
+	}
+	return projectRelativePath(c.ProjectRoot, path)
+}
+
 // CodeLanceDBPath returns the directory for the code vectorstore.
 func (c *Config) CodeLanceDBPath() string {
 	return filepath.Join(c.StateDir(), "lancedb", "code")
@@ -652,6 +670,7 @@ func (c *Config) normalize() {
 
 	c.Index.Exclude = appendMissingStrings(c.Index.Exclude, c.requiredIndexExcludePatterns()...)
 	c.normalizeMemory()
+	c.normalizeTrace()
 	c.normalizeLocalServices()
 	c.normalizeAgentRoles()
 
@@ -697,6 +716,12 @@ func (c *Config) normalizeMemory() {
 	}
 	if c.Brain.Backend == "" {
 		c.Brain.Backend = brainBackendShunter
+	}
+}
+
+func (c *Config) normalizeTrace() {
+	if strings.TrimSpace(c.Trace.SQLitePath) == "" {
+		c.Trace.SQLitePath = ".yard/trace.db"
 	}
 }
 

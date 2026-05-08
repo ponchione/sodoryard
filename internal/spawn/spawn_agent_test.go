@@ -20,7 +20,27 @@ import (
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/receipt"
 	toolpkg "github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
+
+type spawnTraceRecorder struct {
+	spans []tracepkg.Span
+	ends  []tracepkg.SpanEnd
+}
+
+func (r *spawnTraceRecorder) StartSpan(_ context.Context, span tracepkg.Span) error {
+	r.spans = append(r.spans, span)
+	return nil
+}
+
+func (r *spawnTraceRecorder) EndSpan(_ context.Context, end tracepkg.SpanEnd) error {
+	r.ends = append(r.ends, end)
+	return nil
+}
+
+func (r *spawnTraceRecorder) ListSpans(context.Context, tracepkg.Query) ([]tracepkg.Span, error) {
+	return append([]tracepkg.Span(nil), r.spans...), nil
+}
 
 func TestSpawnAgentRejectsUnknownRole(t *testing.T) {
 	ctx := context.Background()
@@ -38,10 +58,13 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	store := chain.NewStore(newSpawnTestDB(t))
 	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
 	backend := &fakeBrainBackend{docs: map[string]string{}}
-	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	traceRecorder := &spawnTraceRecorder{}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir(), TraceRecorder: traceRecorder})
 	var gotArgs []string
+	var gotEnv []string
 	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
 		gotArgs = append([]string(nil), in.Args...)
+		gotEnv = append([]string(nil), in.Env...)
 		if in.OnStart != nil {
 			in.OnStart(4321)
 		}
@@ -73,6 +96,13 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	if len(gotArgs) == 0 || gotArgs[0] != "run" || !strings.Contains(joinedArgs, "--receipt-path receipts/coder/"+chainID+"-step-001.md") {
 		t.Fatalf("unexpected args: %v", gotArgs)
 	}
+	stepID := argValue(gotArgs, "--step-id")
+	if stepID == "" {
+		t.Fatalf("spawn args missing --step-id: %v", gotArgs)
+	}
+	if !envContainsPrefix(gotEnv, tracepkg.EnvTraceID+"=") || !envContainsPrefix(gotEnv, tracepkg.EnvParentSpanID+"=") || !envContainsPrefix(gotEnv, tracepkg.EnvStepID+"="+stepID) {
+		t.Fatalf("spawn env missing trace linkage: %v", gotEnv)
+	}
 	gotTask := argValue(gotArgs, "--task")
 	if !strings.Contains(gotTask, "do work") ||
 		!strings.Contains(gotTask, "Chain ID: "+chainID) ||
@@ -102,6 +132,12 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	}
 	if ch.TotalSteps != 1 || ch.TotalTokens != 33 {
 		t.Fatalf("unexpected chain metrics: %+v", ch)
+	}
+	if len(traceRecorder.spans) != 1 || traceRecorder.spans[0].Kind != tracepkg.KindChain || traceRecorder.spans[0].ChainID != chainID || traceRecorder.spans[0].StepID != stepID {
+		t.Fatalf("trace spans = %+v, want spawn lifecycle span", traceRecorder.spans)
+	}
+	if len(traceRecorder.ends) != 1 || traceRecorder.ends[0].Status != tracepkg.StatusOK {
+		t.Fatalf("trace ends = %+v, want completed spawn span", traceRecorder.ends)
 	}
 	events, err := store.ListEvents(ctx, chainID)
 	if err != nil {
@@ -1385,6 +1421,15 @@ func argValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func envContainsPrefix(env []string, prefix string) bool {
+	for _, value := range env {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func testReceiptContent(role string, chainID string, step int, verdict receipt.Verdict, tokens int, body string) string {

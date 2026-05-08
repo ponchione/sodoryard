@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS brain_documents;
 DROP TABLE IF EXISTS context_reports;
 DROP TABLE IF EXISTS sub_calls;
 DROP TABLE IF EXISTS tool_executions;
+DROP TABLE IF EXISTS trace_spans;
 DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS index_state;
 DROP TABLE IF EXISTS conversations;
@@ -287,6 +288,39 @@ CREATE INDEX IF NOT EXISTS idx_launch_presets_project_updated ON launch_presets(
 `
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		return fmt.Errorf("ensure launch schema: %w", err)
+	}
+	return nil
+}
+
+func EnsureTraceSchema(ctx context.Context, db *sql.DB) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const ddl = `
+CREATE TABLE IF NOT EXISTS trace_spans (
+    id              TEXT PRIMARY KEY,
+    trace_id        TEXT NOT NULL,
+    parent_id       TEXT,
+    conversation_id TEXT,
+    chain_id        TEXT,
+    step_id         TEXT,
+    turn_number     INTEGER NOT NULL DEFAULT 0,
+    iteration       INTEGER NOT NULL DEFAULT 0,
+    name            TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    attributes_json TEXT NOT NULL DEFAULT '{}',
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_chain ON trace_spans(chain_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_conversation ON trace_spans(conversation_id, turn_number, iteration);
+`
+	if _, err := db.ExecContext(ctx, ddl); err != nil {
+		return fmt.Errorf("ensure trace schema: %w", err)
 	}
 	return nil
 }

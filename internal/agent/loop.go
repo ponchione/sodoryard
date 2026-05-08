@@ -14,6 +14,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/provider"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // ErrTurnCancelled is returned by RunTurn when the turn is cancelled via
@@ -140,6 +141,9 @@ type RunTurnRequest struct {
 	// router's default provider is used. Populated by the WebSocket
 	// model_override event.
 	Provider string `json:"provider,omitempty"`
+
+	ChainID string `json:"chain_id,omitempty"`
+	StepID  string `json:"step_id,omitempty"`
 }
 
 // TurnStartResult holds the frozen per-turn context package plus the history
@@ -288,6 +292,12 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	if ctx == nil {
 		ctx = stdctx.Background()
 	}
+	ctx = tracepkg.ContextWithScope(ctx, tracepkg.Scope{
+		ConversationID: req.ConversationID,
+		ChainID:        req.ChainID,
+		StepID:         req.StepID,
+		TurnNumber:     req.TurnNumber,
+	})
 
 	prepared, err := l.prepareRunTurn(ctx, req)
 	if err != nil {

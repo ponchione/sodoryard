@@ -168,9 +168,33 @@ type chainDetailResponse struct {
 	Steps        []chainStepResponse      `json:"steps"`
 	Receipts     []receiptSummaryResponse `json:"receipts"`
 	RecentEvents []chainEventResponse     `json:"recent_events"`
+	Timeline     []chainTimelineResponse  `json:"timeline"`
 	Health       string                   `json:"health"`
 	Warnings     []runtimeWarningResponse `json:"warnings"`
 	Guardrails   chainGuardrailResponse   `json:"guardrails"`
+}
+
+type chainTimelineResponse struct {
+	ID             string         `json:"id"`
+	Source         string         `json:"source"`
+	Kind           string         `json:"kind"`
+	Name           string         `json:"name"`
+	Status         string         `json:"status,omitempty"`
+	TraceID        string         `json:"trace_id,omitempty"`
+	SpanID         string         `json:"span_id,omitempty"`
+	ParentSpanID   string         `json:"parent_span_id,omitempty"`
+	ConversationID string         `json:"conversation_id,omitempty"`
+	ChainID        string         `json:"chain_id,omitempty"`
+	StepID         string         `json:"step_id,omitempty"`
+	TurnNumber     int            `json:"turn_number,omitempty"`
+	Iteration      int            `json:"iteration,omitempty"`
+	StartedAt      string         `json:"started_at"`
+	EndedAt        string         `json:"ended_at,omitempty"`
+	DurationMs     int64          `json:"duration_ms,omitempty"`
+	Attributes     map[string]any `json:"attributes,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	EventType      string         `json:"event_type,omitempty"`
+	EventData      string         `json:"event_data,omitempty"`
 }
 
 type chainGuardrailResponse struct {
@@ -374,6 +398,10 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 	for _, event := range detail.RecentEvents {
 		events = append(events, chainEventResponseFromChain(event))
 	}
+	timeline := make([]chainTimelineResponse, 0, len(detail.Timeline))
+	for _, item := range detail.Timeline {
+		timeline = append(timeline, chainTimelineResponseFromOperator(item))
+	}
 	warnings := make([]runtimeWarningResponse, 0, len(detail.Warnings))
 	for _, warning := range detail.Warnings {
 		warnings = append(warnings, runtimeWarningResponse{Message: warning.Message})
@@ -383,9 +411,39 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 		Steps:        steps,
 		Receipts:     receipts,
 		RecentEvents: events,
+		Timeline:     timeline,
 		Health:       detail.Health,
 		Warnings:     warnings,
 		Guardrails:   chainGuardrailResponseFromOperator(detail.Guardrails),
+	}
+}
+
+func chainTimelineResponseFromOperator(item operator.ChainTimelineItem) chainTimelineResponse {
+	attrs := item.Attributes
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
+	return chainTimelineResponse{
+		ID:             item.ID,
+		Source:         item.Source,
+		Kind:           item.Kind,
+		Name:           item.Name,
+		Status:         item.Status,
+		TraceID:        item.TraceID,
+		SpanID:         item.SpanID,
+		ParentSpanID:   item.ParentSpanID,
+		ConversationID: item.ConversationID,
+		ChainID:        item.ChainID,
+		StepID:         item.StepID,
+		TurnNumber:     item.TurnNumber,
+		Iteration:      item.Iteration,
+		StartedAt:      formatTime(item.StartedAt),
+		EndedAt:        formatTimePtr(item.EndedAt),
+		DurationMs:     item.DurationMs,
+		Attributes:     attrs,
+		Error:          item.Error,
+		EventType:      item.EventType,
+		EventData:      item.EventData,
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/server"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type chainTestBrain struct {
@@ -120,6 +121,10 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
 		t.Fatalf("CompleteChain returned error: %v", err)
 	}
+	traceRecorder := tracepkg.NewSQLiteRecorder(db)
+	spanCtx := tracepkg.ContextWithScope(ctx, tracepkg.Scope{ChainID: chainID, StepID: stepID, ConversationID: "conv-web", TurnNumber: 1, Iteration: 1})
+	spanCtx, span := tracepkg.StartSpan(spanCtx, traceRecorder, tracepkg.SpanStart{Name: "provider.stream", Kind: tracepkg.KindProvider})
+	span.End(spanCtx, tracepkg.StatusError, fmt.Errorf("provider failed"))
 
 	cfg := &config.Config{
 		ProjectRoot: t.TempDir(),
@@ -128,11 +133,12 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		},
 	}
 	opSvc, err := operator.NewForRuntime(&rtpkg.OrchestratorRuntime{
-		Config:       cfg,
-		Database:     db,
-		ChainStore:   store,
-		BrainBackend: &chainTestBrain{docs: map[string]string{receiptPath: "receipt content"}},
-		Cleanup:      func() {},
+		Config:        cfg,
+		Database:      db,
+		ChainStore:    store,
+		BrainBackend:  &chainTestBrain{docs: map[string]string{receiptPath: "receipt content"}},
+		TraceRecorder: traceRecorder,
+		Cleanup:       func() {},
 	}, operator.Options{})
 	if err != nil {
 		t.Fatalf("NewForRuntime returned error: %v", err)
@@ -198,6 +204,15 @@ func TestChainInspectorEndpoints(t *testing.T) {
 				OpenFindingIDs              []string `json:"open_finding_ids"`
 			} `json:"step_facts"`
 		} `json:"guardrails"`
+		Timeline []struct {
+			Source     string `json:"source"`
+			Kind       string `json:"kind"`
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			StepID     string `json:"step_id"`
+			DurationMs int64  `json:"duration_ms"`
+			Error      string `json:"error"`
+		} `json:"timeline"`
 	}
 	getJSON(t, base+"/api/chains/"+chainID, &detail)
 	if detail.Chain.ID != chainID || len(detail.Steps) != 1 || detail.Steps[0].Role != "coder" {
@@ -224,6 +239,15 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "internal/example.go" {
 		t.Fatalf("guardrail changed files = %+v, want internal/example.go", facts.ChangedFiles)
+	}
+	var sawTimelineSpan bool
+	for _, item := range detail.Timeline {
+		if item.Source == "span" && item.Kind == tracepkg.KindProvider && item.Name == "provider.stream" && item.Status == tracepkg.StatusError && item.StepID == stepID && item.Error == "provider failed" {
+			sawTimelineSpan = true
+		}
+	}
+	if !sawTimelineSpan {
+		t.Fatalf("timeline = %+v, want serialized provider failure span", detail.Timeline)
 	}
 
 	var receipt struct {

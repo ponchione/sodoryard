@@ -16,6 +16,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // Compile-time interface compliance check.
@@ -60,6 +61,7 @@ type Router struct {
 	mu         sync.RWMutex
 	logger     *slog.Logger
 	store      tracking.SubCallStore
+	tracer     tracepkg.Recorder
 	modelIndex map[string]string // modelID → provider name; rebuilt on RegisterProvider
 }
 
@@ -84,6 +86,12 @@ func NewRouter(config RouterConfig, store tracking.SubCallStore, logger *slog.Lo
 		store:      store,
 		modelIndex: make(map[string]string),
 	}, nil
+}
+
+func (r *Router) SetTraceRecorder(recorder tracepkg.Recorder) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tracer = recorder
 }
 
 // RegisterProvider adds a provider to the router. The provider is keyed by its
@@ -199,7 +207,7 @@ func (r *Router) ProviderHealthMap() map[string]*ProviderHealth {
 // per-request override and default configuration.
 func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
 	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (*provider.Response, error) {
-		return p.Complete(ctx, callReq)
+		return r.completeWithSpan(ctx, p, callReq)
 	})
 }
 
@@ -207,8 +215,86 @@ func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider
 // per-request override and default configuration.
 func (r *Router) Stream(ctx context.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
 	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (<-chan provider.StreamEvent, error) {
-		return p.Stream(ctx, callReq)
+		return r.streamWithSpan(ctx, p, callReq)
 	})
+}
+
+func (r *Router) completeWithSpan(ctx context.Context, p provider.Provider, req *provider.Request) (*provider.Response, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, r.traceRecorder(), providerSpanStart(p, req, "complete"))
+	resp, err := p.Complete(spanCtx, req)
+	status := tracepkg.StatusForError(err)
+	span.End(context.Background(), status, err)
+	return resp, err
+}
+
+func (r *Router) streamWithSpan(ctx context.Context, p provider.Provider, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, r.traceRecorder(), providerSpanStart(p, req, "stream"))
+	ch, err := p.Stream(spanCtx, req)
+	if err != nil {
+		span.End(context.Background(), tracepkg.StatusForError(err), err)
+		return nil, err
+	}
+	out := make(chan provider.StreamEvent)
+	go func() {
+		defer close(out)
+		status := tracepkg.StatusOK
+		var streamErr error
+		for event := range ch {
+			if streamEventErr, fatal := fatalStreamError(event); fatal {
+				status = tracepkg.StatusError
+				streamErr = streamEventErr
+			}
+			select {
+			case out <- event:
+			case <-spanCtx.Done():
+				status = tracepkg.StatusCancelled
+				streamErr = spanCtx.Err()
+				span.End(context.Background(), status, streamErr)
+				return
+			}
+		}
+		span.End(context.Background(), status, streamErr)
+	}()
+	return out, nil
+}
+
+func (r *Router) traceRecorder() tracepkg.Recorder {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.tracer
+}
+
+func providerSpanStart(p provider.Provider, req *provider.Request, operation string) tracepkg.SpanStart {
+	providerName := ""
+	if p != nil {
+		providerName = p.Name()
+	}
+	attrs := map[string]any{
+		"operation": operation,
+		"provider":  providerName,
+	}
+	if req != nil {
+		attrs["model"] = req.Model
+		attrs["purpose"] = req.Purpose
+		attrs["tool_count"] = len(req.Tools)
+		return tracepkg.SpanStart{
+			Name:           "provider." + operation,
+			Kind:           tracepkg.KindProvider,
+			ConversationID: req.ConversationID,
+			TurnNumber:     req.TurnNumber,
+			Iteration:      req.Iteration,
+			Attributes:     attrs,
+		}
+	}
+	return tracepkg.SpanStart{Name: "provider." + operation, Kind: tracepkg.KindProvider, Attributes: attrs}
+}
+
+func fatalStreamError(event provider.StreamEvent) (error, bool) {
+	streamErr, ok := event.(provider.StreamError)
+	if !ok || !streamErr.Fatal {
+		return nil, false
+	}
+	return streamErr.Err, true
 }
 
 func routeCall[T any](

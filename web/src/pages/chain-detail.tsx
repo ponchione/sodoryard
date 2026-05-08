@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import type { ChainDetail, ReceiptSummary, ReceiptView } from "@/types/chains";
+import type { ChainDetail, ChainTimelineItem, ReceiptSummary, ReceiptView } from "@/types/chains";
 
 function formatDate(value?: string): string {
   if (!value) return "unknown";
@@ -17,6 +17,16 @@ function formatIDs(values: string[]): string {
 
 function yesNo(value: boolean): string {
   return value ? "yes" : "no";
+}
+
+function timelineMeta(item: ChainTimelineItem): string {
+  const parts = [
+    item.step_id ? `step=${item.step_id}` : "",
+    item.turn_number ? `turn=${item.turn_number}` : "",
+    item.iteration ? `iter=${item.iteration}` : "",
+    item.duration_ms ? `${item.duration_ms}ms` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "no linked runtime metadata";
 }
 
 export function ChainDetailPage() {
@@ -300,6 +310,49 @@ export function ChainDetailPage() {
                         <td className={`px-3 py-2 ${chainStatusClass(step.status)}`}>{step.status}</td>
                         <td className="px-3 py-2 text-muted-foreground">{step.verdict || "none"}</td>
                         <td className="px-3 py-2 font-mono text-muted-foreground">{step.receipt_path || "none"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="space-y-2">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Timeline</h2>
+              <div className="overflow-hidden border border-border">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-border bg-muted text-[10px] uppercase tracking-widest text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Time</th>
+                      <th className="px-3 py-2 font-medium">Kind</th>
+                      <th className="px-3 py-2 font-medium">Name</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detail.timeline ?? []).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-3 text-muted-foreground">
+                          No timeline entries recorded.
+                        </td>
+                      </tr>
+                    )}
+                    {(detail.timeline ?? []).map((item) => (
+                      <tr key={item.id} className="border-b border-border/70 align-top">
+                        <td className="px-3 py-2 text-muted-foreground">{formatDate(item.started_at)}</td>
+                        <td className="px-3 py-2 font-mono text-muted-foreground">{item.kind || item.source}</td>
+                        <td className="px-3 py-2 text-foreground">{item.name}</td>
+                        <td className={`px-3 py-2 ${item.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+                          {item.status || item.source}
+                        </td>
+                        <td className="px-3 py-2">
+                          <p className="font-mono text-muted-foreground">{timelineMeta(item)}</p>
+                          {item.error && <p className="text-destructive">{item.error}</p>}
+                          {item.event_data && (
+                            <p className="truncate font-mono text-muted-foreground">{item.event_data}</p>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

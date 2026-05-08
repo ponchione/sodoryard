@@ -27,6 +27,7 @@ type HeadlessRunFlags struct {
 	MaxTokens   int
 	Timeout     time.Duration
 	ReceiptPath string
+	StepID      string
 	Quiet       bool
 	ProjectRoot string
 }
@@ -60,6 +61,8 @@ func RegisterHeadlessRunFlags(flags *pflag.FlagSet, values *HeadlessRunFlags) {
 	flags.IntVar(&values.MaxTokens, "max-tokens", 0, "Override max total tokens for this run")
 	flags.DurationVar(&values.Timeout, "timeout", 0, "Wall-clock timeout for the entire session; 0 uses the role/default timeout")
 	flags.StringVar(&values.ReceiptPath, "receipt-path", "", "Override brain-relative receipt path")
+	flags.StringVar(&values.StepID, "step-id", "", "Internal chain step identifier for trace correlation")
+	_ = flags.MarkHidden("step-id")
 	flags.BoolVar(&values.Quiet, "quiet", false, "Suppress progress output")
 	flags.StringVar(&values.ProjectRoot, "project-root", "", "Override project root")
 }
@@ -105,6 +108,7 @@ func RunHeadless(ctx context.Context, errOut io.Writer, configPath string, flags
 		MaxTokens:   flags.MaxTokens,
 		Timeout:     flags.Timeout,
 		ReceiptPath: flags.ReceiptPath,
+		StepID:      flags.StepID,
 		Quiet:       flags.Quiet,
 		ProjectRoot: flags.ProjectRoot,
 	}, headless.Deps{})

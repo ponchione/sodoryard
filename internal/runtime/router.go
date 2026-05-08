@@ -10,12 +10,14 @@ import (
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type ProviderRouterOptions struct {
 	ProviderNames []string
 	LogAuthStatus bool
 	MemoryBackend any
+	TraceRecorder tracepkg.Recorder
 }
 
 func BuildProviderRouter(ctx context.Context, cfg *appconfig.Config, queries *appdb.Queries, logger *slog.Logger, opts ProviderRouterOptions) (*router.Router, error) {
@@ -34,6 +36,7 @@ func BuildProviderRouter(ctx context.Context, cfg *appconfig.Config, queries *ap
 	if err != nil {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
+	provRouter.SetTraceRecorder(opts.TraceRecorder)
 
 	providerNames := opts.ProviderNames
 	if len(providerNames) == 0 {

@@ -82,9 +82,33 @@ type ChainDetail struct {
 	Steps        []chain.Step
 	Receipts     []ReceiptSummary
 	RecentEvents []chain.Event
+	Timeline     []ChainTimelineItem
 	Health       string
 	Warnings     []RuntimeWarning
 	Guardrails   ChainGuardrailDetails
+}
+
+type ChainTimelineItem struct {
+	ID             string
+	Source         string
+	Kind           string
+	Name           string
+	Status         string
+	TraceID        string
+	SpanID         string
+	ParentSpanID   string
+	ConversationID string
+	ChainID        string
+	StepID         string
+	TurnNumber     int
+	Iteration      int
+	StartedAt      time.Time
+	EndedAt        *time.Time
+	DurationMs     int64
+	Attributes     map[string]any
+	Error          string
+	EventType      string
+	EventData      string
 }
 
 type ChainGuardrailDetails struct {

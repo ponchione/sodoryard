@@ -77,6 +77,7 @@ func buildRuntimeBase(ctx context.Context, cfg *appconfig.Config) (*runtimeBase,
 		{"upgrade context report token budget storage", appdb.EnsureContextReportsIncludeTokenBudget},
 		{"ensure chain schema", appdb.EnsureChainSchema},
 		{"ensure launch schema", appdb.EnsureLaunchSchema},
+		{"ensure trace schema", appdb.EnsureTraceSchema},
 	} {
 		if err := upgrade.fn(ctx, database); err != nil {
 			cleanup()

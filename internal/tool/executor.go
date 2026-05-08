@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/provider"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // ExecutorConfig carries executor-level configuration.
@@ -27,6 +29,7 @@ type ExecutorConfig struct {
 type Executor struct {
 	registry *Registry
 	recorder *ToolExecutionRecorder
+	tracer   tracepkg.Recorder
 	config   ExecutorConfig
 	logger   *slog.Logger
 	nowFn    func() time.Time // injectable for testing
@@ -50,6 +53,10 @@ func NewExecutor(registry *Registry, config ExecutorConfig, logger *slog.Logger)
 // Safe to call before any Execute calls. Passing nil disables persistence.
 func (e *Executor) SetRecorder(recorder *ToolExecutionRecorder) {
 	e.recorder = recorder
+}
+
+func (e *Executor) SetTraceRecorder(recorder tracepkg.Recorder) {
+	e.tracer = recorder
 }
 
 // Execute dispatches a batch of tool calls with purity-based strategy:
@@ -102,6 +109,17 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 		}
 	}
 
+	batchCtx, batchSpan := tracepkg.StartSpan(ctx, e.tracer, tracepkg.SpanStart{
+		Name: "tool.batch",
+		Kind: tracepkg.KindToolBatch,
+		Attributes: map[string]any{
+			"call_count":     len(calls),
+			"pure_count":     len(pureCalls),
+			"mutating_count": len(mutatingCalls),
+		},
+	})
+	ctx = batchCtx
+
 	// Execute pure calls concurrently.
 	var wg sync.WaitGroup
 	for _, ic := range pureCalls {
@@ -149,11 +167,37 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 		}
 	}
 
+	batchStatus := tracepkg.StatusOK
+	var batchErr error
+	if ctx.Err() != nil {
+		batchStatus = tracepkg.StatusCancelled
+		batchErr = ctx.Err()
+	} else {
+		for _, result := range results {
+			if !result.Success {
+				batchStatus = tracepkg.StatusError
+				batchErr = fmt.Errorf("one or more tool calls failed")
+				break
+			}
+		}
+	}
+	batchSpan.End(context.Background(), batchStatus, batchErr)
+
 	return results
 }
 
 // executeSingle runs a single tool call with panic recovery and timing.
 func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (result ToolResult) {
+	spanCtx, span := tracepkg.StartSpan(ctx, e.tracer, tracepkg.SpanStart{
+		Name: "tool." + call.Name,
+		Kind: tracepkg.KindTool,
+		Attributes: map[string]any{
+			"tool_name":    call.Name,
+			"tool_call_id": call.ID,
+			"purity":       t.ToolPurity().String(),
+		},
+	})
+	ctx = spanCtx
 	start := e.nowFn()
 
 	// Panic recovery — tool panics become failed results, not crashes.
@@ -172,6 +216,22 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (re
 				"panic", r,
 			)
 		}
+		result.Details = withTraceSpanDetails(result.Details, span.ID())
+		status := tracepkg.StatusOK
+		var spanErr error
+		if !result.Success {
+			status = tracepkg.StatusError
+			if result.Error != "" {
+				spanErr = errors.New(result.Error)
+			} else {
+				spanErr = errors.New(result.Content)
+			}
+			if ctx.Err() != nil {
+				status = tracepkg.StatusCancelled
+				spanErr = ctx.Err()
+			}
+		}
+		span.End(context.Background(), status, spanErr)
 	}()
 
 	tr, err := t.Execute(ctx, e.config.ProjectRoot, call.Arguments)
@@ -215,4 +275,15 @@ func (e *Executor) ExecuteWithMeta(ctx context.Context, calls []ToolCall, meta E
 	}
 
 	return results
+}
+
+func withTraceSpanDetails(details []byte, spanID string) []byte {
+	if strings.TrimSpace(spanID) == "" {
+		return details
+	}
+	fields := map[string]any{"trace_span_id": spanID}
+	if len(details) == 0 {
+		return provider.NewToolResultDetails("tool_execution", fields)
+	}
+	return provider.MergeToolResultDetails(details, fields)
 }
