@@ -14,7 +14,7 @@ func TestListSuitesIncludesDeterministicSuites(t *testing.T) {
 	for _, suite := range suites {
 		names = append(names, suite.Name)
 	}
-	assertStringSetForTest(t, names, []string{"chain-flow", "receipt-contract"})
+	assertStringSetForTest(t, names, []string{"chain-flow", "receipt-contract", "retrieval-contract"})
 }
 
 func TestReceiptContractSuitePassesAndReportsLegacyWarning(t *testing.T) {
@@ -64,6 +64,24 @@ func TestChainFlowSuitePassesAndReportsExpectedWarnings(t *testing.T) {
 	if !caseWarningsContain(conflictCase, "multiple source-writing steps running") {
 		t.Fatalf("source writer warnings = %+v, want conflict warning", conflictCase.Warnings)
 	}
+}
+
+func TestRetrievalContractSuitePassesAndReportsSources(t *testing.T) {
+	report, err := Run(context.Background(), "retrieval-contract")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if report.Status != StatusPass {
+		t.Fatalf("status = %q, want pass: %+v", report.Status, report)
+	}
+	if report.Totals.Cases != 2 || report.Totals.CasesPassed != 2 {
+		t.Fatalf("case totals = %+v, want 2/2", report.Totals)
+	}
+	mixed := findEvalCase(t, report, "mixed-source-report")
+	assertStringSetForTest(t, detailsStringSliceForTest(t, mixed, "sources"), []string{"brain", "code", "explicit_file", "graph"})
+	assertStringSetForTest(t, detailsStringSliceForTest(t, mixed, "included_paths"), []string{"docs/decisions/auth.md", "internal/auth/middleware.go", "internal/auth/service.go"})
+	stored := findEvalCase(t, report, "stored-unified-report")
+	assertStringSetForTest(t, detailsStringSliceForTest(t, stored, "excluded_paths"), []string{"docs/notes/search.md"})
 }
 
 func TestEvaluateChainFlowReportsStoredChainPass(t *testing.T) {
@@ -168,4 +186,13 @@ func assertStringSetForTest(t *testing.T, got []string, want []string) {
 	if !equalStrings(got, want) {
 		t.Fatalf("strings = %v, want %v", got, want)
 	}
+}
+
+func detailsStringSliceForTest(t *testing.T, c CaseResult, key string) []string {
+	t.Helper()
+	values, ok := c.Details[key].([]string)
+	if !ok {
+		t.Fatalf("case %s detail %s = %#v, want []string", c.Name, key, c.Details[key])
+	}
+	return values
 }

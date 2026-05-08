@@ -411,7 +411,7 @@ Implemented on 2026-05-08:
 Not implemented in this slice:
 
 - live model evaluation
-- retrieval evaluation
+- retrieval evaluation that runs live context assembly against fixture projects
 - baseline comparison
 
 ### Implemented Chain Eval Slice
@@ -426,7 +426,7 @@ Implemented on 2026-05-08:
 Not implemented in this slice:
 
 - live model evaluation
-- retrieval evaluation
+- retrieval evaluation that runs live context assembly against fixture projects
 - baseline comparison
 
 ### Implemented Baseline Comparison Slice
@@ -443,6 +443,21 @@ Not implemented in this slice:
 - baseline writing/management commands
 - historical trend storage
 - tolerance policies for live or noisy evals
+
+### Implemented Retrieval Contract Slice
+
+Implemented on 2026-05-08:
+
+- `yard eval run retrieval-contract`
+- deterministic embedded context-report fixtures for source-specific and stored normalized retrieval rows
+- assertions for normalized retrieval result count, source kinds, included paths, excluded paths, and symbols
+- CI-safe coverage for the common retrieval-result contract without provider credentials or live indexing
+
+Not implemented in this slice:
+
+- live context assembly against fixture projects
+- model-judged retrieval quality
+- retrieval ranking or orchestration changes
 
 ### Acceptance Criteria
 
@@ -928,7 +943,7 @@ Not implemented in this slice:
 
 - replacing retrieval orchestration or ranking policy
 - separate retriever interface wrappers for each source
-- retrieval eval suite assertions over expected files/symbols
+- live retrieval eval suite assertions over fixture projects
 
 ### Acceptance Criteria
 

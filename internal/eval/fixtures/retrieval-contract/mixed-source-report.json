@@ -1,0 +1,64 @@
+{
+  "name": "mixed-source-report",
+  "report": {
+    "rag_results": [
+      {
+        "chunk_id": "chunk-auth-service",
+        "file_path": "internal/auth/service.go",
+        "name": "ValidateToken",
+        "body": "func ValidateToken() error { return nil }",
+        "similarity_score": 0.92,
+        "language": "go",
+        "chunk_type": "function",
+        "line_start": 12,
+        "line_end": 18,
+        "matched_by": "semantic",
+        "sources": ["semantic"],
+        "included": true
+      }
+    ],
+    "brain_results": [
+      {
+        "document_path": "docs/decisions/auth.md",
+        "title": "Auth Decision",
+        "section_heading": "Decision",
+        "snippet": "Use middleware for token validation.",
+        "match_score": 0.77,
+        "match_mode": "keyword",
+        "match_sources": ["title", "body"],
+        "tags": ["auth"],
+        "included": true
+      }
+    ],
+    "graph_results": [
+      {
+        "chunk_id": "chunk-auth-handler",
+        "symbol_name": "AuthHandler",
+        "file_path": "internal/auth/handler.go",
+        "relationship_type": "caller",
+        "depth": 1,
+        "line_start": 24,
+        "line_end": 39,
+        "exclusion_reason": "budget_exceeded"
+      }
+    ],
+    "explicit_file_results": [
+      {
+        "file_path": "internal/auth/middleware.go",
+        "content": "package auth",
+        "token_count": 12,
+        "included": true
+      }
+    ]
+  },
+  "expected_result_count": 4,
+  "expected_sources": ["brain", "code", "explicit_file", "graph"],
+  "expected_kinds": ["brain_doc", "code_chunk", "explicit_file", "symbol"],
+  "expected_included_paths": [
+    "docs/decisions/auth.md",
+    "internal/auth/middleware.go",
+    "internal/auth/service.go"
+  ],
+  "expected_excluded_paths": ["internal/auth/handler.go"],
+  "expected_symbols": ["AuthHandler", "Decision", "ValidateToken"]
+}

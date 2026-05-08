@@ -90,6 +90,7 @@ func NewRunner() Runner {
 	r := Runner{suites: map[string]suite{}}
 	r.register(receiptContractSuite{})
 	r.register(chainFlowSuite{})
+	r.register(retrievalContractSuite{})
 	return r
 }
 

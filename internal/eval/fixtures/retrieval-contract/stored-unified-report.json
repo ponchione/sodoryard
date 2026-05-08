@@ -1,0 +1,34 @@
+{
+  "name": "stored-unified-report",
+  "report": {
+    "retrieval_results": [
+      {
+        "source": "code",
+        "kind": "code_chunk",
+        "path": "internal/search/index.go",
+        "symbol": "IndexChunk",
+        "score": 0.88,
+        "included": true,
+        "metadata": {
+          "chunk_id": "chunk-index",
+          "matched_by": "keyword"
+        }
+      },
+      {
+        "source": "brain",
+        "kind": "brain_doc",
+        "path": "docs/notes/search.md",
+        "symbol": "Rationale",
+        "score": 0.71,
+        "included": false,
+        "exclusion_reason": "budget_exceeded"
+      }
+    ]
+  },
+  "expected_result_count": 2,
+  "expected_sources": ["brain", "code"],
+  "expected_kinds": ["brain_doc", "code_chunk"],
+  "expected_included_paths": ["internal/search/index.go"],
+  "expected_excluded_paths": ["docs/notes/search.md"],
+  "expected_symbols": ["IndexChunk", "Rationale"]
+}
