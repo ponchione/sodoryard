@@ -2,7 +2,7 @@
 
 **Project:** sodoryard
 **Version:** current
-**Last Updated:** 2026-05-01
+**Last Updated:** 2026-05-08
 
 ---
 
@@ -32,6 +32,7 @@
 | 20  | [[20-operator-console-tui]]          | ✅ Draft | Terminal-first operator console, launch, chain control, and receipts    |
 | 21  | [[21-web-inspector]]                 | ✅ Draft | Browser inspector for transcripts, context, tools, diffs, and metrics   |
 | 22  | [[22-sequential-agent-guardrails]]   | ⚠️ Working plan | Sequential mutating agents, hard role guardrails, typed receipts, and auditability |
+| 23  | [[23-genkit-patterns-for-yard]]      | ⚠️ Working plan | Genkit-inspired tracing, typed contracts, hooks, evals, capabilities, and streaming ideas for Yard |
 
 ## Status Legend
 
