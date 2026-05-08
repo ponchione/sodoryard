@@ -75,6 +75,54 @@ func TestFlowAnalyzerTracksFindingLifecycle(t *testing.T) {
 	}
 }
 
+func TestFlowAnalyzerTracksDurableFindingLifecycleFacts(t *testing.T) {
+	analysis := AnalyzeFlow(FlowAnalysisInput{
+		Chain: Chain{ID: "finding-facts-chain", Status: "running"},
+		Steps: []Step{
+			{ID: "step-audit-open", SequenceNum: 1, Role: "correctness-auditor", Status: "completed"},
+			{ID: "step-resolver-one", SequenceNum: 2, Role: "resolver", Status: "completed"},
+			{ID: "step-audit-closed", SequenceNum: 3, Role: "correctness-auditor", Status: "completed"},
+			{ID: "step-audit-reopened", SequenceNum: 4, Role: "correctness-auditor", Status: "completed"},
+			{ID: "step-resolver-two", SequenceNum: 5, Role: "resolver", Status: "completed"},
+		},
+		Events: []Event{
+			{ID: 1, StepID: "step-audit-open", EventType: EventFindingLifecycleFacts, EventData: `{"role":"correctness-auditor","verdict":"fix_required","facts":[{"id":"FIND-correctness-001","source_role":"correctness-auditor","action":"opened","status":"open","severity":"high","evidence":"internal/example.go:42","summary":"nil panic","required_fix":"guard nil"}]}`},
+			{ID: 2, StepID: "step-audit-open", EventType: EventReceiptFindings, EventData: `{"role":"correctness-auditor","verdict":"fix_required","open_finding_ids":["FIND-correctness-001"]}`},
+			{ID: 3, StepID: "step-resolver-one", EventType: EventFindingLifecycleFacts, EventData: `{"role":"resolver","verdict":"completed","facts":[{"id":"FIND-correctness-001","action":"addressed","status":"addressed","resolution":"fixed","files_changed":["internal/example.go"],"validation":["rtk make test"]}]}`},
+			{ID: 4, StepID: "step-resolver-one", EventType: EventReceiptFindings, EventData: `{"role":"resolver","verdict":"completed","addressed_ids":["FIND-correctness-001"],"addressed_count":1}`},
+			{ID: 5, StepID: "step-audit-closed", EventType: EventFindingLifecycleFacts, EventData: `{"role":"correctness-auditor","verdict":"completed","facts":[{"id":"FIND-correctness-001","source_role":"correctness-auditor","action":"closed","status":"closed"}]}`},
+			{ID: 6, StepID: "step-audit-reopened", EventType: EventFindingLifecycleFacts, EventData: `{"role":"correctness-auditor","verdict":"fix_required","facts":[{"id":"FIND-correctness-001","source_role":"correctness-auditor","action":"reopened","status":"open","summary":"nil panic still possible"}]}`},
+			{ID: 7, StepID: "step-resolver-two", EventType: EventFindingLifecycleFacts, EventData: `{"role":"resolver","verdict":"completed","facts":[{"id":"FIND-correctness-001","action":"addressed","status":"addressed","resolution":"fixed"}]}`},
+		},
+	})
+
+	if len(analysis.Findings.Findings) != 1 {
+		t.Fatalf("findings = %+v, want one lifecycle entry", analysis.Findings.Findings)
+	}
+	got := analysis.Findings.Findings[0]
+	if got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Status != "addressed" || !got.Open {
+		t.Fatalf("finding = %+v, want addressed open correctness finding", got)
+	}
+	if got.Severity != "high" || got.Evidence != "internal/example.go:42" || got.RequiredFix != "guard nil" || got.Resolution != "fixed" {
+		t.Fatalf("finding metadata = %+v, want durable metadata merged", got)
+	}
+	if got.AddressedCount != 2 || got.ClosedCount != 1 || got.ReopenedCount != 1 {
+		t.Fatalf("finding counts = %+v, want addressed=2 closed=1 reopened=1", got)
+	}
+	if !equalStrings(got.FilesChanged, []string{"internal/example.go"}) || !equalStrings(got.Validation, []string{"rtk make test"}) {
+		t.Fatalf("finding resolution details = %+v/%+v, want changed file and validation", got.FilesChanged, got.Validation)
+	}
+	if !equalStrings(analysis.Findings.OpenIDs, []string{"FIND-correctness-001"}) ||
+		!equalStrings(analysis.Findings.AddressedIDs, []string{"FIND-correctness-001"}) ||
+		!equalStrings(analysis.Findings.ReopenedIDs, []string{"FIND-correctness-001"}) ||
+		!equalStrings(analysis.Findings.RepeatedResolverIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding summaries = %+v, want open/addressed/reopened/repeated ID", analysis.Findings)
+	}
+	if !hasFlowWarning(analysis.Warnings, "flow: repeated resolver loop for FIND-correctness-001 (2 resolver receipts)") {
+		t.Fatalf("warnings = %+v, want repeated resolver loop", analysis.Warnings)
+	}
+}
+
 func TestFlowAnalyzerAllowsAuditorAndDocsArbiterAfterCoder(t *testing.T) {
 	analysis := AnalyzeFlow(FlowAnalysisInput{
 		Chain: Chain{ID: "clean-chain", Status: "completed"},

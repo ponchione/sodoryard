@@ -23,6 +23,7 @@ const (
 	EventStepFailed                      EventType = "step_failed"
 	EventReceiptValidation               EventType = "receipt_validation_warning"
 	EventReceiptFindings                 EventType = "receipt_findings"
+	EventFindingLifecycleFacts           EventType = "finding_lifecycle_facts"
 	EventSourceWriterBlocked             EventType = "source_writer_guard_blocked"
 	EventSourceWriterLockAcquired        EventType = "source_writer_lock_acquired"
 	EventSourceWriterLockReleased        EventType = "source_writer_lock_released"

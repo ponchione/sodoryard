@@ -159,6 +159,7 @@ type receiptFindingFactSet struct {
 	OpenFindingIDs                      []string
 	ClosedFindingIDs                    []string
 	AddressedIDs                        []string
+	LifecycleFacts                      []chain.FindingLifecycleFact
 	SuspiciousVerdictFindingCombination bool
 	SuspiciousVerdictFindingReason      string
 }
@@ -719,6 +720,12 @@ func (t *SpawnAgentTool) logReceiptFindingFacts(ctx context.Context, step spawnS
 		return
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventReceiptFindings, payload)
+	_ = t.Store.LogEvent(ctx, t.ChainID, step.stepID, chain.EventFindingLifecycleFacts, chain.FindingLifecycleFactsPayload{
+		Role:        step.roleName,
+		ReceiptPath: step.receiptPath,
+		Verdict:     string(parsed.Verdict),
+		Facts:       findingFacts.LifecycleFacts,
+	})
 }
 
 func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptFindingFactSet, bool) {
@@ -730,12 +737,29 @@ func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptF
 			if strings.TrimSpace(finding.ID) == "" {
 				continue
 			}
+			lifecycleFact := chain.FindingLifecycleFact{
+				ID:          finding.ID,
+				SourceRole:  roleName,
+				Action:      "opened",
+				Status:      "open",
+				Severity:    finding.Severity,
+				Evidence:    finding.Evidence,
+				Summary:     finding.Summary,
+				RequiredFix: finding.RequiredFix,
+			}
 			facts.FindingIDs = append(facts.FindingIDs, finding.ID)
 			if finding.Status == "closed" {
 				facts.ClosedFindingIDs = append(facts.ClosedFindingIDs, finding.ID)
+				lifecycleFact.Action = "closed"
+				lifecycleFact.Status = "closed"
+			} else if finding.Status == "reopened" {
+				facts.OpenFindingIDs = append(facts.OpenFindingIDs, finding.ID)
+				lifecycleFact.Action = "reopened"
+				lifecycleFact.Status = "open"
 			} else {
 				facts.OpenFindingIDs = append(facts.OpenFindingIDs, finding.ID)
 			}
+			facts.LifecycleFacts = append(facts.LifecycleFacts, lifecycleFact)
 		}
 		facts.FindingIDs = uniqueSorted(facts.FindingIDs)
 		facts.OpenFindingIDs = uniqueSorted(facts.OpenFindingIDs)
@@ -753,6 +777,14 @@ func buildReceiptFindingFacts(roleName string, parsed receipt.Receipt) (receiptF
 		for _, resolution := range resolutions {
 			if strings.TrimSpace(resolution.ID) != "" {
 				facts.AddressedIDs = append(facts.AddressedIDs, resolution.ID)
+				facts.LifecycleFacts = append(facts.LifecycleFacts, chain.FindingLifecycleFact{
+					ID:           resolution.ID,
+					Action:       "addressed",
+					Status:       "addressed",
+					Resolution:   resolution.Resolution,
+					FilesChanged: append([]string(nil), resolution.FilesChanged...),
+					Validation:   append([]string(nil), resolution.Validation...),
+				})
 			}
 		}
 		facts.AddressedIDs = uniqueSorted(facts.AddressedIDs)

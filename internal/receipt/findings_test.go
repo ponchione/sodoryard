@@ -29,6 +29,22 @@ Status: open
 	}
 }
 
+func TestParseAuditFindingsPreservesReopenedStatus(t *testing.T) {
+	body := `## Findings
+
+### FIND-correctness-001
+Severity: high
+Status: reopened
+Evidence: internal/example.go:42
+Summary: The nil case still panics.
+Required fix: Guard before dereferencing.
+`
+	findings := ParseAuditFindings(body, "correctness-auditor")
+	if len(findings) != 1 || findings[0].Status != "reopened" {
+		t.Fatalf("findings = %+v, want reopened status preserved", findings)
+	}
+}
+
 func TestParseFindingResolutions(t *testing.T) {
 	body := `## Findings Addressed
 

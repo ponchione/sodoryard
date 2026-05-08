@@ -217,8 +217,10 @@ func normalizeFindingStatus(value string) string {
 	switch value {
 	case "closed", "fixed", "resolved":
 		return "closed"
-	case "open", "reopened":
+	case "open":
 		return "open"
+	case "reopened":
+		return "reopened"
 	default:
 		return value
 	}

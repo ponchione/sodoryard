@@ -235,6 +235,143 @@ R  old.go -> internal/new.go
 	}
 }
 
+func TestBuildReceiptFindingFactsIncludesLifecycleFacts(t *testing.T) {
+	parsed, err := receipt.Parse([]byte(testReceiptContent("correctness-auditor", "chain-1", 1, receipt.VerdictFixRequired, 1, `## Summary
+Audit.
+
+## Changes
+Reviewed.
+
+## Validation
+Not run.
+
+## Concerns
+None.
+
+## Next Steps
+Resolve.
+
+## Findings
+
+### FIND-correctness-001
+Severity: high
+Status: reopened
+Evidence: internal/example.go:42
+Summary: The nil case can still panic.
+Required fix: Guard before dereferencing.
+`)))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	facts, ok := buildReceiptFindingFacts("correctness-auditor", parsed)
+	if !ok || len(facts.LifecycleFacts) != 1 {
+		t.Fatalf("facts = %+v ok=%t, want one lifecycle fact", facts, ok)
+	}
+	got := facts.LifecycleFacts[0]
+	if got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Action != "reopened" || got.Status != "open" || got.Severity != "high" || got.Evidence != "internal/example.go:42" || got.RequiredFix == "" {
+		t.Fatalf("lifecycle fact = %+v, want reopened finding details", got)
+	}
+
+	resolverReceipt, err := receipt.Parse([]byte(testReceiptContent("resolver", "chain-1", 2, receipt.VerdictCompleted, 1, `## Summary
+Fixed.
+
+## Changes
+Patched internal/example.go.
+
+## Validation
+- rtk make test
+
+## Concerns
+None.
+
+## Next Steps
+Re-audit.
+
+## Findings Addressed
+
+### FIND-correctness-001
+Resolution: fixed
+Files changed:
+- internal/example.go
+Validation:
+- rtk make test
+`)))
+	if err != nil {
+		t.Fatalf("Parse resolver returned error: %v", err)
+	}
+	resolverFacts, ok := buildReceiptFindingFacts("resolver", resolverReceipt)
+	if !ok || len(resolverFacts.LifecycleFacts) != 1 {
+		t.Fatalf("resolver facts = %+v ok=%t, want one lifecycle fact", resolverFacts, ok)
+	}
+	resolved := resolverFacts.LifecycleFacts[0]
+	if resolved.ID != "FIND-correctness-001" || resolved.Action != "addressed" || resolved.Status != "addressed" || resolved.Resolution != "fixed" {
+		t.Fatalf("resolver lifecycle fact = %+v, want addressed fixed fact", resolved)
+	}
+	if len(resolved.FilesChanged) != 1 || resolved.FilesChanged[0] != "internal/example.go" || len(resolved.Validation) != 1 || resolved.Validation[0] != "rtk make test" {
+		t.Fatalf("resolver lifecycle details = %+v/%+v, want changed file and validation", resolved.FilesChanged, resolved.Validation)
+	}
+}
+
+func TestSpawnAgentLogsFindingLifecycleFactsForAuditor(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"correctness-auditor": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		backend.docs["receipts/correctness-auditor/"+chainID+"-step-001.md"] = testReceiptContent("correctness-auditor", chainID, 1, receipt.VerdictFixRequired, 1, `## Summary
+Audit found one issue.
+
+## Changes
+Reviewed.
+
+## Validation
+Not run.
+
+## Concerns
+None.
+
+## Next Steps
+Resolver should fix the finding.
+
+## Findings
+
+### FIND-correctness-001
+Severity: high
+Status: open
+Evidence: internal/example.go:42
+Summary: The nil case can panic.
+Required fix: Guard before dereferencing.
+`)
+		return RunResult{ExitCode: 0}
+	}
+
+	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"correctness-auditor","task":"audit"}`)); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var payload chain.FindingLifecycleFactsPayload
+	var found bool
+	for _, event := range events {
+		if event.EventType != chain.EventFindingLifecycleFacts {
+			continue
+		}
+		found = true
+		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
+			t.Fatalf("decode lifecycle facts: %v", err)
+		}
+	}
+	if !found || payload.Role != "correctness-auditor" || len(payload.Facts) != 1 {
+		t.Fatalf("lifecycle payload = %+v found=%t, want auditor fact event", payload, found)
+	}
+	if got := payload.Facts[0]; got.ID != "FIND-correctness-001" || got.Action != "opened" || got.Status != "open" || got.Severity != "high" {
+		t.Fatalf("lifecycle fact = %+v, want opened high finding", got)
+	}
+}
+
 func TestSpawnAgentUsesProjectMemoryCompleteStepWithReceipt(t *testing.T) {
 	ctx := context.Background()
 	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
