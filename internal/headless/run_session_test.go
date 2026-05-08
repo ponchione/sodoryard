@@ -203,6 +203,47 @@ func TestRunSessionAcceptsPersonaAliasAndUsesCanonicalRole(t *testing.T) {
 	}
 }
 
+func TestRunSessionScopesReadOnlyRoleWritesToAssignedReceiptPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
+		"  correctness-auditor:",
+		"    system_prompt: builtin:correctness-auditor",
+		"    mutation_class: read_only",
+		"    tools:",
+		"      - brain",
+		"      - file:read",
+		"      - git",
+		"    brain_write_paths:",
+		"      - receipts/correctness-auditor/**",
+		"      - logs/correctness-auditor/**",
+	}, "\n"))
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	registry := tool.NewRegistry()
+	var gotRoleCfg appconfig.AgentRoleConfig
+	deps := stubRunSessionDeps(
+		&rtpkg.EngineRuntime{BrainBackend: backend, Logger: slog.Default(), Cleanup: func() {}},
+		registry,
+		appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/correctness-auditor/chain-readonly.md"}},
+		&conversation.Conversation{ID: "conv-1"},
+		&fakeRunSessionLoop{result: &agent.TurnResult{FinalText: "audit done"}},
+	)
+	deps.BuildRegistry = func(cfg *appconfig.Config, roleCfg appconfig.AgentRoleConfig, deps role.BuilderDeps) (*tool.Registry, appconfig.BrainConfig, error) {
+		gotRoleCfg = roleCfg
+		return registry, appconfig.BrainConfig{Enabled: true, BrainWritePaths: roleCfg.BrainWritePaths}, nil
+	}
+
+	result, err := RunSession(context.Background(), nil, configPath, RunRequest{Role: "correctness-auditor", Task: "audit", ChainID: "chain-readonly", Timeout: time.Minute}, deps)
+	if err != nil {
+		t.Fatalf("RunSession returned error: %v", err)
+	}
+	if result.ReceiptPath != "receipts/correctness-auditor/chain-readonly.md" {
+		t.Fatalf("receipt path = %q, want assigned read-only receipt path", result.ReceiptPath)
+	}
+	if len(gotRoleCfg.BrainWritePaths) != 1 || gotRoleCfg.BrainWritePaths[0] != "receipts/correctness-auditor/chain-readonly.md" {
+		t.Fatalf("read-only BrainWritePaths = %#v, want only assigned receipt path", gotRoleCfg.BrainWritePaths)
+	}
+}
+
 func TestRunSessionReturnsSafetyLimitExitAndReceiptPath(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{

@@ -110,6 +110,8 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 		return nil, err
 	}
 	req.Role = roleName
+	receiptPath := ResolveReceiptPath(req.Role, chainID, req.ReceiptPath)
+	roleCfg = scopeReadOnlyRoleToReceiptPath(roleCfg, receiptPath)
 
 	timeout := resolveRunTimeout(roleCfg, req.Timeout)
 	ctx, cancel := context.WithTimeout(parentContext(parentCtx), timeout)
@@ -142,7 +144,6 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 	receiptVerdict, exitCode, err := determineExitStatus(ctx, turnResult, turnErr, loopMaxTurns, maxTokens)
 	receiptCtx, cancelReceipt := detachedReceiptContext(ctx)
 	defer cancelReceipt()
-	receiptPath := ResolveReceiptPath(req.Role, chainID, req.ReceiptPath)
 	if err != nil {
 		writtenPath, _, receiptErr := EnsureReceipt(
 			receiptCtx,
@@ -344,6 +345,14 @@ func resolveRunTimeout(roleCfg appconfig.AgentRoleConfig, requested time.Duratio
 		return requested
 	}
 	return roleTimeout
+}
+
+func scopeReadOnlyRoleToReceiptPath(roleCfg appconfig.AgentRoleConfig, receiptPath string) appconfig.AgentRoleConfig {
+	if roleCfg.MutationClass != appconfig.MutationClassReadOnly {
+		return roleCfg
+	}
+	roleCfg.BrainWritePaths = []string{receiptPath}
+	return roleCfg
 }
 
 func buildConversationOptions(cfg *appconfig.Config) []conversation.CreateOption {
