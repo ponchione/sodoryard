@@ -154,6 +154,8 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText("Validation: rtk make test")).toBeInTheDocument();
     expect(screen.getByText(/acquired 1 \/ released 1/)).toBeInTheDocument();
     expect(screen.getAllByText(/internal\/example.go/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/code_index_mark_supported=yes/)).toBeInTheDocument();
+    expect(screen.getByText(/code_index_mark_attempted=yes/)).toBeInTheDocument();
     expect(screen.getByText(/code_index_marked=yes/)).toBeInTheDocument();
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();

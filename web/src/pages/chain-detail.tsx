@@ -229,7 +229,9 @@ export function ChainDetailPage() {
                       )}
                       {fact.source_mutating && (
                         <p className="font-mono text-muted-foreground">
-                          code_index_dirty={yesNo(fact.code_index_dirty)} code_index_marked=
+                          code_index_dirty={yesNo(fact.code_index_dirty)} code_index_mark_supported=
+                          {yesNo(fact.code_index_dirty_mark_supported)} code_index_mark_attempted=
+                          {yesNo(fact.code_index_dirty_mark_attempted)} code_index_marked=
                           {yesNo(fact.code_index_dirty_marked)} brain_index_dirty={yesNo(fact.brain_index_dirty)}
                           {fact.code_index_dirty_reason ? ` code_reason=${fact.code_index_dirty_reason}` : ""}
                           {fact.code_index_dirty_mark_error ? ` mark_error=${fact.code_index_dirty_mark_error}` : ""}
