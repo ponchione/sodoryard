@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -138,6 +139,10 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := chainEval.Flags().Lookup("json"); flag == nil {
 		t.Fatal("expected chain eval json flag")
 	}
+	templates := newYardChainTemplatesCmd(&configPath)
+	if flag := templates.Flags().Lookup("json"); flag == nil {
+		t.Fatal("expected chain templates json flag")
+	}
 }
 
 func TestYardChainEvalCommandPrintsStoredChainReport(t *testing.T) {
@@ -185,6 +190,54 @@ func TestYardChainEvalCommandPrintsStoredChainReport(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("stdout = %q, want %q", out.String(), want)
 		}
+	}
+}
+
+func TestYardChainTemplatesCommandPrintsTemplates(t *testing.T) {
+	configPath, cfg := writeYardChainControlConfig(t, "http://localhost:1")
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	backend := &yardChainTestBrainBackend{docs: map[string]string{}}
+	withYardOperatorTestRuntime(t, cfg.ProjectRoot, store, backend)
+
+	var out bytes.Buffer
+	cmd := newYardChainTemplatesCmd(&configPath)
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"one_step\tmode=one_step_chain",
+		"manual_roster\tmode=manual_roster",
+		"receipt_schema=yard.receipt.v1",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("stdout = %q, want %q", out.String(), want)
+		}
+	}
+}
+
+func TestYardChainTemplatesCommandPrintsJSON(t *testing.T) {
+	configPath, cfg := writeYardChainControlConfig(t, "http://localhost:1")
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	backend := &yardChainTestBrainBackend{docs: map[string]string{}}
+	withYardOperatorTestRuntime(t, cfg.ProjectRoot, store, backend)
+
+	var out bytes.Buffer
+	cmd := newYardChainTemplatesCmd(&configPath)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	var templates []operator.LaunchTemplate
+	if err := json.Unmarshal(out.Bytes(), &templates); err != nil {
+		t.Fatalf("json output decode failed: %v\n%s", err, out.String())
+	}
+	if len(templates) != 4 || templates[0].ID != "constrained_orchestration" {
+		t.Fatalf("templates = %+v, want typed template JSON", templates)
+	}
+	if !strings.Contains(out.String(), `"receipt_schema"`) {
+		t.Fatalf("stdout = %q, want snake_case JSON fields", out.String())
 	}
 }
 

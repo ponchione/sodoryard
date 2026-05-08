@@ -593,6 +593,20 @@ Not implemented in this slice:
 - CLI/API listing commands for launch templates
 - JSON input schemas or template-specific hard validation beyond existing launch validation
 
+### Implemented CLI Visibility Slice
+
+Implemented on 2026-05-08:
+
+- `yard chain templates`
+- `yard chain templates --json`
+- human-readable and machine-readable launch template listing from the same operator registry used by launch previews
+
+Not implemented in this slice:
+
+- API listing command for browser intake
+- template selection by ID beyond existing launch mode flags
+- JSON input schemas or template-specific hard validation beyond existing launch validation
+
 ### Acceptance Criteria
 
 - One-step, manual-roster, constrained-orchestration, and full-orchestration launches use one shared compile path.

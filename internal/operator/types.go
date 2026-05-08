@@ -387,13 +387,13 @@ type LaunchPreview struct {
 }
 
 type LaunchTemplate struct {
-	ID              string
-	Mode            LaunchMode
-	Label           string
-	Description     string
-	DefaultRoles    []string
-	ReceiptSchema   string
-	PreflightChecks []string
+	ID              string     `json:"id"`
+	Mode            LaunchMode `json:"mode"`
+	Label           string     `json:"label"`
+	Description     string     `json:"description"`
+	DefaultRoles    []string   `json:"default_roles,omitempty"`
+	ReceiptSchema   string     `json:"receipt_schema,omitempty"`
+	PreflightChecks []string   `json:"preflight_checks,omitempty"`
 }
 
 type LaunchDraft struct {
