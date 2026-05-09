@@ -249,7 +249,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.followAfter = 0
 		m.followLog = nil
 		m.screen = screenChains
-		m.notice = fmt.Sprintf("chain %s started", msg.Result.ChainID)
+		m.notice = launchStartedNotice(msg.Result)
 		m.loading = true
 		return m, tea.Batch(m.refreshCmd(), m.followCmd())
 	case launchDraftSavedMsg:
@@ -903,6 +903,21 @@ func (m Model) confirmLaunch() (tea.Model, tea.Cmd) {
 	m.confirm = pendingConfirmation{Action: "launch", LaunchRequest: *m.previewReq}
 	m.notice = "start launch? y/n"
 	return m, nil
+}
+
+func launchStartedNotice(result operator.StartResult) string {
+	notice := fmt.Sprintf("chain %s started", result.ChainID)
+	var warnings []string
+	for _, warning := range result.Preview.Warnings {
+		message := strings.TrimSpace(warning.Message)
+		if message != "" {
+			warnings = append(warnings, trimOneLine(message, 120))
+		}
+	}
+	if len(warnings) == 0 {
+		return notice
+	}
+	return notice + "; warnings: " + strings.Join(warnings, " | ")
 }
 
 func (m Model) openSelectedReceipt(mode ReceiptOpenMode) (tea.Model, tea.Cmd) {

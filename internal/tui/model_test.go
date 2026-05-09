@@ -1170,6 +1170,9 @@ func TestModelLaunchStepCapsEditPreviewAndStart(t *testing.T) {
 	if fake.startRequest.StepMaxTurns != 4 || fake.startRequest.StepMaxTokens != 50000 {
 		t.Fatalf("start step caps = turns %d tokens %d, want 4/50000", fake.startRequest.StepMaxTurns, fake.startRequest.StepMaxTokens)
 	}
+	if strings.Contains(got.notice, "warnings:") {
+		t.Fatalf("capped launch notice = %q, want no warning text", got.notice)
+	}
 }
 
 func TestModelLaunchPreviewShowsUncappedWarning(t *testing.T) {
@@ -1652,8 +1655,12 @@ func TestModelStartsPreviewedLaunchAfterConfirmation(t *testing.T) {
 	if got.screen != screenChains || got.followID != "chain-started" || !got.follow {
 		t.Fatalf("post-start state = screen %v follow %t id %q, want chains following chain-started", got.screen, got.follow, got.followID)
 	}
-	if got.notice != "chain chain-started started" {
-		t.Fatalf("notice = %q, want chain started", got.notice)
+	if !strings.Contains(got.notice, "chain chain-started started") || !strings.Contains(got.notice, "warnings: single-step coder launch has no per-step turn/token caps") {
+		t.Fatalf("notice = %q, want chain started with warning", got.notice)
+	}
+	view := got.View()
+	if !strings.Contains(view, "warnings: single-step coder launch has no") || !strings.Contains(view, "per-step turn/token caps") {
+		t.Fatalf("post-start chains view missing launch warning:\n%s", view)
 	}
 	if cmd == nil {
 		t.Fatal("launch start did not trigger refresh/follow batch")
