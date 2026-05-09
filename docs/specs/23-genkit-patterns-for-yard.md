@@ -1078,6 +1078,21 @@ Each timeline item should link to its detail panel:
 3. Link timeline rows to existing receipt/events/tool/context sections.
 4. Add tests for rendering warnings and span statuses.
 
+### Implemented Timeline Link Slice
+
+Implemented on 2026-05-09:
+
+- web inspector timeline rows now expose action links into existing step, event, receipt, source, and guardrail sections where matching data is available
+- provider/tool/context span rows can reveal trace IDs, parent span IDs, conversation IDs, and span attributes inline
+- timeline status rendering distinguishes warning-like events from normal event rows and preserves error span rendering
+- chain detail page tests cover linked timeline rows, warning events, trace attributes, and receipt selection from a timeline row
+
+Not implemented in this slice:
+
+- dedicated provider request, tool output, context report, or diff detail panels beyond the chain detail sections that already exist
+- complex timeline chart lanes
+- browser approval controls from timeline rows
+
 ### Acceptance Criteria
 
 - Web inspector can answer "what happened before this failure?" without reading raw logs.

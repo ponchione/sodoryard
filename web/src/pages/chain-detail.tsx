@@ -4,6 +4,10 @@ import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
 import type { ChainDetail, ChainTimelineItem, ReceiptSummary, ReceiptView } from "@/types/chains";
 
+function anchorID(prefix: string, value: string | number): string {
+  return `${prefix}-${String(value).replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
+}
+
 function formatDate(value?: string): string {
   if (!value) return "unknown";
   const date = new Date(value);
@@ -27,6 +31,85 @@ function timelineMeta(item: ChainTimelineItem): string {
     item.duration_ms ? `${item.duration_ms}ms` : "",
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "no linked runtime metadata";
+}
+
+function parseTimelineEventData(item: ChainTimelineItem): Record<string, unknown> {
+  if (!item.event_data) return {};
+  try {
+    const parsed = JSON.parse(item.event_data);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return {};
+  }
+  return {};
+}
+
+function timelineString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function timelineEventID(item: ChainTimelineItem): string {
+  return item.source === "event" && item.id.startsWith("event:") ? item.id.slice("event:".length) : "";
+}
+
+function timelineReceiptPath(item: ChainTimelineItem): string {
+  const eventData = parseTimelineEventData(item);
+  return timelineString(eventData.receipt_path) || timelineString(item.attributes?.receipt_path);
+}
+
+function findTimelineReceipt(detail: ChainDetail, item: ChainTimelineItem): ReceiptSummary | null {
+  const receiptPath = timelineReceiptPath(item);
+  return (
+    detail.receipts.find((candidate) => candidate.path === receiptPath) ??
+    detail.receipts.find((candidate) => item.step_id && candidate.step === item.step_id) ??
+    null
+  );
+}
+
+function formatTimelineValue(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function timelineTraceDetails(item: ChainTimelineItem): string {
+  if (item.source !== "span") return "";
+  const details: Record<string, unknown> = {
+    trace_id: item.trace_id,
+    span_id: item.span_id,
+    parent_span_id: item.parent_span_id,
+    conversation_id: item.conversation_id,
+    ...item.attributes,
+  };
+  return Object.entries(details)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${formatTimelineValue(value)}`)
+    .join("\n");
+}
+
+function isWarningTimelineItem(item: ChainTimelineItem): boolean {
+  const text = `${item.event_type ?? ""} ${item.name ?? ""}`.toLowerCase();
+  return text.includes("warning") || text.includes("blocked") || text.includes("safety_limit");
+}
+
+function timelineStatusLabel(item: ChainTimelineItem): string {
+  if (item.status) return item.status;
+  if (isWarningTimelineItem(item)) return "warning";
+  return item.source;
+}
+
+function timelineStatusClass(item: ChainTimelineItem): string {
+  const status = timelineStatusLabel(item);
+  if (status === "error" || status === "failed" || item.name.includes("failed")) return "text-destructive";
+  if (status === "cancelled" || status === "warning") return "text-warning";
+  return "text-muted-foreground";
 }
 
 export function ChainDetailPage() {
@@ -94,6 +177,14 @@ export function ChainDetailPage() {
     return detail.chain.source_task || detail.chain.source_specs.join(", ") || "No task recorded";
   }, [detail]);
 
+  function selectTimelineReceipt(receiptTarget: ReceiptSummary) {
+    setSelectedReceipt(receiptTarget);
+    const receiptContent = document.getElementById("receipt-content");
+    if (typeof receiptContent?.scrollIntoView === "function") {
+      receiptContent.scrollIntoView({ block: "start" });
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -134,7 +225,7 @@ export function ChainDetailPage() {
             </section>
 
             {(detail.warnings ?? []).length > 0 && (
-              <section className="space-y-2">
+              <section id="guardrail-warnings" className="space-y-2">
                 <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   Guardrail Warnings
                 </h2>
@@ -146,7 +237,7 @@ export function ChainDetailPage() {
               </section>
             )}
 
-            <section className="space-y-2">
+            <section id="guardrail-details" className="space-y-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                 Guardrail Details
               </h2>
@@ -284,12 +375,12 @@ export function ChainDetailPage() {
               )}
             </section>
 
-            <section className="space-y-2">
+            <section id="chain-source" className="space-y-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Source</h2>
               <p className="border border-border bg-muted/40 p-3 text-xs text-foreground">{source}</p>
             </section>
 
-            <section className="space-y-2">
+            <section id="steps" className="space-y-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Steps</h2>
               <div className="overflow-hidden border border-border">
                 <table className="w-full text-left text-xs">
@@ -304,7 +395,11 @@ export function ChainDetailPage() {
                   </thead>
                   <tbody>
                     {detail.steps.map((step) => (
-                      <tr key={step.id || `${step.sequence_num}-${step.role}`} className="border-b border-border/70">
+                      <tr
+                        id={step.id ? anchorID("step", step.id) : undefined}
+                        key={step.id || `${step.sequence_num}-${step.role}`}
+                        className="border-b border-border/70"
+                      >
                         <td className="px-3 py-2 tabular-nums">{step.sequence_num}</td>
                         <td className="px-3 py-2">{step.role}</td>
                         <td className={`px-3 py-2 ${chainStatusClass(step.status)}`}>{step.status}</td>
@@ -338,29 +433,79 @@ export function ChainDetailPage() {
                         </td>
                       </tr>
                     )}
-                    {(detail.timeline ?? []).map((item) => (
-                      <tr key={item.id} className="border-b border-border/70 align-top">
-                        <td className="px-3 py-2 text-muted-foreground">{formatDate(item.started_at)}</td>
-                        <td className="px-3 py-2 font-mono text-muted-foreground">{item.kind || item.source}</td>
-                        <td className="px-3 py-2 text-foreground">{item.name}</td>
-                        <td className={`px-3 py-2 ${item.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
-                          {item.status || item.source}
-                        </td>
-                        <td className="px-3 py-2">
-                          <p className="font-mono text-muted-foreground">{timelineMeta(item)}</p>
-                          {item.error && <p className="text-destructive">{item.error}</p>}
-                          {item.event_data && (
-                            <p className="truncate font-mono text-muted-foreground">{item.event_data}</p>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {(detail.timeline ?? []).map((item) => {
+                      const eventID = timelineEventID(item);
+                      const hasStepLink = Boolean(item.step_id && detail.steps.some((step) => step.id === item.step_id));
+                      const receiptTarget = findTimelineReceipt(detail, item);
+                      const traceDetails = timelineTraceDetails(item);
+
+                      return (
+                        <tr
+                          id={anchorID("timeline", item.id)}
+                          key={item.id}
+                          className="border-b border-border/70 align-top"
+                        >
+                          <td className="px-3 py-2 text-muted-foreground">{formatDate(item.started_at)}</td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground">{item.kind || item.source}</td>
+                          <td className="px-3 py-2 text-foreground">{item.name}</td>
+                          <td className={`px-3 py-2 ${timelineStatusClass(item)}`}>{timelineStatusLabel(item)}</td>
+                          <td className="space-y-2 px-3 py-2">
+                            <p className="font-mono text-muted-foreground">{timelineMeta(item)}</p>
+                            <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-widest">
+                              {hasStepLink && (
+                                <a href={`#${anchorID("step", item.step_id ?? "")}`} className="text-primary hover:underline">
+                                  Step
+                                </a>
+                              )}
+                              {eventID && (
+                                <a href={`#${anchorID("event", eventID)}`} className="text-primary hover:underline">
+                                  Event
+                                </a>
+                              )}
+                              {receiptTarget && (
+                                <button
+                                  type="button"
+                                  onClick={() => selectTimelineReceipt(receiptTarget)}
+                                  className="text-primary hover:underline"
+                                >
+                                  Receipt
+                                </button>
+                              )}
+                              {item.kind === "context" && (
+                                <a href="#chain-source" className="text-primary hover:underline">
+                                  Source
+                                </a>
+                              )}
+                              {(isWarningTimelineItem(item) || item.event_type?.includes("finding")) && (
+                                <a href="#guardrail-details" className="text-primary hover:underline">
+                                  Guardrails
+                                </a>
+                              )}
+                            </div>
+                            {item.error && <p className="text-destructive">{item.error}</p>}
+                            {item.event_data && (
+                              <p className="truncate font-mono text-muted-foreground">{item.event_data}</p>
+                            )}
+                            {traceDetails && (
+                              <details>
+                                <summary className="cursor-pointer text-[10px] uppercase tracking-widest text-muted-foreground">
+                                  Trace details
+                                </summary>
+                                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-border/70 bg-background p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                                  {traceDetails}
+                                </pre>
+                              </details>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </section>
 
-            <section className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+            <section id="receipts" className="grid gap-4 lg:grid-cols-[18rem_1fr]">
               <div className="space-y-2">
                 <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Receipts</h2>
                 <div className="border border-border">
@@ -386,20 +531,27 @@ export function ChainDetailPage() {
                 <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   Receipt Content
                 </h2>
-                <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap border border-border bg-background p-3 text-xs leading-relaxed text-foreground">
+                <pre
+                  id="receipt-content"
+                  className="max-h-[32rem] overflow-auto whitespace-pre-wrap border border-border bg-background p-3 text-xs leading-relaxed text-foreground"
+                >
                   {receipt?.content || "No receipt selected."}
                 </pre>
               </div>
             </section>
 
-            <section className="space-y-2">
+            <section id="recent-events" className="space-y-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Recent Events</h2>
               <div className="space-y-1 border border-border p-3">
                 {detail.recent_events.length === 0 && (
                   <p className="text-xs text-muted-foreground">No events recorded.</p>
                 )}
                 {detail.recent_events.map((event) => (
-                  <div key={event.id} className="grid gap-2 text-xs md:grid-cols-[10rem_12rem_1fr]">
+                  <div
+                    id={anchorID("event", event.id)}
+                    key={event.id}
+                    className="grid gap-2 text-xs md:grid-cols-[10rem_12rem_1fr]"
+                  >
                     <span className="text-muted-foreground">{formatDate(event.created_at)}</span>
                     <span className="font-medium text-primary">{event.event_type}</span>
                     <span className="truncate font-mono text-muted-foreground">{event.event_data}</span>
