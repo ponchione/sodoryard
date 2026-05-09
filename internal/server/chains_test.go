@@ -334,6 +334,18 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	if len(detail.Metrics.Warnings) == 0 {
 		t.Fatalf("metric warnings = %+v, want dogfooding warnings", detail.Metrics.Warnings)
 	}
+	var metrics struct {
+		ChainID        string `json:"chain_id"`
+		Health         string `json:"health"`
+		StepTokenTotal int    `json:"step_token_total"`
+		Warnings       []struct {
+			Message string `json:"message"`
+		} `json:"warnings"`
+	}
+	getJSON(t, base+"/api/chains/"+chainID+"/metrics", &metrics)
+	if metrics.ChainID != chainID || metrics.Health != "attention" || metrics.StepTokenTotal != 42 || len(metrics.Warnings) == 0 {
+		t.Fatalf("metrics endpoint = %+v, want chain metrics report", metrics)
+	}
 	var sawTimelineSpan bool
 	for _, item := range detail.Timeline {
 		if item.Source == "span" && item.Kind == tracepkg.KindProvider && item.Name == "provider.stream" && item.Status == tracepkg.StatusError && item.StepID == stepID && item.Error == "provider failed" {

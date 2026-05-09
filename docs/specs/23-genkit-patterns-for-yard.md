@@ -1282,6 +1282,7 @@ Not implemented in this slice:
 Implemented on 2026-05-09:
 
 - chain detail API responses now serialize the same dogfooding metrics report used by `yard chain metrics`
+- `GET /api/chains/{id}/metrics` returns the same serialized report without the full chain detail payload
 - browser chain detail renders a compact dogfood metrics panel for step, token, duration, event, warning, finding, and process counts
 - tests cover API metrics serialization and browser rendering of the compact metrics panel
 

@@ -24,6 +24,7 @@ func NewChainInspectorHandler(s *Server, svc *operator.Service, logger *slog.Log
 	s.HandleFunc("GET /api/chains", h.handleListChains)
 	s.HandleFunc("GET /api/chains/templates", h.handleTemplates)
 	s.HandleFunc("GET /api/chains/{id}", h.handleGetChain)
+	s.HandleFunc("GET /api/chains/{id}/metrics", h.handleGetChainMetrics)
 	s.HandleFunc("POST /api/chains/{id}/approvals/{approval_id}/approve", h.handleApproveChainApproval)
 	s.HandleFunc("POST /api/chains/{id}/approvals/{approval_id}/deny", h.handleDenyChainApproval)
 	s.HandleFunc("GET /api/chains/{id}/timeline", h.handleTimeline)
@@ -90,6 +91,21 @@ func (h *ChainInspectorHandler) handleGetChain(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, chainDetailResponseFromOperator(detail))
+}
+
+func (h *ChainInspectorHandler) handleGetChainMetrics(w http.ResponseWriter, r *http.Request) {
+	chainID := strings.TrimSpace(r.PathValue("id"))
+	if chainID == "" {
+		writeError(w, http.StatusBadRequest, "chain id is required")
+		return
+	}
+	report, err := h.svc.GetChainMetrics(r.Context(), chainID)
+	if err != nil {
+		h.logger.Warn("get chain metrics", "chain_id", chainID, "error", err)
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, chainMetricsResponseFromOperator(report))
 }
 
 func (h *ChainInspectorHandler) handleApproveChainApproval(w http.ResponseWriter, r *http.Request) {

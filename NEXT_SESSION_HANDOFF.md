@@ -16,7 +16,7 @@ Shunter is the base brain/project-memory design. Do not reintroduce legacy migra
 
 2026-05-09 update: the Spec 23 prompt-metadata sync slice now adds frontmatter metadata to every checked-in built-in role prompt and matching embedded prompt asset. The runtime strips this frontmatter before sending prompts to models, and tests now validate role key, persona, expected configured tools, receipt schema, recommended max turns, and structured-finding expectations. `yard config` now warns when prompt `recommended_max_turns` drifts from configured role `max_turns`.
 
-2026-05-09 update: the web inspector chain detail response now carries the same dogfooding metrics report used by `yard chain metrics`, and the browser chain detail page renders a compact metrics panel for steps, tokens, duration, events, warnings, findings, and process counts.
+2026-05-09 update: the web inspector chain detail response and `GET /api/chains/{id}/metrics` now carry the same dogfooding metrics report used by `yard chain metrics`, and the browser chain detail page renders a compact metrics panel for steps, tokens, duration, events, warnings, findings, and process counts.
 
 ## What Changed Tonight
 
