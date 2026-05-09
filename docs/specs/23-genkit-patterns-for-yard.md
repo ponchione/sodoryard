@@ -695,8 +695,17 @@ Implemented on 2026-05-09:
 
 Not implemented in this slice:
 
-- chain start CLI `--template`
 - JSON input schemas or template-specific hard validation beyond existing launch validation
+
+### Implemented Chain Start Template Slice
+
+Implemented on 2026-05-09:
+
+- `yard chain start --template <id>`
+- `yard chain start --allowed-roles <roles>` for constrained orchestration
+- `yard chain start --roster <roles>` for manual roster execution
+- CLI template IDs resolve through the shared operator launch template registry
+- invalid template/role/roster combinations fail before chain creation
 
 ### Acceptance Criteria
 

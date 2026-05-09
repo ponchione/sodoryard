@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -39,7 +38,10 @@ var interruptYardChainPID = func(pid int) error {
 type yardChainFlags struct {
 	Specs            string
 	Task             string
+	TemplateID       string
 	Role             string
+	AllowedRoles     string
+	Roster           string
 	ChainID          string
 	MaxSteps         int
 	MaxResolverLoops int
@@ -104,7 +106,10 @@ func newYardChainStartCmd(configPath *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&flags.Specs, "specs", "", "Comma-separated brain-relative paths to spec docs")
 	cmd.Flags().StringVar(&flags.Task, "task", "", "Free-form task description")
+	cmd.Flags().StringVar(&flags.TemplateID, "template", "", "Launch template ID from `yard chain templates`")
 	cmd.Flags().StringVar(&flags.Role, "role", "", "Run a one-step chain with the selected role instead of the orchestrator")
+	cmd.Flags().StringVar(&flags.AllowedRoles, "allowed-roles", "", "Comma-separated roles for constrained orchestration")
+	cmd.Flags().StringVar(&flags.Roster, "roster", "", "Comma-separated roles for manual roster execution")
 	cmd.Flags().StringVar(&flags.ProjectRoot, "project", "", "Override project root")
 	cmd.Flags().StringVar(&flags.ChainID, "chain-id", "", "Chain execution identifier")
 	cmd.Flags().IntVar(&flags.MaxSteps, "max-steps", flags.MaxSteps, "Maximum total agent invocations")
@@ -131,29 +136,22 @@ func yardRunChain(ctx context.Context, configPath string, flags yardChainFlags, 
 		return err
 	}
 
-	_, err = chainrun.Start(ctx, cfg, chainrun.Options{
-		ChainID:          flags.ChainID,
-		Role:             strings.TrimSpace(flags.Role),
-		SourceSpecs:      yardParseSpecs(flags.Specs),
-		SourceTask:       strings.TrimSpace(flags.Task),
-		MaxSteps:         flags.MaxSteps,
-		MaxResolverLoops: flags.MaxResolverLoops,
-		MaxDuration:      flags.MaxDuration,
-		TokenBudget:      flags.TokenBudget,
-		StepMaxTurns:     flags.StepMaxTurns,
-		StepMaxTokens:    flags.StepMaxTokens,
-		DryRun:           flags.DryRun,
-		OnChainID: func(chainID string) {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)
-		},
-		OnMessage: func(message string) {
-			_, _ = fmt.Fprint(cmd.OutOrStdout(), message)
-		},
-		StartWatch: func(ctx context.Context, store *chain.Store, chainID string) chainrun.WatchHandle {
-			return yardChainWatchAdapter{handle: startYardChainWatch(ctx, cmd.ErrOrStderr(), store, chainID, flags.Watch, chainRenderOptions{Verbosity: normalizeChainVerbosity(flags.Verbosity)})}
-		},
-		WatchFlushTimeout: yardChainWatchFlushTimeout,
-	}, chainrun.Deps{
+	opts, err := yardChainOptionsFromFlags(flags)
+	if err != nil {
+		return err
+	}
+	opts.OnChainID = func(chainID string) {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)
+	}
+	opts.OnMessage = func(message string) {
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), message)
+	}
+	opts.StartWatch = func(ctx context.Context, store *chain.Store, chainID string) chainrun.WatchHandle {
+		return yardChainWatchAdapter{handle: startYardChainWatch(ctx, cmd.ErrOrStderr(), store, chainID, flags.Watch, chainRenderOptions{Verbosity: normalizeChainVerbosity(flags.Verbosity)})}
+	}
+	opts.WatchFlushTimeout = yardChainWatchFlushTimeout
+
+	_, err = chainrun.Start(ctx, cfg, opts, chainrun.Deps{
 		BuildRuntime:  buildYardChainRuntime,
 		BuildRegistry: buildYardChainRegistry,
 		NewTurnRunner: newYardChainTurnRunner,

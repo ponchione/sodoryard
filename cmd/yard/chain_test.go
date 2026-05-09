@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,15 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	}
 	if flag := cmd.Flags().Lookup("role"); flag == nil {
 		t.Fatal("expected role flag")
+	}
+	if flag := cmd.Flags().Lookup("template"); flag == nil {
+		t.Fatal("expected template flag")
+	}
+	if flag := cmd.Flags().Lookup("allowed-roles"); flag == nil {
+		t.Fatal("expected allowed-roles flag")
+	}
+	if flag := cmd.Flags().Lookup("roster"); flag == nil {
+		t.Fatal("expected roster flag")
 	}
 	if flag := cmd.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
 		t.Fatalf("watch flag = %#v, want default true", flag)
@@ -509,6 +519,17 @@ func TestYardParseSpecsTrimsWhitespaceDropsEmptyEntriesAndDeduplicates(t *testin
 	}
 }
 
+func TestYardParseRolesAndRoster(t *testing.T) {
+	roles := yardParseRoles(" coder, Coder, planner ,, ")
+	if want := []string{"coder", "planner"}; !slices.Equal(roles, want) {
+		t.Fatalf("yardParseRoles() = %v, want %v", roles, want)
+	}
+	roster := yardParseRoster(" planner, coder, coder ")
+	if len(roster) != 3 || roster[0].Role != "planner" || roster[1].Role != "coder" || roster[2].Role != "coder" {
+		t.Fatalf("yardParseRoster() = %+v, want ordered planner,coder,coder", roster)
+	}
+}
+
 func TestValidateYardChainFlagsRejectsInvalidNumericFlags(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -529,6 +550,69 @@ func TestValidateYardChainFlagsRejectsInvalidNumericFlags(t *testing.T) {
 				t.Fatalf("validateYardChainFlags() error = %v, want %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateYardChainFlagsRejectsInvalidTemplateCombinations(t *testing.T) {
+	base := yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1}
+	tests := []struct {
+		name    string
+		mutate  func(*yardChainFlags)
+		wantErr string
+	}{
+		{name: "unknown template", mutate: func(flags *yardChainFlags) { flags.TemplateID = "missing" }, wantErr: `unknown launch template "missing"`},
+		{name: "one step missing role", mutate: func(flags *yardChainFlags) { flags.TemplateID = "one_step" }, wantErr: "--template one_step requires --role"},
+		{name: "manual missing roster", mutate: func(flags *yardChainFlags) { flags.TemplateID = "manual_roster" }, wantErr: "--template manual_roster requires --roster"},
+		{name: "constrained missing roles", mutate: func(flags *yardChainFlags) { flags.TemplateID = "constrained_orchestration" }, wantErr: "--template constrained_orchestration requires --allowed-roles or --role"},
+		{name: "orchestrator with role", mutate: func(flags *yardChainFlags) {
+			flags.TemplateID = "sir_topham_decides"
+			flags.Role = "coder"
+		}, wantErr: "--template sir_topham_decides cannot be combined with --role, --allowed-roles, or --roster"},
+		{name: "roster with role", mutate: func(flags *yardChainFlags) {
+			flags.Roster = "planner,coder"
+			flags.Role = "coder"
+		}, wantErr: "--roster cannot be combined with --role or --allowed-roles"},
+		{name: "allowed with role", mutate: func(flags *yardChainFlags) {
+			flags.AllowedRoles = "coder"
+			flags.Role = "planner"
+		}, wantErr: "--allowed-roles cannot be combined with --role"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			flags := base
+			tc.mutate(&flags)
+			if err := validateYardChainFlags(flags); err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("validateYardChainFlags() error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestYardChainOptionsFromFlagsUsesTemplateFields(t *testing.T) {
+	opts, err := yardChainOptionsFromFlags(yardChainFlags{
+		TemplateID:       "constrained_orchestration",
+		AllowedRoles:     " coder, planner, coder ",
+		Task:             "ship it",
+		Specs:            "specs/a.md,specs/a.md",
+		MaxSteps:         5,
+		MaxResolverLoops: 2,
+		MaxDuration:      time.Minute,
+		TokenBudget:      100,
+		StepMaxTurns:     3,
+		StepMaxTokens:    200,
+		DryRun:           true,
+	})
+	if err != nil {
+		t.Fatalf("yardChainOptionsFromFlags returned error: %v", err)
+	}
+	if opts.Mode != chainrun.ModeConstrained || opts.SourceTask != "ship it" || opts.StepMaxTurns != 3 || !opts.DryRun {
+		t.Fatalf("options = %+v, want constrained dry-run options", opts)
+	}
+	if !slices.Equal(opts.AllowedRoles, []string{"coder", "planner"}) {
+		t.Fatalf("AllowedRoles = %v, want coder/planner", opts.AllowedRoles)
+	}
+	if !slices.Equal(opts.SourceSpecs, []string{"specs/a.md"}) {
+		t.Fatalf("SourceSpecs = %v, want deduped spec", opts.SourceSpecs)
 	}
 }
 
