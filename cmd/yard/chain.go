@@ -145,6 +145,9 @@ func yardRunChain(ctx context.Context, configPath string, flags yardChainFlags, 
 	if err != nil {
 		return err
 	}
+	for _, warning := range yardSingleStepCapWarnings(opts) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+	}
 	opts.OnChainID = func(chainID string) {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", chainID)
 	}

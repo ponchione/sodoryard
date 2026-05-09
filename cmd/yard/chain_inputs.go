@@ -106,6 +106,45 @@ func yardChainOptionsFromFlags(flags yardChainFlags) (chainrun.Options, error) {
 	}, nil
 }
 
+func yardSingleStepCapWarnings(opts chainrun.Options) []string {
+	if opts.StepMaxTurns > 0 || opts.StepMaxTokens > 0 {
+		return nil
+	}
+	mode := yardResolvedChainMode(opts)
+	role := ""
+	switch mode {
+	case chainrun.ModeOneStep:
+		role = strings.TrimSpace(opts.Role)
+	case chainrun.ModeManualRoster:
+		if len(opts.Roster) != 1 {
+			return nil
+		}
+		role = strings.TrimSpace(opts.Roster[0].Role)
+	default:
+		return nil
+	}
+	if role == "" {
+		role = "selected-role"
+	}
+	return []string{fmt.Sprintf("single-step %s launch has no per-step turn/token caps; use --step-max-turns or --step-max-tokens for bounded probes", role)}
+}
+
+func yardResolvedChainMode(opts chainrun.Options) chainrun.Mode {
+	if opts.Mode != "" {
+		return opts.Mode
+	}
+	switch {
+	case len(opts.Roster) > 0:
+		return chainrun.ModeManualRoster
+	case len(opts.AllowedRoles) > 0:
+		return chainrun.ModeConstrained
+	case strings.TrimSpace(opts.Role) != "":
+		return chainrun.ModeOneStep
+	default:
+		return chainrun.ModeOrchestrator
+	}
+}
+
 func yardChainModeFromTemplate(templateID string) (chainrun.Mode, error) {
 	templateID = strings.TrimSpace(templateID)
 	if templateID == "" {

@@ -665,6 +665,51 @@ func TestYardChainOptionsFromFlagsUsesTemplateFields(t *testing.T) {
 	}
 }
 
+func TestYardSingleStepCapWarnings(t *testing.T) {
+	tests := []struct {
+		name string
+		opts chainrun.Options
+		want string
+	}{
+		{
+			name: "one step without caps",
+			opts: chainrun.Options{Role: "coder"},
+			want: "single-step coder launch has no per-step turn/token caps",
+		},
+		{
+			name: "manual singleton without caps",
+			opts: chainrun.Options{Mode: chainrun.ModeManualRoster, Roster: []chainrun.StepRequest{{Role: "planner"}}},
+			want: "single-step planner launch has no per-step turn/token caps",
+		},
+		{
+			name: "one step with turn cap",
+			opts: chainrun.Options{Role: "coder", StepMaxTurns: 4},
+		},
+		{
+			name: "manual multi step",
+			opts: chainrun.Options{Mode: chainrun.ModeManualRoster, Roster: []chainrun.StepRequest{{Role: "planner"}, {Role: "coder"}}},
+		},
+		{
+			name: "orchestrator",
+			opts: chainrun.Options{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			warnings := yardSingleStepCapWarnings(tc.opts)
+			if tc.want == "" {
+				if len(warnings) != 0 {
+					t.Fatalf("warnings = %v, want none", warnings)
+				}
+				return
+			}
+			if len(warnings) != 1 || !strings.Contains(warnings[0], tc.want) || !strings.Contains(warnings[0], "--step-max-turns") {
+				t.Fatalf("warnings = %v, want %q and cap guidance", warnings, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateYardChainFlagsAcceptsZeroResolverLoops(t *testing.T) {
 	flags := yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1}
 	if err := validateYardChainFlags(flags); err != nil {
