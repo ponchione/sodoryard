@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/provider"
 	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
@@ -177,5 +178,5 @@ func approvalRequiredDetails(pending PendingApproval) json.RawMessage {
 	if pending.Iteration > 0 {
 		fields["iteration"] = pending.Iteration
 	}
-	return provider.NewToolResultDetails("approval_required", fields)
+	return provider.NewToolResultDetails(approval.KindRequired, fields)
 }

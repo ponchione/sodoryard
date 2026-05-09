@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/brain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/receipt"
@@ -234,6 +235,11 @@ func FormatEvent(event agent.Event) string {
 		}
 		return fmt.Sprintf("tool: start %s%s", e.ToolName, args)
 	case agent.ToolCallEndEvent:
+		if payload, ok := approval.PayloadFromToolResultDetails(e.Details); ok {
+			if line := approval.EncodeProgressLine(payload); line != "" {
+				return line
+			}
+		}
 		return fmt.Sprintf("tool: end %s success=%t duration=%s", e.ToolCallID, e.Success, e.Duration)
 	case agent.TurnCompleteEvent:
 		return fmt.Sprintf("complete: iterations=%d input_tokens=%d output_tokens=%d duration=%s", e.IterationCount, e.TotalInputTokens, e.TotalOutputTokens, e.Duration)

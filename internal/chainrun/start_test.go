@@ -15,6 +15,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/receipt"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
@@ -90,6 +91,75 @@ func TestDefaultStepRunnerPassesMemoryEndpointEnv(t *testing.T) {
 	if strings.Join(spawnTool.SubprocessEnv, "\n") != strings.Join(expectedEnv, "\n") {
 		t.Fatalf("SubprocessEnv = %v, want %v", spawnTool.SubprocessEnv, expectedEnv)
 	}
+}
+
+func TestStartLogsApprovalRequiredEventsFromOrchestratorToolResults(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.Routing.Default.Provider = "test"
+	cfg.Routing.Default.Model = "test-model"
+	cfg.Providers = map[string]appconfig.ProviderConfig{
+		"test": {Type: "openai-compatible", Model: "test-model", ContextLength: 128},
+	}
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"orchestrator": {SystemPrompt: "builtin:orchestrator", MaxTurns: 3},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	details := provider.NewToolResultDetails("approval_required", map[string]any{
+		"approval_id": "approval-tc-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	})
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+				return nil, err
+			}
+			return &rtpkg.OrchestratorRuntime{
+				Config:              cfg,
+				Logger:              slog.Default(),
+				Database:            db,
+				Queries:             appdb.New(db),
+				ConversationManager: conversation.NewManager(db, nil, slog.Default()),
+				ContextAssembler:    rtpkg.NoopContextAssembler{},
+				ChainStore:          store,
+				Cleanup:             func() {},
+			}, nil
+		},
+		BuildRegistry: func(*rtpkg.OrchestratorRuntime, appconfig.AgentRoleConfig, string) (*tool.Registry, error) {
+			return tool.NewRegistry(), nil
+		},
+		NewTurnRunner: func(loopDeps agent.AgentLoopDeps) TurnRunner {
+			if loopDeps.EventSink == nil {
+				t.Fatal("orchestrator loop missing approval event sink")
+			}
+			return fakeTurnRunner{run: func(runCtx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+				loopDeps.EventSink.Emit(agent.ToolCallEndEvent{ToolCallID: "tc-1", Details: details})
+				return &agent.TurnResult{}, nil
+			}}
+		},
+		NewChainID: func() string { return "approval-event-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	if _, err := Start(ctx, cfg, Options{SourceTask: "approval", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, "approval-event-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if event.EventType == chain.EventApprovalRequired && containsAll(event.EventData, `"approval_id":"approval-tc-1"`, `"tool_name":"shell"`, `"chain_id":"approval-event-chain"`) {
+			return
+		}
+	}
+	t.Fatalf("events = %+v, want approval_required event", events)
 }
 
 func TestBuildTaskIncludesReceiptHistory(t *testing.T) {

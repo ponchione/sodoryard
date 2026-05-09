@@ -841,9 +841,23 @@ Implemented on 2026-05-08:
 
 Not implemented in this slice:
 
-- runtime emission of approval events
 - durable approval storage
 - approve/deny/resume controls
+
+### Implemented Approval Event Emission Slice
+
+Implemented on 2026-05-09:
+
+- shared parser/encoder for `approval_required` tool-result metadata and headless progress lines
+- orchestrator agent loops log `approval_required` chain events when tool results carry approval metadata
+- spawned headless step progress emits machine-readable approval lines and the parent chain records them as `approval_required` events
+- fail-closed behavior remains unchanged; this slice only makes required approvals visible in the chain timeline
+
+Not implemented in this slice:
+
+- durable approval storage
+- approve/deny/resume controls
+- opt-in wait mode that moves chains into `waiting_approval`
 
 ### Acceptance Criteria
 

@@ -11,6 +11,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 type fakeReceiptBackend struct {
@@ -218,5 +219,19 @@ func TestFormatEventFormatsKeyEvents(t *testing.T) {
 	}
 	if got := FormatEvent(agent.TurnCompleteEvent{IterationCount: 2, Duration: time.Second}); !strings.Contains(got, "complete: iterations=2") {
 		t.Fatalf("turn complete format = %q", got)
+	}
+}
+
+func TestFormatEventFormatsApprovalRequiredProgress(t *testing.T) {
+	details := provider.NewToolResultDetails("approval_required", map[string]any{
+		"approval_id": "approval-tc-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	})
+	got := FormatEvent(agent.ToolCallEndEvent{ToolCallID: "tc-1", Details: details})
+	if !strings.HasPrefix(got, "approval_required: ") || !strings.Contains(got, `"approval_id":"approval-tc-1"`) || !strings.Contains(got, `"tool_name":"shell"`) {
+		t.Fatalf("approval format = %q", got)
 	}
 }

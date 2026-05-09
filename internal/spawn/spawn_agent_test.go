@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
@@ -80,6 +81,14 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 		}
 		if in.OnStderrLine != nil {
 			in.OnStderrLine("stderr line 1")
+			in.OnStderrLine(approval.EncodeProgressLine(map[string]any{
+				"approval_id": "approval-tc-1",
+				"tool_name":   "shell",
+				"status":      "pending",
+				"reason":      "matched policy",
+				"risk_level":  "high",
+				"step_id":     argValue(in.Args, "--step-id"),
+			}))
 		}
 		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 33, testReceiptBody("Done."))
 		return RunResult{ExitCode: 0}
@@ -163,7 +172,7 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	if len(events) < 5 {
 		t.Fatalf("expected step output events, got %+v", events)
 	}
-	var stdoutSeen, stderrSeen, processStartedSeen, processExitedSeen, missingSchemaWarningSeen bool
+	var stdoutSeen, stderrSeen, approvalSeen, processStartedSeen, processExitedSeen, missingSchemaWarningSeen bool
 	for _, event := range events {
 		switch event.EventType {
 		case chain.EventStepOutput:
@@ -172,6 +181,10 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 			}
 			if strings.Contains(event.EventData, `"stream":"stderr"`) && strings.Contains(event.EventData, "stderr line 1") {
 				stderrSeen = true
+			}
+		case chain.EventApprovalRequired:
+			if strings.Contains(event.EventData, `"approval_id":"approval-tc-1"`) && strings.Contains(event.EventData, `"tool_name":"shell"`) && strings.Contains(event.EventData, `"step_id":"`+stepID+`"`) {
+				approvalSeen = true
 			}
 		case chain.EventStepProcessStarted:
 			if strings.Contains(event.EventData, `"process_id":4321`) {
@@ -189,6 +202,9 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	}
 	if !stdoutSeen || !stderrSeen {
 		t.Fatalf("step output events missing stdout/stderr lines: %+v", events)
+	}
+	if !approvalSeen {
+		t.Fatalf("approval_required event missing: %+v", events)
 	}
 	if !processStartedSeen || !processExitedSeen {
 		t.Fatalf("step process events missing start/exit: %+v", events)

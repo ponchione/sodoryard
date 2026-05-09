@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
@@ -1358,6 +1359,14 @@ func mustMarshalString(value any) string {
 func (t *SpawnAgentTool) logStepOutput(ctx context.Context, stepID string, stream string, line string) {
 	if strings.TrimSpace(line) == "" {
 		return
+	}
+	if payload, ok := approval.PayloadFromProgressLine(line); ok {
+		payload = approval.WithDefaultChainStep(payload, t.ChainID, stepID)
+		eventStepID := approval.StepID(payload)
+		if eventStepID == "" {
+			eventStepID = stepID
+		}
+		_ = t.Store.LogEvent(ctx, t.ChainID, eventStepID, chain.EventApprovalRequired, payload)
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, stepID, chain.EventStepOutput, map[string]any{"stream": stream, "line": line})
 }
