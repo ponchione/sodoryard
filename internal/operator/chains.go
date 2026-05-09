@@ -182,7 +182,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	attentionHealth := false
 	changedFileEventsByStep := map[string]bool{}
 	guardrailFactsByStep := map[string]stepGuardrailFactsEvent{}
-	launchMode := chainMetricsLaunchModeFromEvents(detail.RecentEvents)
+	launchFacts := chainMetricsLaunchFactsFromEvents(detail.RecentEvents)
 	flowAnalysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: detail.Steps, Events: detail.RecentEvents})
 	report.OpenFindingIDs = append([]string(nil), flowAnalysis.Findings.OpenIDs...)
 	report.ClosedFindingIDs = append([]string(nil), flowAnalysis.Findings.ClosedIDs...)
@@ -281,14 +281,15 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 		attentionHealth = true
 		report.addWarning("resolver loop budget exhausted")
 	}
-	if ch.Status == "completed" && isSmallSingleStepLaunch(launchMode, ch, detail.Steps, report.CompletedSteps) {
+	if ch.Status == "completed" && isSmallSingleStepLaunch(launchFacts.Mode, ch, detail.Steps, report.CompletedSteps) {
 		tokensUsed := maxInt(ch.TotalTokens, report.StepTokenTotal)
 		if report.StepTurnTotal > smallSingleStepTurnWarningThreshold || tokensUsed > smallSingleStepTokenWarningThreshold {
 			attentionHealth = true
-			report.addWarning(fmt.Sprintf("%s used %d turns and %d tokens in a single completed step; expected small one-step chains to stay within %d turns and %d tokens, so consider narrowing the task, using a roster for broad work, or setting --step-max-turns/--step-max-tokens for bounded probes",
-				launchMode,
+			report.addWarning(fmt.Sprintf("%s used %d turns and %d tokens in a single completed step; %s; expected small one-step chains to stay within %d turns and %d tokens, so consider narrowing the task, using a roster for broad work, or setting --step-max-turns/--step-max-tokens for bounded probes",
+				launchFacts.Mode,
 				report.StepTurnTotal,
 				tokensUsed,
+				singleStepCapSummary(launchFacts),
 				smallSingleStepTurnWarningThreshold,
 				smallSingleStepTokenWarningThreshold,
 			))
@@ -535,8 +536,16 @@ func isTerminalChainStatus(status string) bool {
 	}
 }
 
-func chainMetricsLaunchModeFromEvents(events []chain.Event) string {
-	mode := ""
+type chainMetricsLaunchFacts struct {
+	Mode             string
+	StepMaxTurns     int
+	StepMaxTokens    int
+	HasStepMaxTurns  bool
+	HasStepMaxTokens bool
+}
+
+func chainMetricsLaunchFactsFromEvents(events []chain.Event) chainMetricsLaunchFacts {
+	var facts chainMetricsLaunchFacts
 	for _, event := range events {
 		switch event.EventType {
 		case chain.EventChainStarted, chain.EventChainCompleted:
@@ -544,16 +553,26 @@ func chainMetricsLaunchModeFromEvents(events []chain.Event) string {
 			continue
 		}
 		var payload struct {
-			Mode string `json:"mode"`
+			Mode          string `json:"mode"`
+			StepMaxTurns  *int   `json:"step_max_turns"`
+			StepMaxTokens *int   `json:"step_max_tokens"`
 		}
 		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
 			continue
 		}
 		if trimmed := strings.TrimSpace(payload.Mode); trimmed != "" {
-			mode = trimmed
+			facts.Mode = trimmed
+		}
+		if payload.StepMaxTurns != nil {
+			facts.StepMaxTurns = *payload.StepMaxTurns
+			facts.HasStepMaxTurns = true
+		}
+		if payload.StepMaxTokens != nil {
+			facts.StepMaxTokens = *payload.StepMaxTokens
+			facts.HasStepMaxTokens = true
 		}
 	}
-	return mode
+	return facts
 }
 
 func isSmallSingleStepLaunch(mode string, ch chain.Chain, steps []chain.Step, completedSteps int) bool {
@@ -563,6 +582,25 @@ func isSmallSingleStepLaunch(mode string, ch chain.Chain, steps []chain.Step, co
 		return false
 	}
 	return maxInt(ch.TotalSteps, len(steps)) == 1 && len(steps) == 1 && completedSteps == 1
+}
+
+func singleStepCapSummary(facts chainMetricsLaunchFacts) string {
+	hasTurnCap := facts.HasStepMaxTurns && facts.StepMaxTurns > 0
+	hasTokenCap := facts.HasStepMaxTokens && facts.StepMaxTokens > 0
+	if !hasTurnCap && !hasTokenCap {
+		if facts.HasStepMaxTurns || facts.HasStepMaxTokens {
+			return "no per-step turn/token cap was set"
+		}
+		return "no per-step turn/token cap was recorded"
+	}
+	parts := make([]string, 0, 2)
+	if hasTurnCap {
+		parts = append(parts, fmt.Sprintf("step_max_turns=%d", facts.StepMaxTurns))
+	}
+	if hasTokenCap {
+		parts = append(parts, fmt.Sprintf("step_max_tokens=%d", facts.StepMaxTokens))
+	}
+	return "recorded per-step caps: " + strings.Join(parts, ", ")
 }
 
 func (r *ChainMetricsReport) addWarning(message string) {

@@ -317,7 +317,7 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 			Status:    status,
 			EventType: chain.EventChainCompleted,
 			Summary:   &summary,
-			Extra:     map[string]any{"summary": summary, "mode": string(ModeOneStep), "role": opts.Role, "verdict": stepResult.Verdict},
+			Extra:     chainCompletionEventPayload(opts, map[string]any{"summary": summary, "mode": string(ModeOneStep), "role": opts.Role, "verdict": stepResult.Verdict}),
 		}); err != nil {
 			return nil, err
 		}
@@ -366,10 +366,10 @@ func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opt
 			return result, err
 		}
 		if shouldStopManualRoster(stepResult) {
-			return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+			return closeManualRoster(ctx, rt.ChainStore, chainID, opts, results, watch, opts.WatchFlushTimeout)
 		}
 	}
-	return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+	return closeManualRoster(ctx, rt.ChainStore, chainID, opts, results, watch, opts.WatchFlushTimeout)
 }
 
 type approvalWaitConfigurable interface {
@@ -520,7 +520,7 @@ func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID s
 	if _, err := store.StartChain(ctx, chainSpecFromOptions(chainID, opts)); err != nil {
 		return opts, false, false, err
 	}
-	payload := map[string]any{"specs": opts.SourceSpecs, "task": opts.SourceTask, "mode": string(opts.Mode)}
+	payload := chainLaunchEventPayload(opts)
 	if opts.DryRun {
 		payload["dry_run"] = true
 	}
@@ -721,6 +721,25 @@ func chainSpecFromOptions(chainID string, opts Options) chain.ChainSpec {
 	return chain.ChainSpec{ChainID: chainID, SourceSpecs: append([]string(nil), opts.SourceSpecs...), SourceTask: strings.TrimSpace(opts.SourceTask), MaxSteps: opts.MaxSteps, MaxResolverLoops: opts.MaxResolverLoops, MaxDuration: opts.MaxDuration, TokenBudget: opts.TokenBudget}
 }
 
+func chainLaunchEventPayload(opts Options) map[string]any {
+	return map[string]any{
+		"specs":           opts.SourceSpecs,
+		"task":            opts.SourceTask,
+		"mode":            string(opts.Mode),
+		"step_max_turns":  opts.StepMaxTurns,
+		"step_max_tokens": opts.StepMaxTokens,
+	}
+}
+
+func chainCompletionEventPayload(opts Options, extra map[string]any) map[string]any {
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extra["step_max_turns"] = opts.StepMaxTurns
+	extra["step_max_tokens"] = opts.StepMaxTokens
+	return extra
+}
+
 func buildTask(opts Options, chainID string, receiptPaths []string) string {
 	history := "No existing receipt paths were found for this chain yet."
 	if len(receiptPaths) > 0 {
@@ -837,7 +856,7 @@ func manualRosterTerminalStatus(results []spawnpkg.AgentStepResult) string {
 	return status
 }
 
-func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, results []spawnpkg.AgentStepResult, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
+func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, opts Options, results []spawnpkg.AgentStepResult, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
 	status := manualRosterTerminalStatus(results)
 	for _, result := range results {
 		if stepResultSafetyLimited(result) {
@@ -854,7 +873,7 @@ func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, 
 		Status:    status,
 		EventType: chain.EventChainCompleted,
 		Summary:   &summary,
-		Extra:     extra,
+		Extra:     chainCompletionEventPayload(opts, extra),
 	}); err != nil {
 		return nil, err
 	}

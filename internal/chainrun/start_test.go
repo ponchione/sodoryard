@@ -561,17 +561,26 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
-	var startedMode, completedMode bool
+	var startedMode, completedMode, startedLimits, completedLimits bool
 	for _, event := range events {
 		if event.EventType == chain.EventChainStarted && strings.Contains(event.EventData, `"mode":"one_step_chain"`) {
 			startedMode = true
+			if strings.Contains(event.EventData, `"step_max_turns":4`) && strings.Contains(event.EventData, `"step_max_tokens":50000`) {
+				startedLimits = true
+			}
 		}
 		if event.EventType == chain.EventChainCompleted && strings.Contains(event.EventData, `"mode":"one_step_chain"`) {
 			completedMode = true
+			if strings.Contains(event.EventData, `"step_max_turns":4`) && strings.Contains(event.EventData, `"step_max_tokens":50000`) {
+				completedLimits = true
+			}
 		}
 	}
 	if !startedMode || !completedMode {
 		t.Fatalf("events = %+v, want one-step mode in start and completion payloads", events)
+	}
+	if !startedLimits || !completedLimits {
+		t.Fatalf("events = %+v, want one-step per-step limits in start and completion payloads", events)
 	}
 	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
 		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false after terminal closure", exec, ok)
@@ -726,6 +735,8 @@ func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
 		MaxResolverLoops: 1,
 		MaxDuration:      time.Hour,
 		TokenBudget:      100,
+		StepMaxTurns:     3,
+		StepMaxTokens:    40000,
 	}, deps)
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
@@ -735,6 +746,9 @@ func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
 	}
 	if len(inputs) != 2 || inputs[0].Role != "planner" || inputs[1].Role != "coder" {
 		t.Fatalf("inputs = %+v, want planner then coder", inputs)
+	}
+	if inputs[0].MaxTurns != 3 || inputs[1].MaxTurns != 3 || inputs[0].MaxTokens != 40000 || inputs[1].MaxTokens != 40000 {
+		t.Fatalf("input limits = %+v, want 3 turns and 40000 tokens for each roster step", inputs)
 	}
 	if !strings.Contains(inputs[0].Task, "No previous receipt paths are available yet.") {
 		t.Fatalf("first task = %q, want no previous receipts", inputs[0].Task)
@@ -755,6 +769,22 @@ func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
 	}
 	if stored.Status != "completed" || stored.TotalSteps != 2 || stored.TotalTokens != 20 {
 		t.Fatalf("stored chain = %+v, want completed with roster metrics", stored)
+	}
+	events, err := store.ListEvents(ctx, "manual-roster-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var startedLimits, completedLimits bool
+	for _, event := range events {
+		if event.EventType == chain.EventChainStarted && strings.Contains(event.EventData, `"step_max_turns":3`) && strings.Contains(event.EventData, `"step_max_tokens":40000`) {
+			startedLimits = true
+		}
+		if event.EventType == chain.EventChainCompleted && strings.Contains(event.EventData, `"step_max_turns":3`) && strings.Contains(event.EventData, `"step_max_tokens":40000`) {
+			completedLimits = true
+		}
+	}
+	if !startedLimits || !completedLimits {
+		t.Fatalf("events = %+v, want manual roster per-step limits in start and completion payloads", events)
 	}
 }
 

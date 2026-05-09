@@ -675,7 +675,7 @@ func TestGetChainMetricsFlagsExpensiveSingleStepLaunch(t *testing.T) {
 			if startedChainID != chainID {
 				t.Fatalf("chainID = %q, want %q", startedChainID, chainID)
 			}
-			if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"mode": mode, "task": "read one file and summarize it"}); err != nil {
+			if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"mode": mode, "task": "read one file and summarize it", "step_max_turns": 0, "step_max_tokens": 0}); err != nil {
 				t.Fatalf("LogEvent chain start returned error: %v", err)
 			}
 			stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "read one file and summarize it"})
@@ -715,6 +715,9 @@ func TestGetChainMetricsFlagsExpensiveSingleStepLaunch(t *testing.T) {
 			}
 			if !hasRuntimeWarning(report.Warnings, "--step-max-turns/--step-max-tokens") {
 				t.Fatalf("warnings = %+v, want actionable step-limit guidance", report.Warnings)
+			}
+			if !hasRuntimeWarning(report.Warnings, "no per-step turn/token cap was set") {
+				t.Fatalf("warnings = %+v, want unset cap guidance", report.Warnings)
 			}
 		})
 	}
