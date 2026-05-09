@@ -682,7 +682,7 @@ Implemented on 2026-05-09:
 Not implemented in this slice:
 
 - template selection by ID beyond existing launch mode flags
-- JSON input schemas or template-specific hard validation beyond existing launch validation
+- template-specific hard validation beyond existing launch validation
 
 ### Implemented Template Selection Slice
 
@@ -695,7 +695,7 @@ Implemented on 2026-05-09:
 
 Not implemented in this slice:
 
-- JSON input schemas or template-specific hard validation beyond existing launch validation
+- template-specific hard validation beyond existing launch validation
 
 ### Implemented Chain Start Template Slice
 
@@ -706,6 +706,15 @@ Implemented on 2026-05-09:
 - `yard chain start --roster <roles>` for manual roster execution
 - CLI template IDs resolve through the shared operator launch template registry
 - invalid template/role/roster combinations fail before chain creation
+
+### Implemented Template Input Schema Slice
+
+Implemented on 2026-05-09:
+
+- launch template metadata includes JSON `input_schema`
+- one-step, manual-roster, constrained-orchestration, and orchestrator templates describe their expected task/spec and role fields
+- CLI JSON and browser/API template listings include input schemas
+- template schemas are cloned with template metadata to avoid caller mutation
 
 ### Acceptance Criteria
 

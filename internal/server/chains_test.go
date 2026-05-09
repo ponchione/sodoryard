@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,11 +160,12 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 
 	var templates []struct {
-		ID              string   `json:"id"`
-		Mode            string   `json:"mode"`
-		Label           string   `json:"label"`
-		ReceiptSchema   string   `json:"receipt_schema"`
-		PreflightChecks []string `json:"preflight_checks"`
+		ID              string          `json:"id"`
+		Mode            string          `json:"mode"`
+		Label           string          `json:"label"`
+		InputSchema     json.RawMessage `json:"input_schema"`
+		ReceiptSchema   string          `json:"receipt_schema"`
+		PreflightChecks []string        `json:"preflight_checks"`
 	}
 	getJSON(t, base+"/api/chains/templates", &templates)
 	if len(templates) != 4 {
@@ -174,6 +176,9 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(templates[0].PreflightChecks) == 0 || templates[0].Label == "" {
 		t.Fatalf("first template = %+v, want label and preflight checks", templates[0])
+	}
+	if !json.Valid(templates[0].InputSchema) || !strings.Contains(string(templates[0].InputSchema), `"allowed_roles"`) {
+		t.Fatalf("first template input schema = %s, want constrained schema", templates[0].InputSchema)
 	}
 
 	var detail struct {

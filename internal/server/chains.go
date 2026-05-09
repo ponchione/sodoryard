@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -236,13 +237,14 @@ type chainSummaryResponse struct {
 }
 
 type launchTemplateResponse struct {
-	ID              string   `json:"id"`
-	Mode            string   `json:"mode"`
-	Label           string   `json:"label"`
-	Description     string   `json:"description"`
-	DefaultRoles    []string `json:"default_roles,omitempty"`
-	ReceiptSchema   string   `json:"receipt_schema,omitempty"`
-	PreflightChecks []string `json:"preflight_checks,omitempty"`
+	ID              string          `json:"id"`
+	Mode            string          `json:"mode"`
+	Label           string          `json:"label"`
+	Description     string          `json:"description"`
+	InputSchema     json.RawMessage `json:"input_schema,omitempty"`
+	DefaultRoles    []string        `json:"default_roles,omitempty"`
+	ReceiptSchema   string          `json:"receipt_schema,omitempty"`
+	PreflightChecks []string        `json:"preflight_checks,omitempty"`
 }
 
 type chainDetailResponse struct {
@@ -711,6 +713,7 @@ func launchTemplateResponseFromOperator(template operator.LaunchTemplate) launch
 		Mode:            string(template.Mode),
 		Label:           template.Label,
 		Description:     template.Description,
+		InputSchema:     append(json.RawMessage(nil), template.InputSchema...),
 		DefaultRoles:    append([]string(nil), template.DefaultRoles...),
 		ReceiptSchema:   template.ReceiptSchema,
 		PreflightChecks: append([]string(nil), template.PreflightChecks...),

@@ -6,6 +6,7 @@ package operator
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1427,13 +1428,20 @@ func TestListLaunchTemplatesReturnsTypedMetadata(t *testing.T) {
 	if templates[0].ID != "constrained_orchestration" || templates[0].Mode != LaunchModeConstrained || templates[0].ReceiptSchema != "yard.receipt.v1" {
 		t.Fatalf("first template = %+v, want constrained template metadata", templates[0])
 	}
+	if !json.Valid(templates[0].InputSchema) || !strings.Contains(string(templates[0].InputSchema), `"allowed_roles"`) {
+		t.Fatalf("first template input schema = %s, want valid constrained schema", templates[0].InputSchema)
+	}
 	templates[0].DefaultRoles = append(templates[0].DefaultRoles, "mutated")
+	templates[0].InputSchema[0] = '['
 	again, err := svc.ListLaunchTemplates(ctx)
 	if err != nil {
 		t.Fatalf("ListLaunchTemplates second call returned error: %v", err)
 	}
 	if reflect.DeepEqual(templates[0].DefaultRoles, again[0].DefaultRoles) {
 		t.Fatalf("template slices were not cloned: first=%+v second=%+v", templates[0], again[0])
+	}
+	if !json.Valid(again[0].InputSchema) || again[0].InputSchema[0] != '{' {
+		t.Fatalf("template input schema was not cloned: first=%s second=%s", templates[0].InputSchema, again[0].InputSchema)
 	}
 }
 

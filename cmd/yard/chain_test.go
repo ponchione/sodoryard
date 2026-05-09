@@ -249,6 +249,9 @@ func TestYardChainTemplatesCommandPrintsJSON(t *testing.T) {
 	if !strings.Contains(out.String(), `"receipt_schema"`) {
 		t.Fatalf("stdout = %q, want snake_case JSON fields", out.String())
 	}
+	if len(templates[0].InputSchema) == 0 || !strings.Contains(string(templates[0].InputSchema), `"allowed_roles"`) {
+		t.Fatalf("templates[0].InputSchema = %s, want constrained input schema", templates[0].InputSchema)
+	}
 }
 
 func TestYardChainReceiptCommandPrintsStepReceipt(t *testing.T) {

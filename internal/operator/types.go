@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/chain"
@@ -388,13 +389,14 @@ type LaunchPreview struct {
 }
 
 type LaunchTemplate struct {
-	ID              string     `json:"id"`
-	Mode            LaunchMode `json:"mode"`
-	Label           string     `json:"label"`
-	Description     string     `json:"description"`
-	DefaultRoles    []string   `json:"default_roles,omitempty"`
-	ReceiptSchema   string     `json:"receipt_schema,omitempty"`
-	PreflightChecks []string   `json:"preflight_checks,omitempty"`
+	ID              string          `json:"id"`
+	Mode            LaunchMode      `json:"mode"`
+	Label           string          `json:"label"`
+	Description     string          `json:"description"`
+	InputSchema     json.RawMessage `json:"input_schema,omitempty"`
+	DefaultRoles    []string        `json:"default_roles,omitempty"`
+	ReceiptSchema   string          `json:"receipt_schema,omitempty"`
+	PreflightChecks []string        `json:"preflight_checks,omitempty"`
 }
 
 type LaunchDraft struct {
