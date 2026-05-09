@@ -266,7 +266,11 @@ func (f *fakeOperator) StartChain(_ context.Context, req operator.LaunchRequest)
 	ch := operator.ChainSummary{ID: "chain-started", Status: "running", SourceTask: req.SourceTask, StartedAt: started, UpdatedAt: started}
 	f.chains = append([]operator.ChainSummary{ch}, f.chains...)
 	f.details["chain-started"] = operator.ChainDetail{Chain: chain.Chain{ID: "chain-started", Status: "running", SourceTask: req.SourceTask}}
-	return operator.StartResult{ChainID: "chain-started", Status: "running", Preview: operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started", AllowApprovalWait: req.AllowApprovalWait}}, nil
+	preview := operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started", AllowApprovalWait: req.AllowApprovalWait}
+	if req.StepMaxTurns == 0 && req.StepMaxTokens == 0 {
+		preview.Warnings = []operator.RuntimeWarning{{Message: "single-step coder launch has no per-step turn/token caps"}}
+	}
+	return operator.StartResult{ChainID: "chain-started", Status: "running", Preview: preview}, nil
 }
 
 func (f *fakeOperator) SaveLaunchDraft(_ context.Context, req operator.LaunchRequest) (operator.LaunchDraft, error) {
@@ -593,7 +597,7 @@ func TestSlashStartLaunchesChainAndFollows(t *testing.T) {
 		t.Fatalf("follow after /start = %v %q, want chain-started", got.follow, got.followID)
 	}
 	view := got.View()
-	for _, want := range []string{"STARTED", "chain: chain-started", "summary: started"} {
+	for _, want := range []string{"STARTED", "chain: chain-started", "summary: started", "Warnings:", "single-step coder launch has no per-step turn/token caps"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("/start view missing %q:\n%s", want, view)
 		}

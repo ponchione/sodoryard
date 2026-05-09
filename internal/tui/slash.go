@@ -310,7 +310,18 @@ func (m Model) consoleLaunchStartCmd(req operator.LaunchRequest) tea.Cmd {
 		if err != nil {
 			return consoleCommandMsg{Err: err}
 		}
-		body := fmt.Sprintf("chain: %s\nstatus: %s\nsummary: %s", result.ChainID, result.Status, result.Preview.Summary)
+		lines := []string{
+			"chain: " + result.ChainID,
+			"status: " + result.Status,
+			"summary: " + result.Preview.Summary,
+		}
+		if len(result.Preview.Warnings) > 0 {
+			lines = append(lines, "", "Warnings:")
+			for _, warning := range result.Preview.Warnings {
+				lines = append(lines, "- "+warning.Message)
+			}
+		}
+		body := strings.Join(lines, "\n")
 		return consoleCommandMsg{Entry: consoleEntry{Kind: consoleEntryCommand, Title: "STARTED", Body: body}, FollowChainID: result.ChainID, Refresh: true}
 	}
 }
