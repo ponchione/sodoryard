@@ -14,6 +14,8 @@ import (
 
 const defaultChainListLimit = 20
 const chainMetricsBudgetWarningPct = 80.0
+const smallSingleStepTurnWarningThreshold = 6
+const smallSingleStepTokenWarningThreshold = 100_000
 
 func (s *Service) ListChains(ctx context.Context, limit int) ([]ChainSummary, error) {
 	chains, err := s.listChains(ctx, normalizeLimit(limit))
@@ -180,6 +182,7 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	attentionHealth := false
 	changedFileEventsByStep := map[string]bool{}
 	guardrailFactsByStep := map[string]stepGuardrailFactsEvent{}
+	launchMode := chainMetricsLaunchModeFromEvents(detail.RecentEvents)
 	flowAnalysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: detail.Steps, Events: detail.RecentEvents})
 	report.OpenFindingIDs = append([]string(nil), flowAnalysis.Findings.OpenIDs...)
 	report.ClosedFindingIDs = append([]string(nil), flowAnalysis.Findings.ClosedIDs...)
@@ -277,6 +280,19 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	if ch.MaxResolverLoops > 0 && ch.ResolverLoops >= ch.MaxResolverLoops {
 		attentionHealth = true
 		report.addWarning("resolver loop budget exhausted")
+	}
+	if ch.Status == "completed" && isSmallSingleStepLaunch(launchMode, ch, detail.Steps, report.CompletedSteps) {
+		tokensUsed := maxInt(ch.TotalTokens, report.StepTokenTotal)
+		if report.StepTurnTotal > smallSingleStepTurnWarningThreshold || tokensUsed > smallSingleStepTokenWarningThreshold {
+			attentionHealth = true
+			report.addWarning(fmt.Sprintf("%s used %d turns and %d tokens in a single completed step; expected small one-step chains to stay within %d turns and %d tokens, so consider narrowing the task, using a roster for broad work, or setting --step-max-turns/--step-max-tokens for bounded probes",
+				launchMode,
+				report.StepTurnTotal,
+				tokensUsed,
+				smallSingleStepTurnWarningThreshold,
+				smallSingleStepTokenWarningThreshold,
+			))
+		}
 	}
 
 	for _, event := range detail.RecentEvents {
@@ -517,6 +533,36 @@ func isTerminalChainStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func chainMetricsLaunchModeFromEvents(events []chain.Event) string {
+	mode := ""
+	for _, event := range events {
+		switch event.EventType {
+		case chain.EventChainStarted, chain.EventChainCompleted:
+		default:
+			continue
+		}
+		var payload struct {
+			Mode string `json:"mode"`
+		}
+		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil {
+			continue
+		}
+		if trimmed := strings.TrimSpace(payload.Mode); trimmed != "" {
+			mode = trimmed
+		}
+	}
+	return mode
+}
+
+func isSmallSingleStepLaunch(mode string, ch chain.Chain, steps []chain.Step, completedSteps int) bool {
+	switch strings.TrimSpace(mode) {
+	case "one_step_chain", "manual_roster":
+	default:
+		return false
+	}
+	return maxInt(ch.TotalSteps, len(steps)) == 1 && len(steps) == 1 && completedSteps == 1
 }
 
 func (r *ChainMetricsReport) addWarning(message string) {

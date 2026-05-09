@@ -655,6 +655,71 @@ func TestGetChainMetricsFlagsDogfoodingWarnings(t *testing.T) {
 	}
 }
 
+func TestGetChainMetricsFlagsExpensiveSingleStepLaunch(t *testing.T) {
+	ctx := context.Background()
+	for _, mode := range []string{"one_step_chain", "manual_roster"} {
+		t.Run(mode, func(t *testing.T) {
+			store := chain.NewStore(newOperatorTestDB(t))
+			chainID := "expensive-" + mode
+			startedChainID, err := store.StartChain(ctx, chain.ChainSpec{
+				ChainID:          chainID,
+				SourceTask:       "read one file and summarize it",
+				MaxSteps:         100,
+				MaxResolverLoops: 3,
+				MaxDuration:      2 * time.Minute,
+				TokenBudget:      5_000_000,
+			})
+			if err != nil {
+				t.Fatalf("StartChain returned error: %v", err)
+			}
+			if startedChainID != chainID {
+				t.Fatalf("chainID = %q, want %q", startedChainID, chainID)
+			}
+			if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"mode": mode, "task": "read one file and summarize it"}); err != nil {
+				t.Fatalf("LogEvent chain start returned error: %v", err)
+			}
+			stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "read one file and summarize it"})
+			if err != nil {
+				t.Fatalf("StartStep returned error: %v", err)
+			}
+			exitZero := 0
+			if err := store.CompleteStep(ctx, chain.CompleteStepParams{
+				StepID:       stepID,
+				Status:       "completed",
+				Verdict:      "completed",
+				ReceiptPath:  "receipts/planner/" + chainID + "-step-001.md",
+				TokensUsed:   120_000,
+				TurnsUsed:    7,
+				DurationSecs: 12,
+				ExitCode:     &exitZero,
+			}); err != nil {
+				t.Fatalf("CompleteStep returned error: %v", err)
+			}
+			if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 120_000, TotalDurationSecs: 12}); err != nil {
+				t.Fatalf("UpdateChainMetrics returned error: %v", err)
+			}
+			if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+				t.Fatalf("CompleteChain returned error: %v", err)
+			}
+			svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+			report, err := svc.GetChainMetrics(ctx, chainID)
+			if err != nil {
+				t.Fatalf("GetChainMetrics returned error: %v", err)
+			}
+			if report.Health != "attention" {
+				t.Fatalf("health = %s, want attention", report.Health)
+			}
+			if len(report.Warnings) != 1 || !hasRuntimeWarning(report.Warnings, mode+" used 7 turns and 120000 tokens in a single completed step") {
+				t.Fatalf("warnings = %+v, want expensive single-step warning", report.Warnings)
+			}
+			if !hasRuntimeWarning(report.Warnings, "--step-max-turns/--step-max-tokens") {
+				t.Fatalf("warnings = %+v, want actionable step-limit guidance", report.Warnings)
+			}
+		})
+	}
+}
+
 func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
