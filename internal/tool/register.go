@@ -97,3 +97,13 @@ func RegisterBrainToolsWithProviderRuntimeAndIndex(r *Registry, client brain.Bac
 	r.Register(NewBrainUpdate(client, cfg))
 	r.Register(NewBrainLintWithProvider(client, cfg, llm))
 }
+
+// RegisterBrainReadToolsWithProviderRuntimeAndIndex registers only read-only
+// brain tools for roles that may inspect project memory but must not mutate it.
+func RegisterBrainReadToolsWithProviderRuntimeAndIndex(r *Registry, client brain.Backend, runtime appcontext.BrainSearcher, cfg config.BrainConfig, queries *appdb.Queries, projectID string) {
+	if !cfg.Enabled {
+		return
+	}
+	r.Register(NewBrainSearchWithRuntime(client, runtime, cfg))
+	r.Register(NewBrainReadWithIndex(client, cfg, queries, projectID))
+}

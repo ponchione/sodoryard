@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 
 	"github.com/ponchione/sodoryard/internal/agent"
+	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/provider"
+	"github.com/ponchione/sodoryard/internal/role"
 	yardtool "github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -18,7 +20,7 @@ type toolContractShell struct {
 func (toolContractSuite) Info() SuiteInfo {
 	return SuiteInfo{
 		Name:        "tool-contract",
-		Description: "Evaluate deterministic tool executor behavior for approval-required calls, allowed calls, and repeated call loops.",
+		Description: "Evaluate deterministic tool executor behavior for approvals, loop detection, and read-only role tool purity.",
 	}
 }
 
@@ -32,6 +34,7 @@ func (s toolContractSuite) Run(ctx context.Context) (Report, error) {
 	report.addCase(evaluateApprovalRequiredShell())
 	report.addCase(evaluateAllowedShell())
 	report.addCase(evaluateRepeatedFailingToolLoop())
+	report.addCase(evaluateReadOnlyRoleTools())
 	report.finalize()
 	return report, nil
 }
@@ -97,6 +100,44 @@ func evaluateRepeatedFailingToolLoop() CaseResult {
 
 	assertEqual(&result, "loop detected", detected, true)
 	return result
+}
+
+func evaluateReadOnlyRoleTools() CaseResult {
+	result := newCase("read-only-role-tools")
+	cfg := &appconfig.Config{}
+	cfg.Brain = appconfig.BrainConfig{Enabled: true, LogBrainQueries: true, LogBrainOperations: true}
+	registry, scopedBrainCfg, err := role.BuildRegistry(cfg, appconfig.AgentRoleConfig{
+		MutationClass: appconfig.MutationClassReadOnly,
+		Tools:         []string{"file:read", "git", "search", "directory", "brain"},
+	}, role.BuilderDeps{ProjectID: "/tmp/project"})
+	if err != nil {
+		result.addAssertion("registry builds", false, err.Error(), "success", err.Error())
+		return result
+	}
+
+	toolNames := registry.Names()
+	mutatingNames := mutatingToolNames(registry.All())
+	result.Details["tool_names"] = toolNames
+	result.Details["mutating_tools"] = mutatingNames
+	result.Details["brain_query_logging"] = scopedBrainCfg.LogBrainQueries
+	result.Details["brain_operation_logging"] = scopedBrainCfg.LogBrainOperations
+
+	assertEqual(&result, "registry builds", true, true)
+	assertStringSet(&result, "read-only tools", toolNames, []string{"brain_read", "brain_search", "file_read", "find_files", "git_diff", "git_status", "list_directory", "search_text"})
+	assertStringSet(&result, "mutating tools omitted", mutatingNames, nil)
+	assertEqual(&result, "brain query logging disabled", scopedBrainCfg.LogBrainQueries, false)
+	assertEqual(&result, "brain operation logging disabled", scopedBrainCfg.LogBrainOperations, false)
+	return result
+}
+
+func mutatingToolNames(tools []yardtool.Tool) []string {
+	names := make([]string, 0)
+	for _, tool := range tools {
+		if tool.ToolPurity() == yardtool.Mutating {
+			names = append(names, tool.Name())
+		}
+	}
+	return uniqueSortedStrings(names)
 }
 
 func toolContractExecutor(executed *bool) *yardtool.Executor {

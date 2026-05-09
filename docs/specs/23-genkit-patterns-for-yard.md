@@ -482,12 +482,13 @@ Implemented on 2026-05-08:
 - deterministic executor-level assertions for approval-required shell calls
 - deterministic assertion that allowed shell calls still execute when approval patterns do not match
 - deterministic repeated failing tool-call loop check against the agent loop detector
+- deterministic read-only role registry check that mutating tools are omitted
 - provider-free and shell-free fake tool coverage for CI
 
 Not implemented in this slice:
 
 - live repeated failing-call loop evals
-- read-only role mutating-tool evals
+- live read-only role mutating-tool attempts
 - live tool behavior evals
 
 ### Acceptance Criteria

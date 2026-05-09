@@ -133,7 +133,7 @@ func TestBuildRegistryReadOnlyRoleDisablesBrainMutationLogs(t *testing.T) {
 	cfg := &appconfig.Config{}
 	cfg.Brain = appconfig.BrainConfig{Enabled: true, LogBrainQueries: true, LogBrainOperations: true}
 
-	_, scopedBrainCfg, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{
+	registry, scopedBrainCfg, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{
 		MutationClass:   appconfig.MutationClassReadOnly,
 		Tools:           []string{"brain"},
 		BrainWritePaths: []string{"receipts/auditor/**"},
@@ -146,6 +146,21 @@ func TestBuildRegistryReadOnlyRoleDisablesBrainMutationLogs(t *testing.T) {
 	}
 	if !cfg.Brain.LogBrainQueries || !cfg.Brain.LogBrainOperations {
 		t.Fatalf("base config brain logging was mutated: %#v", cfg.Brain)
+	}
+	got := registry.Names()
+	want := []string{"brain_read", "brain_search"}
+	if len(got) != len(want) {
+		t.Fatalf("Names() len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Names()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+		}
+	}
+	for _, registered := range registry.All() {
+		if registered.ToolPurity() != tool.Pure {
+			t.Fatalf("read-only role registered mutating tool %q", registered.Name())
+		}
 	}
 }
 

@@ -77,6 +77,10 @@ func BuildRegistry(cfg *appconfig.Config, roleCfg appconfig.AgentRoleConfig, dep
 		if name == "" {
 			continue
 		}
+		if name == toolgroup.Brain && roleCfg.MutationClass == appconfig.MutationClassReadOnly {
+			tool.RegisterBrainReadToolsWithProviderRuntimeAndIndex(registry, deps.BrainBackend, deps.BrainSearcher, brainCfg, deps.Queries, deps.ProjectID)
+			continue
+		}
 		registrar, ok := toolGroupRegistrars[name]
 		if !ok {
 			return nil, appconfig.BrainConfig{}, fmt.Errorf("role builder: unsupported tool group %q", group)

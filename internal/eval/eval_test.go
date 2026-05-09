@@ -92,8 +92,8 @@ func TestToolContractSuitePassesAndReportsApprovalBehavior(t *testing.T) {
 	if report.Status != StatusPass {
 		t.Fatalf("status = %q, want pass: %+v", report.Status, report)
 	}
-	if report.Totals.Cases != 3 || report.Totals.CasesPassed != 3 {
-		t.Fatalf("case totals = %+v, want 3/3", report.Totals)
+	if report.Totals.Cases != 4 || report.Totals.CasesPassed != 4 {
+		t.Fatalf("case totals = %+v, want 4/4", report.Totals)
 	}
 	approval := findEvalCase(t, report, "approval-required-shell")
 	if approval.Details["executed"] != false || approval.Details["approval_status"] != "pending" {
@@ -106,6 +106,13 @@ func TestToolContractSuitePassesAndReportsApprovalBehavior(t *testing.T) {
 	loop := findEvalCase(t, report, "repeated-failing-tool-loop")
 	if loop.Details["loop_detected"] != true || detailIntForTest(t, loop, "tool_errors") != 3 {
 		t.Fatalf("loop details = %+v, want detected loop with 3 errors", loop.Details)
+	}
+	readOnly := findEvalCase(t, report, "read-only-role-tools")
+	if mutating := detailsStringSliceForTest(t, readOnly, "mutating_tools"); len(mutating) != 0 {
+		t.Fatalf("read-only mutating tools = %v, want none", mutating)
+	}
+	if readOnly.Details["brain_query_logging"] != false || readOnly.Details["brain_operation_logging"] != false {
+		t.Fatalf("read-only brain log details = %+v, want disabled", readOnly.Details)
 	}
 }
 
