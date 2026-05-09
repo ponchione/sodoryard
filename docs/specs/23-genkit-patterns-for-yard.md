@@ -654,9 +654,16 @@ Implemented on 2026-05-08:
 - `yard chain templates --json`
 - human-readable and machine-readable launch template listing from the same operator registry used by launch previews
 
+### Implemented API Visibility Slice
+
+Implemented on 2026-05-09:
+
+- `GET /api/chains/templates`
+- browser/API consumers can list typed launch templates from the same operator registry used by CLI template listing and launch previews
+- server tests cover template metadata serialization and route specificity ahead of chain ID routes
+
 Not implemented in this slice:
 
-- API listing command for browser intake
 - template selection by ID beyond existing launch mode flags
 - JSON input schemas or template-specific hard validation beyond existing launch validation
 

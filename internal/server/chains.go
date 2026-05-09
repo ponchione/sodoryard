@@ -21,6 +21,7 @@ func NewChainInspectorHandler(s *Server, svc *operator.Service, logger *slog.Log
 	h := &ChainInspectorHandler{svc: svc, logger: logger}
 	s.HandleFunc("GET /api/runtime/status", h.handleRuntimeStatus)
 	s.HandleFunc("GET /api/chains", h.handleListChains)
+	s.HandleFunc("GET /api/chains/templates", h.handleTemplates)
 	s.HandleFunc("GET /api/chains/{id}", h.handleGetChain)
 	s.HandleFunc("GET /api/chains/{id}/timeline", h.handleTimeline)
 	s.HandleFunc("GET /api/chains/{id}/events", h.handleEvents)
@@ -55,6 +56,20 @@ func (h *ChainInspectorHandler) handleListChains(w http.ResponseWriter, r *http.
 	out := make([]chainSummaryResponse, 0, len(chains))
 	for _, summary := range chains {
 		out = append(out, chainSummaryResponseFromOperator(summary))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *ChainInspectorHandler) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	templates, err := h.svc.ListLaunchTemplates(r.Context())
+	if err != nil {
+		h.logger.Warn("list chain templates", "error", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]launchTemplateResponse, 0, len(templates))
+	for _, template := range templates {
+		out = append(out, launchTemplateResponseFromOperator(template))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -218,6 +233,16 @@ type chainSummaryResponse struct {
 	StartedAt   string               `json:"started_at"`
 	UpdatedAt   string               `json:"updated_at"`
 	CurrentStep *stepSummaryResponse `json:"current_step,omitempty"`
+}
+
+type launchTemplateResponse struct {
+	ID              string   `json:"id"`
+	Mode            string   `json:"mode"`
+	Label           string   `json:"label"`
+	Description     string   `json:"description"`
+	DefaultRoles    []string `json:"default_roles,omitempty"`
+	ReceiptSchema   string   `json:"receipt_schema,omitempty"`
+	PreflightChecks []string `json:"preflight_checks,omitempty"`
 }
 
 type chainDetailResponse struct {
@@ -677,6 +702,18 @@ func stepSummaryResponseFromOperator(step *operator.StepSummary) *stepSummaryRes
 		TokensUsed:  step.TokensUsed,
 		StartedAt:   formatTimePtr(step.StartedAt),
 		CompletedAt: formatTimePtr(step.CompletedAt),
+	}
+}
+
+func launchTemplateResponseFromOperator(template operator.LaunchTemplate) launchTemplateResponse {
+	return launchTemplateResponse{
+		ID:              template.ID,
+		Mode:            string(template.Mode),
+		Label:           template.Label,
+		Description:     template.Description,
+		DefaultRoles:    append([]string(nil), template.DefaultRoles...),
+		ReceiptSchema:   template.ReceiptSchema,
+		PreflightChecks: append([]string(nil), template.PreflightChecks...),
 	}
 }
 

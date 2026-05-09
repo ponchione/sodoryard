@@ -158,6 +158,24 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		t.Fatalf("chains response = %+v, want completed chain-web", chains)
 	}
 
+	var templates []struct {
+		ID              string   `json:"id"`
+		Mode            string   `json:"mode"`
+		Label           string   `json:"label"`
+		ReceiptSchema   string   `json:"receipt_schema"`
+		PreflightChecks []string `json:"preflight_checks"`
+	}
+	getJSON(t, base+"/api/chains/templates", &templates)
+	if len(templates) != 4 {
+		t.Fatalf("templates response = %+v, want 4 launch templates", templates)
+	}
+	if templates[0].ID != "constrained_orchestration" || templates[0].Mode != string(operator.LaunchModeConstrained) || templates[0].ReceiptSchema != "yard.receipt.v1" {
+		t.Fatalf("first template = %+v, want constrained launch template metadata", templates[0])
+	}
+	if len(templates[0].PreflightChecks) == 0 || templates[0].Label == "" {
+		t.Fatalf("first template = %+v, want label and preflight checks", templates[0])
+	}
+
 	var detail struct {
 		Chain struct {
 			ID string `json:"id"`
