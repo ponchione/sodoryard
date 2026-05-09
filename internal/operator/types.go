@@ -102,6 +102,7 @@ type ChainDetail struct {
 	Health       string
 	Warnings     []RuntimeWarning
 	Guardrails   ChainGuardrailDetails
+	Metrics      ChainMetricsReport
 }
 
 type ChainTimelineItem struct {

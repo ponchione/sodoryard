@@ -63,6 +63,7 @@ func (s *Service) GetChainDetail(ctx context.Context, chainID string) (ChainDeta
 	detail.Health = report.Health
 	detail.Warnings = cloneRuntimeWarnings(report.Warnings)
 	detail.Guardrails = summarizeChainGuardrails(*ch, steps, events)
+	detail.Metrics = report
 	return detail, nil
 }
 

@@ -35,6 +35,16 @@ function yesNo(value: boolean): string {
   return value ? "yes" : "no";
 }
 
+function pct(value?: number): string {
+  if (value === undefined || Number.isNaN(value)) return "0.0%";
+  return `${value.toFixed(1)}%`;
+}
+
+function budgetValue(used: number, total: number, suffix = ""): string {
+  if (total > 0) return `${used}${suffix}/${total}${suffix}`;
+  return `${used}${suffix}`;
+}
+
 function approvalStatusClass(status: string): string {
   if (status === "approved") return "text-accent";
   if (status === "denied") return "text-destructive";
@@ -373,6 +383,68 @@ export function ChainDetailPage() {
                 <div className="mt-1 text-sm text-foreground">{formatDate(detail.chain.updated_at)}</div>
               </div>
             </section>
+
+            {detail.metrics && (
+              <section id="dogfood-metrics" className="space-y-2">
+                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Dogfood Metrics
+                </h2>
+                <div className="grid gap-2 border border-border p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Steps</div>
+                    <div className="mt-1 text-foreground">
+                      {budgetValue(Math.max(detail.metrics.total_steps, detail.metrics.step_rows), detail.metrics.max_steps)}
+                    </div>
+                    <div className="text-muted-foreground">{pct(detail.metrics.step_budget_pct)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Tokens</div>
+                    <div className="mt-1 text-foreground">
+                      {budgetValue(Math.max(detail.metrics.total_tokens, detail.metrics.step_token_total), detail.metrics.token_budget)}
+                    </div>
+                    <div className="text-muted-foreground">{pct(detail.metrics.token_budget_pct)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Duration</div>
+                    <div className="mt-1 text-foreground">
+                      {budgetValue(
+                        Math.max(detail.metrics.total_duration_secs, detail.metrics.step_duration_secs),
+                        detail.metrics.max_duration_secs,
+                        "s",
+                      )}
+                    </div>
+                    <div className="text-muted-foreground">{pct(detail.metrics.duration_budget_pct)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Events</div>
+                    <div className="mt-1 text-foreground">{detail.metrics.event_total}</div>
+                    <div className="text-muted-foreground">
+                      output={detail.metrics.output_events} guardrail={detail.metrics.step_guardrail_fact_events}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-2 border border-border p-3 text-xs sm:grid-cols-3">
+                  <div>
+                    <span className="text-muted-foreground">Warnings </span>
+                    <span className={detail.metrics.warnings.length > 0 ? "text-warning" : "text-accent"}>
+                      {detail.metrics.warnings.length}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Findings </span>
+                    <span className="text-foreground">
+                      open={detail.metrics.open_finding_count} addressed={detail.metrics.addressed_finding_count}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Processes </span>
+                    <span className="text-foreground">
+                      started={detail.metrics.process_started_events} exited={detail.metrics.process_exited_events}
+                    </span>
+                  </div>
+                </div>
+              </section>
+            )}
 
             {(detail.warnings ?? []).length > 0 && (
               <section id="guardrail-warnings" className="space-y-2">

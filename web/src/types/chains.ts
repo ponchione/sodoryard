@@ -269,6 +269,76 @@ export interface ApprovalDecisionResult {
   message: string;
 }
 
+export interface ChainMetricsReport {
+  chain_id: string;
+  status: string;
+  health: string;
+  total_steps: number;
+  step_rows: number;
+  max_steps: number;
+  step_budget_pct: number;
+  completed_steps: number;
+  running_steps: number;
+  pending_steps: number;
+  failed_steps: number;
+  total_tokens: number;
+  step_token_total: number;
+  step_turn_total: number;
+  token_budget: number;
+  token_budget_pct: number;
+  total_duration_secs: number;
+  step_duration_secs: number;
+  max_duration_secs: number;
+  duration_budget_pct: number;
+  resolver_loops: number;
+  max_resolver_loops: number;
+  resolver_loop_pct: number;
+  event_total: number;
+  output_events: number;
+  step_failed_events: number;
+  changed_file_events: number;
+  step_guardrail_fact_events: number;
+  receipt_warning_events: number;
+  receipt_finding_events: number;
+  finding_lifecycle_fact_events: number;
+  open_finding_count: number;
+  closed_finding_count: number;
+  addressed_finding_count: number;
+  open_finding_ids: string[];
+  closed_finding_ids: string[];
+  addressed_finding_ids: string[];
+  reopened_finding_ids: string[];
+  repeated_resolver_finding_ids: string[];
+  finding_lifecycle: GuardrailFinding[];
+  source_writer_blocks: number;
+  source_writer_lock_acquires: number;
+  source_writer_lock_releases: number;
+  source_writer_lock_force_releases: number;
+  source_writer_lock_release_failures: number;
+  source_writer_lock_heartbeat_failures: number;
+  source_writer_lock_stale_replacements: number;
+  safety_limit_events: number;
+  reindex_started_events: number;
+  reindex_done_events: number;
+  process_started_events: number;
+  process_exited_events: number;
+  warnings: RuntimeWarning[];
+  steps: ChainStepMetric[];
+}
+
+export interface ChainStepMetric {
+  sequence_num: number;
+  role: string;
+  status: string;
+  verdict: string;
+  receipt_path: string;
+  tokens_used: number;
+  turns_used: number;
+  duration_secs: number;
+  exit_code?: number;
+  error_message?: string;
+}
+
 export interface ChainDetail {
   chain: ChainRecord;
   steps: ChainStep[];
@@ -279,4 +349,5 @@ export interface ChainDetail {
   health: string;
   warnings: RuntimeWarning[];
   guardrails: ChainGuardrails;
+  metrics?: ChainMetricsReport;
 }

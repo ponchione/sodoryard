@@ -301,6 +301,77 @@ type chainDetailResponse struct {
 	Health       string                   `json:"health"`
 	Warnings     []runtimeWarningResponse `json:"warnings"`
 	Guardrails   chainGuardrailResponse   `json:"guardrails"`
+	Metrics      chainMetricsResponse     `json:"metrics"`
+}
+
+type chainMetricsResponse struct {
+	ChainID                           string                     `json:"chain_id"`
+	Status                            string                     `json:"status"`
+	Health                            string                     `json:"health"`
+	TotalSteps                        int                        `json:"total_steps"`
+	StepRows                          int                        `json:"step_rows"`
+	MaxSteps                          int                        `json:"max_steps"`
+	StepBudgetPct                     float64                    `json:"step_budget_pct"`
+	CompletedSteps                    int                        `json:"completed_steps"`
+	RunningSteps                      int                        `json:"running_steps"`
+	PendingSteps                      int                        `json:"pending_steps"`
+	FailedSteps                       int                        `json:"failed_steps"`
+	TotalTokens                       int                        `json:"total_tokens"`
+	StepTokenTotal                    int                        `json:"step_token_total"`
+	StepTurnTotal                     int                        `json:"step_turn_total"`
+	TokenBudget                       int                        `json:"token_budget"`
+	TokenBudgetPct                    float64                    `json:"token_budget_pct"`
+	TotalDurationSecs                 int                        `json:"total_duration_secs"`
+	StepDurationSecs                  int                        `json:"step_duration_secs"`
+	MaxDurationSecs                   int                        `json:"max_duration_secs"`
+	DurationBudgetPct                 float64                    `json:"duration_budget_pct"`
+	ResolverLoops                     int                        `json:"resolver_loops"`
+	MaxResolverLoops                  int                        `json:"max_resolver_loops"`
+	ResolverLoopPct                   float64                    `json:"resolver_loop_pct"`
+	EventTotal                        int                        `json:"event_total"`
+	OutputEvents                      int                        `json:"output_events"`
+	StepFailedEvents                  int                        `json:"step_failed_events"`
+	ChangedFileEvents                 int                        `json:"changed_file_events"`
+	StepGuardrailFactEvents           int                        `json:"step_guardrail_fact_events"`
+	ReceiptWarningEvents              int                        `json:"receipt_warning_events"`
+	ReceiptFindingEvents              int                        `json:"receipt_finding_events"`
+	FindingLifecycleFactEvents        int                        `json:"finding_lifecycle_fact_events"`
+	OpenFindingCount                  int                        `json:"open_finding_count"`
+	ClosedFindingCount                int                        `json:"closed_finding_count"`
+	AddressedFindingCount             int                        `json:"addressed_finding_count"`
+	OpenFindingIDs                    []string                   `json:"open_finding_ids"`
+	ClosedFindingIDs                  []string                   `json:"closed_finding_ids"`
+	AddressedFindingIDs               []string                   `json:"addressed_finding_ids"`
+	ReopenedFindingIDs                []string                   `json:"reopened_finding_ids"`
+	RepeatedResolverFindingIDs        []string                   `json:"repeated_resolver_finding_ids"`
+	FindingLifecycle                  []findingLifecycleResponse `json:"finding_lifecycle"`
+	SourceWriterBlocks                int                        `json:"source_writer_blocks"`
+	SourceWriterLockAcquires          int                        `json:"source_writer_lock_acquires"`
+	SourceWriterLockReleases          int                        `json:"source_writer_lock_releases"`
+	SourceWriterLockForceReleases     int                        `json:"source_writer_lock_force_releases"`
+	SourceWriterLockReleaseFailures   int                        `json:"source_writer_lock_release_failures"`
+	SourceWriterLockHeartbeatFailures int                        `json:"source_writer_lock_heartbeat_failures"`
+	SourceWriterLockStaleReplacements int                        `json:"source_writer_lock_stale_replacements"`
+	SafetyLimitEvents                 int                        `json:"safety_limit_events"`
+	ReindexStartedEvents              int                        `json:"reindex_started_events"`
+	ReindexDoneEvents                 int                        `json:"reindex_done_events"`
+	ProcessStartedEvents              int                        `json:"process_started_events"`
+	ProcessExitedEvents               int                        `json:"process_exited_events"`
+	Warnings                          []runtimeWarningResponse   `json:"warnings"`
+	Steps                             []chainStepMetricResponse  `json:"steps"`
+}
+
+type chainStepMetricResponse struct {
+	SequenceNum  int    `json:"sequence_num"`
+	Role         string `json:"role"`
+	Status       string `json:"status"`
+	Verdict      string `json:"verdict"`
+	ReceiptPath  string `json:"receipt_path"`
+	TokensUsed   int    `json:"tokens_used"`
+	TurnsUsed    int    `json:"turns_used"`
+	DurationSecs int    `json:"duration_secs"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 type approvalDecisionRequest struct {
@@ -576,6 +647,89 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 		Health:       detail.Health,
 		Warnings:     warnings,
 		Guardrails:   chainGuardrailResponseFromOperator(detail.Guardrails),
+		Metrics:      chainMetricsResponseFromOperator(detail.Metrics),
+	}
+}
+
+func chainMetricsResponseFromOperator(report operator.ChainMetricsReport) chainMetricsResponse {
+	warnings := make([]runtimeWarningResponse, 0, len(report.Warnings))
+	for _, warning := range report.Warnings {
+		warnings = append(warnings, runtimeWarningResponse{Message: warning.Message})
+	}
+	steps := make([]chainStepMetricResponse, 0, len(report.Steps))
+	for _, step := range report.Steps {
+		steps = append(steps, chainStepMetricResponse{
+			SequenceNum:  step.SequenceNum,
+			Role:         step.Role,
+			Status:       step.Status,
+			Verdict:      step.Verdict,
+			ReceiptPath:  step.ReceiptPath,
+			TokensUsed:   step.TokensUsed,
+			TurnsUsed:    step.TurnsUsed,
+			DurationSecs: step.DurationSecs,
+			ExitCode:     step.ExitCode,
+			ErrorMessage: step.ErrorMessage,
+		})
+	}
+	findings := make([]findingLifecycleResponse, 0, len(report.FindingLifecycle))
+	for _, finding := range report.FindingLifecycle {
+		findings = append(findings, findingLifecycleResponseFromOperator(finding))
+	}
+	return chainMetricsResponse{
+		ChainID:                           report.ChainID,
+		Status:                            report.Status,
+		Health:                            report.Health,
+		TotalSteps:                        report.TotalSteps,
+		StepRows:                          report.StepRows,
+		MaxSteps:                          report.MaxSteps,
+		StepBudgetPct:                     report.StepBudgetPct,
+		CompletedSteps:                    report.CompletedSteps,
+		RunningSteps:                      report.RunningSteps,
+		PendingSteps:                      report.PendingSteps,
+		FailedSteps:                       report.FailedSteps,
+		TotalTokens:                       report.TotalTokens,
+		StepTokenTotal:                    report.StepTokenTotal,
+		StepTurnTotal:                     report.StepTurnTotal,
+		TokenBudget:                       report.TokenBudget,
+		TokenBudgetPct:                    report.TokenBudgetPct,
+		TotalDurationSecs:                 report.TotalDurationSecs,
+		StepDurationSecs:                  report.StepDurationSecs,
+		MaxDurationSecs:                   report.MaxDurationSecs,
+		DurationBudgetPct:                 report.DurationBudgetPct,
+		ResolverLoops:                     report.ResolverLoops,
+		MaxResolverLoops:                  report.MaxResolverLoops,
+		ResolverLoopPct:                   report.ResolverLoopPct,
+		EventTotal:                        report.EventTotal,
+		OutputEvents:                      report.OutputEvents,
+		StepFailedEvents:                  report.StepFailedEvents,
+		ChangedFileEvents:                 report.ChangedFileEvents,
+		StepGuardrailFactEvents:           report.StepGuardrailFactEvents,
+		ReceiptWarningEvents:              report.ReceiptWarningEvents,
+		ReceiptFindingEvents:              report.ReceiptFindingEvents,
+		FindingLifecycleFactEvents:        report.FindingLifecycleFactEvents,
+		OpenFindingCount:                  report.OpenFindingCount,
+		ClosedFindingCount:                report.ClosedFindingCount,
+		AddressedFindingCount:             report.AddressedFindingCount,
+		OpenFindingIDs:                    append([]string(nil), report.OpenFindingIDs...),
+		ClosedFindingIDs:                  append([]string(nil), report.ClosedFindingIDs...),
+		AddressedFindingIDs:               append([]string(nil), report.AddressedFindingIDs...),
+		ReopenedFindingIDs:                append([]string(nil), report.ReopenedFindingIDs...),
+		RepeatedResolverFindingIDs:        append([]string(nil), report.RepeatedResolverFindingIDs...),
+		FindingLifecycle:                  findings,
+		SourceWriterBlocks:                report.SourceWriterBlocks,
+		SourceWriterLockAcquires:          report.SourceWriterLockAcquires,
+		SourceWriterLockReleases:          report.SourceWriterLockReleases,
+		SourceWriterLockForceReleases:     report.SourceWriterLockForceReleases,
+		SourceWriterLockReleaseFailures:   report.SourceWriterLockReleaseFailures,
+		SourceWriterLockHeartbeatFailures: report.SourceWriterLockHeartbeatFailures,
+		SourceWriterLockStaleReplacements: report.SourceWriterLockStaleReplacements,
+		SafetyLimitEvents:                 report.SafetyLimitEvents,
+		ReindexStartedEvents:              report.ReindexStartedEvents,
+		ReindexDoneEvents:                 report.ReindexDoneEvents,
+		ProcessStartedEvents:              report.ProcessStartedEvents,
+		ProcessExitedEvents:               report.ProcessExitedEvents,
+		Warnings:                          warnings,
+		Steps:                             steps,
 	}
 }
 
@@ -635,26 +789,30 @@ func chainTimelineResponseFromOperator(item operator.ChainTimelineItem) chainTim
 	}
 }
 
+func findingLifecycleResponseFromOperator(finding operator.FindingLifecycleMetric) findingLifecycleResponse {
+	return findingLifecycleResponse{
+		ID:              finding.ID,
+		SourceRole:      finding.SourceRole,
+		Status:          finding.Status,
+		Severity:        finding.Severity,
+		Evidence:        finding.Evidence,
+		Summary:         finding.Summary,
+		RequiredFix:     finding.RequiredFix,
+		Resolution:      finding.Resolution,
+		FilesChanged:    append([]string(nil), finding.FilesChanged...),
+		Validation:      append([]string(nil), finding.Validation...),
+		AddressedCount:  finding.AddressedCount,
+		ClosedCount:     finding.ClosedCount,
+		ReopenedCount:   finding.ReopenedCount,
+		FirstSeenStep:   finding.FirstSeenStep,
+		LastUpdatedStep: finding.LastUpdatedStep,
+	}
+}
+
 func chainGuardrailResponseFromOperator(details operator.ChainGuardrailDetails) chainGuardrailResponse {
 	findings := make([]findingLifecycleResponse, 0, len(details.Findings))
 	for _, finding := range details.Findings {
-		findings = append(findings, findingLifecycleResponse{
-			ID:              finding.ID,
-			SourceRole:      finding.SourceRole,
-			Status:          finding.Status,
-			Severity:        finding.Severity,
-			Evidence:        finding.Evidence,
-			Summary:         finding.Summary,
-			RequiredFix:     finding.RequiredFix,
-			Resolution:      finding.Resolution,
-			FilesChanged:    append([]string(nil), finding.FilesChanged...),
-			Validation:      append([]string(nil), finding.Validation...),
-			AddressedCount:  finding.AddressedCount,
-			ClosedCount:     finding.ClosedCount,
-			ReopenedCount:   finding.ReopenedCount,
-			FirstSeenStep:   finding.FirstSeenStep,
-			LastUpdatedStep: finding.LastUpdatedStep,
-		})
+		findings = append(findings, findingLifecycleResponseFromOperator(finding))
 	}
 	changedFiles := make([]changedFileManifestResponse, 0, len(details.ChangedFiles))
 	for _, manifest := range details.ChangedFiles {

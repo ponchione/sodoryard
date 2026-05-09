@@ -1277,6 +1277,19 @@ Not implemented in this slice:
 - complex timeline chart lanes
 - browser approval controls from timeline rows
 
+### Implemented Chain Metrics Inspector Slice
+
+Implemented on 2026-05-09:
+
+- chain detail API responses now serialize the same dogfooding metrics report used by `yard chain metrics`
+- browser chain detail renders a compact dogfood metrics panel for step, token, duration, event, warning, finding, and process counts
+- tests cover API metrics serialization and browser rendering of the compact metrics panel
+
+Not implemented in this slice:
+
+- a standalone browser route for the full CLI metrics report
+- complex metrics charts or historical comparisons
+
 ### Acceptance Criteria
 
 - Web inspector can answer "what happened before this failure?" without reading raw logs.

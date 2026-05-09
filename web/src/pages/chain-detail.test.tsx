@@ -40,6 +40,66 @@ function emptyGuardrails(): ChainDetail["guardrails"] {
   };
 }
 
+function chainMetrics(overrides: Partial<NonNullable<ChainDetail["metrics"]>> = {}): NonNullable<ChainDetail["metrics"]> {
+  return {
+    chain_id: "chain-1",
+    status: "completed",
+    health: "attention",
+    total_steps: 1,
+    step_rows: 1,
+    max_steps: 5,
+    step_budget_pct: 20,
+    completed_steps: 1,
+    running_steps: 0,
+    pending_steps: 0,
+    failed_steps: 0,
+    total_tokens: 10,
+    step_token_total: 10,
+    step_turn_total: 1,
+    token_budget: 100,
+    token_budget_pct: 10,
+    total_duration_secs: 2,
+    step_duration_secs: 2,
+    max_duration_secs: 20,
+    duration_budget_pct: 10,
+    resolver_loops: 0,
+    max_resolver_loops: 1,
+    resolver_loop_pct: 0,
+    event_total: 2,
+    output_events: 1,
+    step_failed_events: 0,
+    changed_file_events: 0,
+    step_guardrail_fact_events: 1,
+    receipt_warning_events: 1,
+    receipt_finding_events: 0,
+    finding_lifecycle_fact_events: 0,
+    open_finding_count: 1,
+    closed_finding_count: 0,
+    addressed_finding_count: 0,
+    open_finding_ids: ["FIND-correctness-001"],
+    closed_finding_ids: [],
+    addressed_finding_ids: [],
+    reopened_finding_ids: [],
+    repeated_resolver_finding_ids: [],
+    finding_lifecycle: [],
+    source_writer_blocks: 0,
+    source_writer_lock_acquires: 0,
+    source_writer_lock_releases: 0,
+    source_writer_lock_force_releases: 0,
+    source_writer_lock_release_failures: 0,
+    source_writer_lock_heartbeat_failures: 0,
+    source_writer_lock_stale_replacements: 0,
+    safety_limit_events: 0,
+    reindex_started_events: 0,
+    reindex_done_events: 0,
+    process_started_events: 1,
+    process_exited_events: 1,
+    warnings: [{ message: "open audit findings: FIND-correctness-001" }],
+    steps: [],
+    ...overrides,
+  };
+}
+
 describe("ChainDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
@@ -252,6 +312,7 @@ describe("ChainDetailPage", () => {
           },
         ],
       },
+      metrics: chainMetrics(),
     };
     apiGet.mockImplementation((url: string) => {
       if (url.includes("/receipt?step=step-1")) {
@@ -296,6 +357,11 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText(/verdict completed/)).toBeInTheDocument();
     expect(screen.getByText(/validation=rtk make test/)).toBeInTheDocument();
     expect(screen.getByText("- flow: chain completed after coder step 1 without later auditor")).toBeInTheDocument();
+    expect(screen.getByText("Dogfood Metrics")).toBeInTheDocument();
+    expect(screen.getByText("10/100")).toBeInTheDocument();
+    expect(screen.getByText("2s/20s")).toBeInTheDocument();
+    expect(screen.getByText("output=1 guardrail=1")).toBeInTheDocument();
+    expect(screen.getByText("open=1 addressed=0")).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("provider.stream")).toBeInTheDocument();

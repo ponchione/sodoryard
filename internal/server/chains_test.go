@@ -255,6 +255,28 @@ func TestChainInspectorEndpoints(t *testing.T) {
 				OpenFindingIDs              []string `json:"open_finding_ids"`
 			} `json:"step_facts"`
 		} `json:"guardrails"`
+		Metrics struct {
+			ChainID                    string   `json:"chain_id"`
+			Health                     string   `json:"health"`
+			TotalSteps                 int      `json:"total_steps"`
+			StepRows                   int      `json:"step_rows"`
+			TotalTokens                int      `json:"total_tokens"`
+			StepTokenTotal             int      `json:"step_token_total"`
+			StepTurnTotal              int      `json:"step_turn_total"`
+			EventTotal                 int      `json:"event_total"`
+			StepGuardrailFactEvents    int      `json:"step_guardrail_fact_events"`
+			FindingLifecycleFactEvents int      `json:"finding_lifecycle_fact_events"`
+			OpenFindingIDs             []string `json:"open_finding_ids"`
+			Warnings                   []struct {
+				Message string `json:"message"`
+			} `json:"warnings"`
+			Steps []struct {
+				SequenceNum int    `json:"sequence_num"`
+				Role        string `json:"role"`
+				TokensUsed  int    `json:"tokens_used"`
+				TurnsUsed   int    `json:"turns_used"`
+			} `json:"steps"`
+		} `json:"metrics"`
 		Timeline []struct {
 			Source     string `json:"source"`
 			Kind       string `json:"kind"`
@@ -299,6 +321,18 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "internal/example.go" {
 		t.Fatalf("guardrail changed files = %+v, want internal/example.go", facts.ChangedFiles)
+	}
+	if detail.Metrics.ChainID != chainID || detail.Metrics.Health != "attention" || detail.Metrics.TotalSteps != 0 || detail.Metrics.StepRows != 1 || detail.Metrics.TotalTokens != 0 || detail.Metrics.StepTokenTotal != 42 || detail.Metrics.EventTotal != 3 || detail.Metrics.StepGuardrailFactEvents != 1 || detail.Metrics.FindingLifecycleFactEvents != 1 {
+		t.Fatalf("metrics = %+v, want serialized chain metrics report", detail.Metrics)
+	}
+	if len(detail.Metrics.Steps) != 1 || detail.Metrics.Steps[0].SequenceNum != 1 || detail.Metrics.Steps[0].Role != "coder" || detail.Metrics.Steps[0].TokensUsed != 42 {
+		t.Fatalf("metric steps = %+v, want step token summary", detail.Metrics.Steps)
+	}
+	if len(detail.Metrics.OpenFindingIDs) != 1 || detail.Metrics.OpenFindingIDs[0] != "FIND-correctness-001" {
+		t.Fatalf("metric open findings = %+v, want open finding id", detail.Metrics.OpenFindingIDs)
+	}
+	if len(detail.Metrics.Warnings) == 0 {
+		t.Fatalf("metric warnings = %+v, want dogfooding warnings", detail.Metrics.Warnings)
 	}
 	var sawTimelineSpan bool
 	for _, item := range detail.Timeline {
