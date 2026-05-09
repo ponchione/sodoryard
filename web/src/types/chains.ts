@@ -273,6 +273,11 @@ export interface ChainMetricsReport {
   chain_id: string;
   status: string;
   health: string;
+  launch_mode?: string;
+  step_max_turns: number;
+  step_max_tokens: number;
+  has_step_max_turns: boolean;
+  has_step_max_tokens: boolean;
   total_steps: number;
   step_rows: number;
   max_steps: number;

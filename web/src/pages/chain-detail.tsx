@@ -45,6 +45,12 @@ function budgetValue(used: number, total: number, suffix = ""): string {
   return `${used}${suffix}`;
 }
 
+function stepCapLabel(value: number, present: boolean): string {
+  if (!present) return "<unrecorded>";
+  if (value <= 0) return "<unset>";
+  return String(value);
+}
+
 function approvalStatusClass(status: string): string {
   if (status === "approved") return "text-accent";
   if (status === "denied") return "text-destructive";
@@ -443,6 +449,16 @@ export function ChainDetailPage() {
                     </span>
                   </div>
                 </div>
+                {(detail.metrics.launch_mode || detail.metrics.has_step_max_turns || detail.metrics.has_step_max_tokens) && (
+                  <div className="border border-border p-3 text-xs">
+                    <span className="text-muted-foreground">Launch </span>
+                    <span className="text-foreground">
+                      mode={detail.metrics.launch_mode || "<unset>"} step_max_turns=
+                      {stepCapLabel(detail.metrics.step_max_turns, detail.metrics.has_step_max_turns)} step_max_tokens=
+                      {stepCapLabel(detail.metrics.step_max_tokens, detail.metrics.has_step_max_tokens)}
+                    </span>
+                  </div>
+                )}
               </section>
             )}
 

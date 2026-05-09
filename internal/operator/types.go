@@ -222,6 +222,11 @@ type ChainMetricsReport struct {
 	ChainID                           string
 	Status                            string
 	Health                            string
+	LaunchMode                        string
+	StepMaxTurns                      int
+	StepMaxTokens                     int
+	HasStepMaxTurns                   bool
+	HasStepMaxTokens                  bool
 	TotalSteps                        int
 	StepRows                          int
 	MaxSteps                          int

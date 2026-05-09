@@ -477,6 +477,24 @@ func TestRenderYardChainMetricsPrintsFindingLifecycle(t *testing.T) {
 	}
 }
 
+func TestRenderYardChainMetricsPrintsLaunchCaps(t *testing.T) {
+	report := operator.ChainMetricsReport{
+		ChainID:          "chain-caps",
+		Status:           "completed",
+		Health:           "attention",
+		LaunchMode:       "one_step_chain",
+		StepMaxTurns:     4,
+		HasStepMaxTurns:  true,
+		HasStepMaxTokens: true,
+	}
+
+	var out bytes.Buffer
+	renderYardChainMetrics(&out, report)
+	if !strings.Contains(out.String(), "launch mode=one_step_chain step_max_turns=4 step_max_tokens=<unset>\n") {
+		t.Fatalf("stdout = %q, want launch caps line", out.String())
+	}
+}
+
 func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 	ctx := context.Background()
 	cfgPath, projectRoot := writeYardRunConfig(t)

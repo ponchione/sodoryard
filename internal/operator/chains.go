@@ -183,6 +183,11 @@ func summarizeChainMetrics(detail ChainDetail) ChainMetricsReport {
 	changedFileEventsByStep := map[string]bool{}
 	guardrailFactsByStep := map[string]stepGuardrailFactsEvent{}
 	launchFacts := chainMetricsLaunchFactsFromEvents(detail.RecentEvents)
+	report.LaunchMode = launchFacts.Mode
+	report.StepMaxTurns = launchFacts.StepMaxTurns
+	report.StepMaxTokens = launchFacts.StepMaxTokens
+	report.HasStepMaxTurns = launchFacts.HasStepMaxTurns
+	report.HasStepMaxTokens = launchFacts.HasStepMaxTokens
 	flowAnalysis := chain.AnalyzeFlow(chain.FlowAnalysisInput{Chain: ch, Steps: detail.Steps, Events: detail.RecentEvents})
 	report.OpenFindingIDs = append([]string(nil), flowAnalysis.Findings.OpenIDs...)
 	report.ClosedFindingIDs = append([]string(nil), flowAnalysis.Findings.ClosedIDs...)

@@ -324,6 +324,11 @@ type chainMetricsResponse struct {
 	ChainID                           string                     `json:"chain_id"`
 	Status                            string                     `json:"status"`
 	Health                            string                     `json:"health"`
+	LaunchMode                        string                     `json:"launch_mode,omitempty"`
+	StepMaxTurns                      int                        `json:"step_max_turns"`
+	StepMaxTokens                     int                        `json:"step_max_tokens"`
+	HasStepMaxTurns                   bool                       `json:"has_step_max_turns"`
+	HasStepMaxTokens                  bool                       `json:"has_step_max_tokens"`
 	TotalSteps                        int                        `json:"total_steps"`
 	StepRows                          int                        `json:"step_rows"`
 	MaxSteps                          int                        `json:"max_steps"`
@@ -695,6 +700,11 @@ func chainMetricsResponseFromOperator(report operator.ChainMetricsReport) chainM
 		ChainID:                           report.ChainID,
 		Status:                            report.Status,
 		Health:                            report.Health,
+		LaunchMode:                        report.LaunchMode,
+		StepMaxTurns:                      report.StepMaxTurns,
+		StepMaxTokens:                     report.StepMaxTokens,
+		HasStepMaxTurns:                   report.HasStepMaxTurns,
+		HasStepMaxTokens:                  report.HasStepMaxTokens,
 		TotalSteps:                        report.TotalSteps,
 		StepRows:                          report.StepRows,
 		MaxSteps:                          report.MaxSteps,

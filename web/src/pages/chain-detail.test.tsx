@@ -45,6 +45,11 @@ function chainMetrics(overrides: Partial<NonNullable<ChainDetail["metrics"]>> = 
     chain_id: "chain-1",
     status: "completed",
     health: "attention",
+    launch_mode: "one_step_chain",
+    step_max_turns: 4,
+    step_max_tokens: 50000,
+    has_step_max_turns: true,
+    has_step_max_tokens: true,
     total_steps: 1,
     step_rows: 1,
     max_steps: 5,
@@ -362,6 +367,9 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText("2s/20s")).toBeInTheDocument();
     expect(screen.getByText("output=1 guardrail=1")).toBeInTheDocument();
     expect(screen.getByText("open=1 addressed=0")).toBeInTheDocument();
+    expect(screen.getByText(/mode=one_step_chain/)).toBeInTheDocument();
+    expect(screen.getByText(/step_max_turns=4/)).toBeInTheDocument();
+    expect(screen.getByText(/step_max_tokens=50000/)).toBeInTheDocument();
     expect(screen.getByText("completed / attention")).toBeInTheDocument();
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("provider.stream")).toBeInTheDocument();

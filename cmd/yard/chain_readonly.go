@@ -113,6 +113,9 @@ func newYardChainReceiptCmd(configPath *string) *cobra.Command {
 
 func renderYardChainMetrics(out io.Writer, report operator.ChainMetricsReport) {
 	_, _ = fmt.Fprintf(out, "chain=%s health=%s status=%s\n", report.ChainID, report.Health, report.Status)
+	if report.LaunchMode != "" || report.HasStepMaxTurns || report.HasStepMaxTokens {
+		_, _ = fmt.Fprintf(out, "launch mode=%s step_max_turns=%s step_max_tokens=%s\n", valueOrUnset(report.LaunchMode), stepCapLabel(report.StepMaxTurns, report.HasStepMaxTurns), stepCapLabel(report.StepMaxTokens, report.HasStepMaxTokens))
+	}
 	_, _ = fmt.Fprintf(out, "steps recorded=%d rows=%d completed=%d running=%d pending=%d failed=%d budget=%d pct=%.1f\n", report.TotalSteps, report.StepRows, report.CompletedSteps, report.RunningSteps, report.PendingSteps, report.FailedSteps, report.MaxSteps, report.StepBudgetPct)
 	_, _ = fmt.Fprintf(out, "tokens recorded=%d step_sum=%d budget=%d pct=%.1f\n", report.TotalTokens, report.StepTokenTotal, report.TokenBudget, report.TokenBudgetPct)
 	_, _ = fmt.Fprintf(out, "turns step_sum=%d\n", report.StepTurnTotal)
@@ -170,4 +173,14 @@ func exitCodeLabel(exitCode *int) string {
 		return "<unset>"
 	}
 	return fmt.Sprintf("%d", *exitCode)
+}
+
+func stepCapLabel(value int, present bool) string {
+	if !present {
+		return "<unrecorded>"
+	}
+	if value <= 0 {
+		return "<unset>"
+	}
+	return fmt.Sprintf("%d", value)
 }

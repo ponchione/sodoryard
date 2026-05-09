@@ -710,6 +710,9 @@ func TestGetChainMetricsFlagsExpensiveSingleStepLaunch(t *testing.T) {
 			if report.Health != "attention" {
 				t.Fatalf("health = %s, want attention", report.Health)
 			}
+			if report.LaunchMode != mode || !report.HasStepMaxTurns || !report.HasStepMaxTokens || report.StepMaxTurns != 0 || report.StepMaxTokens != 0 {
+				t.Fatalf("launch metrics = mode %q turn cap %d/%t token cap %d/%t, want %s with recorded unset caps", report.LaunchMode, report.StepMaxTurns, report.HasStepMaxTurns, report.StepMaxTokens, report.HasStepMaxTokens, mode)
+			}
 			if len(report.Warnings) != 1 || !hasRuntimeWarning(report.Warnings, mode+" used 7 turns and 120000 tokens in a single completed step") {
 				t.Fatalf("warnings = %+v, want expensive single-step warning", report.Warnings)
 			}
