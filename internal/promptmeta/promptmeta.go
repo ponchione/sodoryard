@@ -44,6 +44,10 @@ func Parse(content string) Parsed {
 }
 
 func ValidateRole(roleKey string, configuredTools []string, metadata Metadata) []string {
+	return ValidateRoleRuntime(roleKey, configuredTools, 0, metadata)
+}
+
+func ValidateRoleRuntime(roleKey string, configuredTools []string, configuredMaxTurns int, metadata Metadata) []string {
 	roleKey = strings.TrimSpace(roleKey)
 	var warnings []string
 	if metadata.RoleKey != "" && metadata.RoleKey != roleKey {
@@ -58,6 +62,9 @@ func ValidateRole(roleKey string, configuredTools []string, metadata Metadata) [
 		if !equalStrings(expected, configured) {
 			warnings = append(warnings, fmt.Sprintf("expected_tools [%s] differ from configured tools [%s]", strings.Join(expected, ","), strings.Join(configured, ",")))
 		}
+	}
+	if metadata.RecommendedMaxTurns > 0 && configuredMaxTurns > 0 && metadata.RecommendedMaxTurns != configuredMaxTurns {
+		warnings = append(warnings, fmt.Sprintf("recommended_max_turns %d differs from configured max_turns %d", metadata.RecommendedMaxTurns, configuredMaxTurns))
 	}
 	return warnings
 }

@@ -86,7 +86,7 @@ func promptMetadataWarnings(cfg *appconfig.Config) []string {
 		if !parsed.HasFrontmatter {
 			continue
 		}
-		for _, warning := range promptmeta.ValidateRole(roleName, roleCfg.Tools, parsed.Metadata) {
+		for _, warning := range promptmeta.ValidateRoleRuntime(roleName, roleCfg.Tools, roleCfg.MaxTurns, parsed.Metadata) {
 			warnings = append(warnings, fmt.Sprintf("%s %s: %s", roleName, source, warning))
 		}
 	}

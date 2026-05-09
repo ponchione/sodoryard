@@ -1023,6 +1023,7 @@ Implemented on 2026-05-09:
 - all checked-in built-in role prompts under `agents/` now carry prompt metadata frontmatter
 - embedded prompt assets carry matching frontmatter and remain byte-for-byte synced with `agents/`
 - metadata records role key, persona, expected configured tools, receipt schema, recommended max turns, and whether audit-style structured findings are expected
+- `yard config` warns when prompt `recommended_max_turns` drifts from a role's configured `max_turns`
 - embedded prompt tests parse and validate this metadata while still asserting that the model-visible prompt body starts with the markdown role heading
 
 Not implemented in this slice:

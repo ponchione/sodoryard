@@ -46,19 +46,33 @@ func TestParseMalformedPromptFrontmatterWarnsAndKeepsBody(t *testing.T) {
 }
 
 func TestValidateRoleWarnsForMismatches(t *testing.T) {
-	warnings := ValidateRole("coder", []string{"file"}, Metadata{
-		RoleKey:       "reviewer",
-		ExpectedTools: []string{"brain", "file"},
-		ReceiptSchema: "other.schema",
+	warnings := ValidateRoleRuntime("coder", []string{"file"}, 30, Metadata{
+		RoleKey:             "reviewer",
+		ExpectedTools:       []string{"brain", "file"},
+		ReceiptSchema:       "other.schema",
+		RecommendedMaxTurns: 12,
 	})
 	for _, want := range []string{
 		`role_key "reviewer" differs from configured role "coder"`,
 		`expected_tools [brain,file] differ from configured tools [file]`,
 		`receipt_schema "other.schema" is not yard.receipt.v1`,
+		`recommended_max_turns 12 differs from configured max_turns 30`,
 	} {
 		if !warningsContain(warnings, want) {
 			t.Fatalf("warnings = %v, want %q", warnings, want)
 		}
+	}
+}
+
+func TestValidateRoleSkipsMaxTurnsWhenRuntimeLimitUnset(t *testing.T) {
+	warnings := ValidateRole("coder", []string{"file"}, Metadata{
+		RoleKey:             "coder",
+		ExpectedTools:       []string{"file"},
+		ReceiptSchema:       ReceiptSchemaV1,
+		RecommendedMaxTurns: 12,
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none when configured max turns are unknown", warnings)
 	}
 }
 

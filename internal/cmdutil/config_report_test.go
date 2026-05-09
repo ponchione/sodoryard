@@ -50,7 +50,7 @@ func TestRunConfigPrintsPromptMetadataWarnings(t *testing.T) {
 	if err := os.MkdirAll(promptDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("---\nrole_key: reviewer\nexpected_tools: [brain]\nreceipt_schema: other.schema\n---\n# Prompt\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("---\nrole_key: reviewer\nexpected_tools: [brain]\nreceipt_schema: other.schema\nrecommended_max_turns: 12\n---\n# Prompt\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile prompt returned error: %v", err)
 	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
@@ -70,6 +70,7 @@ agent_roles:
   coder:
     system_prompt: prompts/coder.md
     tools: [file]
+    max_turns: 30
 `, projectRoot)
 	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
 		t.Fatalf("WriteFile config returned error: %v", err)
@@ -85,6 +86,7 @@ agent_roles:
 		`role_key "reviewer" differs from configured role "coder"`,
 		`expected_tools [brain] differ from configured tools [file]`,
 		`receipt_schema "other.schema" is not yard.receipt.v1`,
+		`recommended_max_turns 12 differs from configured max_turns 30`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q in %q", want, got)
