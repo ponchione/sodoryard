@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/provider"
 	yardtool "github.com/ponchione/sodoryard/internal/tool"
 )
 
@@ -16,7 +18,7 @@ type toolContractShell struct {
 func (toolContractSuite) Info() SuiteInfo {
 	return SuiteInfo{
 		Name:        "tool-contract",
-		Description: "Evaluate deterministic tool executor behavior for approval-required and allowed shell calls.",
+		Description: "Evaluate deterministic tool executor behavior for approval-required calls, allowed calls, and repeated call loops.",
 	}
 }
 
@@ -29,6 +31,7 @@ func (s toolContractSuite) Run(ctx context.Context) (Report, error) {
 	report := newReport(s.Info())
 	report.addCase(evaluateApprovalRequiredShell())
 	report.addCase(evaluateAllowedShell())
+	report.addCase(evaluateRepeatedFailingToolLoop())
 	report.finalize()
 	return report, nil
 }
@@ -75,6 +78,24 @@ func evaluateAllowedShell() CaseResult {
 	assertEqual(&result, "tool executed", executed, true)
 	assertEqual(&result, "tool result passed", toolResult.Success, true)
 	assertEqual(&result, "tool output", toolResult.Content, "executed")
+	return result
+}
+
+func evaluateRepeatedFailingToolLoop() CaseResult {
+	result := newCase("repeated-failing-tool-loop")
+	iterations := [][]provider.ToolCall{
+		{{ID: "tc-loop-1", Name: "read_file", Input: json.RawMessage(`{"path":"missing.go"}`)}},
+		{{ID: "tc-loop-2", Name: "read_file", Input: json.RawMessage(`{"path":"missing.go"}`)}},
+		{{ID: "tc-loop-3", Name: "read_file", Input: json.RawMessage(`{"path":"missing.go"}`)}},
+	}
+	detected := agent.RepeatedToolCallLoopDetected(3, iterations)
+	result.Details["threshold"] = 3
+	result.Details["iterations"] = len(iterations)
+	result.Details["repeated_tool"] = "read_file"
+	result.Details["tool_errors"] = len(iterations)
+	result.Details["loop_detected"] = detected
+
+	assertEqual(&result, "loop detected", detected, true)
 	return result
 }
 

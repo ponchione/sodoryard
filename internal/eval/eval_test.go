@@ -92,8 +92,8 @@ func TestToolContractSuitePassesAndReportsApprovalBehavior(t *testing.T) {
 	if report.Status != StatusPass {
 		t.Fatalf("status = %q, want pass: %+v", report.Status, report)
 	}
-	if report.Totals.Cases != 2 || report.Totals.CasesPassed != 2 {
-		t.Fatalf("case totals = %+v, want 2/2", report.Totals)
+	if report.Totals.Cases != 3 || report.Totals.CasesPassed != 3 {
+		t.Fatalf("case totals = %+v, want 3/3", report.Totals)
 	}
 	approval := findEvalCase(t, report, "approval-required-shell")
 	if approval.Details["executed"] != false || approval.Details["approval_status"] != "pending" {
@@ -102,6 +102,10 @@ func TestToolContractSuitePassesAndReportsApprovalBehavior(t *testing.T) {
 	allowed := findEvalCase(t, report, "allowed-shell")
 	if allowed.Details["executed"] != true || allowed.Details["success"] != true {
 		t.Fatalf("allowed details = %+v, want executed success", allowed.Details)
+	}
+	loop := findEvalCase(t, report, "repeated-failing-tool-loop")
+	if loop.Details["loop_detected"] != true || detailIntForTest(t, loop, "tool_errors") != 3 {
+		t.Fatalf("loop details = %+v, want detected loop with 3 errors", loop.Details)
 	}
 }
 
@@ -216,4 +220,13 @@ func detailsStringSliceForTest(t *testing.T, c CaseResult, key string) []string 
 		t.Fatalf("case %s detail %s = %#v, want []string", c.Name, key, c.Details[key])
 	}
 	return values
+}
+
+func detailIntForTest(t *testing.T, c CaseResult, key string) int {
+	t.Helper()
+	value, ok := c.Details[key].(int)
+	if !ok {
+		t.Fatalf("case %s detail %s = %#v, want int", c.Name, key, c.Details[key])
+	}
+	return value
 }

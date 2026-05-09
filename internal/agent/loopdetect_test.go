@@ -42,6 +42,17 @@ func TestLoopDetectorDetectsLoopAtThreshold(t *testing.T) {
 	}
 }
 
+func TestRepeatedToolCallLoopDetected(t *testing.T) {
+	iterations := [][]provider.ToolCall{
+		{tc("read_file", `{"path":"a.go"}`)},
+		{tc("read_file", `{"path":"a.go"}`)},
+		{tc("read_file", `{"path":"a.go"}`)},
+	}
+	if !RepeatedToolCallLoopDetected(3, iterations) {
+		t.Fatal("RepeatedToolCallLoopDetected = false, want true")
+	}
+}
+
 func TestLoopDetectorDifferentCallsBreakLoop(t *testing.T) {
 	d := newLoopDetector(3)
 

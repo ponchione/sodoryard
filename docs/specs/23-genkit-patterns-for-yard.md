@@ -481,11 +481,12 @@ Implemented on 2026-05-08:
 - `yard eval run tool-contract`
 - deterministic executor-level assertions for approval-required shell calls
 - deterministic assertion that allowed shell calls still execute when approval patterns do not match
+- deterministic repeated failing tool-call loop check against the agent loop detector
 - provider-free and shell-free fake tool coverage for CI
 
 Not implemented in this slice:
 
-- repeated failing-call loop evals
+- live repeated failing-call loop evals
 - read-only role mutating-tool evals
 - live tool behavior evals
 

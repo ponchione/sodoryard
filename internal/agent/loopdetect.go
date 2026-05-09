@@ -25,6 +25,19 @@ func newLoopDetector(threshold int) *loopDetector {
 	}
 }
 
+// RepeatedToolCallLoopDetected reports whether the provided iteration sequence
+// would trigger the agent loop's repeated tool-call nudge.
+func RepeatedToolCallLoopDetected(threshold int, iterations [][]provider.ToolCall) bool {
+	detector := newLoopDetector(threshold)
+	for _, calls := range iterations {
+		detector.record(calls)
+		if detector.isLooping() {
+			return true
+		}
+	}
+	return false
+}
+
 // record stores the tool calls for the current iteration. Must be called
 // in iteration order.
 func (d *loopDetector) record(calls []provider.ToolCall) {
@@ -83,8 +96,6 @@ func canonicalizeJSON(raw json.RawMessage) string {
 	}
 	return string(canonical)
 }
-
-
 
 // signaturesEqual compares two sorted signature slices for equality.
 func signaturesEqual(a, b []string) bool {
