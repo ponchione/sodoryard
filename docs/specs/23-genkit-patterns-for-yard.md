@@ -684,6 +684,20 @@ Not implemented in this slice:
 - template selection by ID beyond existing launch mode flags
 - JSON input schemas or template-specific hard validation beyond existing launch validation
 
+### Implemented Template Selection Slice
+
+Implemented on 2026-05-09:
+
+- operator `LaunchRequest` can select launch behavior by `TemplateID`
+- template IDs resolve through the shared launch template registry
+- conflicting `TemplateID` and `Mode` values fail before launch validation proceeds
+- TUI slash `/preview` and `/start` accept `--template <id>` while preserving `--mode` compatibility
+
+Not implemented in this slice:
+
+- chain start CLI `--template`
+- JSON input schemas or template-specific hard validation beyond existing launch validation
+
 ### Acceptance Criteria
 
 - One-step, manual-roster, constrained-orchestration, and full-orchestration launches use one shared compile path.

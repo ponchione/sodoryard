@@ -35,7 +35,10 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 	if err != nil {
 		return LaunchPreview{}, err
 	}
-	req = normalizeLaunchRequest(req)
+	req, err = resolveLaunchTemplateRequest(req)
+	if err != nil {
+		return LaunchPreview{}, err
+	}
 	if req.SourceTask == "" && len(req.SourceSpecs) == 0 {
 		return LaunchPreview{}, fmt.Errorf("one of task or specs is required")
 	}
@@ -183,6 +186,7 @@ type startChainDone struct {
 }
 
 func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
+	req.TemplateID = strings.TrimSpace(req.TemplateID)
 	req.Role = strings.TrimSpace(req.Role)
 	req.SourceTask = strings.TrimSpace(req.SourceTask)
 	req.SourceSpecs = chaininput.NormalizeSpecs(req.SourceSpecs)
@@ -200,6 +204,22 @@ func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
 		}
 	}
 	return req
+}
+
+func resolveLaunchTemplateRequest(req LaunchRequest) (LaunchRequest, error) {
+	req.TemplateID = strings.TrimSpace(req.TemplateID)
+	req.Mode = LaunchMode(strings.TrimSpace(string(req.Mode)))
+	if req.TemplateID != "" {
+		template, ok := LaunchTemplateForID(req.TemplateID)
+		if !ok {
+			return LaunchRequest{}, fmt.Errorf("unknown launch template %q", req.TemplateID)
+		}
+		if req.Mode != "" && req.Mode != template.Mode {
+			return LaunchRequest{}, fmt.Errorf("launch template %q uses mode %s, not %s", req.TemplateID, template.Mode, req.Mode)
+		}
+		req.Mode = template.Mode
+	}
+	return normalizeLaunchRequest(req), nil
 }
 
 func withLaunchDefaults(req LaunchRequest) LaunchRequest {

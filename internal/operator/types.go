@@ -363,6 +363,7 @@ const (
 )
 
 type LaunchRequest struct {
+	TemplateID       string
 	Mode             LaunchMode
 	Role             string
 	AllowedRoles     []string

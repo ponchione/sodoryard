@@ -39,7 +39,10 @@ func (s *Service) SaveLaunchDraft(ctx context.Context, req LaunchRequest) (Launc
 	if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
 		return LaunchDraft{}, fmt.Errorf("ensure project record: %w", err)
 	}
-	req = normalizeLaunchRequest(req)
+	req, err = resolveLaunchTemplateRequest(req)
+	if err != nil {
+		return LaunchDraft{}, err
+	}
 	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal allowed roles: %w", err)
@@ -241,7 +244,11 @@ func (s *Service) projectMemoryLaunchStore(cfg *appconfig.Config) (projectmemory
 }
 
 func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projectmemory.LaunchStore, cfg *appconfig.Config, req LaunchRequest) (LaunchDraft, error) {
-	req = normalizeLaunchRequest(req)
+	var err error
+	req, err = resolveLaunchTemplateRequest(req)
+	if err != nil {
+		return LaunchDraft{}, err
+	}
 	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal allowed roles: %w", err)
@@ -418,7 +425,10 @@ func (r launchPresetRow) request() (LaunchRequest, error) {
 }
 
 func normalizeLaunchPresetRequest(cfg *appconfig.Config, req LaunchRequest) (LaunchRequest, error) {
-	req = normalizeLaunchRequest(req)
+	req, err := resolveLaunchTemplateRequest(req)
+	if err != nil {
+		return LaunchRequest{}, err
+	}
 	req.SourceTask = ""
 	req.SourceSpecs = nil
 	req.MaxSteps = 0

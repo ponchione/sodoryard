@@ -1,6 +1,9 @@
 package operator
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 const launchReceiptSchemaV1 = "yard.receipt.v1"
 
@@ -52,6 +55,16 @@ func ListLaunchTemplates() []LaunchTemplate {
 		out = append(out, cloneLaunchTemplate(template))
 	}
 	return out
+}
+
+func LaunchTemplateForID(id string) (LaunchTemplate, bool) {
+	id = strings.TrimSpace(id)
+	for _, template := range launchTemplates {
+		if template.ID == id {
+			return cloneLaunchTemplate(template), true
+		}
+	}
+	return LaunchTemplate{}, false
 }
 
 func launchTemplateForMode(mode LaunchMode) (LaunchTemplate, bool) {

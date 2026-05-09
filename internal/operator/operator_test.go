@@ -1380,6 +1380,13 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if len(preview.Warnings) != 1 || preview.Warnings[0].Message != "no source specs selected" {
 		t.Fatalf("warnings = %+v, want no source specs warning", preview.Warnings)
 	}
+	byTemplate, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Role: "coder", SourceTask: "fix by template"})
+	if err != nil {
+		t.Fatalf("ValidateLaunch template one-step returned error: %v", err)
+	}
+	if byTemplate.Mode != LaunchModeOneStep || byTemplate.Template.ID != "one_step" || byTemplate.Role != "coder" || byTemplate.CompiledTask != "fix by template" {
+		t.Fatalf("template preview = %+v, want one-step template preview", byTemplate)
+	}
 
 	orchestrator, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOrchestrator, SourceSpecs: []string{" specs/a.md ", "specs/a.md"}})
 	if err != nil {
@@ -1445,6 +1452,12 @@ func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
 	}
 	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeConstrained, SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "constrained orchestration requires at least one allowed role") {
 		t.Fatalf("ValidateLaunch missing constrained roles error = %v, want missing allowed roles error", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "missing", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "unknown launch template") {
+		t.Fatalf("ValidateLaunch unknown template error = %v, want unknown template", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Mode: LaunchModeManualRoster, Role: "coder", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "uses mode") {
+		t.Fatalf("ValidateLaunch template/mode conflict error = %v, want conflict", err)
 	}
 }
 

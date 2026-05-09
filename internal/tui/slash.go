@@ -365,6 +365,7 @@ func shellFields(input string) ([]string, error) {
 
 func slashLaunchRequest(cmd slashCommand) (operator.LaunchRequest, error) {
 	req := operator.LaunchRequest{
+		TemplateID: firstFlag(cmd, "template", "template-id"),
 		Role:       firstFlag(cmd, "role"),
 		SourceTask: firstFlag(cmd, "task"),
 	}
@@ -510,7 +511,7 @@ func slashHelpText() string {
 		"/web <chain-id>              show web inspector target",
 		"",
 		"Launch flags:",
-		"--task \"text\"  --role coder  --mode one_step_chain|manual_roster|constrained_orchestration|sir_topham_decides",
+		"--task \"text\"  --role coder  --template one_step|manual_roster|constrained_orchestration|sir_topham_decides",
 		"--roster planner,coder  --allowed coder,planner  --spec docs/specs/foo.md",
 	}, "\n")
 }
