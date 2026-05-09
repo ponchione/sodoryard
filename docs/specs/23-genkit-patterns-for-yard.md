@@ -1016,10 +1016,19 @@ Implemented on 2026-05-08:
 - brain-search source retriever wrapper that returns normalized `RetrievalResult` metadata
 - tests verify wrappers preserve current context config and brain graph-hop settings
 
-Not implemented in this slice:
+### Implemented Additional Source Wrapper Slice
+
+Implemented on 2026-05-09:
+
+- structural graph source retriever wrapper that returns normalized symbol results
+- explicit-file source retriever wrapper that returns normalized file results
+- convention source retriever wrapper that returns normalized convention text
+- git-context source retriever wrapper that returns normalized git context with depth metadata
+- focused tests cover graph structural config, explicit file content, convention loading, and git depth/workdir forwarding
+
+Not implemented in these slices:
 
 - replacing the current retrieval orchestrator with source wrappers
-- wrappers for graph, conventions, git context, or explicit files
 - ranking experiments across normalized source results
 
 ### Acceptance Criteria
