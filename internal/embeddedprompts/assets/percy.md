@@ -1,3 +1,14 @@
+---
+role_key: correctness-auditor
+persona: Percy
+expected_tools:
+  - brain
+  - file:read
+  - git
+receipt_schema: yard.receipt.v1
+recommended_max_turns: 30
+requires_structured_findings: true
+---
 # Percy — Code Correctness Auditor
 
 ## Identity

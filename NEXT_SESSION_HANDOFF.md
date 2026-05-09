@@ -14,6 +14,8 @@ Shunter is the base brain/project-memory design. Do not reintroduce legacy migra
 
 2026-05-09 update: the Spec 23 approval-control slices now derive durable approval state from chain events, record `approval_decision` events, expose `yard chain approvals|approve|deny`, TUI `/approvals|/approve|/deny`, and browser chain-detail approval controls, and add opt-in approval wait behavior through `yard chain start --allow-approval-wait` or TUI `/start --allow-approval-wait`. Chains move into `waiting_approval` for approval-required orchestrator tool results and spawned headless steps. Decided approvals are propagated into resumed spawned agents, so a matching approved shell call can run and a matching denied shell call returns a denial tool result. Full replay of the exact paused tool turn remains open.
 
+2026-05-09 update: the Spec 23 prompt-metadata sync slice now adds frontmatter metadata to every checked-in built-in role prompt and matching embedded prompt asset. The runtime strips this frontmatter before sending prompts to models, and tests now validate role key, persona, expected configured tools, receipt schema, recommended max turns, and structured-finding expectations.
+
 ## What Changed Tonight
 
 `yard chain metrics <chain-id>` now exists and is the primary quick check for dogfooding chain health. It reports:

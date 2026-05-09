@@ -1,3 +1,12 @@
+---
+role_key: task-decomposer
+persona: Emily
+expected_tools:
+  - brain
+receipt_schema: yard.receipt.v1
+recommended_max_turns: 20
+requires_structured_findings: false
+---
 # Emily — Task Decomposer
 
 ## Identity

@@ -1013,7 +1013,20 @@ Implemented on 2026-05-08:
 
 Not implemented in this slice:
 
-- syncing embedded prompt metadata across all built-in prompt files
+- docs generation from prompt metadata
+- hard rejection of prompt metadata mismatches
+
+### Implemented Prompt Metadata Sync Slice
+
+Implemented on 2026-05-09:
+
+- all checked-in built-in role prompts under `agents/` now carry prompt metadata frontmatter
+- embedded prompt assets carry matching frontmatter and remain byte-for-byte synced with `agents/`
+- metadata records role key, persona, expected configured tools, receipt schema, recommended max turns, and whether audit-style structured findings are expected
+- embedded prompt tests parse and validate this metadata while still asserting that the model-visible prompt body starts with the markdown role heading
+
+Not implemented in this slice:
+
 - docs generation from prompt metadata
 - hard rejection of prompt metadata mismatches
 

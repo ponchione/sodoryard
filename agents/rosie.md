@@ -1,3 +1,16 @@
+---
+role_key: test-writer
+persona: Rosie
+expected_tools:
+  - brain
+  - file
+  - git
+  - search
+  - shell
+receipt_schema: yard.receipt.v1
+recommended_max_turns: 50
+requires_structured_findings: false
+---
 # Rosie — Test Writer
 
 ## Identity
