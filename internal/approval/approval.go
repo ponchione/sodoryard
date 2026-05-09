@@ -7,7 +7,14 @@ import (
 
 const (
 	KindRequired   = "approval_required"
+	KindDenied     = "approval_denied"
 	ProgressPrefix = "approval_required: "
+	EnvDecisions   = "SODORYARD_APPROVAL_DECISIONS"
+)
+
+const (
+	StatusApproved = "approved"
+	StatusDenied   = "denied"
 )
 
 var payloadKeys = []string{
@@ -23,6 +30,14 @@ var payloadKeys = []string{
 	"conversation_id",
 	"turn_number",
 	"iteration",
+}
+
+type Decision struct {
+	ID        string          `json:"approval_id"`
+	ToolName  string          `json:"tool_name"`
+	ToolInput json.RawMessage `json:"tool_input,omitempty"`
+	Status    string          `json:"status"`
+	Reason    string          `json:"reason,omitempty"`
 }
 
 func PayloadFromToolResultDetails(details json.RawMessage) (map[string]any, bool) {
@@ -74,6 +89,42 @@ func PayloadFromProgressLine(line string) (map[string]any, bool) {
 	return payload, true
 }
 
+func EncodeDecisionEnv(decisions []Decision) string {
+	filtered := make([]Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		if !validDecision(decision) {
+			continue
+		}
+		filtered = append(filtered, decision)
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(filtered)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func DecodeDecisionEnv(raw string) []Decision {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var decisions []Decision
+	if err := json.Unmarshal([]byte(raw), &decisions); err != nil {
+		return nil
+	}
+	out := make([]Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		if validDecision(decision) {
+			out = append(out, decision)
+		}
+	}
+	return out
+}
+
 func WithDefaultChainStep(payload map[string]any, chainID string, stepID string) map[string]any {
 	if payload == nil {
 		return nil
@@ -97,6 +148,14 @@ func StepID(payload map[string]any) string {
 
 func validPayload(payload map[string]any) bool {
 	return strings.TrimSpace(stringValue(payload["approval_id"])) != "" && strings.TrimSpace(stringValue(payload["tool_name"])) != ""
+}
+
+func validDecision(decision Decision) bool {
+	status := strings.TrimSpace(decision.Status)
+	if status != StatusApproved && status != StatusDenied {
+		return false
+	}
+	return strings.TrimSpace(decision.ID) != "" && strings.TrimSpace(decision.ToolName) != ""
 }
 
 func stringValue(value any) string {

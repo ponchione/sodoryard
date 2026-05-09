@@ -927,11 +927,26 @@ Not implemented in this slice:
 - denial surfaced back into the original paused agent turn as a tool result
 - approval support for file mutation tools beyond the existing shell hook
 
+### Implemented Approval Decision Replay Gate Slice
+
+Implemented on 2026-05-09:
+
+- decided approvals are serialized into spawned headless agent environments during resumed chain execution
+- headless runs decode those decisions into the tool executor
+- shell approval hooks allow matching approved tool inputs to execute even when the new provider tool-call ID differs from the original approval ID
+- shell approval hooks return a structured denial tool result for matching denied tool inputs without executing the command
+- tests cover approval decision environment encoding/decoding, child-process propagation, approved matching execution, and denied matching execution
+
+Not implemented in this slice:
+
+- automatic replay or continuation of the exact paused tool call without the resumed agent issuing a matching call
+- approval-decision replay for file mutation tools beyond the existing shell hook
+
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.
 - The operator can approve or deny from the TUI, CLI, or browser chain detail.
-- Denial is visible to the model as a tool result.
+- Denial is visible to the model as a tool result when the resumed agent issues the matching denied shell input.
 - Headless chain behavior is deterministic and documented.
 
 ---

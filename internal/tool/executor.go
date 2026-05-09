@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/provider"
 	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
@@ -25,6 +26,10 @@ type ExecutorConfig struct {
 	// ShellApprovalPatterns require operator approval before matching shell
 	// commands execute. Headless callers fail closed until a resume path exists.
 	ShellApprovalPatterns []string
+
+	// ApprovalDecisions are already-recorded operator decisions that may allow
+	// or deny matching approval-gated tool calls during resumed execution.
+	ApprovalDecisions []approval.Decision
 }
 
 // Executor dispatches tool call batches with purity-based execution strategy.
@@ -54,7 +59,7 @@ func NewExecutor(registry *Registry, config ExecutorConfig, logger *slog.Logger)
 		logger:   logger,
 		nowFn:    time.Now,
 	}
-	if approval := NewShellApprovalHook(config.ShellApprovalPatterns); approval != nil {
+	if approval := NewShellApprovalHook(config.ShellApprovalPatterns, config.ApprovalDecisions); approval != nil {
 		executor.approval = approval
 	}
 	return executor
@@ -267,6 +272,21 @@ func (e *Executor) executionHooks() []Hook {
 }
 
 func blockedBeforeToolResult(call ToolCall, err error, durationMs int64) ToolResult {
+	var deniedErr *ApprovalDeniedError
+	if errors.As(err, &deniedErr) {
+		reason := strings.TrimSpace(deniedErr.Decision.Reason)
+		if reason == "" {
+			reason = "operator denied the approval"
+		}
+		return ToolResult{
+			CallID:     call.ID,
+			Content:    fmt.Sprintf("Approval denied for tool %q: %s. The tool was not run.", call.Name, reason),
+			Success:    false,
+			Error:      ErrApprovalDenied.Error(),
+			DurationMs: durationMs,
+			Details:    approvalDeniedDetails(deniedErr.Decision),
+		}
+	}
 	var approvalErr *ApprovalRequiredError
 	if errors.As(err, &approvalErr) {
 		pending := approvalErr.Pending

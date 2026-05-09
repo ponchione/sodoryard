@@ -39,3 +39,28 @@ func TestProgressLineRoundTrip(t *testing.T) {
 		t.Fatalf("payload = %+v, want %+v", got, want)
 	}
 }
+
+func TestDecisionEnvRoundTripFiltersInvalidDecisions(t *testing.T) {
+	raw := EncodeDecisionEnv([]Decision{
+		{
+			ID:        "approval-tc-1",
+			ToolName:  "shell",
+			ToolInput: json.RawMessage(`{"command":"git push --force"}`),
+			Status:    StatusApproved,
+			Reason:    "reviewed",
+		},
+		{ID: "pending", ToolName: "shell", Status: "pending"},
+	})
+	if raw == "" {
+		t.Fatal("EncodeDecisionEnv returned empty value")
+	}
+
+	decisions := DecodeDecisionEnv(raw)
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %+v, want one valid decision", decisions)
+	}
+	got := decisions[0]
+	if got.ID != "approval-tc-1" || got.ToolName != "shell" || got.Status != StatusApproved || got.Reason != "reviewed" || string(got.ToolInput) != `{"command":"git push --force"}` {
+		t.Fatalf("decision = %+v, want approved shell decision with input", got)
+	}
+}

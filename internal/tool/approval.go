@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ const (
 )
 
 var ErrApprovalRequired = errors.New("approval required")
+var ErrApprovalDenied = errors.New("approval denied")
 
 // PendingApproval is the durable approval contract used when a tool call is
 // valid but must not execute until an operator approves it.
@@ -59,20 +61,49 @@ func (e *ApprovalRequiredError) Unwrap() error {
 	return ErrApprovalRequired
 }
 
-type ShellApprovalHook struct {
-	patterns []string
-	nowFn    func() time.Time
+// ApprovalDeniedError preserves the durable operator decision that rejected a
+// matching approval-gated tool call.
+type ApprovalDeniedError struct {
+	Decision approval.Decision
 }
 
-func NewShellApprovalHook(patterns []string) *ShellApprovalHook {
+func (e *ApprovalDeniedError) Error() string {
+	reason := strings.TrimSpace(e.Decision.Reason)
+	if reason == "" {
+		return ErrApprovalDenied.Error()
+	}
+	return ErrApprovalDenied.Error() + ": " + reason
+}
+
+func (e *ApprovalDeniedError) Unwrap() error {
+	return ErrApprovalDenied
+}
+
+type ShellApprovalHook struct {
+	patterns  []string
+	decisions []approval.Decision
+	nowFn     func() time.Time
+}
+
+func NewShellApprovalHook(patterns []string, decisions []approval.Decision) *ShellApprovalHook {
 	normalized := normalizeApprovalPatterns(patterns)
 	if len(normalized) == 0 {
 		return nil
 	}
 	return &ShellApprovalHook{
-		patterns: normalized,
-		nowFn:    time.Now,
+		patterns:  normalized,
+		decisions: cloneApprovalDecisions(decisions),
+		nowFn:     time.Now,
 	}
+}
+
+func cloneApprovalDecisions(decisions []approval.Decision) []approval.Decision {
+	out := make([]approval.Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		decision.ToolInput = append(json.RawMessage(nil), decision.ToolInput...)
+		out = append(out, decision)
+	}
+	return out
 }
 
 func normalizeApprovalPatterns(patterns []string) []string {
@@ -108,6 +139,14 @@ func (h *ShellApprovalHook) BeforeTool(ctx context.Context, call ToolCall, def T
 		if !shellCommandMatchesPattern(command, pattern) {
 			continue
 		}
+		if decision, ok := h.matchingDecision(call); ok {
+			switch strings.TrimSpace(decision.Status) {
+			case ApprovalStatusApproved:
+				return ctx, nil
+			case ApprovalStatusDenied:
+				return ctx, &ApprovalDeniedError{Decision: decision}
+			}
+		}
 		scope := tracepkg.ScopeFromContext(ctx)
 		return ctx, &ApprovalRequiredError{Pending: PendingApproval{
 			ID:             approvalIDForCall(call),
@@ -136,6 +175,56 @@ func (h *ShellApprovalHook) now() time.Time {
 		return h.nowFn()
 	}
 	return time.Now()
+}
+
+func (h *ShellApprovalHook) matchingDecision(call ToolCall) (approval.Decision, bool) {
+	if h == nil || len(h.decisions) == 0 {
+		return approval.Decision{}, false
+	}
+	callApprovalID := approvalIDForCall(call)
+	for i := len(h.decisions) - 1; i >= 0; i-- {
+		decision := h.decisions[i]
+		if strings.TrimSpace(decision.ToolName) != call.Name {
+			continue
+		}
+		if len(decision.ToolInput) > 0 {
+			if approvalToolInputMatches(decision.ToolInput, call.Arguments) {
+				return decision, true
+			}
+			continue
+		}
+		if strings.TrimSpace(decision.ID) == callApprovalID {
+			return decision, true
+		}
+	}
+	return approval.Decision{}, false
+}
+
+func approvalToolInputMatches(a json.RawMessage, b json.RawMessage) bool {
+	left, ok := canonicalApprovalJSON(a)
+	if !ok {
+		return false
+	}
+	right, ok := canonicalApprovalJSON(b)
+	if !ok {
+		return false
+	}
+	return bytes.Equal(left, right)
+}
+
+func canonicalApprovalJSON(raw json.RawMessage) ([]byte, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, false
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
 }
 
 func approvalIDForCall(call ToolCall) string {
@@ -179,4 +268,19 @@ func approvalRequiredDetails(pending PendingApproval) json.RawMessage {
 		fields["iteration"] = pending.Iteration
 	}
 	return provider.NewToolResultDetails(approval.KindRequired, fields)
+}
+
+func approvalDeniedDetails(decision approval.Decision) json.RawMessage {
+	fields := map[string]any{
+		"approval_id": decision.ID,
+		"status":      ApprovalStatusDenied,
+		"tool_name":   decision.ToolName,
+	}
+	if strings.TrimSpace(decision.Reason) != "" {
+		fields["reason"] = strings.TrimSpace(decision.Reason)
+	}
+	if len(decision.ToolInput) > 0 {
+		fields["tool_input"] = append(json.RawMessage(nil), decision.ToolInput...)
+	}
+	return provider.NewToolResultDetails(approval.KindDenied, fields)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/approval"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
@@ -275,6 +276,7 @@ func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.C
 		MaxOutputTokens:       cfg.Agent.ToolOutputMaxTokens,
 		ProjectRoot:           cfg.ProjectRoot,
 		ShellApprovalPatterns: cfg.Agent.ShellApprovalPatterns,
+		ApprovalDecisions:     approval.DecodeDecisionEnv(os.Getenv(approval.EnvDecisions)),
 	}, rt.Logger)
 	executor.SetRecorder(rt.ToolRecorder)
 	executor.SetTraceRecorder(rt.TraceRecorder)

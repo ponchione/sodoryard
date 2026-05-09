@@ -214,6 +214,43 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentPassesApprovalDecisionEnvToChild(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{
+		"approval_id": "approval-shell-1",
+		"tool_name":   "shell",
+		"tool_input":  map[string]any{"command": "git push --force origin main"},
+		"status":      chain.ApprovalStatusPending,
+	}); err != nil {
+		t.Fatalf("LogEvent approval required returned error: %v", err)
+	}
+	if _, err := store.RecordApprovalDecision(ctx, chainID, chain.ApprovalDecisionInput{ApprovalID: "approval-shell-1", Status: chain.ApprovalStatusApproved, Reason: "reviewed", DecidedBy: "operator"}); err != nil {
+		t.Fatalf("RecordApprovalDecision returned error: %v", err)
+	}
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{Store: store, Backend: backend, Config: &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}}, ChainID: chainID, EngineBinary: "tidmouth", ProjectRoot: t.TempDir()})
+	var gotEnv []string
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		gotEnv = append([]string(nil), in.Env...)
+		backend.docs["receipts/coder/"+chainID+"-step-001.md"] = testReceiptContent("coder", chainID, 1, receipt.VerdictCompleted, 1, testReceiptBody("Done."))
+		return RunResult{ExitCode: 0}
+	}
+
+	if _, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`)); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	raw := envValue(gotEnv, approval.EnvDecisions)
+	if raw == "" {
+		t.Fatalf("env = %v, want %s", gotEnv, approval.EnvDecisions)
+	}
+	decisions := approval.DecodeDecisionEnv(raw)
+	if len(decisions) != 1 || decisions[0].ID != "approval-shell-1" || decisions[0].Status != chain.ApprovalStatusApproved || decisions[0].Reason != "reviewed" || !strings.Contains(string(decisions[0].ToolInput), "git push --force") {
+		t.Fatalf("decisions = %+v, want approved shell decision", decisions)
+	}
+}
+
 func TestSpawnAgentWaitsForApprovalWhenOptedIn(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newSpawnTestDB(t))
@@ -1670,6 +1707,16 @@ func envContainsPrefix(env []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+func envValue(env []string, name string) string {
+	prefix := name + "="
+	for _, value := range env {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	return ""
 }
 
 func spawnEventsInclude(events []chain.Event, eventType chain.EventType) bool {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ponchione/sodoryard/internal/approval"
 	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
@@ -160,5 +161,74 @@ func TestExecutorShellApprovalHookAllowsNonMatchingShellCommand(t *testing.T) {
 	})
 	if len(results) != 1 || !results[0].Success || results[0].Content != "ran" {
 		t.Fatalf("results = %+v, want shell command to execute", results)
+	}
+}
+
+func TestExecutorShellApprovalHookAllowsApprovedMatchingInput(t *testing.T) {
+	reg := NewRegistry()
+	shellTool := newMockTool("shell", Mutating)
+	var executed bool
+	shellTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		executed = true
+		return &ToolResult{Success: true, Content: "ran approved command"}, nil
+	}
+	reg.Register(shellTool)
+	exec := NewExecutor(reg, ExecutorConfig{
+		ShellApprovalPatterns: []string{"git push --force"},
+		ApprovalDecisions: []approval.Decision{{
+			ID:        "approval-original",
+			ToolName:  "shell",
+			ToolInput: json.RawMessage(`{"command":"git push --force origin main"}`),
+			Status:    ApprovalStatusApproved,
+			Reason:    "reviewed",
+		}},
+	}, nil)
+
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-retry", Name: "shell", Arguments: json.RawMessage(`{"command":"git push --force origin main"}`)},
+	})
+	if !executed {
+		t.Fatal("approved shell command did not execute")
+	}
+	if len(results) != 1 || !results[0].Success || results[0].Content != "ran approved command" {
+		t.Fatalf("results = %+v, want approved command to execute", results)
+	}
+}
+
+func TestExecutorShellApprovalHookDeniesDeniedMatchingInput(t *testing.T) {
+	reg := NewRegistry()
+	shellTool := newMockTool("shell", Mutating)
+	var executed bool
+	shellTool.executeFn = func(ctx context.Context, _ string, _ json.RawMessage) (*ToolResult, error) {
+		executed = true
+		return &ToolResult{Success: true, Content: "ran"}, nil
+	}
+	reg.Register(shellTool)
+	exec := NewExecutor(reg, ExecutorConfig{
+		ShellApprovalPatterns: []string{"git push --force"},
+		ApprovalDecisions: []approval.Decision{{
+			ID:        "approval-denied",
+			ToolName:  "shell",
+			ToolInput: json.RawMessage(`{"command":"git push --force origin main"}`),
+			Status:    ApprovalStatusDenied,
+			Reason:    "too risky",
+		}},
+	}, nil)
+
+	results := exec.Execute(context.Background(), []ToolCall{
+		{ID: "tc-retry", Name: "shell", Arguments: json.RawMessage(`{"command":"git push --force origin main"}`)},
+	})
+	if executed {
+		t.Fatal("denied shell command executed")
+	}
+	if len(results) != 1 || results[0].Success || results[0].Error != ErrApprovalDenied.Error() {
+		t.Fatalf("results = %+v, want approval denied failure", results)
+	}
+	if !strings.Contains(results[0].Content, "Approval denied") || !strings.Contains(results[0].Content, "too risky") {
+		t.Fatalf("content = %q, want denial reason", results[0].Content)
+	}
+	details := decodeToolResultDetails(t, results[0].Details)
+	if details["kind"] != approval.KindDenied || details["approval_id"] != "approval-denied" || details["status"] != ApprovalStatusDenied {
+		t.Fatalf("details = %#v, want approval denied metadata", details)
 	}
 }

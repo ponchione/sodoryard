@@ -534,6 +534,7 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 	defer stopHeartbeat()
 	childEnv := append([]string(nil), t.SubprocessEnv...)
 	childEnv = append(childEnv, tracepkg.EnvForChild(span, t.ChainID, step.stepID)...)
+	childEnv = append(childEnv, t.approvalDecisionEnv(ctx)...)
 	res := t.runCommand(runCtx, RunCommandInput{
 		Name:   t.EngineBinary,
 		Args:   buildEngineRunArgs(step, t.ChainID, agentTimeout),
@@ -577,6 +578,36 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 		stderr:       stderr.String(),
 		durationSecs: durationSecs,
 	}
+}
+
+func (t *SpawnAgentTool) approvalDecisionEnv(ctx context.Context) []string {
+	if t == nil || t.Store == nil {
+		return nil
+	}
+	approvals, err := t.Store.ListApprovals(ctx, t.ChainID)
+	if err != nil {
+		return nil
+	}
+	decisions := make([]approval.Decision, 0, len(approvals))
+	for _, item := range approvals {
+		switch item.Status {
+		case chain.ApprovalStatusApproved, chain.ApprovalStatusDenied:
+		default:
+			continue
+		}
+		decisions = append(decisions, approval.Decision{
+			ID:        item.ID,
+			ToolName:  item.ToolName,
+			ToolInput: append(json.RawMessage(nil), item.ToolInput...),
+			Status:    item.Status,
+			Reason:    item.DecisionReason,
+		})
+	}
+	encoded := approval.EncodeDecisionEnv(decisions)
+	if encoded == "" {
+		return nil
+	}
+	return []string{approval.EnvDecisions + "=" + encoded}
 }
 
 func (t *SpawnAgentTool) startSourceWriterLockHeartbeat(ctx context.Context, step spawnStep) func() {
