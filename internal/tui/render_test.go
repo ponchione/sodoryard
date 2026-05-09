@@ -132,8 +132,20 @@ func TestFooterHelpIsScreenSpecific(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	model.screen = screenLaunch
 	view := model.View()
-	if !strings.Contains(view, "v preview") || strings.Contains(view, "ctrl+g cancel chat") {
+	if !strings.Contains(view, "j/k fields") || !strings.Contains(view, "v preview") || strings.Contains(view, "ctrl+g cancel chat") {
 		t.Fatalf("launch footer is not screen-specific:\n%s", view)
+	}
+}
+
+func TestHelpRenderIncludesLaunchCapFields(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	model.screen = screenHelp
+
+	view := model.View()
+	for _, want := range []string{"edit selected launch field", "turns/tokens", "set per-step caps"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("help view missing %q:\n%s", want, view)
+		}
 	}
 }
 

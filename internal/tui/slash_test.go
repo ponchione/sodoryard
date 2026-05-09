@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ponchione/sodoryard/internal/operator"
@@ -71,5 +72,14 @@ func TestSlashLaunchRequestAcceptsStepCaps(t *testing.T) {
 	}
 	if req.StepMaxTurns != 4 || req.StepMaxTokens != 50000 {
 		t.Fatalf("step caps = turns %d tokens %d, want 4/50000", req.StepMaxTurns, req.StepMaxTokens)
+	}
+}
+
+func TestSlashHelpListsStepCapFlags(t *testing.T) {
+	help := slashHelpText()
+	for _, want := range []string{"--step-max-turns 4", "--step-max-tokens 50000"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("slash help missing %q:\n%s", want, help)
+		}
 	}
 }

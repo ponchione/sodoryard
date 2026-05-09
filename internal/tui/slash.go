@@ -628,6 +628,7 @@ func slashHelpText() string {
 		"Launch flags:",
 		"--task \"text\"  --role coder  --template one_step|manual_roster|constrained_orchestration|sir_topham_decides",
 		"--roster planner,coder  --allowed coder,planner  --spec docs/specs/foo.md",
+		"--step-max-turns 4  --step-max-tokens 50000",
 		"--allow-approval-wait        pause in waiting_approval instead of failing closed",
 	}, "\n")
 }
