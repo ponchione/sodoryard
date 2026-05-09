@@ -440,7 +440,22 @@ Implemented on 2026-05-08:
 
 Not implemented in this slice:
 
-- baseline writing/management commands
+- baseline management commands beyond direct write flag
+- historical trend storage
+- tolerance policies for live or noisy evals
+
+### Implemented Baseline Writing Slice
+
+Implemented on 2026-05-09:
+
+- `yard eval run <suite> --write-baseline <report.json>`
+- deterministic JSON baseline output for the current eval report
+- parent directory creation for new baseline paths
+- human-readable `baseline_written=<path>` confirmation without changing `--json` stdout
+
+Not implemented in this slice:
+
+- baseline listing/pruning/promotion commands
 - historical trend storage
 - tolerance policies for live or noisy evals
 

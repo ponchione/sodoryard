@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -44,6 +45,7 @@ func newYardEvalListCmd() *cobra.Command {
 func newYardEvalRunCmd() *cobra.Command {
 	var jsonOut bool
 	var baselinePath string
+	var writeBaselinePath string
 	cmd := &cobra.Command{
 		Use:   "run <suite>",
 		Short: "Run an evaluation suite",
@@ -53,7 +55,9 @@ func newYardEvalRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if strings.TrimSpace(baselinePath) != "" {
+			baselinePath = strings.TrimSpace(baselinePath)
+			writeBaselinePath = strings.TrimSpace(writeBaselinePath)
+			if baselinePath != "" {
 				baseline, err := loadYardEvalBaseline(baselinePath)
 				if err != nil {
 					return err
@@ -62,12 +66,20 @@ func newYardEvalRunCmd() *cobra.Command {
 				comparison.Path = baselinePath
 				report.Baseline = &comparison
 			}
+			if writeBaselinePath != "" {
+				if err := writeYardEvalBaseline(writeBaselinePath, report); err != nil {
+					return err
+				}
+			}
 			if jsonOut {
 				if err := cmdutil.WriteJSON(cmd.OutOrStdout(), report); err != nil {
 					return err
 				}
 			} else {
 				renderYardEvalReport(cmd.OutOrStdout(), report)
+				if writeBaselinePath != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "baseline_written=%s\n", writeBaselinePath)
+				}
 			}
 			if report.Status != yardeval.StatusPass {
 				return fmt.Errorf("eval suite %s failed", report.Suite)
@@ -80,6 +92,7 @@ func newYardEvalRunCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON output")
 	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Compare output to a saved JSON eval report")
+	cmd.Flags().StringVar(&writeBaselinePath, "write-baseline", "", "Write the current JSON eval report as a baseline")
 	return cmd
 }
 
@@ -146,4 +159,30 @@ func loadYardEvalBaseline(path string) (yardeval.Report, error) {
 		return yardeval.Report{}, fmt.Errorf("decode eval baseline %s: %w", path, err)
 	}
 	return report, nil
+}
+
+func writeYardEvalBaseline(path string, report yardeval.Report) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	report.Baseline = nil
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create eval baseline directory %s: %w", dir, err)
+		}
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("write eval baseline %s: %w", path, err)
+	}
+	if err := cmdutil.WriteJSON(file, report); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("encode eval baseline %s: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close eval baseline %s: %w", path, err)
+	}
+	return nil
 }

@@ -81,6 +81,50 @@ func TestYardEvalRunCommandComparesBaseline(t *testing.T) {
 	}
 }
 
+func TestYardEvalRunCommandWritesBaseline(t *testing.T) {
+	baselinePath := filepath.Join(t.TempDir(), "baselines", "receipt-contract.json")
+
+	var out bytes.Buffer
+	cmd := newYardEvalRunCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"receipt-contract", "--write-baseline", baselinePath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v\nstdout=%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "baseline_written="+baselinePath) {
+		t.Fatalf("stdout = %q, want baseline_written line", out.String())
+	}
+
+	written := readEvalBaseline(t, baselinePath)
+	if written.Suite != "receipt-contract" || written.Status != yardeval.StatusPass {
+		t.Fatalf("written report = %+v, want passing receipt-contract report", written)
+	}
+	if written.Baseline != nil {
+		t.Fatalf("written baseline comparison = %+v, want nil", written.Baseline)
+	}
+}
+
+func TestYardEvalRunCommandWritesBaselineWithJSONOutput(t *testing.T) {
+	baselinePath := filepath.Join(t.TempDir(), "chain-flow.json")
+
+	var out bytes.Buffer
+	cmd := newYardEvalRunCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"chain-flow", "--json", "--write-baseline", baselinePath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v\nstdout=%s", err, out.String())
+	}
+
+	var stdoutReport yardeval.Report
+	if err := json.Unmarshal(out.Bytes(), &stdoutReport); err != nil {
+		t.Fatalf("json output decode failed: %v\n%s", err, out.String())
+	}
+	written := readEvalBaseline(t, baselinePath)
+	if written.Suite != stdoutReport.Suite || written.Status != stdoutReport.Status {
+		t.Fatalf("written report = %+v, stdout report = %+v", written, stdoutReport)
+	}
+}
+
 func TestYardEvalRunCommandFailsOnBaselineDiff(t *testing.T) {
 	report, err := yardeval.Run(context.Background(), "receipt-contract")
 	if err != nil {
@@ -113,4 +157,17 @@ func writeEvalBaseline(t *testing.T, report yardeval.Report) string {
 		t.Fatalf("WriteFile baseline failed: %v", err)
 	}
 	return path
+}
+
+func readEvalBaseline(t *testing.T, path string) yardeval.Report {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile baseline failed: %v", err)
+	}
+	var report yardeval.Report
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("Unmarshal baseline failed: %v", err)
+	}
+	return report
 }
