@@ -310,7 +310,7 @@ func (m *Model) clearLaunchPreview() {
 }
 
 func sameLaunchRequest(left operator.LaunchRequest, right operator.LaunchRequest) bool {
-	if left.Mode != right.Mode || left.Role != right.Role || left.SourceTask != right.SourceTask {
+	if left.Mode != right.Mode || left.Role != right.Role || left.SourceTask != right.SourceTask || left.StepMaxTurns != right.StepMaxTurns || left.StepMaxTokens != right.StepMaxTokens {
 		return false
 	}
 	if len(left.Roster) != len(right.Roster) {

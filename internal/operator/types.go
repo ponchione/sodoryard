@@ -400,6 +400,8 @@ type LaunchRequest struct {
 	MaxResolverLoops  int
 	MaxDuration       time.Duration
 	TokenBudget       int
+	StepMaxTurns      int
+	StepMaxTokens     int
 	AllowApprovalWait bool
 }
 
@@ -411,6 +413,8 @@ type LaunchPreview struct {
 	Roster            []string
 	Summary           string
 	CompiledTask      string
+	StepMaxTurns      int
+	StepMaxTokens     int
 	AllowApprovalWait bool
 	Warnings          []RuntimeWarning
 }

@@ -460,6 +460,16 @@ func slashLaunchRequest(cmd slashCommand) (operator.LaunchRequest, error) {
 	} else {
 		req.MaxResolverLoops = maxResolverLoops
 	}
+	if stepMaxTurns, err := intFlag(cmd, "step-max-turns"); err != nil {
+		return operator.LaunchRequest{}, err
+	} else {
+		req.StepMaxTurns = stepMaxTurns
+	}
+	if stepMaxTokens, err := intFlag(cmd, "step-max-tokens"); err != nil {
+		return operator.LaunchRequest{}, err
+	} else {
+		req.StepMaxTokens = stepMaxTokens
+	}
 	req.AllowApprovalWait = boolFlag(cmd, "allow-approval-wait", "approval-wait")
 	return req, nil
 }
@@ -779,6 +789,16 @@ func renderConsoleLaunchPreview(preview operator.LaunchPreview) string {
 	}
 	if preview.AllowApprovalWait {
 		lines = append(lines, "approval wait: enabled")
+	}
+	if preview.StepMaxTurns > 0 || preview.StepMaxTokens > 0 {
+		parts := make([]string, 0, 2)
+		if preview.StepMaxTurns > 0 {
+			parts = append(parts, fmt.Sprintf("turns=%d", preview.StepMaxTurns))
+		}
+		if preview.StepMaxTokens > 0 {
+			parts = append(parts, fmt.Sprintf("tokens=%d", preview.StepMaxTokens))
+		}
+		lines = append(lines, "step caps: "+strings.Join(parts, " "))
 	}
 	if strings.TrimSpace(preview.CompiledTask) != "" {
 		lines = append(lines, "", "Compiled task:", trimOneLine(preview.CompiledTask, 160))

@@ -1452,8 +1452,8 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if preview.Mode != LaunchModeOneStep || preview.Template.ID != "one_step" || preview.Role != "coder" || preview.Summary != "Run one coder step" || preview.CompiledTask != "fix tests" {
 		t.Fatalf("one-step preview = %+v, want coder preview", preview)
 	}
-	if len(preview.Warnings) != 1 || preview.Warnings[0].Message != "no source specs selected" {
-		t.Fatalf("warnings = %+v, want no source specs warning", preview.Warnings)
+	if !hasRuntimeWarning(preview.Warnings, "no source specs selected") || !hasRuntimeWarning(preview.Warnings, "single-step coder launch has no per-step turn/token caps") {
+		t.Fatalf("warnings = %+v, want no source specs and uncapped single-step warnings", preview.Warnings)
 	}
 	byTemplate, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Role: "coder", SourceTask: "fix by template"})
 	if err != nil {
@@ -1461,6 +1461,13 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	}
 	if byTemplate.Mode != LaunchModeOneStep || byTemplate.Template.ID != "one_step" || byTemplate.Role != "coder" || byTemplate.CompiledTask != "fix by template" {
 		t.Fatalf("template preview = %+v, want one-step template preview", byTemplate)
+	}
+	capped, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "bounded probe", StepMaxTurns: 4, StepMaxTokens: 50000})
+	if err != nil {
+		t.Fatalf("ValidateLaunch capped one-step returned error: %v", err)
+	}
+	if capped.StepMaxTurns != 4 || capped.StepMaxTokens != 50000 || hasRuntimeWarning(capped.Warnings, "no per-step turn/token caps") {
+		t.Fatalf("capped preview = %+v, want caps without uncapped warning", capped)
 	}
 
 	orchestrator, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOrchestrator, SourceSpecs: []string{" specs/a.md ", "specs/a.md"}})
@@ -1540,6 +1547,9 @@ func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
 	}
 	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Mode: LaunchModeManualRoster, Role: "coder", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "uses mode") {
 		t.Fatalf("ValidateLaunch template/mode conflict error = %v, want conflict", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "fix", StepMaxTurns: -1}); err == nil || !strings.Contains(err.Error(), "step_max_turns must not be negative") {
+		t.Fatalf("ValidateLaunch negative step cap error = %v, want step cap validation", err)
 	}
 }
 
@@ -1627,7 +1637,7 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	}
 	t.Cleanup(svc.Close)
 
-	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it", AllowApprovalWait: true})
+	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it", StepMaxTurns: 4, StepMaxTokens: 50000, AllowApprovalWait: true})
 	if err != nil {
 		t.Fatalf("StartChain returned error: %v", err)
 	}
@@ -1637,8 +1647,8 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	if gotCfg == nil || gotCfg.ProjectRoot != projectRoot {
 		t.Fatalf("got cfg = %+v, want project root %s", gotCfg, projectRoot)
 	}
-	if gotOpts.Mode != chainrun.ModeOneStep || gotOpts.Role != "coder" || gotOpts.SourceTask != "ship it" || !gotOpts.AllowApprovalWait {
-		t.Fatalf("chainrun opts = %+v, want one-step coder task with approval wait", gotOpts)
+	if gotOpts.Mode != chainrun.ModeOneStep || gotOpts.Role != "coder" || gotOpts.SourceTask != "ship it" || gotOpts.StepMaxTurns != 4 || gotOpts.StepMaxTokens != 50000 || !gotOpts.AllowApprovalWait {
+		t.Fatalf("chainrun opts = %+v, want one-step coder task with step caps and approval wait", gotOpts)
 	}
 	if gotOpts.MaxSteps != 100 || gotOpts.MaxResolverLoops != 3 || gotOpts.MaxDuration != 4*time.Hour || gotOpts.TokenBudget != 5_000_000 {
 		t.Fatalf("chainrun defaults = steps %d loops %d duration %s budget %d", gotOpts.MaxSteps, gotOpts.MaxResolverLoops, gotOpts.MaxDuration, gotOpts.TokenBudget)
