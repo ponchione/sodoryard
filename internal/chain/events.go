@@ -36,6 +36,8 @@ const (
 	EventResolverLoop                    EventType = "resolver_loop"
 	EventSafetyLimitHit                  EventType = "safety_limit_hit"
 	EventApprovalRequired                EventType = "approval_required"
+	EventApprovalDecision                EventType = "approval_decision"
+	EventChainWaitingApproval            EventType = "chain_waiting_approval"
 	EventChainPaused                     EventType = "chain_paused"
 	EventChainResumed                    EventType = "chain_resumed"
 	EventChainCompleted                  EventType = "chain_completed"

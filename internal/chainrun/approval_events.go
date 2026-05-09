@@ -13,10 +13,17 @@ type approvalEventSink struct {
 	ctx     context.Context
 	store   *chain.Store
 	chainID string
+	wait    bool
+	cancel  context.CancelFunc
 }
 
-func newApprovalEventSink(ctx context.Context, store *chain.Store, chainID string) agent.EventSink {
-	return &approvalEventSink{ctx: ctx, store: store, chainID: chainID}
+type approvalEventSinkOptions struct {
+	Wait   bool
+	Cancel context.CancelFunc
+}
+
+func newApprovalEventSink(ctx context.Context, store *chain.Store, chainID string, opts approvalEventSinkOptions) agent.EventSink {
+	return &approvalEventSink{ctx: ctx, store: store, chainID: chainID, wait: opts.Wait, cancel: opts.Cancel}
 }
 
 func (s *approvalEventSink) Emit(event agent.Event) {
@@ -45,6 +52,20 @@ func (s *approvalEventSink) Emit(event agent.Event) {
 		ctx = context.WithoutCancel(s.ctx)
 	}
 	_ = s.store.LogEvent(ctx, chainID, approval.StepID(payload), chain.EventApprovalRequired, payload)
+	if s.wait {
+		_ = chain.ApplyTerminalChainClosure(ctx, s.store, chainID, chain.TerminalChainClosure{
+			Status:    chain.StatusWaitingApproval,
+			EventType: chain.EventChainWaitingApproval,
+			Extra: map[string]any{
+				"approval_id": payload["approval_id"],
+				"tool_name":   payload["tool_name"],
+				"status":      chain.StatusWaitingApproval,
+			},
+		})
+		if s.cancel != nil {
+			s.cancel()
+		}
+	}
 }
 
 func (s *approvalEventSink) Close() {}

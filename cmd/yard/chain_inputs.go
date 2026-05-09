@@ -88,20 +88,21 @@ func yardChainOptionsFromFlags(flags yardChainFlags) (chainrun.Options, error) {
 		return chainrun.Options{}, err
 	}
 	return chainrun.Options{
-		ChainID:          flags.ChainID,
-		Mode:             mode,
-		Role:             strings.TrimSpace(flags.Role),
-		AllowedRoles:     yardParseRoles(flags.AllowedRoles),
-		Roster:           yardParseRoster(flags.Roster),
-		SourceSpecs:      yardParseSpecs(flags.Specs),
-		SourceTask:       strings.TrimSpace(flags.Task),
-		MaxSteps:         flags.MaxSteps,
-		MaxResolverLoops: flags.MaxResolverLoops,
-		MaxDuration:      flags.MaxDuration,
-		TokenBudget:      flags.TokenBudget,
-		StepMaxTurns:     flags.StepMaxTurns,
-		StepMaxTokens:    flags.StepMaxTokens,
-		DryRun:           flags.DryRun,
+		ChainID:           flags.ChainID,
+		Mode:              mode,
+		Role:              strings.TrimSpace(flags.Role),
+		AllowedRoles:      yardParseRoles(flags.AllowedRoles),
+		Roster:            yardParseRoster(flags.Roster),
+		SourceSpecs:       yardParseSpecs(flags.Specs),
+		SourceTask:        strings.TrimSpace(flags.Task),
+		MaxSteps:          flags.MaxSteps,
+		MaxResolverLoops:  flags.MaxResolverLoops,
+		MaxDuration:       flags.MaxDuration,
+		TokenBudget:       flags.TokenBudget,
+		StepMaxTurns:      flags.StepMaxTurns,
+		StepMaxTokens:     flags.StepMaxTokens,
+		AllowApprovalWait: flags.AllowApprovalWait,
+		DryRun:            flags.DryRun,
 	}, nil
 }
 

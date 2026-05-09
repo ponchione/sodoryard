@@ -57,9 +57,12 @@ yard [--config yard.yaml]             Terminal operator console
  |   |-- metrics                   Show chain dogfooding metrics
  |   |-- logs                      Show chain event log
  |   |-- receipt                   Show orchestrator or step receipt
+ |   |-- approvals                 List chain tool approvals
+ |   |-- approve                   Approve a pending tool approval
+ |   |-- deny                      Deny a pending tool approval
  |   |-- cancel                    Cancel a running chain
  |   |-- pause                     Pause a running chain
- |   +-- resume                    Resume a paused chain
+ |   +-- resume                    Resume a paused or approval-waiting chain
  |-- eval
  |   |-- list                      List deterministic evaluation suites
  |   +-- run                       Run a deterministic evaluation suite
@@ -265,6 +268,13 @@ yard chain metrics <chain-id>
 
 # Read the result
 yard chain receipt <chain-id>
+
+# Approval wait mode is opt-in. Approval-required tools still fail closed by
+# default, but this mode pauses the chain in waiting_approval.
+yard chain start --allow-approval-wait --task "perform a risky operation"
+yard chain approvals <chain-id>
+yard chain approve <chain-id> <approval-id> --reason "reviewed"
+yard chain resume <chain-id>
 ```
 
 ### Run a one-step chain
@@ -326,7 +336,7 @@ Current repo state:
 - Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
 - The active UI direction is terminal-first: bare `yard` now starts the daily-driver operator console, while `yard serve` remains the browser/API surface for rich inspection. This direction is specified in `docs/specs/20-operator-console-tui.md` and `docs/specs/21-web-inspector.md`.
 - Implemented TUI/operator work includes a Codex-style slash-command console, `/new` session reset, `/effort` reasoning-effort switching for Codex providers, raw provider/model chat, readiness metadata, recent chain and detail output, receipt content, scrollable console history, event following, pause/resume/cancel controls, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
-- Spec 23 approval work now surfaces fail-closed approval-required tool results as `approval_required` chain events in orchestrator and spawned headless-step timelines; durable approval storage and approve/deny/resume controls remain future work.
+- Spec 23 approval work now surfaces approval-required tool results as `approval_required` chain events, derives durable approval state from the event log, records `approval_decision` events, supports `yard chain approvals|approve|deny`, and can opt into `waiting_approval` with `yard chain start --allow-approval-wait`. Full replay of an approved tool call and TUI/web approval controls remain future work.
 - Spec 23 eval work now supports saved baselines and append-only JSONL history entries via `yard eval run <suite> --append-history <path>`.
 - Daily-driver final touches now include actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and read-only browser inspector routes for chains and metrics. The TUI intentionally does not grow a project file browser; code review stays in the operator's IDE.
 - The remaining active docs are the README, current specs, `NEXT_SESSION_HANDOFF.md`, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
@@ -340,14 +350,15 @@ If you are resuming work cold, read in this order:
 6. `docs/specs/18-unified-yard-cli.md`
 7. `docs/specs/20-operator-console-tui.md`
 8. `docs/specs/21-web-inspector.md`
-9. `TUI_IMPLEMENTATION_PLAN.md`
+9. `docs/specs/23-genkit-patterns-for-yard.md`
+10. `TUI_IMPLEMENTATION_PLAN.md`
 
 First thing to address next session:
 - prefer current-truth docs (`README.md`, specs, handoff) over historical planning artifacts
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
 - keep TUI-first docs clear about target behavior versus already-implemented commands
-- use dogfooding runs and `yard chain metrics <chain-id>` to decide the next slice; likely candidates are richer receipt rendering, launch-history ergonomics, or deeper TUI surfacing of the same chain health report
+- use dogfooding runs and `yard chain metrics <chain-id>` to decide the next slice; likely candidates are full approval replay/resume semantics, TUI approval controls, richer receipt rendering, launch-history ergonomics, or deeper TUI surfacing of the same chain health report
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:
@@ -364,4 +375,5 @@ yard chain status
 yard chain metrics <chain-id>
 yard chain logs <chain-id>
 yard chain receipt <chain-id>
+yard chain approvals <chain-id>
 ```

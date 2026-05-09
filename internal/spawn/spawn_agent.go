@@ -26,27 +26,29 @@ import (
 )
 
 type SpawnAgentDeps struct {
-	Store         *chain.Store
-	Backend       brain.Backend
-	Config        *appconfig.Config
-	ChainID       string
-	EngineBinary  string
-	ProjectRoot   string
-	SubprocessEnv []string
-	TraceRecorder tracepkg.Recorder
+	Store             *chain.Store
+	Backend           brain.Backend
+	Config            *appconfig.Config
+	ChainID           string
+	EngineBinary      string
+	ProjectRoot       string
+	SubprocessEnv     []string
+	TraceRecorder     tracepkg.Recorder
+	AllowApprovalWait bool
 }
 
 type SpawnAgentTool struct {
-	Store         *chain.Store
-	Backend       brain.Backend
-	Config        *appconfig.Config
-	ChainID       string
-	EngineBinary  string
-	ProjectRoot   string
-	SubprocessEnv []string
-	TraceRecorder tracepkg.Recorder
-	runCommand    func(context.Context, RunCommandInput) RunResult
-	now           func() time.Time
+	Store             *chain.Store
+	Backend           brain.Backend
+	Config            *appconfig.Config
+	ChainID           string
+	EngineBinary      string
+	ProjectRoot       string
+	SubprocessEnv     []string
+	TraceRecorder     tracepkg.Recorder
+	AllowApprovalWait bool
+	runCommand        func(context.Context, RunCommandInput) RunResult
+	now               func() time.Time
 }
 
 const (
@@ -206,16 +208,17 @@ type stepReceiptCompleter interface {
 func NewSpawnAgentTool(deps SpawnAgentDeps) *SpawnAgentTool {
 	engineBinary := resolveEngineBinary(deps.EngineBinary)
 	return &SpawnAgentTool{
-		Store:         deps.Store,
-		Backend:       deps.Backend,
-		Config:        deps.Config,
-		ChainID:       deps.ChainID,
-		EngineBinary:  engineBinary,
-		ProjectRoot:   deps.ProjectRoot,
-		SubprocessEnv: deps.SubprocessEnv,
-		TraceRecorder: deps.TraceRecorder,
-		runCommand:    RunCommand,
-		now:           time.Now,
+		Store:             deps.Store,
+		Backend:           deps.Backend,
+		Config:            deps.Config,
+		ChainID:           deps.ChainID,
+		EngineBinary:      engineBinary,
+		ProjectRoot:       deps.ProjectRoot,
+		SubprocessEnv:     deps.SubprocessEnv,
+		TraceRecorder:     deps.TraceRecorder,
+		AllowApprovalWait: deps.AllowApprovalWait,
+		runCommand:        RunCommand,
+		now:               time.Now,
 	}
 }
 
@@ -239,6 +242,11 @@ func resolveEngineBinary(engineBinary string) string {
 }
 
 func (t *SpawnAgentTool) Name() string { return "spawn_agent" }
+func (t *SpawnAgentTool) SetApprovalWait(allow bool) {
+	if t != nil {
+		t.AllowApprovalWait = allow
+	}
+}
 func (t *SpawnAgentTool) Description() string {
 	return "Spawn a headless engine agent with the given role and task. Blocks until the engine completes. Returns the engine's receipt content."
 }
@@ -253,12 +261,15 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, projectRoot string, raw js
 		return nil, fmt.Errorf("spawn_agent: parse input: %w", err)
 	}
 
-	_, content, err := t.RunStep(ctx, AgentStepInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore, MaxTurns: in.MaxTurns, MaxTokens: in.MaxTokens})
+	stepResult, content, err := t.RunStep(ctx, AgentStepInput{Role: in.Role, Task: in.Task, TaskContext: in.TaskContext, ReindexBefore: in.ReindexBefore, MaxTurns: in.MaxTurns, MaxTokens: in.MaxTokens})
 	if err != nil {
 		if content != "" {
 			return &tool.ToolResult{Success: false, Content: content}, err
 		}
 		return nil, err
+	}
+	if stepResult.Status == chain.StatusWaitingApproval {
+		return &tool.ToolResult{Success: false, Content: "Approval required. Chain is waiting for operator approval before continuing."}, tool.ErrChainComplete
 	}
 	return &tool.ToolResult{Success: true, Content: content}, nil
 }
@@ -288,6 +299,11 @@ func (t *SpawnAgentTool) RunStep(ctx context.Context, in AgentStepInput) (result
 	outcome := t.runEngineStep(ctx, step)
 	facts.ExitCode = outcome.exitCode
 	facts.DurationSecs = outcome.durationSecs
+	if t.chainWaitingApproval(ctx) {
+		_ = t.Store.CompleteStep(detachedLockContext(ctx), chain.CompleteStepParams{StepID: step.stepID, Status: chain.StatusWaitingApproval, DurationSecs: outcome.durationSecs, ExitCode: intPtr(outcome.exitCode)})
+		result = AgentStepResult{StepID: step.stepID, Sequence: step.sequence, ReceiptPath: step.receiptPath, Status: chain.StatusWaitingApproval, DurationSecs: outcome.durationSecs, ExitCode: outcome.exitCode}
+		return result, "", nil
+	}
 	if step.sourceMutating {
 		capture := t.captureChangedFiles(ctx, step)
 		facts.ChangedFileManifestPresent = true
@@ -504,6 +520,12 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 		},
 	})
 	ctx = spanCtx
+	runCtx := ctx
+	cancelApprovalWait := func() {}
+	if t.AllowApprovalWait {
+		runCtx, cancelApprovalWait = context.WithCancel(ctx)
+	}
+	defer cancelApprovalWait()
 	stdout := outputcap.NewBuffer(outputcap.DefaultLimit)
 	stderr := outputcap.NewBuffer(outputcap.DefaultLimit)
 	var enginePID int
@@ -512,16 +534,20 @@ func (t *SpawnAgentTool) runEngineStep(ctx context.Context, step spawnStep) engi
 	defer stopHeartbeat()
 	childEnv := append([]string(nil), t.SubprocessEnv...)
 	childEnv = append(childEnv, tracepkg.EnvForChild(span, t.ChainID, step.stepID)...)
-	res := t.runCommand(ctx, RunCommandInput{
+	res := t.runCommand(runCtx, RunCommandInput{
 		Name:   t.EngineBinary,
 		Args:   buildEngineRunArgs(step, t.ChainID, agentTimeout),
 		Stdout: stdout,
 		Stderr: stderr,
 		OnStdoutLine: func(line string) {
-			t.logStepOutput(ctx, step.stepID, "stdout", line)
+			if t.logStepOutput(ctx, step.stepID, "stdout", line) && t.AllowApprovalWait {
+				cancelApprovalWait()
+			}
 		},
 		OnStderrLine: func(line string) {
-			t.logStepOutput(ctx, step.stepID, "stderr", line)
+			if t.logStepOutput(ctx, step.stepID, "stderr", line) && t.AllowApprovalWait {
+				cancelApprovalWait()
+			}
 		},
 		OnStart: func(pid int) {
 			enginePID = pid
@@ -1273,6 +1299,14 @@ func (t *SpawnAgentTool) stopIfChainNotRunnable(ctx context.Context) error {
 	return fmt.Errorf("spawn_agent: chain %s is %s", t.ChainID, ch.Status)
 }
 
+func (t *SpawnAgentTool) chainWaitingApproval(ctx context.Context) bool {
+	if t == nil || t.Store == nil {
+		return false
+	}
+	ch, err := t.Store.GetChain(detachedLockContext(ctx), t.ChainID)
+	return err == nil && ch.Status == chain.StatusWaitingApproval
+}
+
 func (t *SpawnAgentTool) reindex(ctx context.Context) (err error) {
 	start := t.now()
 	indexes := []string{"code"}
@@ -1356,10 +1390,11 @@ func mustMarshalString(value any) string {
 	return string(data)
 }
 
-func (t *SpawnAgentTool) logStepOutput(ctx context.Context, stepID string, stream string, line string) {
+func (t *SpawnAgentTool) logStepOutput(ctx context.Context, stepID string, stream string, line string) bool {
 	if strings.TrimSpace(line) == "" {
-		return
+		return false
 	}
+	approvalSeen := false
 	if payload, ok := approval.PayloadFromProgressLine(line); ok {
 		payload = approval.WithDefaultChainStep(payload, t.ChainID, stepID)
 		eventStepID := approval.StepID(payload)
@@ -1367,8 +1402,31 @@ func (t *SpawnAgentTool) logStepOutput(ctx context.Context, stepID string, strea
 			eventStepID = stepID
 		}
 		_ = t.Store.LogEvent(ctx, t.ChainID, eventStepID, chain.EventApprovalRequired, payload)
+		approvalSeen = true
+		if t.AllowApprovalWait {
+			t.markChainWaitingApproval(detachedLockContext(ctx), payload)
+		}
 	}
 	_ = t.Store.LogEvent(ctx, t.ChainID, stepID, chain.EventStepOutput, map[string]any{"stream": stream, "line": line})
+	return approvalSeen
+}
+
+func (t *SpawnAgentTool) markChainWaitingApproval(ctx context.Context, payload map[string]any) {
+	if t == nil || t.Store == nil {
+		return
+	}
+	if t.chainWaitingApproval(ctx) {
+		return
+	}
+	_ = chain.ApplyTerminalChainClosure(ctx, t.Store, t.ChainID, chain.TerminalChainClosure{
+		Status:    chain.StatusWaitingApproval,
+		EventType: chain.EventChainWaitingApproval,
+		Extra: map[string]any{
+			"approval_id": payload["approval_id"],
+			"tool_name":   payload["tool_name"],
+			"status":      chain.StatusWaitingApproval,
+		},
+	})
 }
 
 func (t *SpawnAgentTool) logStepProcessStarted(ctx context.Context, stepID string, role string, pid int) {

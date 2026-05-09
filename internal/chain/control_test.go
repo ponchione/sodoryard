@@ -15,6 +15,7 @@ func TestNextControlStatus(t *testing.T) {
 		{name: "pause running becomes requested", cur: "running", target: "paused", want: "pause_requested"},
 		{name: "cancel running becomes requested", cur: "running", target: "cancelled", want: "cancel_requested"},
 		{name: "cancel waiting approval becomes requested", cur: StatusWaitingApproval, target: "cancelled", want: "cancel_requested"},
+		{name: "resume waiting approval becomes running", cur: StatusWaitingApproval, target: "running", want: "running"},
 		{name: "cancel paused is immediate", cur: "paused", target: "cancelled", want: "cancelled"},
 	}
 	for _, tc := range tests {

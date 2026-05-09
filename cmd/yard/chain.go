@@ -36,23 +36,24 @@ var interruptYardChainPID = func(pid int) error {
 }
 
 type yardChainFlags struct {
-	Specs            string
-	Task             string
-	TemplateID       string
-	Role             string
-	AllowedRoles     string
-	Roster           string
-	ChainID          string
-	MaxSteps         int
-	MaxResolverLoops int
-	MaxDuration      time.Duration
-	TokenBudget      int
-	StepMaxTurns     int
-	StepMaxTokens    int
-	DryRun           bool
-	Watch            bool
-	Verbosity        string
-	ProjectRoot      string
+	Specs             string
+	Task              string
+	TemplateID        string
+	Role              string
+	AllowedRoles      string
+	Roster            string
+	ChainID           string
+	MaxSteps          int
+	MaxResolverLoops  int
+	MaxDuration       time.Duration
+	TokenBudget       int
+	StepMaxTurns      int
+	StepMaxTokens     int
+	AllowApprovalWait bool
+	DryRun            bool
+	Watch             bool
+	Verbosity         string
+	ProjectRoot       string
 }
 
 const (
@@ -82,6 +83,9 @@ func newYardChainCmd(configPath *string) *cobra.Command {
 		newYardChainMetricsCmd(configPath),
 		newYardChainLogsCmd(configPath),
 		newYardChainReceiptCmd(configPath),
+		newYardChainApprovalsCmd(configPath),
+		newYardChainApproveCmd(configPath),
+		newYardChainDenyCmd(configPath),
 		newYardChainEvalCmd(configPath),
 		newYardChainTemplatesCmd(configPath),
 		newYardChainLocksCmd(configPath),
@@ -118,6 +122,7 @@ func newYardChainStartCmd(configPath *string) *cobra.Command {
 	cmd.Flags().IntVar(&flags.TokenBudget, "token-budget", flags.TokenBudget, "Total token ceiling across all agents")
 	cmd.Flags().IntVar(&flags.StepMaxTurns, "step-max-turns", 0, "Optional maximum model iterations for each spawned headless step")
 	cmd.Flags().IntVar(&flags.StepMaxTokens, "step-max-tokens", 0, "Optional total token ceiling for each spawned headless step")
+	cmd.Flags().BoolVar(&flags.AllowApprovalWait, "allow-approval-wait", false, "Pause the chain in waiting_approval when a tool requires approval")
 	cmd.Flags().BoolVar(&flags.DryRun, "dry-run", false, "Create the chain row but do not run the orchestrator")
 	cmd.Flags().BoolVar(&flags.Watch, "watch", true, "Stream live chain progress to stderr while the command runs")
 	cmd.Flags().StringVar(&flags.Verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")

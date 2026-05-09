@@ -21,6 +21,68 @@ func (s *Service) CancelChain(ctx context.Context, chainID string) (ControlResul
 	return s.setChainStatus(ctx, chainID, "cancelled", chain.EventChainCancelled, "cancelled")
 }
 
+func (s *Service) ListApprovals(ctx context.Context, chainID string) ([]ApprovalView, error) {
+	store, err := s.store()
+	if err != nil {
+		return nil, err
+	}
+	approvals, err := store.ListApprovals(ctx, chainID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ApprovalView, 0, len(approvals))
+	for _, approval := range approvals {
+		out = append(out, approvalViewFromChain(approval))
+	}
+	return out, nil
+}
+
+func (s *Service) ApproveChainApproval(ctx context.Context, chainID string, approvalID string, reason string) (ApprovalDecisionResult, error) {
+	return s.recordApprovalDecision(ctx, chainID, approvalID, chain.ApprovalStatusApproved, reason)
+}
+
+func (s *Service) DenyChainApproval(ctx context.Context, chainID string, approvalID string, reason string) (ApprovalDecisionResult, error) {
+	return s.recordApprovalDecision(ctx, chainID, approvalID, chain.ApprovalStatusDenied, reason)
+}
+
+func (s *Service) recordApprovalDecision(ctx context.Context, chainID string, approvalID string, status string, reason string) (ApprovalDecisionResult, error) {
+	store, err := s.store()
+	if err != nil {
+		return ApprovalDecisionResult{}, err
+	}
+	approval, err := store.RecordApprovalDecision(ctx, chainID, chain.ApprovalDecisionInput{
+		ApprovalID: approvalID,
+		Status:     status,
+		Reason:     reason,
+		DecidedBy:  "operator",
+	})
+	if err != nil {
+		return ApprovalDecisionResult{}, err
+	}
+	message := fmt.Sprintf("approval %s %s", approval.ID, approval.Status)
+	return ApprovalDecisionResult{Approval: approvalViewFromChain(approval), Message: message}, nil
+}
+
+func approvalViewFromChain(approval chain.Approval) ApprovalView {
+	return ApprovalView{
+		ID:             approval.ID,
+		ChainID:        approval.ChainID,
+		StepID:         approval.StepID,
+		ConversationID: approval.ConversationID,
+		TurnNumber:     approval.TurnNumber,
+		Iteration:      approval.Iteration,
+		ToolName:       approval.ToolName,
+		ToolInput:      append([]byte(nil), approval.ToolInput...),
+		Reason:         approval.Reason,
+		RiskLevel:      approval.RiskLevel,
+		Status:         approval.Status,
+		CreatedAt:      approval.CreatedAt,
+		DecidedAt:      approval.DecidedAt,
+		DecisionReason: approval.DecisionReason,
+		DecidedBy:      approval.DecidedBy,
+	}
+}
+
 func (s *Service) setChainStatus(ctx context.Context, chainID string, targetStatus string, eventType chain.EventType, fallbackMessage string) (ControlResult, error) {
 	store, err := s.store()
 	if err != nil {
@@ -124,11 +186,20 @@ func (s *Service) resumeChainExecution(ctx context.Context, chainID string) (Con
 	if _, err := chain.ResumeExecutionReady(existing.Status); err != nil {
 		return ControlResult{}, fmt.Errorf("chain %s %w", chainID, err)
 	}
+	if existing.Status == chain.StatusWaitingApproval {
+		pending, err := store.PendingApprovals(ctx, chainID)
+		if err != nil {
+			return ControlResult{}, err
+		}
+		if len(pending) > 0 {
+			return ControlResult{}, fmt.Errorf("chain %s has %d pending approval(s); approve or deny them before resuming", chainID, len(pending))
+		}
+	}
 	cfg, err := s.config()
 	if err != nil {
 		return ControlResult{}, err
 	}
-	startOpts := chainrun.Options{ChainID: chainID}
+	startOpts := chainrun.Options{ChainID: chainID, AllowApprovalWait: existing.Status == chain.StatusWaitingApproval}
 	chainIDCh := make(chan string, 1)
 	doneCh := make(chan startChainDone, 1)
 	runnerCtx, runnerCancel := context.WithCancel(context.WithoutCancel(ctx))

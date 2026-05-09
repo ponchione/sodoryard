@@ -1993,6 +1993,53 @@ func TestPauseResumeCancelStateTransitions(t *testing.T) {
 	}
 }
 
+func TestApprovalControlsListApproveAndBlockPendingResume(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "approval-control-chain", SourceTask: "approval"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.SetChainStatus(ctx, chainID, chain.StatusWaitingApproval); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{
+		"approval_id": "approval-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	if _, err := svc.ResumeChain(ctx, chainID); err == nil || !strings.Contains(err.Error(), "pending approval") {
+		t.Fatalf("ResumeChain error = %v, want pending approval rejection", err)
+	}
+	approvals, err := svc.ListApprovals(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListApprovals returned error: %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].ID != "approval-1" || approvals[0].Status != chain.ApprovalStatusPending {
+		t.Fatalf("approvals = %+v, want one pending approval", approvals)
+	}
+	decision, err := svc.ApproveChainApproval(ctx, chainID, "approval-1", "reviewed")
+	if err != nil {
+		t.Fatalf("ApproveChainApproval returned error: %v", err)
+	}
+	if decision.Approval.Status != chain.ApprovalStatusApproved || !strings.Contains(decision.Message, "approved") {
+		t.Fatalf("decision = %+v, want approved", decision)
+	}
+	resumed, err := svc.ResumeChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ResumeChain after approval returned error: %v", err)
+	}
+	if resumed.PreviousStatus != chain.StatusWaitingApproval || resumed.Status != "running" {
+		t.Fatalf("resumed = %+v, want waiting_approval -> running", resumed)
+	}
+}
+
 func TestCancelChainSignalsInjectedActiveProcesses(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))

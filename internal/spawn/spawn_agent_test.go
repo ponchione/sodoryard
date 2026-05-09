@@ -214,6 +214,77 @@ func TestSpawnAgentRunsSubprocessAndStoresReceipt(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentWaitsForApprovalWhenOptedIn(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newSpawnTestDB(t))
+	chainID, _ := store.StartChain(ctx, chain.ChainSpec{MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	backend := &fakeBrainBackend{docs: map[string]string{}}
+	tool := NewSpawnAgentTool(SpawnAgentDeps{
+		Store:             store,
+		Backend:           backend,
+		Config:            &appconfig.Config{AgentRoles: map[string]appconfig.AgentRoleConfig{"coder": {}}},
+		ChainID:           chainID,
+		EngineBinary:      "tidmouth",
+		ProjectRoot:       t.TempDir(),
+		AllowApprovalWait: true,
+	})
+	var cancelled bool
+	tool.runCommand = func(ctx context.Context, in RunCommandInput) RunResult {
+		if in.OnStart != nil {
+			in.OnStart(4321)
+		}
+		if in.OnStderrLine != nil {
+			in.OnStderrLine(approval.EncodeProgressLine(map[string]any{
+				"approval_id": "approval-wait-1",
+				"tool_name":   "shell",
+				"status":      "pending",
+				"reason":      "matched policy",
+				"risk_level":  "high",
+				"step_id":     argValue(in.Args, "--step-id"),
+			}))
+		}
+		select {
+		case <-ctx.Done():
+			cancelled = true
+			return RunResult{ExitCode: -1, Err: ctx.Err()}
+		case <-time.After(time.Second):
+			return RunResult{ExitCode: 124, Err: errors.New("approval wait did not cancel subprocess")}
+		}
+	}
+
+	result, err := tool.Execute(ctx, ".", []byte(`{"role":"coder","task":"do work"}`))
+	if !errors.Is(err, toolpkg.ErrChainComplete) {
+		t.Fatalf("Execute error = %v, want ErrChainComplete", err)
+	}
+	if result == nil || result.Success || !strings.Contains(result.Content, "Approval required") {
+		t.Fatalf("result = %#v, want failed approval-wait result", result)
+	}
+	if !cancelled {
+		t.Fatal("run command context was not cancelled after approval_required")
+	}
+	stored, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != chain.StatusWaitingApproval {
+		t.Fatalf("chain status = %q, want waiting_approval", stored.Status)
+	}
+	pending, err := store.PendingApprovals(ctx, chainID)
+	if err != nil {
+		t.Fatalf("PendingApprovals returned error: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != "approval-wait-1" || pending[0].Status != chain.ApprovalStatusPending {
+		t.Fatalf("pending = %+v, want one pending approval", pending)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if !spawnEventsInclude(events, chain.EventChainWaitingApproval) {
+		t.Fatalf("events = %+v, want chain_waiting_approval event", events)
+	}
+}
+
 func TestSpawnAgentCapturesChangedFilesForSourceWriter(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -1595,6 +1666,15 @@ func argValue(args []string, name string) string {
 func envContainsPrefix(env []string, prefix string) bool {
 	for _, value := range env {
 		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func spawnEventsInclude(events []chain.Event, eventType chain.EventType) bool {
+	for _, event := range events {
+		if event.EventType == eventType {
 			return true
 		}
 	}

@@ -134,6 +134,9 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := cmd.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
 		t.Fatalf("verbosity flag = %#v, want default normal", flag)
 	}
+	if flag := cmd.Flags().Lookup("allow-approval-wait"); flag == nil || flag.DefValue != "false" {
+		t.Fatalf("allow-approval-wait flag = %#v, want default false", flag)
+	}
 	resume := newYardChainResumeCmd(&configPath)
 	if flag := resume.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
 		t.Fatalf("resume watch flag = %#v, want default true", flag)
@@ -284,6 +287,49 @@ func TestYardChainReceiptCommandPrintsStepReceipt(t *testing.T) {
 	}
 	if out.String() != "step receipt" {
 		t.Fatalf("stdout = %q, want step receipt", out.String())
+	}
+}
+
+func TestYardChainApprovalCommands(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "approval-cli-chain", SourceTask: "approval"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{
+		"approval_id": "approval-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+	}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	listCmd := newYardChainApprovalsCmd(&cfgPath)
+	var listOut bytes.Buffer
+	listCmd.SetContext(ctx)
+	listCmd.SetOut(&listOut)
+	listCmd.SetArgs([]string{chainID})
+	if err := listCmd.Execute(); err != nil {
+		t.Fatalf("approvals command returned error: %v", err)
+	}
+	if !strings.Contains(listOut.String(), "approval-1 status=pending tool=shell") {
+		t.Fatalf("approvals output = %q, want pending approval", listOut.String())
+	}
+
+	approveCmd := newYardChainApproveCmd(&cfgPath)
+	var approveOut bytes.Buffer
+	approveCmd.SetContext(ctx)
+	approveCmd.SetOut(&approveOut)
+	approveCmd.SetArgs([]string{chainID, "approval-1", "--reason", "reviewed"})
+	if err := approveCmd.Execute(); err != nil {
+		t.Fatalf("approve command returned error: %v", err)
+	}
+	if !strings.Contains(approveOut.String(), "approval approval-1 approved") {
+		t.Fatalf("approve output = %q, want approved message", approveOut.String())
 	}
 }
 

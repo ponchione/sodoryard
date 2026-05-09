@@ -874,6 +874,25 @@ Not implemented in this slice:
 - approve/deny/resume controls
 - opt-in wait mode that moves chains into `waiting_approval`
 
+### Implemented Durable Approval Control Slice
+
+Implemented on 2026-05-09:
+
+- event-sourced durable approval state derived from `approval_required` and `approval_decision` chain events
+- store/operator APIs for listing approvals and recording approve/deny decisions
+- `yard chain approvals <chain-id>`, `yard chain approve <chain-id> <approval-id>`, and `yard chain deny <chain-id> <approval-id>` controls
+- `yard chain start --allow-approval-wait` opt-in mode that moves chains to `waiting_approval` when an orchestrator tool result or spawned headless step emits approval-required metadata
+- resume checks that block `waiting_approval` chains while pending approvals remain
+- approval wait propagation to spawned headless steps, including `spawn_agent` tools registered in the orchestrator tool registry
+- tests for event-sourced approval decisions, approval-wait chain transitions, pending-approval resume blocking, CLI approval controls, and spawned-step wait cancellation
+
+Not implemented in this slice:
+
+- automatic replay or continuation of the exact approved tool call after `yard chain resume`
+- denial surfaced back into the original paused agent turn as a tool result
+- TUI or browser approval controls
+- approval support for file mutation tools beyond the existing shell hook
+
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.

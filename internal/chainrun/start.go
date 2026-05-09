@@ -57,20 +57,21 @@ type StepRequest struct {
 }
 
 type Options struct {
-	ChainID          string
-	Mode             Mode
-	Role             string
-	AllowedRoles     []string
-	Roster           []StepRequest
-	SourceSpecs      []string
-	SourceTask       string
-	MaxSteps         int
-	MaxResolverLoops int
-	MaxDuration      time.Duration
-	TokenBudget      int
-	StepMaxTurns     int
-	StepMaxTokens    int
-	DryRun           bool
+	ChainID           string
+	Mode              Mode
+	Role              string
+	AllowedRoles      []string
+	Roster            []StepRequest
+	SourceSpecs       []string
+	SourceTask        string
+	MaxSteps          int
+	MaxResolverLoops  int
+	MaxDuration       time.Duration
+	TokenBudget       int
+	StepMaxTurns      int
+	StepMaxTokens     int
+	AllowApprovalWait bool
+	DryRun            bool
 
 	OnChainID         func(string)
 	OnMessage         func(string)
@@ -203,6 +204,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 	if err != nil {
 		return nil, err
 	}
+	configureToolRegistryApprovalWait(registry, opts.AllowApprovalWait)
 	conv, err := rt.ConversationManager.Create(ctx, cfg.ProjectRoot, conversation.WithProvider(cfg.Routing.Default.Provider), conversation.WithModel(cfg.Routing.Default.Model))
 	if err != nil {
 		return nil, fmt.Errorf("create conversation: %w", err)
@@ -211,6 +213,14 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 	if err != nil {
 		return nil, err
 	}
+	runCtx := ctx
+	cancelRun := func() {}
+	if timeout := roleCfg.Timeout.Duration(); timeout > 0 {
+		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
+	} else if opts.AllowApprovalWait {
+		runCtx, cancelRun = context.WithCancel(ctx)
+	}
+	defer cancelRun()
 	loop := deps.NewTurnRunner(agent.AgentLoopDeps{
 		ContextAssembler:    rt.ContextAssembler,
 		ConversationManager: rt.ConversationManager,
@@ -219,7 +229,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 		ToolDefinitions:     registry.ToolDefinitions(),
 		PromptBuilder:       agent.NewPromptBuilder(rt.Logger),
 		TitleGenerator:      conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger),
-		EventSink:           newApprovalEventSink(ctx, rt.ChainStore, chainID),
+		EventSink:           newApprovalEventSink(ctx, rt.ChainStore, chainID, approvalEventSinkOptions{Wait: opts.AllowApprovalWait, Cancel: cancelRun}),
 		CompressionEngine:   rt.CompressionEngine,
 		TraceRecorder:       rt.TraceRecorder,
 		Config:              rtpkg.BuildAgentLoopConfig(cfg, roleCfg.MaxTurns, systemPrompt),
@@ -232,12 +242,6 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 		return nil, err
 	}
 	turnTask := buildTask(opts, chainID, existingReceiptPaths(steps))
-	runCtx := ctx
-	cancelRun := func() {}
-	if timeout := roleCfg.Timeout.Duration(); timeout > 0 {
-		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
-	}
-	defer cancelRun()
 	if _, err := loop.RunTurn(runCtx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit, ChainID: chainID}); err != nil {
 		if handled, handleErr := handleInterruption(runCtx, rt.ChainStore, chainID, err, opts.OnMessage); handled || handleErr != nil {
 			if handleErr != nil {
@@ -272,6 +276,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 
 func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
+	configureStepRunnerApprovalWait(runner, opts.AllowApprovalWait)
 	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
 	if err != nil {
 		if errors.Is(err, tool.ErrChainComplete) {
@@ -322,6 +327,7 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 
 func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
+	configureStepRunnerApprovalWait(runner, opts.AllowApprovalWait)
 	receiptPaths := existingReceiptPaths(mustListSteps(ctx, rt.ChainStore, chainID))
 	results := make([]spawnpkg.AgentStepResult, 0, len(opts.Roster))
 	for i, step := range opts.Roster {
@@ -364,6 +370,27 @@ func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opt
 		}
 	}
 	return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+}
+
+type approvalWaitConfigurable interface {
+	SetApprovalWait(bool)
+}
+
+func configureStepRunnerApprovalWait(runner StepRunner, allow bool) {
+	if configurable, ok := runner.(approvalWaitConfigurable); ok {
+		configurable.SetApprovalWait(allow)
+	}
+}
+
+func configureToolRegistryApprovalWait(registry *tool.Registry, allow bool) {
+	if registry == nil {
+		return
+	}
+	for _, registered := range registry.All() {
+		if configurable, ok := registered.(approvalWaitConfigurable); ok {
+			configurable.SetApprovalWait(allow)
+		}
+	}
 }
 
 func withDefaultDeps(deps Deps) Deps {
@@ -482,6 +509,9 @@ func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID s
 		if opts.DryRun {
 			return opts, isNew, false, nil
 		}
+		if existing.Status == chain.StatusWaitingApproval {
+			opts.AllowApprovalWait = true
+		}
 		if err := prepareExistingChainForExecution(ctx, store, existing); err != nil {
 			return opts, false, false, err
 		}
@@ -555,6 +585,15 @@ func prepareExistingChainForExecution(ctx context.Context, store *chain.Store, e
 	if !resumeReady {
 		return nil
 	}
+	if existing.Status == chain.StatusWaitingApproval {
+		pending, err := store.PendingApprovals(ctx, existing.ID)
+		if err != nil {
+			return err
+		}
+		if len(pending) > 0 {
+			return fmt.Errorf("chain %s has %d pending approval(s); approve or deny them before resuming", existing.ID, len(pending))
+		}
+	}
 	if err := store.SetChainStatus(ctx, existing.ID, "running"); err != nil {
 		return err
 	}
@@ -599,6 +638,12 @@ func handleInterruption(ctx context.Context, store *chain.Store, chainID string,
 			return true, err
 		}
 		emit(onMessage, "chain %s paused\n", chainID)
+		return true, nil
+	case chain.StatusWaitingApproval:
+		if err := chain.CloseTerminalizedActiveExecution(cleanupCtx, store, chainID, ch.Status, nil); err != nil {
+			return true, err
+		}
+		emit(onMessage, "chain %s waiting for approval\n", chainID)
 		return true, nil
 	case "running":
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {

@@ -329,6 +329,29 @@ type ControlResult struct {
 	Warnings       []RuntimeWarning
 }
 
+type ApprovalView struct {
+	ID             string
+	ChainID        string
+	StepID         string
+	ConversationID string
+	TurnNumber     int
+	Iteration      int
+	ToolName       string
+	ToolInput      json.RawMessage
+	Reason         string
+	RiskLevel      string
+	Status         string
+	CreatedAt      time.Time
+	DecidedAt      *time.Time
+	DecisionReason string
+	DecidedBy      string
+}
+
+type ApprovalDecisionResult struct {
+	Approval ApprovalView
+	Message  string
+}
+
 type ProjectLockView struct {
 	LockName     string
 	OwnerChainID string

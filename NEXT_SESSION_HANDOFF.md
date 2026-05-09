@@ -1,16 +1,18 @@
 # Next Session Handoff
 
-Date: 2026-05-05
+Date: 2026-05-09
 
 ## Current State
 
-The repository was clean before this handoff document was added. The latest completed work is:
+The latest completed work before the current approval-control slice was:
 
 - `5c412f6 Persist actual headless usage metrics`
 - `44b3109 Add chain dogfooding metrics`
 - `87a3337 Tighten Shunter audit smoke surfaces`
 
 Shunter is the base brain/project-memory design. Do not reintroduce legacy migration, vault, SQLite import/export, compatibility aliases, public memory commands, or backwards-compatible command surfaces.
+
+2026-05-09 update: the Spec 23 approval-control slice now derives durable approval state from chain events, records `approval_decision` events, exposes `yard chain approvals|approve|deny`, and adds opt-in `yard chain start --allow-approval-wait` behavior that moves chains into `waiting_approval` for approval-required orchestrator tool results and spawned headless steps. Full replay of the exact approved tool call and TUI/web approval controls remain open.
 
 ## What Changed Tonight
 
@@ -86,10 +88,12 @@ rtk ./bin/yard chain receipt <chain-id> 1
 
 ## Useful Next Work
 
-The most useful next slice is not more legacy cleanup. It is dogfooding and performance/ergonomics tuning around the active Shunter-native harness.
+The most useful next slice is not more legacy cleanup. It is either finishing the approval replay/control loop or dogfooding and performance/ergonomics tuning around the active Shunter-native harness.
 
 Good candidates:
 
+- Implement full approval replay/resume semantics so an approved pending tool call can continue as that original call instead of only allowing the chain to resume from history.
+- Add TUI approval controls on top of the new operator approval APIs.
 - Investigate why a simple one-sentence read-only chain used 10 turns and about 251k tokens. The metrics command now makes this visible; the next useful work is reducing that behavior.
 - Surface the same chain metrics report in the TUI or web inspector if dogfooding shows the CLI is not enough.
 - Improve launch prompts or role instructions so small read-only tasks finish faster and avoid unnecessary broad searches.

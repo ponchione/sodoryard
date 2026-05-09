@@ -162,6 +162,81 @@ func TestStartLogsApprovalRequiredEventsFromOrchestratorToolResults(t *testing.T
 	t.Fatalf("events = %+v, want approval_required event", events)
 }
 
+func TestStartWaitsForApprovalWhenOptedIn(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.Routing.Default.Provider = "test"
+	cfg.Routing.Default.Model = "test-model"
+	cfg.Providers = map[string]appconfig.ProviderConfig{
+		"test": {Type: "openai-compatible", Model: "test-model", ContextLength: 128},
+	}
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"orchestrator": {SystemPrompt: "builtin:orchestrator", MaxTurns: 3},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	details := provider.NewToolResultDetails("approval_required", map[string]any{
+		"approval_id": "approval-wait-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	})
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+				return nil, err
+			}
+			return &rtpkg.OrchestratorRuntime{
+				Config:              cfg,
+				Logger:              slog.Default(),
+				Database:            db,
+				Queries:             appdb.New(db),
+				ConversationManager: conversation.NewManager(db, nil, slog.Default()),
+				ContextAssembler:    rtpkg.NoopContextAssembler{},
+				ChainStore:          store,
+				Cleanup:             func() {},
+			}, nil
+		},
+		BuildRegistry: func(*rtpkg.OrchestratorRuntime, appconfig.AgentRoleConfig, string) (*tool.Registry, error) {
+			return tool.NewRegistry(), nil
+		},
+		NewTurnRunner: func(loopDeps agent.AgentLoopDeps) TurnRunner {
+			return fakeTurnRunner{run: func(runCtx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+				loopDeps.EventSink.Emit(agent.ToolCallEndEvent{ToolCallID: "tc-1", Details: details})
+				<-runCtx.Done()
+				return nil, agent.ErrTurnCancelled
+			}}
+		},
+		NewChainID: func() string { return "approval-wait-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{SourceTask: "approval", AllowApprovalWait: true, MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != chain.StatusWaitingApproval {
+		t.Fatalf("result status = %q, want %s", result.Status, chain.StatusWaitingApproval)
+	}
+	stored, err := store.GetChain(ctx, "approval-wait-chain")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != chain.StatusWaitingApproval {
+		t.Fatalf("stored status = %q, want waiting approval", stored.Status)
+	}
+	events, err := store.ListEvents(ctx, "approval-wait-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if !eventsInclude(events, chain.EventChainWaitingApproval) {
+		t.Fatalf("events = %+v, want chain_waiting_approval event", events)
+	}
+}
+
 func TestBuildTaskIncludesReceiptHistory(t *testing.T) {
 	msg := buildTask(Options{
 		SourceTask:       "fix auth",
@@ -274,6 +349,30 @@ func TestPrepareExistingChainForExecutionStopsDuplicateRunningResume(t *testing.
 	err := prepareExistingChainForExecution(context.Background(), nil, &chain.Chain{ID: "chain-1", Status: "running"})
 	if err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Fatalf("error = %v, want already running rejection", err)
+	}
+}
+
+func TestPrepareExistingChainForExecutionRejectsPendingApprovalResume(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newChainrunTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "approval-resume-chain", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.SetChainStatus(ctx, chainID, chain.StatusWaitingApproval); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{"approval_id": "approval-1", "tool_name": "shell", "status": "pending"}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	existing, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+
+	err = prepareExistingChainForExecution(ctx, store, existing)
+	if err == nil || !strings.Contains(err.Error(), "pending approval") {
+		t.Fatalf("error = %v, want pending approval rejection", err)
 	}
 }
 

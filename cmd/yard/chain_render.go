@@ -132,11 +132,13 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 		return join(plain("requested_role"), plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), quoted("error"))
 	case chain.EventApprovalRequired:
 		return join(plain("approval_id"), plain("tool_name"), plain("risk_level"), plain("status"), quoted("reason"))
+	case chain.EventApprovalDecision:
+		return join(plain("approval_id"), plain("status"), quoted("reason"), plain("decided_by"), plain("decided_at"))
 	case chain.EventSourceWriterLockAcquired, chain.EventSourceWriterLockReleased, chain.EventSourceWriterLockForceReleased, chain.EventSourceWriterLockReleaseFailed, chain.EventSourceWriterLockHeartbeatFailed, chain.EventSourceWriterLockStaleReplaced:
 		return join(plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), plain("expires_at"), quoted("error"), quoted("reason"))
 	case chain.EventResolverLoop:
 		return join(plain("count"), quoted("task_context"))
-	case chain.EventReindexStarted, chain.EventReindexCompleted, chain.EventSafetyLimitHit, chain.EventChainPaused, chain.EventChainCancelled, chain.EventChainCompleted:
+	case chain.EventReindexStarted, chain.EventReindexCompleted, chain.EventSafetyLimitHit, chain.EventChainWaitingApproval, chain.EventChainPaused, chain.EventChainCancelled, chain.EventChainCompleted:
 		parts := make([]string, 0, len(payload))
 		for _, key := range []string{"status", "summary", "duration_secs", "limit", "role", "exit_code", "execution_id", "finalized_from"} {
 			if key == "summary" {
