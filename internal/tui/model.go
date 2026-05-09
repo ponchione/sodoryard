@@ -39,17 +39,21 @@ type launchField int
 const (
 	launchFieldTask launchField = iota
 	launchFieldSpecs
+	launchFieldStepMaxTurns
+	launchFieldStepMaxTokens
 	launchFieldMode
 	launchFieldRole
 )
 
 type launchDraft struct {
-	Mode         operator.LaunchMode
-	Role         string
-	AllowedRoles []string
-	Roster       []string
-	SourceTask   string
-	SpecsText    string
+	Mode          operator.LaunchMode
+	Role          string
+	AllowedRoles  []string
+	Roster        []string
+	SourceTask    string
+	SpecsText     string
+	StepMaxTurns  int
+	StepMaxTokens int
 }
 
 type Model struct {
@@ -710,31 +714,19 @@ func (m Model) handleLaunchEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.launchEdit = false
-		m.notice = "launch task edit stopped"
+		m.notice = "launch edit stopped"
 		return m, nil
 	case tea.KeyEnter:
 		m.launchEdit = false
 		return m, m.launchPreviewCmd()
 	case tea.KeyBackspace, tea.KeyCtrlH:
-		m.setLaunchFieldText(dropLastRune(m.launchFieldText()))
-		m.clearLaunchPreview()
-		m.err = nil
-		return m, nil
+		return m.updateLaunchFieldText(dropLastRune(m.launchFieldText()))
 	case tea.KeyCtrlU:
-		m.setLaunchFieldText("")
-		m.clearLaunchPreview()
-		m.err = nil
-		return m, nil
+		return m.updateLaunchFieldText("")
 	case tea.KeySpace:
-		m.setLaunchFieldText(m.launchFieldText() + " ")
-		m.clearLaunchPreview()
-		m.err = nil
-		return m, nil
+		return m.updateLaunchFieldText(m.launchFieldText() + " ")
 	case tea.KeyRunes:
-		m.setLaunchFieldText(m.launchFieldText() + string(msg.Runes))
-		m.clearLaunchPreview()
-		m.err = nil
-		return m, nil
+		return m.updateLaunchFieldText(m.launchFieldText() + string(msg.Runes))
 	default:
 		return m, nil
 	}

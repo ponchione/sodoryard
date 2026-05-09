@@ -249,15 +249,32 @@ func (f *fakeOperator) ValidateLaunch(_ context.Context, req operator.LaunchRequ
 		}
 		compiled += "Allowed roles: " + strings.Join(allowedRoles, ", ")
 	}
-	return operator.LaunchPreview{
+	preview := operator.LaunchPreview{
 		Mode:              req.Mode,
 		Role:              role,
 		AllowedRoles:      allowedRoles,
 		Roster:            roster,
 		Summary:           summary,
 		CompiledTask:      compiled,
+		StepMaxTurns:      req.StepMaxTurns,
+		StepMaxTokens:     req.StepMaxTokens,
 		AllowApprovalWait: req.AllowApprovalWait,
-	}, nil
+	}
+	if req.StepMaxTurns == 0 && req.StepMaxTokens == 0 {
+		switch req.Mode {
+		case operator.LaunchModeOneStep:
+			warningRole := strings.TrimSpace(req.Role)
+			if warningRole == "" {
+				warningRole = "coder"
+			}
+			preview.Warnings = []operator.RuntimeWarning{{Message: "single-step " + warningRole + " launch has no per-step turn/token caps"}}
+		case operator.LaunchModeManualRoster:
+			if len(roster) == 1 {
+				preview.Warnings = []operator.RuntimeWarning{{Message: "single-step " + roster[0] + " launch has no per-step turn/token caps"}}
+			}
+		}
+	}
+	return preview, nil
 }
 
 func (f *fakeOperator) StartChain(_ context.Context, req operator.LaunchRequest) (operator.StartResult, error) {
@@ -266,7 +283,7 @@ func (f *fakeOperator) StartChain(_ context.Context, req operator.LaunchRequest)
 	ch := operator.ChainSummary{ID: "chain-started", Status: "running", SourceTask: req.SourceTask, StartedAt: started, UpdatedAt: started}
 	f.chains = append([]operator.ChainSummary{ch}, f.chains...)
 	f.details["chain-started"] = operator.ChainDetail{Chain: chain.Chain{ID: "chain-started", Status: "running", SourceTask: req.SourceTask}}
-	preview := operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started", AllowApprovalWait: req.AllowApprovalWait}
+	preview := operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started", StepMaxTurns: req.StepMaxTurns, StepMaxTokens: req.StepMaxTokens, AllowApprovalWait: req.AllowApprovalWait}
 	if req.StepMaxTurns == 0 && req.StepMaxTokens == 0 {
 		preview.Warnings = []operator.RuntimeWarning{{Message: "single-step coder launch has no per-step turn/token caps"}}
 	}
@@ -1072,6 +1089,112 @@ func TestModelLaunchSpecsEditAndPreview(t *testing.T) {
 	}
 }
 
+func TestModelLaunchStepCapsEditPreviewAndStart(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1, FollowInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "bounded probe"
+
+	for i := 0; i < 2; i++ {
+		updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyDown})
+		got = updated.(Model)
+	}
+	if got.launchField != launchFieldStepMaxTurns {
+		t.Fatalf("launchField = %v, want step max turns", got.launchField)
+	}
+	updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if !got.launchEdit {
+		t.Fatal("step max turns edit mode not enabled")
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	got = updated.(Model)
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("turn cap edit did not request preview")
+	}
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	got = updated.(Model)
+	if got.launchField != launchFieldStepMaxTokens {
+		t.Fatalf("launchField = %v, want step max tokens", got.launchField)
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	for _, r := range []rune("50000") {
+		updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		got = updated.(Model)
+	}
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("token cap edit did not request preview")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	if fake.launchRequest.StepMaxTurns != 4 || fake.launchRequest.StepMaxTokens != 50000 {
+		t.Fatalf("preview step caps = turns %d tokens %d, want 4/50000", fake.launchRequest.StepMaxTurns, fake.launchRequest.StepMaxTokens)
+	}
+	if got.preview == nil || got.preview.StepMaxTurns != 4 || got.preview.StepMaxTokens != 50000 {
+		t.Fatalf("preview = %+v, want step caps", got.preview)
+	}
+	previewView := got.View()
+	for _, want := range []string{"turns: 4", "tokens: 50000", "step caps: turns=4 tokens=50000"} {
+		if !strings.Contains(previewView, want) {
+			t.Fatalf("capped preview view missing %q:\n%s", want, previewView)
+		}
+	}
+	if strings.Contains(previewView, "no per-step turn/token caps") {
+		t.Fatalf("capped preview showed uncapped warning:\n%s", previewView)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("start confirmation returned command before confirmation")
+	}
+	if got.confirm.Action != "launch" {
+		t.Fatalf("confirm action = %q, want launch", got.confirm.Action)
+	}
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("confirmed capped launch returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.startRequest.StepMaxTurns != 4 || fake.startRequest.StepMaxTokens != 50000 {
+		t.Fatalf("start step caps = turns %d tokens %d, want 4/50000", fake.startRequest.StepMaxTurns, fake.startRequest.StepMaxTokens)
+	}
+}
+
+func TestModelLaunchPreviewShowsUncappedWarning(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "small probe"
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("launch preview returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"turns: unset", "tokens: unset", "Warnings", "single-step coder launch has no per-step turn/token caps"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("uncapped preview view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestModelLaunchModeAndRoleControls(t *testing.T) {
 	fake := newFakeOperator()
 	model := NewModel(fake, Options{RefreshInterval: -1})
@@ -1323,6 +1446,8 @@ func TestModelSavesLaunchDraft(t *testing.T) {
 	got.launch.Mode = operator.LaunchModeConstrained
 	got.launch.Role = "coder"
 	got.launch.AllowedRoles = []string{"coder", "planner"}
+	got.launch.StepMaxTurns = 6
+	got.launch.StepMaxTokens = 70000
 
 	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	got = updated.(Model)
@@ -1338,6 +1463,9 @@ func TestModelSavesLaunchDraft(t *testing.T) {
 	if fake.savedDraft.Request.Mode != operator.LaunchModeConstrained || !reflect.DeepEqual(fake.savedDraft.Request.AllowedRoles, []string{"coder", "planner"}) {
 		t.Fatalf("saved draft launch shape = %+v, want constrained coder/planner", fake.savedDraft.Request)
 	}
+	if fake.savedDraft.Request.StepMaxTurns != 6 || fake.savedDraft.Request.StepMaxTokens != 70000 {
+		t.Fatalf("saved draft caps = turns %d tokens %d, want 6/70000", fake.savedDraft.Request.StepMaxTurns, fake.savedDraft.Request.StepMaxTokens)
+	}
 	if got.loading || got.err != nil || got.notice != "launch draft saved" {
 		t.Fatalf("post-save state loading=%t err=%v notice=%q", got.loading, got.err, got.notice)
 	}
@@ -1349,11 +1477,13 @@ func TestModelLoadsLaunchDraft(t *testing.T) {
 	fake.loadDraft = operator.LaunchDraft{
 		ID: "current",
 		Request: operator.LaunchRequest{
-			Mode:        operator.LaunchModeManualRoster,
-			Role:        "coder",
-			Roster:      []string{"planner", "coder"},
-			SourceTask:  "loaded draft",
-			SourceSpecs: []string{"specs/loaded.md"},
+			Mode:          operator.LaunchModeManualRoster,
+			Role:          "coder",
+			Roster:        []string{"planner", "coder"},
+			SourceTask:    "loaded draft",
+			SourceSpecs:   []string{"specs/loaded.md"},
+			StepMaxTurns:  8,
+			StepMaxTokens: 90000,
 		},
 		UpdatedAt: "2026-05-01T12:03:00Z",
 	}
@@ -1378,6 +1508,9 @@ func TestModelLoadsLaunchDraft(t *testing.T) {
 	}
 	if got.launch.Mode != operator.LaunchModeManualRoster || !reflect.DeepEqual(got.launch.Roster, []string{"planner", "coder"}) {
 		t.Fatalf("loaded launch state = %+v, want manual roster", got.launch)
+	}
+	if got.launch.StepMaxTurns != 8 || got.launch.StepMaxTokens != 90000 {
+		t.Fatalf("loaded launch caps = turns %d tokens %d, want 8/90000", got.launch.StepMaxTurns, got.launch.StepMaxTokens)
 	}
 	if got.preview != nil || got.previewReq != nil {
 		t.Fatalf("preview = %+v/%+v, want cleared after load", got.preview, got.previewReq)
