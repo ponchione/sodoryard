@@ -104,6 +104,8 @@ func (f *fakeBrainBackend) SaveLaunch(ctx context.Context, args projectmemory.Sa
 		RosterJSON:       args.RosterJSON,
 		SourceTask:       args.SourceTask,
 		SourceSpecsJSON:  args.SourceSpecsJSON,
+		StepMaxTurns:     args.StepMaxTurns,
+		StepMaxTokens:    args.StepMaxTokens,
 		CreatedAtUS:      createdAtUS,
 		UpdatedAtUS:      args.UpdatedAtUS,
 	}
@@ -1755,11 +1757,13 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	}
 
 	saved, err := svc.SaveLaunchDraft(ctx, LaunchRequest{
-		Mode:         LaunchModeConstrained,
-		Role:         "coder",
-		AllowedRoles: []string{"coder", "planner"},
-		SourceTask:   "persist launch",
-		SourceSpecs:  []string{"docs/specs/a.md", "docs/specs/b.md"},
+		Mode:          LaunchModeConstrained,
+		Role:          "coder",
+		AllowedRoles:  []string{"coder", "planner"},
+		SourceTask:    "persist launch",
+		SourceSpecs:   []string{"docs/specs/a.md", "docs/specs/b.md"},
+		StepMaxTurns:  6,
+		StepMaxTokens: 70000,
 	})
 	if err != nil {
 		t.Fatalf("SaveLaunchDraft returned error: %v", err)
@@ -1781,6 +1785,9 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	if !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "planner"}) || !reflect.DeepEqual(loaded.Request.SourceSpecs, []string{"docs/specs/a.md", "docs/specs/b.md"}) {
 		t.Fatalf("loaded draft slices = allowed %v specs %v", loaded.Request.AllowedRoles, loaded.Request.SourceSpecs)
 	}
+	if loaded.Request.StepMaxTurns != 6 || loaded.Request.StepMaxTokens != 70000 {
+		t.Fatalf("loaded draft caps = turns %d tokens %d, want 6/70000", loaded.Request.StepMaxTurns, loaded.Request.StepMaxTokens)
+	}
 
 	if _, err := svc.SaveLaunchDraft(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "replacement"}); err != nil {
 		t.Fatalf("SaveLaunchDraft replacement returned error: %v", err)
@@ -1789,7 +1796,7 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadLaunchDraft replacement returned error: %v", err)
 	}
-	if !found || loaded.Request.Mode != LaunchModeOneStep || loaded.Request.SourceTask != "replacement" || len(loaded.Request.AllowedRoles) != 0 {
+	if !found || loaded.Request.Mode != LaunchModeOneStep || loaded.Request.SourceTask != "replacement" || len(loaded.Request.AllowedRoles) != 0 || loaded.Request.StepMaxTurns != 0 || loaded.Request.StepMaxTokens != 0 {
 		t.Fatalf("loaded replacement = %+v, want overwritten one-step draft", loaded)
 	}
 }
@@ -1889,10 +1896,12 @@ func TestLaunchDraftAndPresetsUseProjectMemoryInShunterMode(t *testing.T) {
 	t.Cleanup(svc.Close)
 
 	saved, err := svc.SaveLaunchDraft(ctx, LaunchRequest{
-		Mode:         LaunchModeConstrained,
-		Role:         "coder",
-		AllowedRoles: []string{"coder", "orchestrator"},
-		SourceTask:   "persist shunter launch",
+		Mode:          LaunchModeConstrained,
+		Role:          "coder",
+		AllowedRoles:  []string{"coder", "orchestrator"},
+		SourceTask:    "persist shunter launch",
+		StepMaxTurns:  5,
+		StepMaxTokens: 60000,
 	})
 	if err != nil {
 		t.Fatalf("SaveLaunchDraft returned error: %v", err)
@@ -1904,7 +1913,7 @@ func TestLaunchDraftAndPresetsUseProjectMemoryInShunterMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadLaunchDraft returned error: %v", err)
 	}
-	if !found || loaded.Request.Mode != LaunchModeConstrained || loaded.Request.SourceTask != "persist shunter launch" || !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "orchestrator"}) {
+	if !found || loaded.Request.Mode != LaunchModeConstrained || loaded.Request.SourceTask != "persist shunter launch" || !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "orchestrator"}) || loaded.Request.StepMaxTurns != 5 || loaded.Request.StepMaxTokens != 60000 {
 		t.Fatalf("loaded draft = %+v found=%t, want Shunter launch draft", loaded, found)
 	}
 

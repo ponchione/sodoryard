@@ -270,6 +270,8 @@ CREATE TABLE IF NOT EXISTS launches (
     roster              TEXT,
     source_task         TEXT,
     source_specs        TEXT,
+    step_max_turns      INTEGER NOT NULL DEFAULT 0,
+    step_max_tokens     INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(project_id, id)

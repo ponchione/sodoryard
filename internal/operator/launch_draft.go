@@ -43,6 +43,9 @@ func (s *Service) SaveLaunchDraft(ctx context.Context, req LaunchRequest) (Launc
 	if err != nil {
 		return LaunchDraft{}, err
 	}
+	if err := validateLaunchStepCaps(req); err != nil {
+		return LaunchDraft{}, err
+	}
 	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal allowed roles: %w", err)
@@ -57,8 +60,8 @@ func (s *Service) SaveLaunchDraft(ctx context.Context, req LaunchRequest) (Launc
 	}
 	updatedAt := time.Now().UTC().Format(time.RFC3339)
 	_, err = database.ExecContext(ctx, `
-INSERT INTO launches(id, project_id, status, mode, role, allowed_roles, roster, source_task, source_specs, created_at, updated_at)
-VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO launches(id, project_id, status, mode, role, allowed_roles, roster, source_task, source_specs, step_max_turns, step_max_tokens, created_at, updated_at)
+VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, id) DO UPDATE SET
 	status = 'draft',
 	mode = excluded.mode,
@@ -67,8 +70,10 @@ ON CONFLICT(project_id, id) DO UPDATE SET
 	roster = excluded.roster,
 	source_task = excluded.source_task,
 	source_specs = excluded.source_specs,
+	step_max_turns = excluded.step_max_turns,
+	step_max_tokens = excluded.step_max_tokens,
 	updated_at = excluded.updated_at
-`, currentLaunchDraftID, cfg.ProjectRoot, req.Mode, req.Role, allowedRoles, roster, req.SourceTask, sourceSpecs, updatedAt, updatedAt)
+`, currentLaunchDraftID, cfg.ProjectRoot, req.Mode, req.Role, allowedRoles, roster, req.SourceTask, sourceSpecs, req.StepMaxTurns, req.StepMaxTokens, updatedAt, updatedAt)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("save launch draft: %w", err)
 	}
@@ -98,7 +103,7 @@ func (s *Service) LoadLaunchDraft(ctx context.Context) (LaunchDraft, bool, error
 
 	var row launchDraftRow
 	err = database.QueryRowContext(ctx, `
-SELECT id, mode, role, allowed_roles, roster, source_task, source_specs, updated_at
+SELECT id, mode, role, allowed_roles, roster, source_task, source_specs, step_max_turns, step_max_tokens, updated_at
 FROM launches
 WHERE project_id = ? AND id = ? AND status = 'draft'
 `, cfg.ProjectRoot, currentLaunchDraftID).Scan(
@@ -109,6 +114,8 @@ WHERE project_id = ? AND id = ? AND status = 'draft'
 		&row.Roster,
 		&row.SourceTask,
 		&row.SourceSpecs,
+		&row.StepMaxTurns,
+		&row.StepMaxTokens,
 		&row.UpdatedAt,
 	)
 	if err != nil {
@@ -249,6 +256,9 @@ func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projec
 	if err != nil {
 		return LaunchDraft{}, err
 	}
+	if err := validateLaunchStepCaps(req); err != nil {
+		return LaunchDraft{}, err
+	}
 	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal allowed roles: %w", err)
@@ -272,6 +282,8 @@ func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projec
 		RosterJSON:       roster,
 		SourceTask:       req.SourceTask,
 		SourceSpecsJSON:  sourceSpecs,
+		StepMaxTurns:     uint64(req.StepMaxTurns),
+		StepMaxTokens:    uint64(req.StepMaxTokens),
 		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
 	}); err != nil {
 		return LaunchDraft{}, fmt.Errorf("save launch draft: %w", err)
@@ -339,14 +351,16 @@ func (s *Service) listProjectMemoryLaunchPresets(ctx context.Context, store proj
 }
 
 type launchDraftRow struct {
-	ID           string
-	Mode         string
-	Role         sql.NullString
-	AllowedRoles sql.NullString
-	Roster       sql.NullString
-	SourceTask   sql.NullString
-	SourceSpecs  sql.NullString
-	UpdatedAt    sql.NullString
+	ID            string
+	Mode          string
+	Role          sql.NullString
+	AllowedRoles  sql.NullString
+	Roster        sql.NullString
+	SourceTask    sql.NullString
+	SourceSpecs   sql.NullString
+	StepMaxTurns  sql.NullInt64
+	StepMaxTokens sql.NullInt64
+	UpdatedAt     sql.NullString
 }
 
 type launchPresetRow struct {
@@ -361,14 +375,16 @@ type launchPresetRow struct {
 
 func launchFromProjectMemory(row projectmemory.Launch) launchDraftRow {
 	return launchDraftRow{
-		ID:           row.LaunchID,
-		Mode:         row.Mode,
-		Role:         sql.NullString{String: row.Role, Valid: row.Role != ""},
-		AllowedRoles: sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
-		Roster:       sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
-		SourceTask:   sql.NullString{String: row.SourceTask, Valid: row.SourceTask != ""},
-		SourceSpecs:  sql.NullString{String: row.SourceSpecsJSON, Valid: row.SourceSpecsJSON != ""},
-		UpdatedAt:    sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
+		ID:            row.LaunchID,
+		Mode:          row.Mode,
+		Role:          sql.NullString{String: row.Role, Valid: row.Role != ""},
+		AllowedRoles:  sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
+		Roster:        sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
+		SourceTask:    sql.NullString{String: row.SourceTask, Valid: row.SourceTask != ""},
+		SourceSpecs:   sql.NullString{String: row.SourceSpecsJSON, Valid: row.SourceSpecsJSON != ""},
+		StepMaxTurns:  sql.NullInt64{Int64: int64(row.StepMaxTurns), Valid: row.StepMaxTurns != 0},
+		StepMaxTokens: sql.NullInt64{Int64: int64(row.StepMaxTokens), Valid: row.StepMaxTokens != 0},
+		UpdatedAt:     sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
 	}
 }
 
@@ -398,12 +414,14 @@ func (r launchDraftRow) request() (LaunchRequest, error) {
 		return LaunchRequest{}, fmt.Errorf("unmarshal source specs: %w", err)
 	}
 	return normalizeLaunchRequest(LaunchRequest{
-		Mode:         LaunchMode(r.Mode),
-		Role:         r.Role.String,
-		AllowedRoles: allowedRoles,
-		Roster:       roster,
-		SourceTask:   r.SourceTask.String,
-		SourceSpecs:  sourceSpecs,
+		Mode:          LaunchMode(r.Mode),
+		Role:          r.Role.String,
+		AllowedRoles:  allowedRoles,
+		Roster:        roster,
+		SourceTask:    r.SourceTask.String,
+		SourceSpecs:   sourceSpecs,
+		StepMaxTurns:  intFromNullInt64(r.StepMaxTurns),
+		StepMaxTokens: intFromNullInt64(r.StepMaxTokens),
 	}), nil
 }
 
@@ -422,6 +440,13 @@ func (r launchPresetRow) request() (LaunchRequest, error) {
 		AllowedRoles: allowedRoles,
 		Roster:       roster,
 	}), nil
+}
+
+func intFromNullInt64(value sql.NullInt64) int {
+	if !value.Valid || value.Int64 <= 0 {
+		return 0
+	}
+	return int(value.Int64)
 }
 
 func normalizeLaunchPresetRequest(cfg *appconfig.Config, req LaunchRequest) (LaunchRequest, error) {

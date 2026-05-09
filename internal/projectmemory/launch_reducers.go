@@ -18,6 +18,8 @@ type SaveLaunchArgs struct {
 	RosterJSON       string `json:"roster_json"`
 	SourceTask       string `json:"source_task"`
 	SourceSpecsJSON  string `json:"source_specs_json"`
+	StepMaxTurns     uint64 `json:"step_max_turns"`
+	StepMaxTokens    uint64 `json:"step_max_tokens"`
 	UpdatedAtUS      uint64 `json:"updated_at_us"`
 }
 
@@ -72,6 +74,8 @@ func saveLaunchReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
 		RosterJSON:       defaultString(args.RosterJSON, emptyJSONArray),
 		SourceTask:       args.SourceTask,
 		SourceSpecsJSON:  defaultString(args.SourceSpecsJSON, emptyJSONArray),
+		StepMaxTurns:     args.StepMaxTurns,
+		StepMaxTokens:    args.StepMaxTokens,
 		CreatedAtUS:      createdAtUS,
 		UpdatedAtUS:      nowUS,
 	})

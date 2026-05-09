@@ -1388,6 +1388,8 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 		AllowedRolesJSON: `["coder","planner"]`,
 		SourceTask:       "persist launch draft",
 		SourceSpecsJSON:  `["docs/specs/a.md"]`,
+		StepMaxTurns:     6,
+		StepMaxTokens:    70000,
 		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
 	}); err != nil {
 		t.Fatalf("SaveLaunch: %v", err)
@@ -1416,7 +1418,7 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLaunch: %v", err)
 	}
-	if !found || launch.Status != "draft" || launch.Mode != "constrained_orchestration" || launch.SourceTask != "persist launch draft" || !strings.Contains(launch.AllowedRolesJSON, "planner") {
+	if !found || launch.Status != "draft" || launch.Mode != "constrained_orchestration" || launch.SourceTask != "persist launch draft" || !strings.Contains(launch.AllowedRolesJSON, "planner") || launch.StepMaxTurns != 6 || launch.StepMaxTokens != 70000 {
 		t.Fatalf("launch = %+v found=%t, want saved draft", launch, found)
 	}
 	presets, err := reopened.ListLaunchPresets(ctx, "project-launch")

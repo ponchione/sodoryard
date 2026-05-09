@@ -17,6 +17,8 @@ type Launch struct {
 	RosterJSON       string
 	SourceTask       string
 	SourceSpecsJSON  string
+	StepMaxTurns     uint64
+	StepMaxTokens    uint64
 	CreatedAtUS      uint64
 	UpdatedAtUS      uint64
 }
@@ -46,6 +48,8 @@ func launchRow(launch Launch) types.ProductValue {
 		types.NewString(defaultString(launch.RosterJSON, emptyJSONArray)),
 		types.NewString(launch.SourceTask),
 		types.NewString(defaultString(launch.SourceSpecsJSON, emptyJSONArray)),
+		types.NewUint64(launch.StepMaxTurns),
+		types.NewUint64(launch.StepMaxTokens),
 		types.NewUint64(launch.CreatedAtUS),
 		types.NewUint64(launch.UpdatedAtUS),
 	}
@@ -63,8 +67,10 @@ func decodeLaunchRow(row types.ProductValue) Launch {
 		RosterJSON:       row[7].AsString(),
 		SourceTask:       row[8].AsString(),
 		SourceSpecsJSON:  row[9].AsString(),
-		CreatedAtUS:      row[10].AsUint64(),
-		UpdatedAtUS:      row[11].AsUint64(),
+		StepMaxTurns:     row[10].AsUint64(),
+		StepMaxTokens:    row[11].AsUint64(),
+		CreatedAtUS:      row[12].AsUint64(),
+		UpdatedAtUS:      row[13].AsUint64(),
 	}
 }
 

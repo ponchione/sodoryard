@@ -356,9 +356,55 @@ func TestEnsureLaunchSchemaCreatesTables(t *testing.T) {
 			t.Fatalf("table %s count = %d, want 1", table, count)
 		}
 	}
+	for _, column := range []string{"step_max_turns", "step_max_tokens"} {
+		exists, err := tableHasColumn(ctx, db, "launches", column)
+		if err != nil {
+			t.Fatalf("tableHasColumn launches.%s returned error: %v", column, err)
+		}
+		if !exists {
+			t.Fatalf("launches.%s missing after EnsureLaunchSchema", column)
+		}
+	}
 
 	if err := EnsureLaunchSchema(ctx, db); err != nil {
 		t.Fatalf("EnsureLaunchSchema second call returned error: %v", err)
+	}
+}
+
+func TestEnsureLaunchSchemaAddsStepCapsToOlderLaunchesTable(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+
+	if _, err := InitIfNeeded(ctx, db); err != nil {
+		t.Fatalf("InitIfNeeded returned error: %v", err)
+	}
+	mustExec(t, db, `DROP TABLE launches`)
+	mustExec(t, db, `CREATE TABLE launches (
+		id TEXT NOT NULL,
+		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		status TEXT NOT NULL DEFAULT 'draft',
+		mode TEXT NOT NULL,
+		role TEXT,
+		allowed_roles TEXT,
+		roster TEXT,
+		source_task TEXT,
+		source_specs TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY(project_id, id)
+	)`)
+
+	if err := EnsureLaunchSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureLaunchSchema returned error: %v", err)
+	}
+	for _, column := range []string{"step_max_turns", "step_max_tokens"} {
+		exists, err := tableHasColumn(ctx, db, "launches", column)
+		if err != nil {
+			t.Fatalf("tableHasColumn launches.%s returned error: %v", column, err)
+		}
+		if !exists {
+			t.Fatalf("launches.%s missing after upgrade", column)
+		}
 	}
 }
 
