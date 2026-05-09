@@ -30,6 +30,8 @@ type SaveLaunchPresetArgs struct {
 	Role             string `json:"role"`
 	AllowedRolesJSON string `json:"allowed_roles_json"`
 	RosterJSON       string `json:"roster_json"`
+	StepMaxTurns     uint64 `json:"step_max_turns"`
+	StepMaxTokens    uint64 `json:"step_max_tokens"`
 	UpdatedAtUS      uint64 `json:"updated_at_us"`
 }
 
@@ -123,6 +125,8 @@ func saveLaunchPresetReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, er
 		Role:             args.Role,
 		AllowedRolesJSON: defaultString(args.AllowedRolesJSON, emptyJSONArray),
 		RosterJSON:       defaultString(args.RosterJSON, emptyJSONArray),
+		StepMaxTurns:     args.StepMaxTurns,
+		StepMaxTokens:    args.StepMaxTokens,
 		CreatedAtUS:      createdAtUS,
 		UpdatedAtUS:      nowUS,
 	})

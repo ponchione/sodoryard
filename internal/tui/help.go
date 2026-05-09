@@ -30,7 +30,7 @@ func (m Model) renderHelp() string {
 		"b/m/n/v       launch preset, mode, add role/list entry, preview",
 		"turns/tokens  set per-step caps from the launch screen fields",
 		"-/ctrl+u      remove or clear manual roster/constrained roles",
-		"B             save current launch role shape as a custom preset",
+		"B             save current launch shape/caps as a custom preset",
 		"s/L           save or load the current launch draft",
 		"S             start previewed launch",
 		"F             follow selected chain",

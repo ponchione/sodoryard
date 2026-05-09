@@ -281,6 +281,8 @@ CREATE TABLE IF NOT EXISTS launch_presets (
     role                TEXT,
     allowed_roles       TEXT,
     roster              TEXT,
+    step_max_turns      INTEGER NOT NULL DEFAULT 0,
+    step_max_tokens     INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(project_id, id),
@@ -298,6 +300,8 @@ CREATE INDEX IF NOT EXISTS idx_launch_presets_project_updated ON launch_presets(
 	}{
 		{table: "launches", name: "step_max_turns", ddl: `INTEGER NOT NULL DEFAULT 0`},
 		{table: "launches", name: "step_max_tokens", ddl: `INTEGER NOT NULL DEFAULT 0`},
+		{table: "launch_presets", name: "step_max_turns", ddl: `INTEGER NOT NULL DEFAULT 0`},
+		{table: "launch_presets", name: "step_max_tokens", ddl: `INTEGER NOT NULL DEFAULT 0`},
 	} {
 		exists, err := tableHasColumn(ctx, db, column.table, column.name)
 		if err != nil {

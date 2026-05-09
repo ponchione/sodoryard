@@ -136,6 +136,8 @@ func (f *fakeBrainBackend) SaveLaunchPreset(ctx context.Context, args projectmem
 		Role:             args.Role,
 		AllowedRolesJSON: args.AllowedRolesJSON,
 		RosterJSON:       args.RosterJSON,
+		StepMaxTurns:     args.StepMaxTurns,
+		StepMaxTokens:    args.StepMaxTokens,
 		CreatedAtUS:      createdAtUS,
 		UpdatedAtUS:      args.UpdatedAtUS,
 	}
@@ -1833,11 +1835,13 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	}
 
 	saved, err := svc.SaveLaunchPreset(ctx, "audit pair", LaunchRequest{
-		Mode:        LaunchModeManualRoster,
-		Role:        "coder",
-		Roster:      []string{"coder", "orchestrator"},
-		SourceTask:  "do not persist",
-		SourceSpecs: []string{"docs/specs/nope.md"},
+		Mode:          LaunchModeManualRoster,
+		Role:          "coder",
+		Roster:        []string{"coder", "orchestrator"},
+		SourceTask:    "do not persist",
+		SourceSpecs:   []string{"docs/specs/nope.md"},
+		StepMaxTurns:  4,
+		StepMaxTokens: 50000,
 	})
 	if err != nil {
 		t.Fatalf("SaveLaunchPreset returned error: %v", err)
@@ -1848,12 +1852,15 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	if saved.Request.Mode != LaunchModeManualRoster || saved.Request.Role != "coder,orchestrator" || !reflect.DeepEqual(saved.Request.Roster, []string{"coder", "orchestrator"}) {
 		t.Fatalf("saved preset request = %+v, want manual roster", saved.Request)
 	}
+	if saved.Request.StepMaxTurns != 4 || saved.Request.StepMaxTokens != 50000 {
+		t.Fatalf("saved preset caps = turns %d tokens %d, want 4/50000", saved.Request.StepMaxTurns, saved.Request.StepMaxTokens)
+	}
 
 	presets, err := svc.ListLaunchPresets(ctx)
 	if err != nil {
 		t.Fatalf("ListLaunchPresets returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Name != "audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) {
+	if len(presets) != 1 || presets[0].Name != "audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 4 || presets[0].Request.StepMaxTokens != 50000 {
 		t.Fatalf("presets = %+v, want saved audit pair", presets)
 	}
 
@@ -1864,7 +1871,7 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListLaunchPresets after update returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Request.Mode != LaunchModeConstrained || !reflect.DeepEqual(presets[0].Request.AllowedRoles, []string{"coder"}) {
+	if len(presets) != 1 || presets[0].Request.Mode != LaunchModeConstrained || !reflect.DeepEqual(presets[0].Request.AllowedRoles, []string{"coder"}) || presets[0].Request.StepMaxTurns != 0 || presets[0].Request.StepMaxTokens != 0 {
 		t.Fatalf("updated presets = %+v, want constrained replacement", presets)
 	}
 }
@@ -1917,18 +1924,18 @@ func TestLaunchDraftAndPresetsUseProjectMemoryInShunterMode(t *testing.T) {
 		t.Fatalf("loaded draft = %+v found=%t, want Shunter launch draft", loaded, found)
 	}
 
-	preset, err := svc.SaveLaunchPreset(ctx, "shunter audit pair", LaunchRequest{Mode: LaunchModeManualRoster, Roster: []string{"coder", "orchestrator"}, SourceTask: "do not persist"})
+	preset, err := svc.SaveLaunchPreset(ctx, "shunter audit pair", LaunchRequest{Mode: LaunchModeManualRoster, Roster: []string{"coder", "orchestrator"}, SourceTask: "do not persist", StepMaxTurns: 4, StepMaxTokens: 50000})
 	if err != nil {
 		t.Fatalf("SaveLaunchPreset returned error: %v", err)
 	}
-	if preset.ID != "custom:shunter audit pair" || preset.Request.SourceTask != "" {
-		t.Fatalf("preset = %+v, want custom preset without source task", preset)
+	if preset.ID != "custom:shunter audit pair" || preset.Request.SourceTask != "" || preset.Request.StepMaxTurns != 4 || preset.Request.StepMaxTokens != 50000 {
+		t.Fatalf("preset = %+v, want custom preset without source task and with caps", preset)
 	}
 	presets, err := svc.ListLaunchPresets(ctx)
 	if err != nil {
 		t.Fatalf("ListLaunchPresets returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Name != "shunter audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) {
+	if len(presets) != 1 || presets[0].Name != "shunter audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 4 || presets[0].Request.StepMaxTokens != 50000 {
 		t.Fatalf("presets = %+v, want Shunter custom preset", presets)
 	}
 	if _, statErr := os.Stat(cfg.DatabasePath()); !os.IsNotExist(statErr) {

@@ -32,6 +32,8 @@ type LaunchPreset struct {
 	Role             string
 	AllowedRolesJSON string
 	RosterJSON       string
+	StepMaxTurns     uint64
+	StepMaxTokens    uint64
 	CreatedAtUS      uint64
 	UpdatedAtUS      uint64
 }
@@ -84,6 +86,8 @@ func launchPresetRow(preset LaunchPreset) types.ProductValue {
 		types.NewString(preset.Role),
 		types.NewString(defaultString(preset.AllowedRolesJSON, emptyJSONArray)),
 		types.NewString(defaultString(preset.RosterJSON, emptyJSONArray)),
+		types.NewUint64(preset.StepMaxTurns),
+		types.NewUint64(preset.StepMaxTokens),
 		types.NewUint64(preset.CreatedAtUS),
 		types.NewUint64(preset.UpdatedAtUS),
 	}
@@ -99,8 +103,10 @@ func decodeLaunchPresetRow(row types.ProductValue) LaunchPreset {
 		Role:             row[5].AsString(),
 		AllowedRolesJSON: row[6].AsString(),
 		RosterJSON:       row[7].AsString(),
-		CreatedAtUS:      row[8].AsUint64(),
-		UpdatedAtUS:      row[9].AsUint64(),
+		StepMaxTurns:     row[8].AsUint64(),
+		StepMaxTokens:    row[9].AsUint64(),
+		CreatedAtUS:      row[10].AsUint64(),
+		UpdatedAtUS:      row[11].AsUint64(),
 	}
 }
 

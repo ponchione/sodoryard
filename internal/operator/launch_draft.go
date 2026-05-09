@@ -173,15 +173,17 @@ func (s *Service) SaveLaunchPreset(ctx context.Context, name string, req LaunchR
 	updatedAt := time.Now().UTC().Format(time.RFC3339)
 	presetID := "custom:" + name
 	_, err = database.ExecContext(ctx, `
-INSERT INTO launch_presets(id, project_id, name, mode, role, allowed_roles, roster, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO launch_presets(id, project_id, name, mode, role, allowed_roles, roster, step_max_turns, step_max_tokens, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, name) DO UPDATE SET
 	mode = excluded.mode,
 	role = excluded.role,
 	allowed_roles = excluded.allowed_roles,
 	roster = excluded.roster,
+	step_max_turns = excluded.step_max_turns,
+	step_max_tokens = excluded.step_max_tokens,
 	updated_at = excluded.updated_at
-`, presetID, cfg.ProjectRoot, name, req.Mode, req.Role, allowedRoles, roster, updatedAt, updatedAt)
+`, presetID, cfg.ProjectRoot, name, req.Mode, req.Role, allowedRoles, roster, req.StepMaxTurns, req.StepMaxTokens, updatedAt, updatedAt)
 	if err != nil {
 		return LaunchPreset{}, fmt.Errorf("save launch preset: %w", err)
 	}
@@ -209,7 +211,7 @@ func (s *Service) ListLaunchPresets(ctx context.Context) ([]LaunchPreset, error)
 		return nil, err
 	}
 	rows, err := database.QueryContext(ctx, `
-SELECT id, name, mode, role, allowed_roles, roster, updated_at
+SELECT id, name, mode, role, allowed_roles, roster, step_max_turns, step_max_tokens, updated_at
 FROM launch_presets
 WHERE project_id = ?
 ORDER BY updated_at DESC, name ASC
@@ -222,7 +224,7 @@ ORDER BY updated_at DESC, name ASC
 	var presets []LaunchPreset
 	for rows.Next() {
 		var row launchPresetRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Mode, &row.Role, &row.AllowedRoles, &row.Roster, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Mode, &row.Role, &row.AllowedRoles, &row.Roster, &row.StepMaxTurns, &row.StepMaxTokens, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan launch preset: %w", err)
 		}
 		req, err := row.request()
@@ -327,6 +329,8 @@ func (s *Service) saveProjectMemoryLaunchPreset(ctx context.Context, store proje
 		Role:             req.Role,
 		AllowedRolesJSON: allowedRoles,
 		RosterJSON:       roster,
+		StepMaxTurns:     uint64(req.StepMaxTurns),
+		StepMaxTokens:    uint64(req.StepMaxTokens),
 		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
 	}); err != nil {
 		return LaunchPreset{}, fmt.Errorf("save launch preset: %w", err)
@@ -364,13 +368,15 @@ type launchDraftRow struct {
 }
 
 type launchPresetRow struct {
-	ID           string
-	Name         string
-	Mode         string
-	Role         sql.NullString
-	AllowedRoles sql.NullString
-	Roster       sql.NullString
-	UpdatedAt    sql.NullString
+	ID            string
+	Name          string
+	Mode          string
+	Role          sql.NullString
+	AllowedRoles  sql.NullString
+	Roster        sql.NullString
+	StepMaxTurns  sql.NullInt64
+	StepMaxTokens sql.NullInt64
+	UpdatedAt     sql.NullString
 }
 
 func launchFromProjectMemory(row projectmemory.Launch) launchDraftRow {
@@ -390,13 +396,15 @@ func launchFromProjectMemory(row projectmemory.Launch) launchDraftRow {
 
 func presetFromProjectMemory(row projectmemory.LaunchPreset) launchPresetRow {
 	return launchPresetRow{
-		ID:           row.PresetID,
-		Name:         row.Name,
-		Mode:         row.Mode,
-		Role:         sql.NullString{String: row.Role, Valid: row.Role != ""},
-		AllowedRoles: sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
-		Roster:       sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
-		UpdatedAt:    sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
+		ID:            row.PresetID,
+		Name:          row.Name,
+		Mode:          row.Mode,
+		Role:          sql.NullString{String: row.Role, Valid: row.Role != ""},
+		AllowedRoles:  sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
+		Roster:        sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
+		StepMaxTurns:  sql.NullInt64{Int64: int64(row.StepMaxTurns), Valid: row.StepMaxTurns != 0},
+		StepMaxTokens: sql.NullInt64{Int64: int64(row.StepMaxTokens), Valid: row.StepMaxTokens != 0},
+		UpdatedAt:     sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
 	}
 }
 
@@ -435,10 +443,12 @@ func (r launchPresetRow) request() (LaunchRequest, error) {
 		return LaunchRequest{}, fmt.Errorf("unmarshal preset roster: %w", err)
 	}
 	return normalizeLaunchRequest(LaunchRequest{
-		Mode:         LaunchMode(r.Mode),
-		Role:         r.Role.String,
-		AllowedRoles: allowedRoles,
-		Roster:       roster,
+		Mode:          LaunchMode(r.Mode),
+		Role:          r.Role.String,
+		AllowedRoles:  allowedRoles,
+		Roster:        roster,
+		StepMaxTurns:  intFromNullInt64(r.StepMaxTurns),
+		StepMaxTokens: intFromNullInt64(r.StepMaxTokens),
 	}), nil
 }
 
@@ -452,6 +462,9 @@ func intFromNullInt64(value sql.NullInt64) int {
 func normalizeLaunchPresetRequest(cfg *appconfig.Config, req LaunchRequest) (LaunchRequest, error) {
 	req, err := resolveLaunchTemplateRequest(req)
 	if err != nil {
+		return LaunchRequest{}, err
+	}
+	if err := validateLaunchStepCaps(req); err != nil {
 		return LaunchRequest{}, err
 	}
 	req.SourceTask = ""

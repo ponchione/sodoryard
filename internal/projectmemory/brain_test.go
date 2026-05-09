@@ -1401,6 +1401,8 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 		Role:             "coder,orchestrator",
 		RosterJSON:       `["coder","orchestrator"]`,
 		AllowedRolesJSON: `[]`,
+		StepMaxTurns:     4,
+		StepMaxTokens:    50000,
 		UpdatedAtUS:      uint64(updatedAt.Add(time.Second).UnixMicro()),
 	}); err != nil {
 		t.Fatalf("SaveLaunchPreset: %v", err)
@@ -1425,7 +1427,7 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListLaunchPresets: %v", err)
 	}
-	if len(presets) != 1 || presets[0].PresetID != "custom:audit pair" || presets[0].Name != "audit pair" || !strings.Contains(presets[0].RosterJSON, "orchestrator") {
+	if len(presets) != 1 || presets[0].PresetID != "custom:audit pair" || presets[0].Name != "audit pair" || !strings.Contains(presets[0].RosterJSON, "orchestrator") || presets[0].StepMaxTurns != 4 || presets[0].StepMaxTokens != 50000 {
 		t.Fatalf("presets = %+v, want saved audit pair", presets)
 	}
 	if err := reopened.DeleteLaunch(ctx, DeleteLaunchArgs{ProjectID: "project-launch", LaunchID: "current"}); err != nil {

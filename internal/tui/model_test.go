@@ -1534,6 +1534,8 @@ func TestModelSavesCustomLaunchPreset(t *testing.T) {
 	got.launch.Mode = operator.LaunchModeManualRoster
 	got.launch.Role = "coder"
 	got.launch.Roster = []string{"planner", "coder"}
+	got.launch.StepMaxTurns = 4
+	got.launch.StepMaxTokens = 50000
 
 	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'B'}})
 	got = updated.(Model)
@@ -1552,6 +1554,9 @@ func TestModelSavesCustomLaunchPreset(t *testing.T) {
 	if !reflect.DeepEqual(fake.savedPreset.Request.Roster, []string{"planner", "coder"}) {
 		t.Fatalf("saved preset roster = %v, want planner/coder", fake.savedPreset.Request.Roster)
 	}
+	if fake.savedPreset.Request.StepMaxTurns != 4 || fake.savedPreset.Request.StepMaxTokens != 50000 {
+		t.Fatalf("saved preset caps = turns %d tokens %d, want 4/50000", fake.savedPreset.Request.StepMaxTurns, fake.savedPreset.Request.StepMaxTokens)
+	}
 	if got.notice != "launch preset saved: custom roster planner -> coder" || len(got.customPresets) != 1 {
 		t.Fatalf("post-save notice/customPresets = %q/%d", got.notice, len(got.customPresets))
 	}
@@ -1564,9 +1569,11 @@ func TestModelCyclesCustomLaunchPreset(t *testing.T) {
 			ID:   "custom:custom roster orchestrator -> coder",
 			Name: "custom roster orchestrator -> coder",
 			Request: operator.LaunchRequest{
-				Mode:   operator.LaunchModeManualRoster,
-				Role:   "orchestrator,coder",
-				Roster: []string{"orchestrator", "coder"},
+				Mode:          operator.LaunchModeManualRoster,
+				Role:          "orchestrator,coder",
+				Roster:        []string{"orchestrator", "coder"},
+				StepMaxTurns:  5,
+				StepMaxTokens: 60000,
 			},
 		},
 	}
@@ -1587,6 +1594,9 @@ func TestModelCyclesCustomLaunchPreset(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.launch.Roster, []string{"orchestrator", "coder"}) {
 		t.Fatalf("custom preset roster = %v, want orchestrator/coder", got.launch.Roster)
+	}
+	if got.launch.StepMaxTurns != 5 || got.launch.StepMaxTokens != 60000 {
+		t.Fatalf("custom preset caps = turns %d tokens %d, want 5/60000", got.launch.StepMaxTurns, got.launch.StepMaxTokens)
 	}
 	if got.launch.SourceTask != "preserved" || got.launch.SpecsText != "specs/preserved.md" {
 		t.Fatalf("draft text/specs = %q/%q, want preserved", got.launch.SourceTask, got.launch.SpecsText)

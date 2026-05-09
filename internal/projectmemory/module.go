@@ -7,7 +7,7 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 11
+const schemaVersion = 12
 
 const (
 	tableProjectState schema.TableID = iota
@@ -585,6 +585,8 @@ func declareLaunchPresets(mod *shunter.Module) {
 			{Name: "role", Type: schema.KindString},
 			{Name: "allowed_roles_json", Type: schema.KindString},
 			{Name: "roster_json", Type: schema.KindString},
+			{Name: "step_max_turns", Type: schema.KindUint64},
+			{Name: "step_max_tokens", Type: schema.KindUint64},
 			{Name: "created_at_us", Type: schema.KindUint64},
 			{Name: "updated_at_us", Type: schema.KindUint64},
 		},

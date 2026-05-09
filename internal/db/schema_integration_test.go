@@ -356,13 +356,15 @@ func TestEnsureLaunchSchemaCreatesTables(t *testing.T) {
 			t.Fatalf("table %s count = %d, want 1", table, count)
 		}
 	}
-	for _, column := range []string{"step_max_turns", "step_max_tokens"} {
-		exists, err := tableHasColumn(ctx, db, "launches", column)
-		if err != nil {
-			t.Fatalf("tableHasColumn launches.%s returned error: %v", column, err)
-		}
-		if !exists {
-			t.Fatalf("launches.%s missing after EnsureLaunchSchema", column)
+	for _, table := range []string{"launches", "launch_presets"} {
+		for _, column := range []string{"step_max_turns", "step_max_tokens"} {
+			exists, err := tableHasColumn(ctx, db, table, column)
+			if err != nil {
+				t.Fatalf("tableHasColumn %s.%s returned error: %v", table, column, err)
+			}
+			if !exists {
+				t.Fatalf("%s.%s missing after EnsureLaunchSchema", table, column)
+			}
 		}
 	}
 
@@ -371,7 +373,7 @@ func TestEnsureLaunchSchemaCreatesTables(t *testing.T) {
 	}
 }
 
-func TestEnsureLaunchSchemaAddsStepCapsToOlderLaunchesTable(t *testing.T) {
+func TestEnsureLaunchSchemaAddsStepCapsToOlderLaunchTables(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
 
@@ -393,17 +395,33 @@ func TestEnsureLaunchSchemaAddsStepCapsToOlderLaunchesTable(t *testing.T) {
 		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 		PRIMARY KEY(project_id, id)
 	)`)
+	mustExec(t, db, `DROP TABLE launch_presets`)
+	mustExec(t, db, `CREATE TABLE launch_presets (
+		id TEXT NOT NULL,
+		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		mode TEXT NOT NULL,
+		role TEXT,
+		allowed_roles TEXT,
+		roster TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY(project_id, id),
+		UNIQUE(project_id, name)
+	)`)
 
 	if err := EnsureLaunchSchema(ctx, db); err != nil {
 		t.Fatalf("EnsureLaunchSchema returned error: %v", err)
 	}
-	for _, column := range []string{"step_max_turns", "step_max_tokens"} {
-		exists, err := tableHasColumn(ctx, db, "launches", column)
-		if err != nil {
-			t.Fatalf("tableHasColumn launches.%s returned error: %v", column, err)
-		}
-		if !exists {
-			t.Fatalf("launches.%s missing after upgrade", column)
+	for _, table := range []string{"launches", "launch_presets"} {
+		for _, column := range []string{"step_max_turns", "step_max_tokens"} {
+			exists, err := tableHasColumn(ctx, db, table, column)
+			if err != nil {
+				t.Fatalf("tableHasColumn %s.%s returned error: %v", table, column, err)
+			}
+			if !exists {
+				t.Fatalf("%s.%s missing after upgrade", table, column)
+			}
 		}
 	}
 }
