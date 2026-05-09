@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ponchione/sodoryard/internal/chain"
 )
@@ -183,6 +184,32 @@ func TestCompareBaselineReportsDeterministicDiffs(t *testing.T) {
 		fields = append(fields, diff.Field)
 	}
 	assertStringSetForTest(t, fields, []string{"cases", "totals"})
+}
+
+func TestNewHistoryEntrySummarizesReport(t *testing.T) {
+	recordedAt := time.Date(2026, 5, 9, 12, 0, 0, 0, time.FixedZone("test", -4*60*60))
+	report := Report{
+		Suite:  "receipt-contract",
+		Status: StatusPass,
+		Score:  1,
+		Totals: Totals{Cases: 3, CasesPassed: 3, Assertions: 12, AssertionsPassed: 12},
+		Baseline: &Baseline{
+			Path:   "baseline.json",
+			Status: StatusFail,
+			Diffs:  []BaselineDiff{{Field: "totals"}, {Field: "cases"}},
+		},
+	}
+
+	entry := NewHistoryEntry(report, recordedAt)
+	if entry.RecordedAt.Location() != time.UTC || !entry.RecordedAt.Equal(recordedAt.UTC()) {
+		t.Fatalf("RecordedAt = %v, want UTC %v", entry.RecordedAt, recordedAt.UTC())
+	}
+	if entry.Suite != "receipt-contract" || entry.Status != StatusPass || entry.Totals.Cases != 3 {
+		t.Fatalf("entry = %+v, want report summary", entry)
+	}
+	if entry.BaselinePath != "baseline.json" || entry.BaselineStatus != StatusFail || entry.BaselineDiffs != 2 {
+		t.Fatalf("entry baseline fields = %+v", entry)
+	}
 }
 
 func TestRunRejectsUnknownSuite(t *testing.T) {

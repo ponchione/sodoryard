@@ -459,6 +459,21 @@ Not implemented in this slice:
 - historical trend storage
 - tolerance policies for live or noisy evals
 
+### Implemented Eval History Slice
+
+Implemented on 2026-05-09:
+
+- `yard eval run <suite> --append-history <report.jsonl>`
+- append-only JSONL trend entries with timestamp, suite, status, score, totals, and baseline comparison summary
+- parent directory creation for new history paths
+- human-readable `history_appended=<path>` confirmation without changing `--json` stdout
+
+Not implemented in this slice:
+
+- baseline listing/pruning/promotion commands
+- trend visualization or pruning commands
+- tolerance policies for live or noisy evals
+
 ### Implemented Retrieval Contract Slice
 
 Implemented on 2026-05-08:

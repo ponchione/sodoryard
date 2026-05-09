@@ -125,6 +125,57 @@ func TestYardEvalRunCommandWritesBaselineWithJSONOutput(t *testing.T) {
 	}
 }
 
+func TestYardEvalRunCommandAppendsHistory(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history", "eval.jsonl")
+
+	for i := 0; i < 2; i++ {
+		var out bytes.Buffer
+		cmd := newYardEvalRunCmd()
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{"receipt-contract", "--append-history", historyPath})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute returned error: %v\nstdout=%s", err, out.String())
+		}
+		if !strings.Contains(out.String(), "history_appended="+historyPath) {
+			t.Fatalf("stdout = %q, want history_appended line", out.String())
+		}
+	}
+
+	entries := readEvalHistoryEntries(t, historyPath)
+	if len(entries) != 2 {
+		t.Fatalf("history entries = %+v, want 2", entries)
+	}
+	for _, entry := range entries {
+		if entry.Suite != "receipt-contract" || entry.Status != yardeval.StatusPass || entry.Totals.Cases != 3 {
+			t.Fatalf("history entry = %+v, want passing receipt-contract summary", entry)
+		}
+		if entry.RecordedAt.IsZero() {
+			t.Fatalf("history entry missing recorded_at: %+v", entry)
+		}
+	}
+}
+
+func TestYardEvalRunCommandAppendsHistoryWithJSONOutput(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+
+	var out bytes.Buffer
+	cmd := newYardEvalRunCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"chain-flow", "--json", "--append-history", historyPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v\nstdout=%s", err, out.String())
+	}
+
+	var stdoutReport yardeval.Report
+	if err := json.Unmarshal(out.Bytes(), &stdoutReport); err != nil {
+		t.Fatalf("json output decode failed: %v\n%s", err, out.String())
+	}
+	entries := readEvalHistoryEntries(t, historyPath)
+	if len(entries) != 1 || entries[0].Suite != stdoutReport.Suite || entries[0].Status != stdoutReport.Status {
+		t.Fatalf("history entries = %+v, stdout report = %+v", entries, stdoutReport)
+	}
+}
+
 func TestYardEvalRunCommandFailsOnBaselineDiff(t *testing.T) {
 	report, err := yardeval.Run(context.Background(), "receipt-contract")
 	if err != nil {
@@ -170,4 +221,25 @@ func readEvalBaseline(t *testing.T, path string) yardeval.Report {
 		t.Fatalf("Unmarshal baseline failed: %v", err)
 	}
 	return report
+}
+
+func readEvalHistoryEntries(t *testing.T, path string) []yardeval.HistoryEntry {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile history failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	entries := make([]yardeval.HistoryEntry, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry yardeval.HistoryEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("Unmarshal history line failed: %v\nline=%s", err, line)
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
