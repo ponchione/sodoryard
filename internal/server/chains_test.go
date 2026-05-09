@@ -119,6 +119,19 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
 	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventApprovalRequired, map[string]any{
+		"approval_id":     "approval-web-1",
+		"tool_name":       "shell",
+		"tool_input":      map[string]any{"command": "git push --force"},
+		"reason":          "shell command matches approval policy",
+		"risk_level":      "high",
+		"status":          chain.ApprovalStatusPending,
+		"conversation_id": "conv-web",
+		"turn_number":     1,
+		"iteration":       1,
+	}); err != nil {
+		t.Fatalf("LogEvent approval required returned error: %v", err)
+	}
 	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
 		t.Fatalf("CompleteChain returned error: %v", err)
 	}
@@ -193,6 +206,21 @@ func TestChainInspectorEndpoints(t *testing.T) {
 			Step string `json:"step"`
 			Path string `json:"path"`
 		} `json:"receipts"`
+		Approvals []struct {
+			ID             string          `json:"id"`
+			ChainID        string          `json:"chain_id"`
+			StepID         string          `json:"step_id"`
+			ConversationID string          `json:"conversation_id"`
+			TurnNumber     int             `json:"turn_number"`
+			Iteration      int             `json:"iteration"`
+			ToolName       string          `json:"tool_name"`
+			ToolInput      json.RawMessage `json:"tool_input"`
+			Reason         string          `json:"reason"`
+			RiskLevel      string          `json:"risk_level"`
+			Status         string          `json:"status"`
+			DecisionReason string          `json:"decision_reason"`
+			DecidedBy      string          `json:"decided_by"`
+		} `json:"approvals"`
 		Guardrails struct {
 			Findings []struct {
 				ID       string `json:"id"`
@@ -243,6 +271,15 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(detail.Receipts) != 1 || detail.Receipts[0].Path != receiptPath {
 		t.Fatalf("receipts = %+v, want step receipt", detail.Receipts)
+	}
+	if len(detail.Approvals) != 1 || detail.Approvals[0].ID != "approval-web-1" || detail.Approvals[0].Status != chain.ApprovalStatusPending || detail.Approvals[0].ToolName != "shell" || detail.Approvals[0].RiskLevel != "high" {
+		t.Fatalf("approvals = %+v, want pending shell approval", detail.Approvals)
+	}
+	if detail.Approvals[0].ChainID != chainID || detail.Approvals[0].StepID != stepID || detail.Approvals[0].ConversationID != "conv-web" || detail.Approvals[0].TurnNumber != 1 || detail.Approvals[0].Iteration != 1 {
+		t.Fatalf("approval scope = %+v, want chain/step/runtime scope", detail.Approvals[0])
+	}
+	if !strings.Contains(string(detail.Approvals[0].ToolInput), "git push --force") {
+		t.Fatalf("approval tool input = %s, want shell command", detail.Approvals[0].ToolInput)
 	}
 	if len(detail.Guardrails.Findings) != 1 || detail.Guardrails.Findings[0].ID != "FIND-correctness-001" || detail.Guardrails.Findings[0].Severity != "high" || detail.Guardrails.Findings[0].Evidence != "internal/example.go:42" {
 		t.Fatalf("guardrail findings = %+v, want lifecycle detail", detail.Guardrails.Findings)
@@ -297,16 +334,16 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		EventType string `json:"event_type"`
 	}
 	getJSON(t, base+"/api/chains/"+chainID+"/events", &events)
-	if len(events) != 2 || events[0].EventType != string(chain.EventFindingLifecycleFacts) || events[1].EventType != string(chain.EventStepGuardrailFacts) {
-		t.Fatalf("events endpoint = %+v, want both chain events", events)
+	if len(events) != 3 || events[0].EventType != string(chain.EventFindingLifecycleFacts) || events[1].EventType != string(chain.EventStepGuardrailFacts) || events[2].EventType != string(chain.EventApprovalRequired) {
+		t.Fatalf("events endpoint = %+v, want finding, guardrail, and approval events", events)
 	}
 	var eventsAfter []struct {
 		ID        int64  `json:"id"`
 		EventType string `json:"event_type"`
 	}
-	getJSON(t, fmt.Sprintf("%s/api/chains/%s/events?after_id=%d", base, chainID, events[0].ID), &eventsAfter)
-	if len(eventsAfter) != 1 || eventsAfter[0].ID != events[1].ID {
-		t.Fatalf("events after cursor = %+v, want only second event %+v", eventsAfter, events[1])
+	getJSON(t, fmt.Sprintf("%s/api/chains/%s/events?after_id=%d", base, chainID, events[1].ID), &eventsAfter)
+	if len(eventsAfter) != 1 || eventsAfter[0].ID != events[2].ID {
+		t.Fatalf("events after cursor = %+v, want only approval event %+v", eventsAfter, events[2])
 	}
 
 	var receipt struct {
@@ -316,6 +353,32 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	getJSON(t, base+"/api/chains/"+chainID+"/receipt?step=1", &receipt)
 	if receipt.Path != receiptPath || receipt.Content != "receipt content" {
 		t.Fatalf("receipt = %+v, want content", receipt)
+	}
+
+	var decision struct {
+		Message  string `json:"message"`
+		Approval struct {
+			ID             string `json:"id"`
+			Status         string `json:"status"`
+			DecisionReason string `json:"decision_reason"`
+			DecidedBy      string `json:"decided_by"`
+		} `json:"approval"`
+	}
+	postJSON(t, base+"/api/chains/"+chainID+"/approvals/approval-web-1/approve", `{"reason":"reviewed in browser"}`, &decision)
+	if decision.Message != "approval approval-web-1 approved" || decision.Approval.ID != "approval-web-1" || decision.Approval.Status != chain.ApprovalStatusApproved || decision.Approval.DecisionReason != "reviewed in browser" || decision.Approval.DecidedBy != "operator" {
+		t.Fatalf("approval decision = %+v, want approved response", decision)
+	}
+
+	var decidedDetail struct {
+		Approvals []struct {
+			ID             string `json:"id"`
+			Status         string `json:"status"`
+			DecisionReason string `json:"decision_reason"`
+		} `json:"approvals"`
+	}
+	getJSON(t, base+"/api/chains/"+chainID, &decidedDetail)
+	if len(decidedDetail.Approvals) != 1 || decidedDetail.Approvals[0].ID != "approval-web-1" || decidedDetail.Approvals[0].Status != chain.ApprovalStatusApproved || decidedDetail.Approvals[0].DecisionReason != "reviewed in browser" {
+		t.Fatalf("decided detail approvals = %+v, want approved approval", decidedDetail.Approvals)
 	}
 }
 
@@ -415,6 +478,22 @@ func getJSON(t *testing.T, url string, v any) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET %s status = %d, want 200", url, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		t.Fatalf("decode %s: %v", url, err)
+	}
+}
+
+func postJSON(t *testing.T, url string, body string, v any) {
+	t.Helper()
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST %s failed: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want 200", url, resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode %s: %v", url, err)

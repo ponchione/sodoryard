@@ -1,8 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Check, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import type { ChainDetail, ChainEvent, ChainTimelineItem, ReceiptSummary, ReceiptView } from "@/types/chains";
+import type {
+  ApprovalDecisionResult,
+  ChainApproval,
+  ChainDetail,
+  ChainEvent,
+  ChainTimelineItem,
+  ReceiptSummary,
+  ReceiptView,
+} from "@/types/chains";
 
 const chainEventPollIntervalMs = 5_000;
 
@@ -23,6 +33,44 @@ function formatIDs(values: string[]): string {
 
 function yesNo(value: boolean): string {
   return value ? "yes" : "no";
+}
+
+function approvalStatusClass(status: string): string {
+  if (status === "approved") return "text-accent";
+  if (status === "denied") return "text-destructive";
+  if (status === "pending") return "text-warning";
+  return "text-muted-foreground";
+}
+
+function approvalMeta(approval: ChainApproval): string {
+  const parts = [
+    approval.step_id ? `step=${approval.step_id}` : "",
+    approval.conversation_id ? `conversation=${approval.conversation_id}` : "",
+    approval.turn_number ? `turn=${approval.turn_number}` : "",
+    approval.iteration ? `iter=${approval.iteration}` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "no linked runtime metadata";
+}
+
+function formatApprovalInput(input: unknown): string {
+  if (input === undefined || input === null || input === "") return "";
+  if (typeof input === "string") return input;
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return String(input);
+  }
+}
+
+function selectReceiptForDetail(
+  chain: ChainDetail,
+  requestedReceipt: string,
+  current?: ReceiptSummary | null,
+): ReceiptSummary | null {
+  if (current && chain.receipts.some((candidate) => candidate.path === current.path && candidate.step === current.step)) {
+    return current;
+  }
+  return chain.receipts.find((candidate) => candidate.path === requestedReceipt) ?? chain.receipts[0] ?? null;
 }
 
 function timelineMeta(item: ChainTimelineItem): string {
@@ -174,6 +222,8 @@ export function ChainDetailPage() {
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [approvalActionID, setApprovalActionID] = useState<string | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const lastEventIDRef = useRef(0);
 
   useEffect(() => {
@@ -189,11 +239,7 @@ export function ChainDetailPage() {
         if (cancelled) return;
         lastEventIDRef.current = maxChainEventID(chain.recent_events);
         setDetail(chain);
-        const initialReceipt =
-          chain.receipts.find((candidate) => candidate.path === requestedReceipt) ??
-          chain.receipts[0] ??
-          null;
-        setSelectedReceipt(initialReceipt);
+        setSelectedReceipt(selectReceiptForDetail(chain, requestedReceipt));
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load chain");
       } finally {
@@ -205,6 +251,29 @@ export function ChainDetailPage() {
       cancelled = true;
     };
   }, [id, requestedReceipt]);
+
+  const reloadDetail = useCallback(async () => {
+    const chain = await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`);
+    lastEventIDRef.current = maxChainEventID(chain.recent_events);
+    setDetail(chain);
+    setSelectedReceipt((current) => selectReceiptForDetail(chain, requestedReceipt, current));
+  }, [id, requestedReceipt]);
+
+  async function decideApproval(approvalID: string, action: "approve" | "deny") {
+    setApprovalError(null);
+    setApprovalActionID(`${action}:${approvalID}`);
+    try {
+      await api.post<ApprovalDecisionResult>(
+        `/api/chains/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalID)}/${action}`,
+        {},
+      );
+      await reloadDetail();
+    } catch (err) {
+      setApprovalError(err instanceof Error ? err.message : "Failed to record approval decision");
+    } finally {
+      setApprovalActionID(null);
+    }
+  }
 
   useEffect(() => {
     if (!detail || !shouldPollChainEvents(detail.chain.status)) return undefined;
@@ -218,6 +287,9 @@ export function ChainDetailPage() {
         if (cancelled || events.length === 0) return;
         lastEventIDRef.current = Math.max(lastEventIDRef.current, maxChainEventID(events));
         setDetail((current) => (current ? mergeChainEvents(current, events) : current));
+        if (events.some((event) => event.event_type === "approval_required" || event.event_type === "approval_decision")) {
+          await reloadDetail();
+        }
       } catch {
         // Keep the last loaded detail visible; the next interval can retry.
       }
@@ -227,7 +299,7 @@ export function ChainDetailPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [detail, id]);
+  }, [detail, id, reloadDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,6 +384,83 @@ export function ChainDetailPage() {
                     <li key={`${warning.message}-${index}`}>- {warning.message}</li>
                   ))}
                 </ul>
+              </section>
+            )}
+
+            {(detail.approvals ?? []).length > 0 && (
+              <section id="approvals" className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Approvals
+                  </h2>
+                  {approvalError && <p className="text-xs text-destructive">{approvalError}</p>}
+                </div>
+                <div className="overflow-hidden border border-border">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-border bg-muted text-[10px] uppercase tracking-widest text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Approval</th>
+                        <th className="px-3 py-2 font-medium">Tool</th>
+                        <th className="px-3 py-2 font-medium">Status</th>
+                        <th className="px-3 py-2 font-medium">Reason</th>
+                        <th className="px-3 py-2 font-medium">Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(detail.approvals ?? []).map((approval) => {
+                        const input = formatApprovalInput(approval.tool_input);
+                        const isPending = approval.status === "pending";
+                        return (
+                          <tr key={approval.id} className="border-b border-border/70 align-top">
+                            <td className="px-3 py-2">
+                              <p className="font-mono text-foreground">{approval.id}</p>
+                              <p className="font-mono text-muted-foreground">{approvalMeta(approval)}</p>
+                            </td>
+                            <td className="px-3 py-2">
+                              <p className="text-foreground">{approval.tool_name || "unknown"}</p>
+                              {approval.risk_level && <p className="text-warning">risk={approval.risk_level}</p>}
+                              {input && <p className="max-w-md truncate font-mono text-muted-foreground">{input}</p>}
+                            </td>
+                            <td className={`px-3 py-2 ${approvalStatusClass(approval.status)}`}>{approval.status}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{approval.reason || "none"}</td>
+                            <td className="px-3 py-2">
+                              {isPending ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    onClick={() => void decideApproval(approval.id, "approve")}
+                                    disabled={approvalActionID !== null}
+                                  >
+                                    <Check aria-hidden="true" />
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="xs"
+                                    onClick={() => void decideApproval(approval.id, "deny")}
+                                    disabled={approvalActionID !== null}
+                                  >
+                                    <X aria-hidden="true" />
+                                    Deny
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="space-y-1 text-muted-foreground">
+                                  <p>{approval.decision_reason || "no note"}</p>
+                                  <p className="font-mono">
+                                    {approval.decided_by || "operator"} {formatDate(approval.decided_at)}
+                                  </p>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             )}
 

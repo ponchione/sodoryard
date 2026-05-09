@@ -3,13 +3,15 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChainDetail } from "@/types/chains";
 
-const { apiGet } = vi.hoisted(() => ({
+const { apiGet, apiPost } = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPost: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     get: apiGet,
+    post: apiPost,
   },
 }));
 
@@ -41,6 +43,7 @@ function emptyGuardrails(): ChainDetail["guardrails"] {
 describe("ChainDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
+    apiPost.mockReset();
   });
 
   afterEach(() => {
@@ -91,6 +94,7 @@ describe("ChainDetailPage", () => {
           path: "receipts/coder/chain-1-step-001.md",
         },
       ],
+      approvals: [],
       recent_events: [
         {
           id: 1,
@@ -347,6 +351,7 @@ describe("ChainDetailPage", () => {
         },
       ],
       receipts: [],
+      approvals: [],
       recent_events: [
         {
           id: 1,
@@ -407,5 +412,84 @@ describe("ChainDetailPage", () => {
     expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-2/events?after_id=1");
     expect(screen.getAllByText("step_completed")).toHaveLength(2);
     expect(screen.getAllByText("{\"verdict\":\"completed\"}")).toHaveLength(2);
+  });
+
+  it("renders approval controls and refreshes detail after approving", async () => {
+    const pendingDetail: ChainDetail = {
+      health: "attention",
+      warnings: [],
+      chain: {
+        id: "chain-approval",
+        source_specs: [],
+        source_task: "approve risky tool",
+        status: "waiting_approval",
+        summary: "",
+        total_steps: 1,
+        total_tokens: 0,
+        total_duration_secs: 0,
+        resolver_loops: 0,
+        started_at: "2026-05-09T12:00:00Z",
+        updated_at: "2026-05-09T12:00:00Z",
+      },
+      steps: [],
+      receipts: [],
+      approvals: [
+        {
+          id: "approval-web-1",
+          chain_id: "chain-approval",
+          step_id: "step-1",
+          conversation_id: "conv-1",
+          turn_number: 2,
+          iteration: 1,
+          tool_name: "shell",
+          tool_input: { command: "git push --force" },
+          reason: "shell command matches approval policy",
+          risk_level: "high",
+          status: "pending",
+          created_at: "2026-05-09T12:01:00Z",
+        },
+      ],
+      recent_events: [],
+      timeline: [],
+      guardrails: emptyGuardrails(),
+    };
+    const approvedDetail: ChainDetail = {
+      ...pendingDetail,
+      approvals: [
+        {
+          ...pendingDetail.approvals[0],
+          status: "approved",
+          decision_reason: "reviewed",
+          decided_by: "operator",
+          decided_at: "2026-05-09T12:02:00Z",
+        },
+      ],
+    };
+    apiGet.mockResolvedValueOnce(pendingDetail).mockResolvedValueOnce(approvedDetail);
+    apiPost.mockResolvedValue({
+      message: "approval approval-web-1 approved",
+      approval: approvedDetail.approvals[0],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-approval"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Approvals")).toBeInTheDocument();
+    expect(screen.getByText("approval-web-1")).toBeInTheDocument();
+    expect(screen.getByText(/git push --force/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Approve/ }));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/chains/chain-approval/approvals/approval-web-1/approve", {});
+    });
+    expect(await screen.findByText("approved")).toBeInTheDocument();
+    expect(screen.getByText("reviewed")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-approval");
   });
 });

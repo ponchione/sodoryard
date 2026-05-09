@@ -24,6 +24,8 @@ func NewChainInspectorHandler(s *Server, svc *operator.Service, logger *slog.Log
 	s.HandleFunc("GET /api/chains", h.handleListChains)
 	s.HandleFunc("GET /api/chains/templates", h.handleTemplates)
 	s.HandleFunc("GET /api/chains/{id}", h.handleGetChain)
+	s.HandleFunc("POST /api/chains/{id}/approvals/{approval_id}/approve", h.handleApproveChainApproval)
+	s.HandleFunc("POST /api/chains/{id}/approvals/{approval_id}/deny", h.handleDenyChainApproval)
 	s.HandleFunc("GET /api/chains/{id}/timeline", h.handleTimeline)
 	s.HandleFunc("GET /api/chains/{id}/events", h.handleEvents)
 	s.HandleFunc("GET /api/chains/{id}/receipts", h.handleReceiptList)
@@ -88,6 +90,48 @@ func (h *ChainInspectorHandler) handleGetChain(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, chainDetailResponseFromOperator(detail))
+}
+
+func (h *ChainInspectorHandler) handleApproveChainApproval(w http.ResponseWriter, r *http.Request) {
+	h.handleApprovalDecision(w, r, true)
+}
+
+func (h *ChainInspectorHandler) handleDenyChainApproval(w http.ResponseWriter, r *http.Request) {
+	h.handleApprovalDecision(w, r, false)
+}
+
+func (h *ChainInspectorHandler) handleApprovalDecision(w http.ResponseWriter, r *http.Request, approved bool) {
+	chainID := strings.TrimSpace(r.PathValue("id"))
+	if chainID == "" {
+		writeError(w, http.StatusBadRequest, "chain id is required")
+		return
+	}
+	approvalID := strings.TrimSpace(r.PathValue("approval_id"))
+	if approvalID == "" {
+		writeError(w, http.StatusBadRequest, "approval id is required")
+		return
+	}
+	var req approvalDecisionRequest
+	if r.Body != http.NoBody && r.ContentLength != 0 {
+		if !decodeJSON(w, r, &req, h.logger) {
+			return
+		}
+	}
+	var (
+		result operator.ApprovalDecisionResult
+		err    error
+	)
+	if approved {
+		result, err = h.svc.ApproveChainApproval(r.Context(), chainID, approvalID, req.Reason)
+	} else {
+		result, err = h.svc.DenyChainApproval(r.Context(), chainID, approvalID, req.Reason)
+	}
+	if err != nil {
+		h.logger.Warn("record chain approval decision", "chain_id", chainID, "approval_id", approvalID, "approved", approved, "error", err)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, approvalDecisionResponseFromOperator(result))
 }
 
 func (h *ChainInspectorHandler) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -251,11 +295,39 @@ type chainDetailResponse struct {
 	Chain        chainRecordResponse      `json:"chain"`
 	Steps        []chainStepResponse      `json:"steps"`
 	Receipts     []receiptSummaryResponse `json:"receipts"`
+	Approvals    []approvalResponse       `json:"approvals"`
 	RecentEvents []chainEventResponse     `json:"recent_events"`
 	Timeline     []chainTimelineResponse  `json:"timeline"`
 	Health       string                   `json:"health"`
 	Warnings     []runtimeWarningResponse `json:"warnings"`
 	Guardrails   chainGuardrailResponse   `json:"guardrails"`
+}
+
+type approvalDecisionRequest struct {
+	Reason string `json:"reason"`
+}
+
+type approvalDecisionResponse struct {
+	Approval approvalResponse `json:"approval"`
+	Message  string           `json:"message"`
+}
+
+type approvalResponse struct {
+	ID             string          `json:"id"`
+	ChainID        string          `json:"chain_id"`
+	StepID         string          `json:"step_id,omitempty"`
+	ConversationID string          `json:"conversation_id,omitempty"`
+	TurnNumber     int             `json:"turn_number,omitempty"`
+	Iteration      int             `json:"iteration,omitempty"`
+	ToolName       string          `json:"tool_name"`
+	ToolInput      json.RawMessage `json:"tool_input,omitempty"`
+	Reason         string          `json:"reason,omitempty"`
+	RiskLevel      string          `json:"risk_level,omitempty"`
+	Status         string          `json:"status"`
+	CreatedAt      string          `json:"created_at,omitempty"`
+	DecidedAt      string          `json:"decided_at,omitempty"`
+	DecisionReason string          `json:"decision_reason,omitempty"`
+	DecidedBy      string          `json:"decided_by,omitempty"`
 }
 
 type chainTimelineResponse struct {
@@ -478,6 +550,10 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 	for _, receipt := range detail.Receipts {
 		receipts = append(receipts, receiptSummaryResponseFromOperator(receipt))
 	}
+	approvals := make([]approvalResponse, 0, len(detail.Approvals))
+	for _, approval := range detail.Approvals {
+		approvals = append(approvals, approvalResponseFromOperator(approval))
+	}
 	events := make([]chainEventResponse, 0, len(detail.RecentEvents))
 	for _, event := range detail.RecentEvents {
 		events = append(events, chainEventResponseFromChain(event))
@@ -494,11 +570,39 @@ func chainDetailResponseFromOperator(detail operator.ChainDetail) chainDetailRes
 		Chain:        chainRecordResponseFromChain(detail.Chain),
 		Steps:        steps,
 		Receipts:     receipts,
+		Approvals:    approvals,
 		RecentEvents: events,
 		Timeline:     timeline,
 		Health:       detail.Health,
 		Warnings:     warnings,
 		Guardrails:   chainGuardrailResponseFromOperator(detail.Guardrails),
+	}
+}
+
+func approvalDecisionResponseFromOperator(result operator.ApprovalDecisionResult) approvalDecisionResponse {
+	return approvalDecisionResponse{
+		Approval: approvalResponseFromOperator(result.Approval),
+		Message:  result.Message,
+	}
+}
+
+func approvalResponseFromOperator(approval operator.ApprovalView) approvalResponse {
+	return approvalResponse{
+		ID:             approval.ID,
+		ChainID:        approval.ChainID,
+		StepID:         approval.StepID,
+		ConversationID: approval.ConversationID,
+		TurnNumber:     approval.TurnNumber,
+		Iteration:      approval.Iteration,
+		ToolName:       approval.ToolName,
+		ToolInput:      append(json.RawMessage(nil), approval.ToolInput...),
+		Reason:         approval.Reason,
+		RiskLevel:      approval.RiskLevel,
+		Status:         approval.Status,
+		CreatedAt:      formatTime(approval.CreatedAt),
+		DecidedAt:      formatTimePtr(approval.DecidedAt),
+		DecisionReason: approval.DecisionReason,
+		DecidedBy:      approval.DecidedBy,
 	}
 }
 

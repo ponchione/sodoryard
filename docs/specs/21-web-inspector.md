@@ -209,9 +209,11 @@ GET    /api/chains/:id
 GET    /api/chains/:id/events
 GET    /api/chains/:id/receipts
 GET    /api/chains/:id/receipt?step=...
+POST   /api/chains/:id/approvals/:approval_id/approve
+POST   /api/chains/:id/approvals/:approval_id/deny
 ```
 
-Pause/resume/cancel endpoints may exist for parity, but their presence does not make the browser the primary control surface.
+Approval controls exist on chain detail because they are tied to inspecting an approval-required timeline. Pause/resume/cancel endpoints may exist for parity, but their presence does not make the browser the primary control surface.
 
 ---
 

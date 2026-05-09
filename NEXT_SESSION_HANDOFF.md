@@ -12,7 +12,7 @@ The latest completed work before the current approval-control slice was:
 
 Shunter is the base brain/project-memory design. Do not reintroduce legacy migration, vault, SQLite import/export, compatibility aliases, public memory commands, or backwards-compatible command surfaces.
 
-2026-05-09 update: the Spec 23 approval-control slices now derive durable approval state from chain events, record `approval_decision` events, expose `yard chain approvals|approve|deny` plus TUI `/approvals|/approve|/deny`, and add opt-in approval wait behavior through `yard chain start --allow-approval-wait` or TUI `/start --allow-approval-wait`. Chains move into `waiting_approval` for approval-required orchestrator tool results and spawned headless steps. Full replay of the exact approved tool call and browser approval controls remain open.
+2026-05-09 update: the Spec 23 approval-control slices now derive durable approval state from chain events, record `approval_decision` events, expose `yard chain approvals|approve|deny`, TUI `/approvals|/approve|/deny`, and browser chain-detail approval controls, and add opt-in approval wait behavior through `yard chain start --allow-approval-wait` or TUI `/start --allow-approval-wait`. Chains move into `waiting_approval` for approval-required orchestrator tool results and spawned headless steps. Full replay of the exact approved tool call remains open.
 
 ## What Changed Tonight
 
@@ -93,7 +93,6 @@ The most useful next slice is not more legacy cleanup. It is either finishing th
 Good candidates:
 
 - Implement full approval replay/resume semantics so an approved pending tool call can continue as that original call instead of only allowing the chain to resume from history.
-- Add browser approval controls on top of the new operator approval APIs.
 - Investigate why a simple one-sentence read-only chain used 10 turns and about 251k tokens. The metrics command now makes this visible; the next useful work is reducing that behavior.
 - Surface the same chain metrics report in the TUI or web inspector if dogfooding shows the CLI is not enough.
 - Improve launch prompts or role instructions so small read-only tasks finish faster and avoid unnecessary broad searches.

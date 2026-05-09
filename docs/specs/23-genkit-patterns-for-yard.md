@@ -909,13 +909,28 @@ Not implemented in this slice:
 
 - automatic replay or continuation of the exact approved tool call after resume
 - denial surfaced back into the original paused agent turn as a tool result
-- browser approval controls
+- approval support for file mutation tools beyond the existing shell hook
+
+### Implemented Browser Approval Control Slice
+
+Implemented on 2026-05-09:
+
+- chain detail API responses include event-sourced approval state
+- browser chain detail renders pending and decided approvals with tool input, risk, reason, and runtime scope
+- browser approve/deny buttons call shared operator approval decision APIs and refresh the chain detail view
+- browser event polling refreshes the full chain detail when approval-required or approval-decision events arrive
+- tests cover API approval serialization/decision recording and browser approval controls
+
+Not implemented in this slice:
+
+- automatic replay or continuation of the exact approved tool call after resume
+- denial surfaced back into the original paused agent turn as a tool result
 - approval support for file mutation tools beyond the existing shell hook
 
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.
-- The operator can approve or deny from the TUI or CLI.
+- The operator can approve or deny from the TUI, CLI, or browser chain detail.
 - Denial is visible to the model as a tool result.
 - Headless chain behavior is deterministic and documented.
 

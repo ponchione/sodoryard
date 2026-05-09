@@ -246,10 +246,34 @@ export interface ReceiptView {
   content: string;
 }
 
+export interface ChainApproval {
+  id: string;
+  chain_id: string;
+  step_id?: string;
+  conversation_id?: string;
+  turn_number?: number;
+  iteration?: number;
+  tool_name: string;
+  tool_input?: unknown;
+  reason?: string;
+  risk_level?: string;
+  status: string;
+  created_at?: string;
+  decided_at?: string;
+  decision_reason?: string;
+  decided_by?: string;
+}
+
+export interface ApprovalDecisionResult {
+  approval: ChainApproval;
+  message: string;
+}
+
 export interface ChainDetail {
   chain: ChainRecord;
   steps: ChainStep[];
   receipts: ReceiptSummary[];
+  approvals: ChainApproval[];
   recent_events: ChainEvent[];
   timeline?: ChainTimelineItem[];
   health: string;
