@@ -55,6 +55,12 @@ func (m Model) renderChains() string {
 		}
 		detailLines = append(detailLines, renderChainWarnings(m.detail.Warnings, 5)...)
 		detailLines = append(detailLines, renderGuardrailDetails(m.detail.Guardrails)...)
+		if len(m.detail.Approvals) > 0 {
+			detailLines = append(detailLines, "", m.styles.title.Render("Approvals"))
+			for _, approval := range m.detail.Approvals {
+				detailLines = append(detailLines, renderApprovalLine(approval))
+			}
+		}
 		detailLines = append(detailLines,
 			"",
 			m.styles.title.Render("Steps"),
@@ -91,7 +97,7 @@ func controlsForStatus(status string) string {
 		parts = append(parts, "P pause")
 		hasStateControl = true
 	}
-	if status == "paused" {
+	if canResumeChain(status) {
 		parts = append(parts, "R resume")
 		hasStateControl = true
 	}

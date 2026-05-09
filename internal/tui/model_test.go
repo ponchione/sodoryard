@@ -20,6 +20,7 @@ type fakeOperator struct {
 	chains          []operator.ChainSummary
 	details         map[string]operator.ChainDetail
 	receipts        map[string]operator.ReceiptView
+	approvals       map[string][]operator.ApprovalView
 	eventsSince     map[string][]chain.Event
 	launchRequest   operator.LaunchRequest
 	startRequest    operator.LaunchRequest
@@ -34,6 +35,12 @@ type fakeOperator struct {
 	pausedChain     string
 	resumedChain    string
 	cancelledChain  string
+	approvedChain   string
+	approvedID      string
+	approvedReason  string
+	deniedChain     string
+	deniedID        string
+	deniedReason    string
 	reasoningEffort string
 }
 
@@ -82,6 +89,7 @@ func newFakeOperator() *fakeOperator {
 			"chain-1:1": {ChainID: "chain-1", Step: "1", Path: "receipts/coder/chain-1-step-001.md", Content: "step receipt"},
 			"chain-2:":  {ChainID: "chain-2", Path: "receipts/orchestrator/chain-2.md", Content: "chain 2 receipt"},
 		},
+		approvals:   map[string][]operator.ApprovalView{},
 		eventsSince: map[string][]chain.Event{},
 		chatResult: operator.ChatTurnResult{
 			ConversationID: "chat-1",
@@ -130,6 +138,39 @@ func (f *fakeOperator) ReadReceipt(_ context.Context, chainID string, step strin
 		return operator.ReceiptView{}, fmt.Errorf("missing receipt %s:%s", chainID, step)
 	}
 	return receipt, nil
+}
+
+func (f *fakeOperator) ListApprovals(_ context.Context, chainID string) ([]operator.ApprovalView, error) {
+	return append([]operator.ApprovalView(nil), f.approvals[chainID]...), nil
+}
+
+func (f *fakeOperator) ApproveChainApproval(_ context.Context, chainID string, approvalID string, reason string) (operator.ApprovalDecisionResult, error) {
+	f.approvedChain = chainID
+	f.approvedID = approvalID
+	f.approvedReason = reason
+	return f.recordFakeApprovalDecision(chainID, approvalID, chain.ApprovalStatusApproved, reason)
+}
+
+func (f *fakeOperator) DenyChainApproval(_ context.Context, chainID string, approvalID string, reason string) (operator.ApprovalDecisionResult, error) {
+	f.deniedChain = chainID
+	f.deniedID = approvalID
+	f.deniedReason = reason
+	return f.recordFakeApprovalDecision(chainID, approvalID, chain.ApprovalStatusDenied, reason)
+}
+
+func (f *fakeOperator) recordFakeApprovalDecision(chainID string, approvalID string, status string, reason string) (operator.ApprovalDecisionResult, error) {
+	approvals := f.approvals[chainID]
+	for i := range approvals {
+		if approvals[i].ID != approvalID {
+			continue
+		}
+		approvals[i].Status = status
+		approvals[i].DecisionReason = reason
+		approvals[i].DecidedBy = "operator"
+		f.approvals[chainID] = approvals
+		return operator.ApprovalDecisionResult{Approval: approvals[i], Message: "approval " + approvalID + " " + status}, nil
+	}
+	return operator.ApprovalDecisionResult{}, fmt.Errorf("approval %s not found", approvalID)
 }
 
 func (f *fakeOperator) ListEventsSince(_ context.Context, chainID string, afterID int64) ([]chain.Event, error) {
@@ -209,12 +250,13 @@ func (f *fakeOperator) ValidateLaunch(_ context.Context, req operator.LaunchRequ
 		compiled += "Allowed roles: " + strings.Join(allowedRoles, ", ")
 	}
 	return operator.LaunchPreview{
-		Mode:         req.Mode,
-		Role:         role,
-		AllowedRoles: allowedRoles,
-		Roster:       roster,
-		Summary:      summary,
-		CompiledTask: compiled,
+		Mode:              req.Mode,
+		Role:              role,
+		AllowedRoles:      allowedRoles,
+		Roster:            roster,
+		Summary:           summary,
+		CompiledTask:      compiled,
+		AllowApprovalWait: req.AllowApprovalWait,
 	}, nil
 }
 
@@ -224,7 +266,7 @@ func (f *fakeOperator) StartChain(_ context.Context, req operator.LaunchRequest)
 	ch := operator.ChainSummary{ID: "chain-started", Status: "running", SourceTask: req.SourceTask, StartedAt: started, UpdatedAt: started}
 	f.chains = append([]operator.ChainSummary{ch}, f.chains...)
 	f.details["chain-started"] = operator.ChainDetail{Chain: chain.Chain{ID: "chain-started", Status: "running", SourceTask: req.SourceTask}}
-	return operator.StartResult{ChainID: "chain-started", Status: "running", Preview: operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started"}}, nil
+	return operator.StartResult{ChainID: "chain-started", Status: "running", Preview: operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started", AllowApprovalWait: req.AllowApprovalWait}}, nil
 }
 
 func (f *fakeOperator) SaveLaunchDraft(_ context.Context, req operator.LaunchRequest) (operator.LaunchDraft, error) {
@@ -538,13 +580,13 @@ func TestSlashStartLaunchesChainAndFollows(t *testing.T) {
 	updated, _ := model.Update(model.refreshCmd()())
 	got := updated.(Model)
 
-	got, cmd := runConsoleInput(t, got, `/start --role coder --task "ship console"`)
+	got, cmd := runConsoleInput(t, got, `/start --role coder --allow-approval-wait --task "ship console"`)
 	if cmd == nil {
 		t.Fatal("/start returned nil command")
 	}
 	updated, batch := got.Update(cmd())
 	got = updated.(Model)
-	if fake.startRequest.SourceTask != "ship console" || fake.startRequest.Role != "coder" {
+	if fake.startRequest.SourceTask != "ship console" || fake.startRequest.Role != "coder" || !fake.startRequest.AllowApprovalWait {
 		t.Fatalf("start request = %+v, want coder ship console", fake.startRequest)
 	}
 	if !got.follow || got.followID != "chain-started" {
@@ -601,6 +643,53 @@ func TestSlashReceiptLoadsContent(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("/receipt view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestSlashApprovalsListsAndDecides(t *testing.T) {
+	fake := newFakeOperator()
+	fake.approvals["chain-1"] = []operator.ApprovalView{{
+		ID:        "approval-1",
+		ChainID:   "chain-1",
+		ToolName:  "shell",
+		RiskLevel: "high",
+		Status:    chain.ApprovalStatusPending,
+		Reason:    "matched policy",
+	}}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/approvals chain-1")
+	if cmd == nil {
+		t.Fatal("/approvals returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	view := got.View()
+	for _, want := range []string{"APPROVALS chain-1", "approval-1 status=pending tool=shell risk=high reason=\"matched policy\""} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/approvals view missing %q:\n%s", want, view)
+		}
+	}
+
+	got, cmd = runConsoleInput(t, got, `/approve chain-1 approval-1 --reason "reviewed"`)
+	if cmd == nil {
+		t.Fatal("/approve returned nil command")
+	}
+	updated, batch := got.Update(cmd())
+	got = updated.(Model)
+	if fake.approvedChain != "chain-1" || fake.approvedID != "approval-1" || fake.approvedReason != "reviewed" {
+		t.Fatalf("approval decision = chain:%q id:%q reason:%q, want chain-1 approval-1 reviewed", fake.approvedChain, fake.approvedID, fake.approvedReason)
+	}
+	view = got.View()
+	for _, want := range []string{"APPROVE", "approval: approval-1", "status: approved", "reason: reviewed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/approve view missing %q:\n%s", want, view)
+		}
+	}
+	if batch == nil {
+		t.Fatal("/approve result returned nil refresh batch")
 	}
 }
 

@@ -38,3 +38,20 @@ func TestSlashLaunchRequestKeepsModeForCompatibility(t *testing.T) {
 		t.Fatalf("request = %+v, want manual roster mode without template", req)
 	}
 }
+
+func TestSlashLaunchRequestAcceptsApprovalWait(t *testing.T) {
+	req, err := slashLaunchRequest(slashCommand{
+		Name: "start",
+		Flags: map[string][]string{
+			"role":                {"coder"},
+			"task":                {"risky work"},
+			"allow-approval-wait": {"true"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("slashLaunchRequest returned error: %v", err)
+	}
+	if !req.AllowApprovalWait {
+		t.Fatalf("AllowApprovalWait = false, want true")
+	}
+}

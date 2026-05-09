@@ -111,6 +111,21 @@ func (m Model) handleSlashInput(input string) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		return m, m.consoleReceiptCmd(chainID, step)
+	case "approvals":
+		chainID := firstArgOrSelectedChain(cmd.Args, m.selectedVisibleChainID())
+		if chainID == "" {
+			return m.consoleCommandError("chain id is required")
+		}
+		m.loading = true
+		return m, m.consoleApprovalsCmd(chainID)
+	case "approve", "deny":
+		chainID, approvalID, err := approvalCommandArgs(cmd.Args, m.selectedVisibleChainID())
+		if err != nil {
+			return m.consoleCommandError(err.Error())
+		}
+		reason := firstFlag(cmd, "reason", "note")
+		m.loading = true
+		return m, m.consoleApprovalDecisionCmd(cmd.Name, chainID, approvalID, reason)
 	case "pause", "resume":
 		chainID := firstArgOrSelectedChain(cmd.Args, m.selectedVisibleChainID())
 		if chainID == "" {
@@ -225,6 +240,47 @@ func (m Model) consoleReceiptCmd(chainID string, step string) tea.Cmd {
 		}
 		body := fmt.Sprintf("path: %s\n\n%s", receipt.Path, renderReceiptViewportContent(m.styles, &receipt, maxInt(40, m.contentWidth()-4)))
 		return consoleCommandMsg{Entry: consoleEntry{Kind: consoleEntryCommand, Title: title, Body: body}}
+	}
+}
+
+func (m Model) consoleApprovalsCmd(chainID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.svc == nil {
+			return consoleCommandMsg{Err: fmt.Errorf("operator service is not configured")}
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+		defer cancel()
+		approvals, err := m.svc.ListApprovals(ctx, chainID)
+		if err != nil {
+			return consoleCommandMsg{Err: err}
+		}
+		return consoleCommandMsg{Entry: consoleEntry{Kind: consoleEntryCommand, Title: "APPROVALS " + chainID, Body: renderConsoleApprovals(approvals)}}
+	}
+}
+
+func (m Model) consoleApprovalDecisionCmd(action string, chainID string, approvalID string, reason string) tea.Cmd {
+	return func() tea.Msg {
+		if m.svc == nil {
+			return consoleCommandMsg{Err: fmt.Errorf("operator service is not configured")}
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+		defer cancel()
+		var (
+			result operator.ApprovalDecisionResult
+			err    error
+		)
+		switch action {
+		case "approve":
+			result, err = m.svc.ApproveChainApproval(ctx, chainID, approvalID, reason)
+		case "deny":
+			result, err = m.svc.DenyChainApproval(ctx, chainID, approvalID, reason)
+		default:
+			err = fmt.Errorf("unsupported approval action %s", action)
+		}
+		if err != nil {
+			return consoleCommandMsg{Err: err}
+		}
+		return consoleCommandMsg{Entry: consoleEntry{Kind: consoleEntryCommand, Title: strings.ToUpper(action), Body: renderApprovalDecisionResult(result)}, Refresh: true}
 	}
 }
 
@@ -404,6 +460,7 @@ func slashLaunchRequest(cmd slashCommand) (operator.LaunchRequest, error) {
 	} else {
 		req.MaxResolverLoops = maxResolverLoops
 	}
+	req.AllowApprovalWait = boolFlag(cmd, "allow-approval-wait", "approval-wait")
 	return req, nil
 }
 
@@ -459,6 +516,20 @@ func intFlag(cmd slashCommand, name string) (int, error) {
 	return parsed, nil
 }
 
+func boolFlag(cmd slashCommand, names ...string) bool {
+	for _, name := range names {
+		for _, value := range cmd.Flags[strings.ToLower(name)] {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "", "true", "1", "yes", "on":
+				return true
+			case "false", "0", "no", "off":
+				return false
+			}
+		}
+	}
+	return false
+}
+
 func splitRoleList(values []string) []string {
 	var roles []string
 	for _, value := range values {
@@ -470,6 +541,26 @@ func splitRoleList(values []string) []string {
 		}
 	}
 	return roles
+}
+
+func approvalCommandArgs(args []string, selected string) (string, string, error) {
+	switch {
+	case len(args) >= 2:
+		chainID := strings.TrimSpace(args[0])
+		approvalID := strings.TrimSpace(args[1])
+		if chainID == "" || approvalID == "" {
+			return "", "", fmt.Errorf("chain id and approval id are required")
+		}
+		return chainID, approvalID, nil
+	case len(args) == 1 && strings.TrimSpace(selected) != "":
+		approvalID := strings.TrimSpace(args[0])
+		if approvalID == "" {
+			return "", "", fmt.Errorf("approval id is required")
+		}
+		return strings.TrimSpace(selected), approvalID, nil
+	default:
+		return "", "", fmt.Errorf("usage: /approve <chain-id> <approval-id> [--reason text] or /deny <chain-id> <approval-id> [--reason text]")
+	}
 }
 
 func firstArgOrSelectedChain(args []string, selected string) string {
@@ -503,6 +594,9 @@ func slashHelpText() string {
 		"/follow <chain-id>           append live events here",
 		"/unfollow                    stop live event follow",
 		"/receipt <chain-id> [step]   show receipt content",
+		"/approvals <chain-id>        list pending and decided approvals",
+		"/approve <chain-id> <id>     approve a pending approval",
+		"/deny <chain-id> <id>        deny a pending approval",
 		"/preview [launch flags]      validate a launch",
 		"/start [launch flags]        start a chain and follow it",
 		"/pause <chain-id>            request pause",
@@ -513,6 +607,7 @@ func slashHelpText() string {
 		"Launch flags:",
 		"--task \"text\"  --role coder  --template one_step|manual_roster|constrained_orchestration|sir_topham_decides",
 		"--roster planner,coder  --allowed coder,planner  --spec docs/specs/foo.md",
+		"--allow-approval-wait        pause in waiting_approval instead of failing closed",
 	}, "\n")
 }
 
@@ -644,6 +739,12 @@ func (m Model) renderConsoleChainDetail(detail operator.ChainDetail) string {
 		lines = append(lines, "specs: "+strings.Join(detail.Chain.SourceSpecs, ", "))
 	}
 	lines = append(lines, renderChainWarnings(detail.Warnings, 8)...)
+	if len(detail.Approvals) > 0 {
+		lines = append(lines, "", "Approvals:")
+		for _, approval := range detail.Approvals {
+			lines = append(lines, renderApprovalLine(approval))
+		}
+	}
 	lines = append(lines, "", "Steps:")
 	if len(detail.Steps) == 0 {
 		lines = append(lines, "No steps recorded.")
@@ -676,6 +777,9 @@ func renderConsoleLaunchPreview(preview operator.LaunchPreview) string {
 	if len(preview.AllowedRoles) > 0 {
 		lines = append(lines, "allowed: "+strings.Join(preview.AllowedRoles, ", "))
 	}
+	if preview.AllowApprovalWait {
+		lines = append(lines, "approval wait: enabled")
+	}
 	if strings.TrimSpace(preview.CompiledTask) != "" {
 		lines = append(lines, "", "Compiled task:", trimOneLine(preview.CompiledTask, 160))
 	}
@@ -684,6 +788,54 @@ func renderConsoleLaunchPreview(preview operator.LaunchPreview) string {
 		for _, warning := range preview.Warnings {
 			lines = append(lines, "- "+warning.Message)
 		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderConsoleApprovals(approvals []operator.ApprovalView) string {
+	if len(approvals) == 0 {
+		return "No approvals."
+	}
+	lines := make([]string, 0, len(approvals))
+	for _, approval := range approvals {
+		lines = append(lines, renderApprovalLine(approval))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderApprovalLine(approval operator.ApprovalView) string {
+	parts := []string{
+		valueOrUnknown(approval.ID),
+		"status=" + valueOrUnknown(approval.Status),
+		"tool=" + valueOrUnknown(approval.ToolName),
+	}
+	if approval.RiskLevel != "" {
+		parts = append(parts, "risk="+approval.RiskLevel)
+	}
+	if approval.StepID != "" {
+		parts = append(parts, "step="+approval.StepID)
+	}
+	if approval.Reason != "" {
+		parts = append(parts, "reason="+strconv.Quote(trimOneLine(approval.Reason, 96)))
+	}
+	if approval.DecisionReason != "" {
+		parts = append(parts, "decision_reason="+strconv.Quote(trimOneLine(approval.DecisionReason, 96)))
+	}
+	if approval.DecidedBy != "" {
+		parts = append(parts, "decided_by="+approval.DecidedBy)
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderApprovalDecisionResult(result operator.ApprovalDecisionResult) string {
+	lines := []string{
+		"approval: " + valueOrUnknown(result.Approval.ID),
+		"status: " + valueOrUnknown(result.Approval.Status),
+		"message: " + valueOrUnknown(result.Message),
+		"tool: " + valueOrUnknown(result.Approval.ToolName),
+	}
+	if result.Approval.DecisionReason != "" {
+		lines = append(lines, "reason: "+result.Approval.DecisionReason)
 	}
 	return strings.Join(lines, "\n")
 }

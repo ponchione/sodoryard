@@ -52,9 +52,13 @@ func (s *Service) GetChainDetail(ctx context.Context, chainID string) (ChainDeta
 	if err != nil {
 		return ChainDetail{}, err
 	}
+	approvals := make([]ApprovalView, 0)
+	for _, approval := range chain.ApprovalsFromEvents(events) {
+		approvals = append(approvals, approvalViewFromChain(approval))
+	}
 	receipts := s.receiptSummaries(ctx, chainID, steps)
 	timeline := s.buildChainTimeline(ctx, chainID, events)
-	detail := ChainDetail{Chain: *ch, Steps: steps, Receipts: receipts, RecentEvents: events, Timeline: timeline}
+	detail := ChainDetail{Chain: *ch, Steps: steps, Receipts: receipts, Approvals: approvals, RecentEvents: events, Timeline: timeline}
 	report := summarizeChainMetrics(detail)
 	detail.Health = report.Health
 	detail.Warnings = cloneRuntimeWarnings(report.Warnings)

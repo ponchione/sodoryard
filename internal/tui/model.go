@@ -867,7 +867,7 @@ func (m Model) resumeSelectedChain() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	status := m.selectedChainStatus()
-	if status != "paused" {
+	if !canResumeChain(status) {
 		m.notice = fmt.Sprintf("chain %s is %s and cannot be resumed here", chainID, status)
 		return m, nil
 	}
@@ -1385,15 +1385,19 @@ func canPauseChain(status string) bool {
 
 func canCancelChain(status string) bool {
 	switch status {
-	case "running", "pause_requested", "cancel_requested", "paused":
+	case "running", "pause_requested", "cancel_requested", "paused", chain.StatusWaitingApproval:
 		return true
 	default:
 		return false
 	}
 }
 
+func canResumeChain(status string) bool {
+	return status == "paused" || status == chain.StatusWaitingApproval
+}
+
 func followStatusActive(status string) bool {
-	return status == "running" || status == "pause_requested" || status == "cancel_requested"
+	return status == "running" || status == "pause_requested" || status == "cancel_requested" || status == chain.StatusWaitingApproval
 }
 
 func (m *Model) applyFollowDetail(detail operator.ChainDetail) {

@@ -15,7 +15,7 @@ func (m Model) footerHelp() string {
 	case screenLaunch:
 		return "? help  i edit  b preset  m mode  n add role  v preview  S start  q quit"
 	case screenChains:
-		return "? help  enter receipts  F follow  P pause  X cancel  / filter  tab screen  q quit"
+		return "? help  enter receipts  F follow  P pause  R resume  X cancel  / filter  tab screen  q quit"
 	case screenReceipts:
 		return "? help  o pager  E editor  esc chains  / filter  tab screen  q quit"
 	case screenHelp:

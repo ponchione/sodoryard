@@ -81,14 +81,15 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 	}
 	compiled := compileLaunchTask(req)
 	return LaunchPreview{
-		Mode:         req.Mode,
-		Template:     template,
-		Role:         req.Role,
-		AllowedRoles: append([]string(nil), req.AllowedRoles...),
-		Roster:       append([]string(nil), req.Roster...),
-		Summary:      summarizeLaunch(req),
-		CompiledTask: compiled,
-		Warnings:     launchWarnings(cfg, req),
+		Mode:              req.Mode,
+		Template:          template,
+		Role:              req.Role,
+		AllowedRoles:      append([]string(nil), req.AllowedRoles...),
+		Roster:            append([]string(nil), req.Roster...),
+		Summary:           summarizeLaunch(req),
+		CompiledTask:      compiled,
+		AllowApprovalWait: req.AllowApprovalWait,
+		Warnings:          launchWarnings(cfg, req),
 	}, nil
 }
 
@@ -108,16 +109,17 @@ func (s *Service) StartChain(ctx context.Context, req LaunchRequest) (StartResul
 	req.Roster = append([]string(nil), preview.Roster...)
 
 	startOpts := chainrun.Options{
-		Mode:             chainrun.Mode(req.Mode),
-		Role:             req.Role,
-		AllowedRoles:     append([]string(nil), req.AllowedRoles...),
-		Roster:           chainrunRoster(req.Roster),
-		SourceSpecs:      append([]string(nil), req.SourceSpecs...),
-		SourceTask:       req.SourceTask,
-		MaxSteps:         req.MaxSteps,
-		MaxResolverLoops: req.MaxResolverLoops,
-		MaxDuration:      req.MaxDuration,
-		TokenBudget:      req.TokenBudget,
+		Mode:              chainrun.Mode(req.Mode),
+		Role:              req.Role,
+		AllowedRoles:      append([]string(nil), req.AllowedRoles...),
+		Roster:            chainrunRoster(req.Roster),
+		SourceSpecs:       append([]string(nil), req.SourceSpecs...),
+		SourceTask:        req.SourceTask,
+		MaxSteps:          req.MaxSteps,
+		MaxResolverLoops:  req.MaxResolverLoops,
+		MaxDuration:       req.MaxDuration,
+		TokenBudget:       req.TokenBudget,
+		AllowApprovalWait: req.AllowApprovalWait,
 	}
 	chainIDCh := make(chan string, 1)
 	doneCh := make(chan startChainDone, 1)

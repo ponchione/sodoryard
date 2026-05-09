@@ -159,6 +159,31 @@ func TestChainRenderShowsHealthBudgetsAndCurrentStep(t *testing.T) {
 	}
 }
 
+func TestChainRenderShowsApprovals(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: chain.StatusWaitingApproval, SourceTask: "risky task"},
+		Approvals: []operator.ApprovalView{{
+			ID:        "approval-1",
+			ToolName:  "shell",
+			Status:    chain.ApprovalStatusPending,
+			RiskLevel: "high",
+			Reason:    "matched policy",
+		}},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"status: waiting_approval", "controls: F follow  w web  R resume  X cancel", "Approvals", "approval-1 status=pending tool=shell risk=high reason=\"matched policy\""} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain approval view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
 	fake := newFakeOperator()
 	fake.details["chain-1"] = operator.ChainDetail{

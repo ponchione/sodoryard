@@ -26,7 +26,7 @@ All three surfaces should converge on shared internal runtime services. The TUI 
 
 Implementation status as of 2026-05-03:
 
-- Landed: bare `yard` starts a Codex-style command console, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, `/new` resets the visible console session, `/effort` switches Codex reasoning effort for the active runtime, slash commands call shared `internal/operator` reads and controls, dashboard/readiness output, chain/detail output, receipt content, scrollable console history, live event follow, pause/resume/cancel, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
+- Landed: bare `yard` starts a Codex-style command console, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, `/new` resets the visible console session, `/effort` switches Codex reasoning effort for the active runtime, slash commands call shared `internal/operator` reads and controls, dashboard/readiness output, chain/detail output, receipt content, approval list/approve/deny controls, scrollable console history, live event follow, pause/resume/cancel, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
 - Daily-driver final touches landed: actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and read-only browser inspector routes for chains and metrics.
 
 ---
@@ -135,8 +135,10 @@ Primary slash commands:
 | `/events <id> [limit]` | Show recent chain events. |
 | `/follow <id>` / `/unfollow` | Append live chain events to the console or stop following. |
 | `/receipt <id> [step]` | Read a chain or step receipt inline. |
+| `/approvals <id>` | List pending and decided tool approvals. |
+| `/approve <id> <approval-id>` / `/deny <id> <approval-id>` | Record an approval decision; optional `--reason` adds an operator note. |
 | `/preview ...` | Validate launch flags and show the compiled work packet. |
-| `/start ...` | Start a chain and follow it. |
+| `/start ...` | Start a chain and follow it. `--allow-approval-wait` opts into `waiting_approval` instead of fail-closed approval behavior. |
 | `/pause <id>` / `/resume <id>` / `/cancel <id>` | Control chain state; cancel requires confirmation. |
 | `/web <id>` | Show the `yard serve` handoff target. |
 
@@ -401,9 +403,10 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 
 - Follow chain events.
 - Pause/resume/cancel active chains.
+- List, approve, and deny pending tool approvals.
 - Show step status and latest event.
 - Open receipts/files in `$EDITOR` or `$PAGER`.
-- Status: landed. Follow, pause, resume, cancel, step/event display, and receipt open are present.
+- Status: landed. Follow, pause, resume, cancel, approval list/approve/deny, step/event display, and receipt open are present.
 
 ### Phase C - Launch Wizard
 
@@ -434,10 +437,11 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 4. The chains screen lists active and recent terminal chains.
 5. The operator can follow a running chain and see new events without restarting the app.
 6. The operator can pause/resume/cancel a chain when the chain runner supports those controls.
-7. The operator can read receipts and open them in `$EDITOR` or `$PAGER`.
-8. The launch wizard can start at least a one-step chain through the same internal path as `yard chain start --role`.
-9. The TUI works without shelling out to Cobra commands for core Yard operations.
-10. The web UI remains optional for richer inspection and is not required for normal chain operation.
+7. The operator can list, approve, or deny pending tool approvals from the console.
+8. The operator can read receipts and open them in `$EDITOR` or `$PAGER`.
+9. The launch wizard can start at least a one-step chain through the same internal path as `yard chain start --role`.
+10. The TUI works without shelling out to Cobra commands for core Yard operations.
+11. The web UI remains optional for richer inspection and is not required for normal chain operation.
 
 ---
 

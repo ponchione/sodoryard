@@ -528,6 +528,9 @@ func TestListChainsAndDetail(t *testing.T) {
 	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepStarted, map[string]any{"role": "coder"}); err != nil {
 		t.Fatalf("LogEvent returned error: %v", err)
 	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventApprovalRequired, map[string]any{"approval_id": "approval-1", "tool_name": "shell", "status": "pending"}); err != nil {
+		t.Fatalf("LogEvent approval returned error: %v", err)
+	}
 	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
 
 	summaries, err := svc.ListChains(ctx, 10)
@@ -549,8 +552,11 @@ func TestListChainsAndDetail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChainDetail returned error: %v", err)
 	}
-	if detail.Chain.ID != chainID || len(detail.Steps) != 2 || len(detail.RecentEvents) != 1 {
-		t.Fatalf("detail = %+v, want chain, 2 steps, 1 event", detail)
+	if detail.Chain.ID != chainID || len(detail.Steps) != 2 || len(detail.RecentEvents) != 2 || len(detail.Approvals) != 1 {
+		t.Fatalf("detail = %+v, want chain, 2 steps, 2 events, 1 approval", detail)
+	}
+	if detail.Approvals[0].ID != "approval-1" || detail.Approvals[0].Status != chain.ApprovalStatusPending {
+		t.Fatalf("approvals = %+v, want pending approval-1", detail.Approvals)
 	}
 }
 
@@ -1553,7 +1559,7 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	}
 	t.Cleanup(svc.Close)
 
-	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it"})
+	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it", AllowApprovalWait: true})
 	if err != nil {
 		t.Fatalf("StartChain returned error: %v", err)
 	}
@@ -1563,8 +1569,8 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	if gotCfg == nil || gotCfg.ProjectRoot != projectRoot {
 		t.Fatalf("got cfg = %+v, want project root %s", gotCfg, projectRoot)
 	}
-	if gotOpts.Mode != chainrun.ModeOneStep || gotOpts.Role != "coder" || gotOpts.SourceTask != "ship it" {
-		t.Fatalf("chainrun opts = %+v, want one-step coder task", gotOpts)
+	if gotOpts.Mode != chainrun.ModeOneStep || gotOpts.Role != "coder" || gotOpts.SourceTask != "ship it" || !gotOpts.AllowApprovalWait {
+		t.Fatalf("chainrun opts = %+v, want one-step coder task with approval wait", gotOpts)
 	}
 	if gotOpts.MaxSteps != 100 || gotOpts.MaxResolverLoops != 3 || gotOpts.MaxDuration != 4*time.Hour || gotOpts.TokenBudget != 5_000_000 {
 		t.Fatalf("chainrun defaults = steps %d loops %d duration %s budget %d", gotOpts.MaxSteps, gotOpts.MaxResolverLoops, gotOpts.MaxDuration, gotOpts.TokenBudget)

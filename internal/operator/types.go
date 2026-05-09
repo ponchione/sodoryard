@@ -96,6 +96,7 @@ type ChainDetail struct {
 	Chain        chain.Chain
 	Steps        []chain.Step
 	Receipts     []ReceiptSummary
+	Approvals    []ApprovalView
 	RecentEvents []chain.Event
 	Timeline     []ChainTimelineItem
 	Health       string
@@ -387,28 +388,30 @@ const (
 )
 
 type LaunchRequest struct {
-	TemplateID       string
-	Mode             LaunchMode
-	Role             string
-	AllowedRoles     []string
-	Roster           []string
-	SourceTask       string
-	SourceSpecs      []string
-	MaxSteps         int
-	MaxResolverLoops int
-	MaxDuration      time.Duration
-	TokenBudget      int
+	TemplateID        string
+	Mode              LaunchMode
+	Role              string
+	AllowedRoles      []string
+	Roster            []string
+	SourceTask        string
+	SourceSpecs       []string
+	MaxSteps          int
+	MaxResolverLoops  int
+	MaxDuration       time.Duration
+	TokenBudget       int
+	AllowApprovalWait bool
 }
 
 type LaunchPreview struct {
-	Mode         LaunchMode
-	Template     LaunchTemplate
-	Role         string
-	AllowedRoles []string
-	Roster       []string
-	Summary      string
-	CompiledTask string
-	Warnings     []RuntimeWarning
+	Mode              LaunchMode
+	Template          LaunchTemplate
+	Role              string
+	AllowedRoles      []string
+	Roster            []string
+	Summary           string
+	CompiledTask      string
+	AllowApprovalWait bool
+	Warnings          []RuntimeWarning
 }
 
 type LaunchTemplate struct {

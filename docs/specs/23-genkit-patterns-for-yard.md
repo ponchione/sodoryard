@@ -893,6 +893,25 @@ Not implemented in this slice:
 - TUI or browser approval controls
 - approval support for file mutation tools beyond the existing shell hook
 
+### Implemented TUI Approval Control Slice
+
+Implemented on 2026-05-09:
+
+- TUI operator interface exposes approval list, approve, and deny methods through the shared operator service
+- `/approvals <chain-id>` lists pending and decided approvals in the console transcript
+- `/approve <chain-id> <approval-id> --reason <note>` and `/deny <chain-id> <approval-id> --reason <note>` record approval decisions and refresh chain state
+- TUI chain detail renders approval rows when a selected chain has pending or decided approvals
+- waiting-approval chains can be resumed or cancelled from the chain list controls
+- TUI `/start` and `/preview` accept `--allow-approval-wait` and propagate it into launch requests
+- tests cover slash parsing, TUI approval list/decision rendering, waiting-approval chain controls, operator detail approval hydration, and launch mapping to chainrun wait mode
+
+Not implemented in this slice:
+
+- automatic replay or continuation of the exact approved tool call after resume
+- denial surfaced back into the original paused agent turn as a tool result
+- browser approval controls
+- approval support for file mutation tools beyond the existing shell hook
+
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.
