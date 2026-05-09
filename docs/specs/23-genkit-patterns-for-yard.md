@@ -1173,9 +1173,17 @@ Implemented on 2026-05-08:
 - browser/API consumers can replay only persisted chain events after their last seen cursor
 - server tests cover full event reads and after-cursor duplicate suppression
 
+### Implemented Browser Event Replay Slice
+
+Implemented on 2026-05-09:
+
+- chain detail view tracks the latest seen persisted event ID from its initial detail load
+- active chain detail pages poll `GET /api/chains/{id}/events?after_id=<event-id>`
+- newly replayed events are duplicate-suppressed and merged into both recent events and the ordered timeline
+- browser tests cover after-cursor polling and timeline/recent-event replay from persisted chain events
+
 Not implemented in this slice:
 
-- browser polling/reconnect UI changes
 - WebSocket replay from a cursor
 - interactive conversation replay
 

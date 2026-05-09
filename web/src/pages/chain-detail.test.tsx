@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChainDetail } from "@/types/chains";
 
 const { apiGet } = vi.hoisted(() => ({
@@ -15,9 +15,36 @@ vi.mock("@/lib/api", () => ({
 
 import { ChainDetailPage } from "./chain-detail";
 
+function emptyGuardrails(): ChainDetail["guardrails"] {
+  return {
+    open_finding_ids: [],
+    closed_finding_ids: [],
+    addressed_finding_ids: [],
+    reopened_finding_ids: [],
+    repeated_resolver_finding_ids: [],
+    findings: [],
+    lock_health: {
+      acquired: 0,
+      released: 0,
+      blocked: 0,
+      force_released: 0,
+      release_failed: 0,
+      heartbeat_failed: 0,
+      stale_replaced: 0,
+      unreleased_writers: 0,
+    },
+    changed_files: [],
+    step_facts: [],
+  };
+}
+
 describe("ChainDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders guardrail health warnings from the chain detail response", async () => {
@@ -284,5 +311,101 @@ describe("ChainDetailPage", () => {
       expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-1/receipt?step=step-1");
     });
     expect(await screen.findByText("coder receipt body")).toBeInTheDocument();
+  });
+
+  it("replays new persisted events after the last seen event cursor", async () => {
+    vi.useFakeTimers();
+    const detail: ChainDetail = {
+      health: "ok",
+      warnings: [],
+      chain: {
+        id: "chain-2",
+        source_specs: [],
+        source_task: "watch events",
+        status: "running",
+        summary: "",
+        total_steps: 1,
+        total_tokens: 0,
+        total_duration_secs: 0,
+        resolver_loops: 0,
+        started_at: "2026-05-01T12:00:00Z",
+        updated_at: "2026-05-01T12:00:00Z",
+      },
+      steps: [
+        {
+          id: "step-2",
+          chain_id: "chain-2",
+          sequence_num: 1,
+          role: "coder",
+          task: "code",
+          status: "running",
+          verdict: "",
+          receipt_path: "",
+          tokens_used: 0,
+          turns_used: 0,
+          duration_secs: 0,
+        },
+      ],
+      receipts: [],
+      recent_events: [
+        {
+          id: 1,
+          chain_id: "chain-2",
+          step_id: "step-2",
+          event_type: "step_started",
+          event_data: "{\"role\":\"coder\"}",
+          created_at: "2026-05-01T12:00:05Z",
+        },
+      ],
+      timeline: [
+        {
+          id: "event:1",
+          source: "event",
+          kind: "event",
+          name: "step_started",
+          event_type: "step_started",
+          started_at: "2026-05-01T12:00:05Z",
+          step_id: "step-2",
+          event_data: "{\"role\":\"coder\"}",
+        },
+      ],
+      guardrails: emptyGuardrails(),
+    };
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/chains/chain-2") return Promise.resolve(detail);
+      if (url === "/api/chains/chain-2/events?after_id=1") {
+        return Promise.resolve([
+          {
+            id: 2,
+            chain_id: "chain-2",
+            step_id: "step-2",
+            event_type: "step_completed",
+            event_data: "{\"verdict\":\"completed\"}",
+            created_at: "2026-05-01T12:00:10Z",
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-2"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-2");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.resolve();
+    });
+    expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-2/events?after_id=1");
+    expect(screen.getAllByText("step_completed")).toHaveLength(2);
+    expect(screen.getAllByText("{\"verdict\":\"completed\"}")).toHaveLength(2);
   });
 });

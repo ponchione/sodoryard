@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import type { ChainDetail, ChainTimelineItem, ReceiptSummary, ReceiptView } from "@/types/chains";
+import type { ChainDetail, ChainEvent, ChainTimelineItem, ReceiptSummary, ReceiptView } from "@/types/chains";
+
+const chainEventPollIntervalMs = 5_000;
 
 function anchorID(prefix: string, value: string | number): string {
   return `${prefix}-${String(value).replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
@@ -31,6 +33,57 @@ function timelineMeta(item: ChainTimelineItem): string {
     item.duration_ms ? `${item.duration_ms}ms` : "",
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "no linked runtime metadata";
+}
+
+function chainEventToTimelineItem(event: ChainEvent): ChainTimelineItem {
+  return {
+    id: `event:${event.id}`,
+    source: "event",
+    kind: "event",
+    name: event.event_type,
+    chain_id: event.chain_id,
+    step_id: event.step_id,
+    started_at: event.created_at,
+    event_type: event.event_type,
+    event_data: event.event_data,
+  };
+}
+
+function maxChainEventID(events: ChainEvent[]): number {
+  return events.reduce((maxID, event) => Math.max(maxID, event.id), 0);
+}
+
+function compareTimelineItems(a: ChainTimelineItem, b: ChainTimelineItem): number {
+  const aTime = new Date(a.started_at).getTime();
+  const bTime = new Date(b.started_at).getTime();
+  const safeATime = Number.isNaN(aTime) ? 0 : aTime;
+  const safeBTime = Number.isNaN(bTime) ? 0 : bTime;
+  if (safeATime !== safeBTime) return safeATime - safeBTime;
+  return a.id.localeCompare(b.id);
+}
+
+function mergeTimelineItems(existing: ChainTimelineItem[], incoming: ChainTimelineItem[]): ChainTimelineItem[] {
+  const byID = new Map<string, ChainTimelineItem>();
+  for (const item of existing) byID.set(item.id, item);
+  for (const item of incoming) {
+    if (!byID.has(item.id)) byID.set(item.id, item);
+  }
+  return Array.from(byID.values()).sort(compareTimelineItems);
+}
+
+function mergeChainEvents(detail: ChainDetail, incoming: ChainEvent[]): ChainDetail {
+  const existingIDs = new Set(detail.recent_events.map((event) => event.id));
+  const freshEvents = incoming.filter((event) => !existingIDs.has(event.id));
+  if (freshEvents.length === 0) return detail;
+  return {
+    ...detail,
+    recent_events: [...detail.recent_events, ...freshEvents].sort((a, b) => a.id - b.id),
+    timeline: mergeTimelineItems(detail.timeline ?? [], freshEvents.map(chainEventToTimelineItem)),
+  };
+}
+
+function shouldPollChainEvents(status: string): boolean {
+  return ["running", "pause_requested", "paused", "cancel_requested", "waiting_approval"].includes(status);
 }
 
 function parseTimelineEventData(item: ChainTimelineItem): Record<string, unknown> {
@@ -121,6 +174,7 @@ export function ChainDetailPage() {
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const lastEventIDRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +187,7 @@ export function ChainDetailPage() {
         setSelectedReceipt(null);
         const chain = await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`);
         if (cancelled) return;
+        lastEventIDRef.current = maxChainEventID(chain.recent_events);
         setDetail(chain);
         const initialReceipt =
           chain.receipts.find((candidate) => candidate.path === requestedReceipt) ??
@@ -150,6 +205,29 @@ export function ChainDetailPage() {
       cancelled = true;
     };
   }, [id, requestedReceipt]);
+
+  useEffect(() => {
+    if (!detail || !shouldPollChainEvents(detail.chain.status)) return undefined;
+    let cancelled = false;
+    const pollEvents = async () => {
+      try {
+        const afterID = lastEventIDRef.current;
+        const events = await api.get<ChainEvent[]>(
+          `/api/chains/${encodeURIComponent(id)}/events?after_id=${afterID}`,
+        );
+        if (cancelled || events.length === 0) return;
+        lastEventIDRef.current = Math.max(lastEventIDRef.current, maxChainEventID(events));
+        setDetail((current) => (current ? mergeChainEvents(current, events) : current));
+      } catch {
+        // Keep the last loaded detail visible; the next interval can retry.
+      }
+    };
+    const timer = window.setInterval(pollEvents, chainEventPollIntervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [detail, id]);
 
   useEffect(() => {
     let cancelled = false;
