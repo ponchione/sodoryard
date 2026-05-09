@@ -559,7 +559,15 @@ Not implemented in this slice:
 - changing provider request behavior based on capabilities
 - hard launch rejection for capability mismatches
 - structured-output preflight warnings, pending a dedicated structured-output runtime mode/flag
-- richer web rendering of model capabilities
+
+### Implemented Web Capability Rendering Slice
+
+Implemented on 2026-05-09:
+
+- web runtime status types now include context window, full model capability metadata, max output tokens, and known quirks
+- chain list status header renders model context size and compact capability labels
+- metrics runtime status panel renders context size, max output tokens, capability labels, and known quirks
+- focused frontend tests cover stable capability label and token-limit formatting
 
 ### Acceptance Criteria
 

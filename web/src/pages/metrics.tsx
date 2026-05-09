@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { chainStatusGroup } from "@/lib/chain-status";
+import { formatModelCapabilitySummary, formatTokenLimit } from "@/lib/model-capabilities";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
 
 export function MetricsPage() {
@@ -31,10 +32,17 @@ export function MetricsPage() {
         </div>
 
         {status && (
-          <section className="grid gap-3 border border-border p-3 text-xs md:grid-cols-4">
+          <section className="grid gap-3 border border-border p-3 text-xs md:grid-cols-5">
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Provider</div>
               <div className="mt-1 text-sm text-primary">{status.provider}:{status.model}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Model</div>
+              <div className="mt-1 text-sm text-foreground">{formatTokenLimit(status.context_window)} context</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                output {formatTokenLimit(status.model_capabilities.max_output_tokens)}
+              </div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Auth</div>
@@ -47,6 +55,17 @@ export function MetricsPage() {
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Brain Index</div>
               <div className="mt-1 text-sm text-foreground">{status.brain_index.status}</div>
+            </div>
+            <div className="md:col-span-5">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Capabilities</div>
+              <div className="mt-1 text-sm text-foreground">
+                {formatModelCapabilitySummary(status.model_capabilities)}
+              </div>
+              {(status.model_capabilities.known_quirks ?? []).length > 0 && (
+                <div className="mt-1 text-xs text-warning">
+                  {(status.model_capabilities.known_quirks ?? []).join("; ")}
+                </div>
+              )}
             </div>
           </section>
         )}

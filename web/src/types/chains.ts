@@ -10,11 +10,25 @@ export interface RuntimeIndexStatus {
   stale_reason?: string;
 }
 
+export interface ModelCapabilities {
+  supports_tools: boolean;
+  supports_thinking: boolean;
+  supports_reasoning_effort: boolean;
+  supports_structured_output: boolean;
+  supports_prompt_cache: boolean;
+  supports_images: boolean;
+  supports_tool_choice: boolean;
+  max_output_tokens: number;
+  known_quirks?: string[];
+}
+
 export interface RuntimeStatus {
   project_root: string;
   project_name: string;
   provider: string;
   model: string;
+  context_window: number;
+  model_capabilities: ModelCapabilities;
   auth_status: string;
   code_index: RuntimeIndexStatus;
   brain_index: RuntimeIndexStatus;

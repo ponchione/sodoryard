@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { chainStatusClass } from "@/lib/chain-status";
+import { formatModelCapabilitySummary, formatTokenLimit } from "@/lib/model-capabilities";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
 
 function formatDate(value?: string): string {
@@ -45,8 +46,15 @@ export function ChainsPage() {
               Chains
             </h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              {status ? `${status.provider}:${status.model} / auth ${status.auth_status}` : "Runtime status loading"}
+              {status
+                ? `${status.provider}:${status.model} / ${formatTokenLimit(status.context_window)} context / auth ${status.auth_status}`
+                : "Runtime status loading"}
             </p>
+            {status && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                capabilities: {formatModelCapabilitySummary(status.model_capabilities)}
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <input
