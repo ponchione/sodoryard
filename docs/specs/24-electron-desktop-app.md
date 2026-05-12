@@ -36,7 +36,8 @@ Electron is the pragmatic choice because Yard already has:
 - a Go HTTP/WebSocket backend served by `yard serve`
 - embedded frontend production assets through `webfs/dist`
 - shared operator service methods in `internal/operator`
-- project-local state in `yard.yaml`, `.yard/`, and `.brain/`
+- Shunter-backed project memory under `.yard/shunter/project-memory`
+- Shunter v1.0.0 TypeScript client/runtime and generated binding support
 
 The desktop app should reuse the React renderer rather than rewriting the UI in another toolkit. The Go backend remains authoritative for runtime state, persistence, chain execution, provider auth, context assembly, brain access, indexing, and tool execution.
 
@@ -50,16 +51,107 @@ Electron main process
 
 React renderer
   -> renders the operator console and inspector
-  -> talks to Yard through REST and WebSocket APIs
+  -> talks to Yard through command REST/WS APIs
+  -> can subscribe to Shunter project memory through generated TypeScript bindings
   -> never mutates project state directly through Node filesystem APIs
 
 Go backend
   -> runs the existing Yard runtime
   -> owns all database, chain, provider, auth, brain, and tool behavior
-  -> exposes desktop-safe HTTP/WebSocket endpoints bound to localhost
+  -> exposes desktop-safe HTTP/WebSocket and Shunter protocol endpoints bound to localhost
 ```
 
 An embedded library/runtime integration can be considered later, but the first implementation should keep the process boundary. That boundary preserves the current production model, keeps crash isolation simple, and lets `yard serve` remain the browser/API fallback.
+
+### Shunter TypeScript SDK Impact
+
+Shunter v1.0.0 changes the frontend plan. Yard no longer needs to invent a custom WebSocket stream for every Shunter-backed state table before the desktop app can feel live. Shunter now ships:
+
+- `@shunter/client` as a TypeScript runtime package
+- `createShunterClient(...)` for Shunter WebSocket lifecycle, token propagation, reconnect, reducer calls, declared queries, table subscriptions, and managed subscription handles
+- generated TypeScript bindings that import shared runtime types from `@shunter/client`
+- generated table row interfaces, table-name-to-row maps, schema-aware BSATN row decoders, reducer helper surfaces, declared-query helpers, declared-view helpers, and table subscription helpers
+
+Yard should use that SDK for project-memory reads and live updates where the data already lives in the Shunter module. The desktop contract should split into two planes:
+
+| Plane | Owner | Intended use |
+|---|---|---|
+| Yard app API | Go backend / `internal/operator` | commands, auth, provider/model config, launch preview/start, chain control, file validation, indexing, diagnostics, computed summaries |
+| Shunter project-memory protocol | Go backend mounting the Shunter runtime | live Shunter table/view reads, chain/event/conversation/update subscriptions, generated row types, contract compatibility checks |
+
+This does not make Electron a Yard runtime. The renderer may consume Shunter's typed client contract, but the Go backend still owns the Shunter runtime, opens the project-memory data directory, validates auth, starts chains, runs providers, writes receipts, indexes, and executes tools.
+
+Initial desktop usage should be read-oriented:
+
+- generate a Yard project-memory TypeScript binding from `internal/projectmemory.NewModule()`
+- use Shunter subscriptions for live state updates and cache invalidation
+- keep launch start, pause/resume/cancel, index rebuilds, provider auth, settings mutation, file reads, and editor/reveal validation behind Yard backend APIs
+- avoid renderer-initiated reducer calls unless a later slice explicitly marks a reducer as desktop-safe and documents the UX and authorization semantics
+
+The generated binding should be build output, not hand-maintained TypeScript. A practical layout is:
+
+```text
+web/src/generated/yard-project-memory.ts
+web/src/lib/project-memory/
+  client.ts
+  subscriptions.ts
+  selectors.ts
+```
+
+The build should fail if the generated binding is stale relative to the exported Shunter contract. The desktop capabilities endpoint should report the project-memory module name, schema/contract version, Shunter runtime version, and whether the Shunter protocol endpoint is available.
+
+### Shunter SDK Packaging Decision
+
+The intended long-term dependency shape is a normal npm package whose version matches the Shunter release tag without the leading `v`:
+
+```json
+{
+  "dependencies": {
+    "@shunter/client": "1.0.0"
+  }
+}
+```
+
+As of Shunter v1.0.0, npm publishing is not ready. The SDK is still checked into the Shunter source tree under `typescript/client`, its `package.json` is still marked `private`, and generated bindings still import from `@shunter/client`.
+
+Yard's least-churn temporary path is:
+
+1. Vendor the exact `typescript/client` directory from the pinned Shunter release into the Yard repo.
+2. Install it as a local dependency that still resolves as `@shunter/client`.
+3. Keep generated project-memory bindings importing `@shunter/client`.
+4. Replace the local dependency with the published npm package once Shunter publishes it.
+
+Proposed temporary layout:
+
+```text
+third_party/shunter-client/
+  package.json
+  src/index.ts
+  tsconfig.json
+  ...
+```
+
+`web/package.json` dependency:
+
+```json
+{
+  "dependencies": {
+    "@shunter/client": "file:../third_party/shunter-client"
+  }
+}
+```
+
+The vendored SDK must be copied from the pinned Shunter tag, not from an operator's Go module cache path. If the source-TS package export causes Vite or TypeScript trouble after installation from `file:`, add a small local build step for the vendored package rather than changing generated binding imports across the app.
+
+Expected upstream Shunter improvements:
+
+- publish `@shunter/client` to npm with versions aligned to Shunter tags
+- add a codegen option for the runtime import specifier, defaulting to `@shunter/client`
+- export generated contract metadata from TypeScript bindings alongside `shunterProtocol`
+
+Until generated contract metadata exists upstream, Yard's codegen wrapper should write enough adjacent metadata for desktop compatibility checks: contract format/version, module name/version, Shunter runtime version, generated binding hash, and generated-from Shunter tag.
+
+Reconnect and resubscribe are useful, but desktop views should treat reconnect as a cache boundary. After reconnect, rehydrate from replayed initial rows or explicitly re-fetch REST snapshots; do not assume continuous deltas across the disconnected interval.
 
 ### Alternatives Considered
 
@@ -105,7 +197,9 @@ This is not a permanent rejection of Tauri or another shell. It is a choice to o
 - No Electron-owned execution engine.
 - No separate chain scheduler in TypeScript.
 - No Electron-owned copy of Yard state tables.
-- No direct renderer writes to `.yard/`, `.brain/`, `yard.yaml`, or project source files.
+- No hand-maintained TypeScript mirror of the Shunter project-memory schema.
+- No direct renderer writes to `.yard/`, `yard.yaml`, project source files, or legacy `.brain/` state.
+- No renderer-initiated Shunter reducers for runtime control in the MVP.
 - No arbitrary browser terminal with unrestricted shell access.
 - No hosted account system, tenancy, remote dashboard, or sync service.
 - No mobile UI target.
@@ -124,11 +218,12 @@ The Go backend is authoritative. React may hold temporary UI state, optimistic d
 Examples:
 
 - launch drafts and presets use `internal/operator`
-- chains use `internal/chain` and `.yard/yard.db`
+- chains use `internal/chain` over Shunter project memory
 - conversations use existing conversation persistence
 - provider routing uses `yard.yaml` plus backend validation
 - auth uses backend provider auth stores
 - brain content is accessed through backend brain services
+- generated TypeScript reads/subscriptions are consumers of Shunter state, not independent state ownership
 
 ### Desktop As A Shell, Not A Fork
 
@@ -147,7 +242,7 @@ Electron does not own Yard runtime semantics.
 
 ### API First
 
-Every desktop workflow should use a documented REST/WebSocket or local IPC contract. If the UI needs a feature that only exists in the TUI through direct Go calls, add the corresponding backend API by adapting `internal/operator`.
+Every desktop workflow should use a documented REST/WebSocket, Shunter protocol, or local IPC contract. If the UI needs a command workflow that only exists in the TUI through direct Go calls, add the corresponding backend API by adapting `internal/operator`. If the UI needs live Shunter-backed state, prefer generated project-memory bindings and Shunter subscriptions over a one-off Yard WebSocket envelope.
 
 ### One UI Codebase
 
@@ -179,6 +274,7 @@ Disallowed bridge examples:
 - arbitrary shell command execution
 - direct SQLite access
 - direct provider credential access
+- direct Shunter data-directory access
 
 ---
 
@@ -195,6 +291,7 @@ web/
   shared React application
   desktop-aware environment adapter
   browser and Electron routes/components
+  generated Shunter project-memory bindings
 
 cmd/yard
   existing CLI
@@ -203,11 +300,15 @@ cmd/yard
 
 internal/server
   existing HTTP/WebSocket API
-  target: desktop-safe operator endpoints
+  target: desktop-safe operator endpoints and Shunter protocol mount
 
 internal/operator
   shared service for runtime status, chain reads/control, launch drafts,
   launch presets, launch preview/start, receipts, roles, and raw chat
+
+internal/projectmemory
+  Shunter module and runtime that owns project state, contract export,
+  TypeScript codegen source, and protocol serving when enabled
 ```
 
 Process model:
@@ -231,8 +332,12 @@ Process model:
 | launch workbench          |                       | internal/operator    |
 | chains and receipts       |                       | chainrun/runtime     |
 | conversations             |                       | providers/tools      |
-| context/diff/metrics      |                       | SQLite/LanceDB/brain |
+| context/diff/metrics      |                       | Shunter/LanceDB      |
 +---------------------------+                       +----------------------+
+        |
+        | Shunter protocol over backend-mounted WS
+        v
+  generated project-memory bindings
 ```
 
 ---
@@ -259,14 +364,25 @@ If `--port 0` is not supported by the current server, add it. The backend should
 Target readiness event on stdout:
 
 ```json
-{"type":"yard_backend_ready","base_url":"http://127.0.0.1:49152","pid":12345,"project_root":"/path/to/project"}
+{
+  "type": "yard_backend_ready",
+  "base_url": "http://127.0.0.1:49152",
+  "pid": 12345,
+  "project_root": "/path/to/project",
+  "project_memory": {
+    "backend": "shunter",
+    "module": "yard_project_memory",
+    "schema_version": 12,
+    "subscribe_url": "ws://127.0.0.1:49152/api/project-memory/subscribe"
+  }
+}
 ```
 
 The human-oriented `yard serve` output can remain for normal CLI use, but desktop mode needs a stable JSON readiness line so Electron does not scrape prose.
 
 ### Connection
 
-The renderer talks to `base_url` through the existing REST/WebSocket client layer. The Electron main process passes the backend base URL to the renderer through preload at window creation time.
+The renderer talks to `base_url` through the existing Yard REST/WebSocket client layer. It also uses the backend-advertised Shunter project-memory `subscribe_url` with generated TypeScript bindings when that capability is present. The Electron main process passes the backend base URL, desktop session token, Shunter protocol URL, and Shunter protocol token to the renderer through preload at window creation time.
 
 The app should support three backend modes:
 
@@ -300,6 +416,7 @@ Electron main monitors:
 - `/api/health`
 - backend version compatibility
 - WebSocket connectivity
+- Shunter project-memory protocol connectivity when enabled
 - project root/config identity
 
 The renderer should distinguish:
@@ -307,8 +424,10 @@ The renderer should distinguish:
 - backend starting
 - backend ready
 - backend reconnecting
+- project-memory reconnecting
 - backend crashed
 - backend incompatible
+- project-memory contract incompatible
 - project config invalid
 
 ### Startup State Machine
@@ -368,6 +487,9 @@ Target payload:
   "capabilities": [
     "runtime_status",
     "conversation_chat",
+    "project_memory_protocol",
+    "project_memory_subscriptions",
+    "project_memory_contract",
     "chains_read",
     "chains_control",
     "launch_preview",
@@ -379,7 +501,16 @@ Target payload:
     "context_reports",
     "tool_details",
     "metrics"
-  ]
+  ],
+  "project_memory": {
+    "backend": "shunter",
+    "module": "yard_project_memory",
+    "schema_version": 12,
+    "contract_version": 1,
+    "shunter_version": "v1.0.0",
+    "subscribe_url": "ws://127.0.0.1:49152/api/project-memory/subscribe",
+    "generated_binding_hash": "sha256:..."
+  }
 }
 ```
 
@@ -418,23 +549,34 @@ X-Yard-Desktop-Session: <token>
 
 The browser `yard serve` flow may continue without this in normal local mode, but managed desktop mode should opt into it.
 
+Shunter protocol authentication should be explicit too. Browser WebSockets cannot reliably set arbitrary authorization headers, and `@shunter/client` supports the server's `token` query parameter. In managed desktop mode:
+
+- Electron asks the backend for a short-lived Shunter project-memory protocol token.
+- The token is scoped to the selected project session and mounted project-memory route.
+- The renderer passes it through `createShunterClient({ token })`.
+- The token is memory-only and must not be written to project state or Electron app data.
+- The Shunter protocol endpoint stays on loopback and should run in strict-auth mode for desktop-managed sessions.
+
+Do not reuse provider credentials or long-lived auth material as the Shunter protocol token.
+
 ### State Ownership
 
 | State | Owner | Storage |
 |---|---|---|
 | project config | Go backend | `yard.yaml` |
-| chain state | Go backend | `.yard/yard.db` |
-| conversations | Go backend | `.yard/yard.db` |
-| launch drafts | Go backend | `.yard/yard.db` through `internal/operator` |
-| custom launch presets | Go backend | `.yard/yard.db` through `internal/operator` |
-| brain docs | Go backend | `.brain/` |
-| code/brain index state | Go backend | `.yard/` and LanceDB roots |
+| chain state | Go backend | Shunter project memory |
+| conversations | Go backend | Shunter project memory |
+| launch drafts | Go backend | Shunter project memory through `internal/operator` |
+| custom launch presets | Go backend | Shunter project memory through `internal/operator` |
+| brain docs | Go backend | Shunter project memory documents |
+| code/brain index state | Go backend | Shunter project memory plus derived LanceDB roots |
 | provider credentials | Go backend | provider auth store |
 | selected project recents | Electron main | OS app data |
 | window size/position | Electron main | OS app data |
 | sidebar/pane layout | Electron main or renderer | OS app data unless project-semantic |
 | temporary form edits | React renderer | memory until saved through backend |
-| session token | Electron main/backend | memory only |
+| desktop session token | Electron main/backend | memory only |
+| Shunter protocol token | Electron main/backend/Shunter client | memory only |
 
 The renderer may cache API responses for UI performance, but cache invalidation is driven by backend events, query refresh, or route transitions. Cached renderer state is never the durable source of truth.
 
@@ -508,7 +650,7 @@ Electron stores recent projects outside the Yard project:
 }
 ```
 
-This state is app convenience state. It should not be written to `.yard/yard.db`.
+This state is app convenience state. It should not be written to project-local Yard state.
 
 ### Project Validation
 
@@ -598,7 +740,7 @@ The app should remember:
 - selected theme
 - recently opened chain/conversation/receipt routes
 
-Window state is app-level desktop state, not project runtime state. Store it in Electron app data, not `.yard/yard.db`, unless the state is meaningful to every UI surface.
+Window state is app-level desktop state, not project runtime state. Store it in Electron app data, not Shunter project memory or other project-local Yard state, unless the state is meaningful to every UI surface.
 
 ### UI Density And Style
 
@@ -973,7 +1115,17 @@ The app should not silently edit files itself unless the workflow is explicitly 
 
 ## API Requirements
 
-The desktop app should reuse existing endpoints from [[07-web-interface-and-streaming]] and add missing operator endpoints by adapting `internal/operator`.
+The desktop app should reuse existing endpoints from [[07-web-interface-and-streaming]], add missing command endpoints by adapting `internal/operator`, and expose Shunter project-memory protocol access for live state.
+
+Use this rule of thumb:
+
+| Need | Preferred contract |
+|---|---|
+| start work, preview launch, pause/resume/cancel, auth, settings, index rebuilds, file reads, diagnostics | Yard REST/WS API |
+| chain rows, step rows, event rows, launch/preset rows, conversation/message rows, context/tool/subcall rows | Shunter generated bindings and subscriptions |
+| computed summaries, permission-checked file content, markdown receipt rendering, context reports with derived search data | Yard REST API |
+
+The Yard API should remain usable without Electron. The Shunter protocol mount should be an optional capability so older browser-only or CLI flows keep working.
 
 ### Existing Endpoint Groups
 
@@ -1009,6 +1161,8 @@ Runtime:
 
 ```text
 GET    /api/desktop/capabilities
+GET    /api/project-memory/contract
+POST   /api/project-memory/token
 GET    /api/runtime/status
 POST   /api/runtime/index/code
 POST   /api/runtime/index/brain
@@ -1065,6 +1219,36 @@ POST   /api/diagnostics/export
 ```
 
 The file/editor endpoints can be implemented either in the backend or through the Electron main bridge, but project path validation should remain backend-owned.
+
+### Shunter Project-Memory Protocol
+
+Managed desktop mode should mount the already-open project-memory Shunter runtime under a backend-owned prefix, for example:
+
+```text
+WS     /api/project-memory/subscribe
+GET    /api/project-memory/contract
+POST   /api/project-memory/token
+```
+
+`/api/project-memory/subscribe` is the Shunter v1 protocol endpoint mounted from `Runtime.HTTPHandler()` under the prefix, so the SDK sees the normal `/subscribe` path after prefix stripping. `/api/project-memory/contract` returns the exported `yard_project_memory` module contract plus hash/version metadata. `/api/project-memory/token` mints a short-lived token for the current desktop session.
+
+Renderer setup:
+
+```typescript
+import { createShunterClient } from "@shunter/client";
+import { shunterProtocol } from "../generated/yard-project-memory";
+
+const client = createShunterClient({
+  url: platform.projectMemory.subscribeUrl,
+  protocol: shunterProtocol,
+  token: platform.projectMemory.token,
+  reconnect: { enabled: true, resubscribe: true },
+});
+```
+
+The renderer should verify generated-binding compatibility against the runtime contract metadata before enabling Shunter-backed views. A mismatch should show a backend/app version error and fall back to REST snapshots where available.
+
+Do not expose the Shunter data directory to Electron. Do not start a second Shunter runtime from the renderer or Electron main process. The backend owns the single local runtime and mounts protocol traffic from that runtime.
 
 ### Payload Sketches
 
@@ -1204,16 +1388,23 @@ Existing conversation WebSocket remains:
 WS /api/ws
 ```
 
-Desktop also needs chain/event updates. Options:
+Desktop also needs chain/event updates. With Shunter v1.0.0, the preferred path is:
 
-1. Add chain events to the existing WebSocket envelope.
-2. Add a dedicated chain WebSocket:
+- use the generated project-memory binding for chain, step, event, launch, conversation, message, tool execution, subcall, and context-report table row types
+- subscribe to Shunter tables/views for live row deltas
+- use REST snapshots for initial projected summaries and after reconnect
+- add declared Shunter queries/views later when the renderer needs narrow, server-owned projections instead of whole-table subscriptions
+
+A custom Yard chain WebSocket should only be added if Shunter table/view subscriptions cannot express a required UI behavior. Fallback options:
+
+1. Add chain events to the existing Yard WebSocket envelope.
+2. Add a dedicated Yard chain WebSocket:
 
 ```text
 WS /api/chains/:id/ws
 ```
 
-Either is acceptable. The chosen contract must support:
+Any non-Shunter chain event contract must support:
 
 - event replay from cursor
 - live chain events
@@ -1244,6 +1435,8 @@ type ChainServerMessage = {
 
 The renderer should reconnect with the last seen cursor and fetch a REST snapshot after reconnect so missed state transitions are not lost.
 
+When using Shunter subscriptions, the renderer should treat subscription updates as cache invalidation plus row deltas, not as the only source of truth for command outcomes. Mutating Yard operations still return command results through REST, and the UI reconciles those results with subsequent Shunter updates.
+
 ---
 
 ## Renderer Architecture
@@ -1264,6 +1457,15 @@ Target adapter shape:
 type YardPlatform = {
   kind: "browser" | "desktop";
   backendBaseUrl: string;
+  desktopSessionToken?: string;
+  projectMemory?: {
+    subscribeUrl: string;
+    token: string;
+    module: string;
+    schemaVersion: number;
+    contractVersion: number;
+    bindingHash?: string;
+  };
   openExternal(url: string): Promise<void>;
   chooseProjectDirectory?(): Promise<string | null>;
   chooseAttachmentPaths?(): Promise<string[]>;
@@ -1281,6 +1483,7 @@ Desktop-specific code should be concentrated in:
 - Electron main process
 - preload bridge
 - platform adapter
+- Shunter project-memory client wrapper and generated binding integration
 - small UI affordances that only render when a desktop capability exists
 
 It should not leak into every page/component.
@@ -1292,21 +1495,35 @@ The renderer should centralize backend calls in typed API modules:
 ```text
 web/src/lib/
   api.ts
+  project-memory-api.ts
   runtime-api.ts
   launch-api.ts
   chains-api.ts
   project-api.ts
   diagnostics-api.ts
+web/src/generated/
+  yard-project-memory.ts
 ```
 
 Fetch behavior:
 
 - include desktop session header when present
+- pass the Shunter protocol token only to `createShunterClient`, not to normal REST calls unless the backend explicitly asks for it
 - use abort controllers for route changes and cancelled operations
 - surface structured backend errors
 - retry health/capability checks with backoff during startup
 - avoid retrying mutating operations unless the request is explicitly idempotent
-- keep chain event live updates separate from REST list refreshes
+- keep Shunter subscription updates separate from REST list refreshes and command results
+- subscribe with bounded reconnect and resubscribe enabled for live state views
+
+Project-memory data flow:
+
+1. Load capabilities and project-memory contract metadata through REST.
+2. Compare runtime contract metadata with the generated binding metadata.
+3. Connect `@shunter/client` to the mounted `/api/project-memory/subscribe` endpoint.
+4. Hydrate views from REST snapshots or Shunter initial rows.
+5. Apply Shunter row deltas to local query caches.
+6. Re-fetch REST snapshots after reconnect or command completion when a computed summary may have changed.
 
 ### Error Presentation
 
@@ -1353,6 +1570,7 @@ Packaged app contains:
 
 - Electron main/preload bundles
 - built React renderer assets
+- generated Yard project-memory TypeScript binding
 - platform-specific `yard` sidecar binary
 - any required runtime dynamic libraries already required by Yard, including LanceDB library handling
 - license/about metadata
@@ -1399,6 +1617,8 @@ Prefer conservative dependencies:
 | Electron shell | `electron` |
 | packaging | `electron-builder` or Electron Forge |
 | main/preload TypeScript build | `tsup`, `vite`, or `esbuild` |
+| Shunter TypeScript runtime | temporary `file:../third_party/shunter-client` dependency resolving as `@shunter/client`; later `@shunter/client@1.0.0+` from npm |
+| Shunter project-memory binding | generated from `internal/projectmemory.NewModule()` via Shunter contract/codegen |
 | e2e | Playwright Electron support |
 | IPC validation | handwritten narrow schemas or a small schema library |
 
@@ -1428,10 +1648,13 @@ make desktop-dev
 Under the hood:
 
 1. Build or locate the `yard` backend binary.
-2. Start `yard serve` in desktop/dev mode or connect to a configured backend.
-3. Start Vite.
-4. Start Electron pointing at the Vite URL.
-5. Pass backend base URL and session token through preload.
+2. Verify the vendored `@shunter/client` copy matches the pinned Shunter release.
+3. Generate or verify the Yard project-memory TypeScript binding.
+4. Start `yard serve` in desktop/dev mode or connect to a configured backend.
+5. Mount the Shunter project-memory protocol endpoint when available.
+6. Start Vite.
+7. Start Electron pointing at the Vite URL.
+8. Pass backend base URL, desktop session token, Shunter subscribe URL, and Shunter token through preload.
 
 ### Packaged Smoke Test
 
@@ -1448,6 +1671,7 @@ Smoke test should verify:
 - project can be selected
 - backend starts
 - health endpoint passes
+- project-memory contract compatibility passes when Shunter protocol is enabled
 - dashboard renders
 - app quits cleanly
 
@@ -1464,6 +1688,7 @@ Smoke test should verify:
 Acceptance:
 
 - New spec defines product boundary, architecture, backend contract, and phased implementation.
+- Spec accounts for Shunter v1.0.0 TypeScript SDK, temporary local `@shunter/client` packaging, and generated project-memory bindings.
 - Existing docs can still explain current behavior.
 
 ### Phase 1: Desktop Shell MVP
@@ -1478,12 +1703,14 @@ Scope:
 - load existing React app
 - show backend starting/ready/crashed states
 - expose minimal preload bridge
+- pass through project-memory capability metadata when available
 - no new product routes required
 
 Acceptance:
 
 - `make desktop-dev` opens the app against a local project.
 - Existing conversation/settings/project endpoints work from Electron.
+- If the backend advertises Shunter project-memory protocol, the renderer can connect and receive at least a basic table initial snapshot or subscription acknowledgement.
 - Closing the app cleans up only its managed backend process.
 
 Suggested implementation order:
@@ -1493,7 +1720,8 @@ Suggested implementation order:
 3. Add app data storage for recent project and window state.
 4. Add renderer platform adapter.
 5. Update API client to support explicit backend base URL.
-6. Add `make desktop-dev`.
+6. Add project-memory capability plumbing without making product routes depend on it.
+7. Add `make desktop-dev`.
 
 ### Phase 2: Backend Desktop API Parity
 
@@ -1501,6 +1729,9 @@ Expose missing operator APIs through `internal/server` using `internal/operator`
 
 Scope:
 
+- Shunter project-memory protocol mount and token endpoint
+- vendored `@shunter/client` package copied from the pinned Shunter release
+- generated Yard project-memory TypeScript binding and stale-check command
 - runtime status endpoint
 - roles endpoint
 - launch draft/preset endpoints
@@ -1513,19 +1744,27 @@ Scope:
 Acceptance:
 
 - Every TUI operator service method needed by desktop has an HTTP equivalent.
+- Shunter-backed state needed by the UI has either a generated binding subscription path or a REST snapshot path.
+- `web/package.json` resolves `@shunter/client` through the vendored package until npm publishing is available.
+- A verification check fails when the vendored SDK does not match the pinned Shunter release.
+- Contract/codegen tests fail when `yard_project_memory` generated TypeScript is stale.
 - API tests cover launch preview/start, chain reads, receipts, and controls.
 - Existing browser routes keep working.
 
 Suggested implementation order:
 
 1. Add `/api/desktop/capabilities`.
-2. Add `/api/runtime/status` from `internal/operator.RuntimeStatus`.
-3. Add roles and launch draft/preset endpoints.
-4. Add launch preview/start endpoints.
-5. Add chain list/detail/events/receipts endpoints.
-6. Add pause/resume/cancel endpoints.
-7. Add chain event streaming.
-8. Add focused API tests.
+2. Mount Shunter project-memory `/subscribe`, expose `/api/project-memory/contract`, and add `/api/project-memory/token`.
+3. Vendor `typescript/client` from the pinned Shunter release and wire `web/package.json` to it as `@shunter/client`.
+4. Add generated TypeScript binding and stale-check automation.
+5. Add generated binding metadata or adjacent metadata until Shunter emits it directly.
+6. Add `/api/runtime/status` from `internal/operator.RuntimeStatus`.
+7. Add roles and launch draft/preset endpoints.
+8. Add launch preview/start endpoints.
+9. Add chain list/detail/events/receipts endpoints for computed or fallback snapshots.
+10. Add pause/resume/cancel endpoints.
+11. Use Shunter subscriptions for chain event liveness unless a custom Yard stream proves necessary.
+12. Add focused API and contract/codegen tests.
 
 ### Phase 3: Desktop Operator UI
 
@@ -1541,12 +1780,13 @@ Scope:
 - project attachment picker
 - role/preset controls
 - runtime readiness actions
+- Shunter-backed live state subscriptions for lists, detail views, and activity indicators
 
 Acceptance:
 
 - The app can start every launch mode currently supported by TUI.
 - The app can pause/cancel/resume where backend supports it.
-- The app can read receipts and follow live chain events.
+- The app can read receipts and follow live chain events through Shunter subscriptions or an explicitly documented fallback stream.
 - The app can attach project files/specs/docs to launch requests.
 
 Suggested implementation order:
@@ -1623,10 +1863,12 @@ Focused tests:
 
 - `internal/operator`
 - `internal/server`
+- `internal/projectmemory` contract export and protocol serving
 - `cmd/yard` serve flags
 - chain control endpoints
 - launch endpoints
 - desktop capabilities/session behavior
+- Shunter protocol token minting and route mounting
 
 ### React Renderer
 
@@ -1645,6 +1887,9 @@ Focus areas:
 
 - API client base URL handling
 - platform adapter browser/desktop behavior
+- `@shunter/client` resolution from the vendored `file:` dependency
+- generated project-memory binding typecheck
+- Shunter client connection state, reconnect, and subscription cache updates
 - launch form validation
 - chain list filtering
 - live event rendering
@@ -1660,6 +1905,7 @@ Add tests where practical for:
 - process cleanup
 - recent project persistence
 - preload API shape
+- Shunter subscribe URL/token handoff
 - menu command routing
 
 ### End-To-End
@@ -1672,13 +1918,15 @@ Critical e2e flows:
 2. Open project.
 3. Start managed backend.
 4. Dashboard loads runtime status.
-5. Open existing conversation.
-6. Create raw chat turn against a mocked or test provider where available.
-7. Preview launch.
-8. Start a one-step chain against a test/dry-run backend path if available.
-9. Open chain detail.
-10. Render receipt.
-11. Quit and confirm backend cleanup behavior.
+5. Project-memory contract compatibility passes when advertised.
+6. Shunter live connection reaches connected state or a clear capability-disabled state.
+7. Open existing conversation.
+8. Create raw chat turn against a mocked or test provider where available.
+9. Preview launch.
+10. Start a one-step chain against a test/dry-run backend path if available.
+11. Open chain detail.
+12. Render receipt.
+13. Quit and confirm backend cleanup behavior.
 
 Canvas/pixel checks are only required for future 3D/canvas-heavy views. Normal desktop UI should use DOM assertions and screenshots for layout regressions.
 
@@ -1693,16 +1941,17 @@ Desktop MVP:
 3. Electron starts a managed `yard` backend on loopback with an ephemeral port.
 4. The backend emits a machine-readable readiness event.
 5. The renderer receives backend base URL through preload.
-6. Existing conversation/settings/project views work in Electron.
-7. Renderer runs with context isolation and without Node integration.
-8. Closing the window does not kill unrelated Yard processes.
+6. The renderer receives Shunter project-memory protocol metadata through preload when the backend advertises it.
+7. Existing conversation/settings/project views work in Electron.
+8. Renderer runs with context isolation and without Node integration.
+9. Closing the window does not kill unrelated Yard processes.
 
 Desktop operator parity:
 
 1. Runtime readiness is visible in the dashboard.
 2. All current launch modes can be previewed and started.
 3. Launch drafts and custom presets persist through backend storage.
-4. Chains can be listed, filtered, opened, followed, paused, resumed, and cancelled where supported.
+4. Chains can be listed, filtered, opened, followed through live state, paused, resumed, and cancelled where supported.
 5. Receipts render with links to chain steps and files.
 6. Project files can be selected as launch attachments through both project browser and native dialog.
 7. Context reports, tool details, diffs, and metrics are reachable from chat and chain views.
@@ -1712,17 +1961,20 @@ Architecture:
 
 1. Electron does not duplicate chain execution, provider routing, auth, indexing, brain, or database logic.
 2. Durable project state remains backend-owned.
-3. Desktop-specific TypeScript is isolated to the Electron shell, preload bridge, and platform adapter.
-4. Existing `yard serve` browser mode remains functional.
-5. Existing CLI commands remain functional.
-6. TUI remains available until a separate retirement decision.
+3. Shunter project-memory TypeScript is generated from the backend module contract, not hand-maintained.
+4. Desktop-specific TypeScript is isolated to the Electron shell, preload bridge, platform adapter, and project-memory client wrapper.
+5. Existing `yard serve` browser mode remains functional.
+6. Existing CLI commands remain functional.
+7. TUI remains available until a separate retirement decision.
 
 Validation:
 
 1. `make test` passes after backend/API work.
 2. `make build` passes after backend/API work.
-3. `npm run build` passes for renderer changes.
-4. Desktop package smoke test passes on the initial target platform.
+3. Vendored Shunter client verification passes after Shunter dependency changes.
+4. Project-memory contract/codegen stale checks pass after Shunter module changes.
+5. `npm run build` passes for renderer changes.
+6. Desktop package smoke test passes on the initial target platform.
 
 ---
 
@@ -1738,6 +1990,8 @@ Validation:
 8. Should `make build` eventually include desktop assets, or should Electron packaging stay behind explicit desktop commands?
 9. What is the right compatibility promise for the TUI once desktop reaches launch/control parity?
 10. Should browser `yard serve` gain the same operator routes as desktop immediately, or should some routes be hidden behind capabilities until the product boundary is settled?
+11. Should the renderer ever call a whitelisted subset of Shunter reducers directly, or should all mutations stay behind Yard REST commands permanently?
+12. Which project-memory declared queries/views should be added first so the desktop can subscribe to narrow projections instead of whole tables?
 
 ---
 
@@ -1750,3 +2004,4 @@ Validation:
 - [[08-data-model]] - shared project persistence and operator state
 - [[15-chain-orchestrator]] - chain execution, control, event, and receipt model
 - [[19-tool-result-details]] - structured tool metadata for desktop inspectors
+- Shunter v1.0.0 `@shunter/client` and TypeScript codegen - generated project-memory bindings and live subscription runtime
