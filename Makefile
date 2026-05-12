@@ -43,7 +43,7 @@ yard:
 install-user-bin:
 	bash ./scripts/install-user-bin.sh
 
-test:
+test: projectmemory-bindings-check
 	$(CGO_TEST_ENV) go test $(GOFLAGS_DB) $(GO_PACKAGES)
 
 # -- Development ------------------------------------------------------
