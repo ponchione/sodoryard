@@ -110,6 +110,26 @@ The brain is structured long-term project memory for specs, receipts, convention
 
 `yard brain index` rebuilds derived brain metadata and semantic chunks in `.yard/lancedb/brain` from Shunter documents. `.brain/` and `.yard/yard.db` are not part of the Shunter brain design for new or cleansed projects.
 
+### Project Memory TypeScript SDK
+
+The web inspector uses generated Shunter bindings from `web/src/generated/yard-project-memory.ts`. Regenerate them after changing the Go project-memory module with:
+
+```bash
+make projectmemory-bindings
+```
+
+Check that the generated bindings are fresh with:
+
+```bash
+make projectmemory-bindings-check
+```
+
+`make test` also runs the freshness check so stale generated bindings fail standard validation.
+
+Generated bindings import `@shunter/client`. Until the Shunter TypeScript SDK is published as a normal npm package, Yard resolves that package from the vendored copy in `third_party/shunter-client` via `web/package.json`. This avoids requiring a sibling `../../shunter` checkout for `npm install` or frontend builds. To update the vendored SDK, replace the files under `third_party/shunter-client` from the pinned Shunter release while preserving the package name `@shunter/client`, then run `npm install` in `web/` to refresh the lockfile.
+
+The SDK currently powers the chain list's live Project Memory row counts, REST invalidation, and recent Project Memory event panel. Chain summaries, chain detail, approvals, mutations, receipts, and metrics still use Yard's REST APIs.
+
 ### Context Assembly
 
 Every agent turn starts with context assembly: a RAG pipeline that builds a focused context package from multiple sources:
