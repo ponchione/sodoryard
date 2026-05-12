@@ -3,22 +3,27 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
-	"github.com/ponchione/sodoryard/internal/brain/mcpclient"
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/router"
 	"github.com/ponchione/sodoryard/internal/role"
 	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
 	"github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // OrchestratorRuntime holds all shared dependencies needed to run a chain
@@ -31,9 +36,13 @@ type OrchestratorRuntime struct {
 	Queries             *appdb.Queries
 	ProviderRouter      *router.Router
 	BrainBackend        brain.Backend
+	MemoryBackend       any
 	ConversationManager *conversation.Manager
 	ContextAssembler    agent.ContextAssembler
+	CompressionEngine   agent.CompressionEngine
 	ChainStore          *chain.Store
+	TraceRecorder       tracepkg.Recorder
+	MemoryEndpointEnv   []string
 	Cleanup             func()
 }
 
@@ -54,21 +63,60 @@ func (NoopContextAssembler) UpdateQuality(context.Context, string, int, bool, []
 // It is used by the orchestrator agent loop to dispatch tool calls into the
 // registered spawn_agent and chain_complete tools.
 type RegistryToolExecutor struct {
-	Registry    *tool.Registry
-	ProjectRoot string
+	Registry      *tool.Registry
+	ProjectRoot   string
+	TraceRecorder tracepkg.Recorder
 }
 
 func (e *RegistryToolExecutor) Execute(ctx context.Context, call provider.ToolCall) (*provider.ToolResult, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, e.TraceRecorder, tracepkg.SpanStart{
+		Name: "tool." + call.Name,
+		Kind: tracepkg.KindTool,
+		Attributes: map[string]any{
+			"tool_name":    call.Name,
+			"tool_call_id": call.ID,
+		},
+	})
+	ctx = spanCtx
+	var result *provider.ToolResult
+	var execErr error
+	defer func() {
+		status := tracepkg.StatusOK
+		var err error
+		if execErr != nil {
+			err = execErr
+			status = tracepkg.StatusForError(execErr)
+		} else if result != nil && result.IsError {
+			err = errors.New(result.Content)
+			status = tracepkg.StatusError
+		}
+		span.End(context.Background(), status, err)
+	}()
 	t, ok := e.Registry.Get(call.Name)
 	if !ok {
-		return &provider.ToolResult{ToolUseID: call.ID, Content: fmt.Sprintf("Unknown tool: %s", call.Name), IsError: true}, nil
+		result = &provider.ToolResult{ToolUseID: call.ID, Content: fmt.Sprintf("Unknown tool: %s", call.Name), IsError: true}
+		return result, nil
 	}
-	result, err := t.Execute(ctx, e.ProjectRoot, call.Input)
+	toolResult, err := t.Execute(ctx, e.ProjectRoot, call.Input)
 	if err != nil {
+		execErr = err
 		return nil, err
 	}
-	result.CallID = call.ID
-	return &provider.ToolResult{ToolUseID: call.ID, Content: result.Content, IsError: !result.Success, Details: result.Details}, nil
+	toolResult.CallID = call.ID
+	toolResult.Details = attachTraceSpanDetails(toolResult.Details, span.ID())
+	result = &provider.ToolResult{ToolUseID: call.ID, Content: toolResult.Content, IsError: !toolResult.Success, Details: toolResult.Details}
+	return result, nil
+}
+
+func attachTraceSpanDetails(details json.RawMessage, spanID string) json.RawMessage {
+	if strings.TrimSpace(spanID) == "" {
+		return details
+	}
+	fields := map[string]any{"trace_span_id": spanID}
+	if len(details) == 0 {
+		return provider.NewToolResultDetails("tool_execution", fields)
+	}
+	return provider.MergeToolResultDetails(details, fields)
 }
 
 // BuildOrchestratorRuntime constructs and returns a fully initialised
@@ -88,24 +136,69 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		return nil, fmt.Errorf("ensure project record: %w", err)
 	}
 
+	brainBackend, closeBrainBackend, err := buildOrchestratorBrainBackend(ctx, cfg.Brain, logger)
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("build brain backend: %w", err)
+	}
+	memoryBackend, closeMemoryBackend, err := BuildProjectMemoryStore(ctx, cfg, brainBackend, logger)
+	if err != nil {
+		closeBrainBackend()
+		cleanup()
+		return nil, fmt.Errorf("build project memory store: %w", err)
+	}
+	memoryEndpointEnv, closeMemoryRPC, err := buildOrchestratorMemoryRPC(ctx, cfg, memoryBackend, logger)
+	if err != nil {
+		closeMemoryBackend()
+		closeBrainBackend()
+		cleanup()
+		return nil, fmt.Errorf("start project memory RPC: %w", err)
+	}
+	traceRecorder, closeTraceRecorder, err := BuildTraceRecorder(ctx, cfg)
+	if err != nil {
+		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
+		cleanup()
+		return nil, fmt.Errorf("build trace recorder: %w", err)
+	}
+
 	// Only register providers the YAML explicitly listed. This avoids
 	// registering Default() providers that the operator's config never asked
 	// for (TECH-DEBT R6).
 	provRouter, err := BuildProviderRouter(ctx, cfg, queries, logger, ProviderRouterOptions{
 		ProviderNames: cfg.ProviderNamesForSurfaces(),
+		MemoryBackend: memoryBackend,
+		TraceRecorder: traceRecorder,
 	})
 	if err != nil {
+		closeTraceRecorder()
+		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
 		cleanup()
 		return nil, err
 	}
 
-	brainBackend, err := buildOrchestratorBrainBackend(ctx, cfg.Brain)
+	convManager, closeConversationManager, err := BuildConversationManager(ctx, cfg, database, memoryBackend, logger)
 	if err != nil {
+		closeTraceRecorder()
+		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
 		cleanup()
-		return nil, fmt.Errorf("build brain backend: %w", err)
+		return nil, err
 	}
-
-	convManager := conversation.NewManager(database, nil, logger)
+	chainStore, err := BuildChainStore(cfg, database, memoryBackend)
+	if err != nil {
+		closeConversationManager()
+		closeTraceRecorder()
+		closeMemoryRPC()
+		closeMemoryBackend()
+		closeBrainBackend()
+		cleanup()
+		return nil, err
+	}
 
 	rt := &OrchestratorRuntime{
 		Config:              cfg,
@@ -114,18 +207,22 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 		Queries:             queries,
 		ProviderRouter:      provRouter,
 		BrainBackend:        brainBackend,
+		MemoryBackend:       memoryBackend,
 		ConversationManager: convManager,
 		ContextAssembler:    NoopContextAssembler{},
-		ChainStore:          chain.NewStore(database),
+		CompressionEngine:   BuildCompressionEngine(cfg, database, memoryBackend, provRouter),
+		ChainStore:          chainStore,
+		TraceRecorder:       traceRecorder,
+		MemoryEndpointEnv:   memoryEndpointEnv,
 		Cleanup: func() {
 			// Drain in-flight sub-call writes before closing the DB so stream
 			// goroutines don't race against database.Close() (TECH-DEBT R5).
 			provRouter.DrainTracking()
-			if brainBackend != nil {
-				if c, ok := brainBackend.(interface{ Close() error }); ok {
-					_ = c.Close()
-				}
-			}
+			closeConversationManager()
+			closeTraceRecorder()
+			closeMemoryRPC()
+			closeMemoryBackend()
+			closeBrainBackend()
 			cleanup()
 		},
 	}
@@ -133,14 +230,81 @@ func BuildOrchestratorRuntime(ctx context.Context, cfg *appconfig.Config) (*Orch
 }
 
 // buildOrchestratorBrainBackend constructs the brain backend for the
-// orchestrator. Unlike the engine's brain backend builder it returns only
-// (brain.Backend, error) because the orchestrator manages its own cleanup via
-// OrchestratorRuntime.Cleanup.
-func buildOrchestratorBrainBackend(ctx context.Context, cfg appconfig.BrainConfig) (brain.Backend, error) {
+// orchestrator and returns cleanup for OrchestratorRuntime.Cleanup.
+func buildOrchestratorBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *slog.Logger) (brain.Backend, func(), error) {
 	if !cfg.Enabled {
-		return nil, nil
+		return nil, func() {}, nil
 	}
-	return mcpclient.Connect(ctx, cfg.VaultPath)
+	return BuildBrainBackend(ctx, cfg, logger)
+}
+
+func buildOrchestratorMemoryRPC(ctx context.Context, cfg *appconfig.Config, memoryBackend any, logger *slog.Logger) ([]string, func(), error) {
+	if cfg == nil || cfg.Memory.Backend != "shunter" {
+		return projectMemoryEndpointEnv(cfg), func() {}, nil
+	}
+	if strings.TrimSpace(os.Getenv(projectmemory.EnvMemoryEndpoint)) != "" {
+		return projectMemoryEndpointEnv(cfg), func() {}, nil
+	}
+	localBackend, ok := memoryBackend.(*projectmemory.BrainBackend)
+	if !ok || localBackend == nil {
+		return nil, func() {}, fmt.Errorf("local Shunter project memory backend is required to own project memory RPC")
+	}
+	transport, path := configuredMemoryRPC(cfg)
+	if transport == "" {
+		transport = "unix"
+	}
+	if path == "" {
+		return nil, func() {}, fmt.Errorf("project memory RPC path is required")
+	}
+	server, err := projectmemory.StartRPCServer(ctx, projectmemory.RPCConfig{Transport: transport, Path: path}, localBackend)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	endpoint := transport + ":" + path
+	if logger != nil {
+		logger.Info("project memory RPC listening", "endpoint", endpoint)
+	}
+	return []string{projectmemory.EnvMemoryEndpoint + "=" + endpoint}, func() { _ = server.Close() }, nil
+}
+
+func projectMemoryEndpointEnv(cfg *appconfig.Config) []string {
+	endpoint := strings.TrimSpace(os.Getenv(projectmemory.EnvMemoryEndpoint))
+	if endpoint == "" {
+		endpoint = configuredMemoryEndpoint(cfg)
+	}
+	if endpoint == "" {
+		return nil
+	}
+	return []string{projectmemory.EnvMemoryEndpoint + "=" + endpoint}
+}
+
+func configuredMemoryEndpoint(cfg *appconfig.Config) string {
+	if cfg == nil || cfg.Memory.Backend != "shunter" {
+		return ""
+	}
+	transport, path := configuredMemoryRPC(cfg)
+	if transport == "" {
+		transport = "unix"
+	}
+	if path == "" {
+		return ""
+	}
+	return transport + ":" + path
+}
+
+func configuredMemoryRPC(cfg *appconfig.Config) (string, string) {
+	if cfg == nil {
+		return "", ""
+	}
+	transport := strings.TrimSpace(cfg.Memory.RPC.Transport)
+	if transport == "" {
+		transport = strings.TrimSpace(cfg.Brain.RPCTransport)
+	}
+	path := strings.TrimSpace(cfg.Memory.RPC.Path)
+	if path == "" {
+		path = strings.TrimSpace(cfg.Brain.RPCPath)
+	}
+	return transport, path
 }
 
 // BuildOrchestratorRegistry constructs a tool.Registry for the orchestrator
@@ -150,12 +314,14 @@ func BuildOrchestratorRegistry(rt *OrchestratorRuntime, roleCfg appconfig.AgentR
 	factory := map[string]func() tool.Tool{
 		"spawn_agent": func() tool.Tool {
 			return spawnpkg.NewSpawnAgentTool(spawnpkg.SpawnAgentDeps{
-				Store:        rt.ChainStore,
-				Backend:      rt.BrainBackend,
-				Config:       rt.Config,
-				ChainID:      chainID,
-				EngineBinary: "tidmouth",
-				ProjectRoot:  rt.Config.ProjectRoot,
+				Store:         rt.ChainStore,
+				Backend:       rt.BrainBackend,
+				Config:        rt.Config,
+				ChainID:       chainID,
+				EngineBinary:  "tidmouth",
+				ProjectRoot:   rt.Config.ProjectRoot,
+				SubprocessEnv: rt.MemoryEndpointEnv,
+				TraceRecorder: rt.TraceRecorder,
 			})
 		},
 		"chain_complete": func() tool.Tool {

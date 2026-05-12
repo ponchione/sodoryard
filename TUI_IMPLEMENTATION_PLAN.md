@@ -23,8 +23,8 @@ Primary specs:
 - `chainrun.Start` supports orchestrator mode, `one_step_chain` mode, `manual_roster` mode, and `constrained_orchestration` mode. Constrained orchestration reuses the orchestrator runner and injects an allowed-role list into the orchestrator task packet.
 - Bubble Tea, Bubbles, and Lip Gloss dependencies are present.
 - Bare `yard` starts the TUI. It starts without `yard serve`, reads through `internal/operator`, and includes raw provider/model chat, dashboard, chains, receipts, chain and receipt filtering, event follow, pause/cancel, receipt open, web-inspector target handoffs, built-in/custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, launch preview, and launch start flows.
-- TUI resume currently shows the foreground `yard chain resume <chain-id>` command instead of continuing runner execution inside the TUI.
-- Remaining product gaps are project tree file attachment and fuller browser inspector parity.
+- TUI resume is handled through `internal/operator` alongside pause/cancel.
+- Daily-driver final touches landed: actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and read-only browser inspector routes for chains and metrics. The TUI intentionally does not include a project file browser; code review stays in the operator's IDE.
 
 ## Non-Negotiables
 
@@ -32,7 +32,7 @@ Primary specs:
 - Do not create a second execution model for the TUI.
 - Do not have the TUI shell out to Cobra commands for core Yard operations.
 - Do not use local HTTP as the main TUI integration path. Prefer direct internal Go services.
-- Do not churn `yard.yaml`, `.yard/`, or `.brain/` outside tests.
+- Do not churn `yard.yaml`, `.yard/`, or local runtime state outside tests.
 - Keep `tidmouth run` as the internal engine entrypoint until the spawn contract is deliberately redesigned.
 - Prefer `make test` and `make build`. If running Go directly, use `-tags sqlite_fts5`.
 
@@ -78,14 +78,14 @@ internal/server
 10. Notice-only web-inspector target handoffs for selected chains and receipts. The TUI shows `yard serve` plus the target URL and does not start a server.
 11. Constrained orchestration through `internal/operator` and `internal/chainrun`: the TUI selects allowed roles, and the existing orchestrator path receives those role constraints in the compiled work packet.
 12. Built-in TUI launch presets for common role/mode shapes. These are generated from configured roles, preserve the current task/spec draft, and do not create durable preset state.
-13. Persistent current launch drafts. The TUI saves with `s`, loads with `L`, and stores the current draft in `.yard/yard.db` through `internal/operator`.
-14. Custom TUI launch presets. The TUI saves the current role/mode shape with `B`, stores it in `.yard/yard.db`, and cycles built-in plus custom presets with `b`.
+13. Persistent current launch drafts. The TUI saves with `s`, loads with `L`, and stores the current draft in Shunter project memory through `internal/operator`.
+14. Custom TUI launch presets. The TUI saves the current role/mode shape with `B`, stores it in Shunter project memory, and cycles built-in plus custom presets with `b`.
 15. Richer TUI launch role-list controls. The TUI appends roles with `n`, removes the last manual/constrained role with `-`, and clears the active role list with `ctrl+u`.
 16. Raw TUI chat screen. The TUI starts on a chat screen that calls the configured provider/model directly through `internal/operator`, persists the transcript as a conversation, and does not apply one of the 13 role prompts, tools, or chain orchestration.
 
 ## Recommended Next Order
 
-1. Project tree file attachment or browser inspector parity.
+1. Use dogfooding runs to choose the next narrow slice; likely candidates are deeper chain metrics, richer receipt rendering, or launch-history ergonomics.
 
 This order keeps new work on the shared runtime path and avoids rebuilding execution behavior inside the TUI.
 
@@ -283,7 +283,7 @@ Implementation notes:
 Acceptance:
 
 - `yard` starts without `yard serve`.
-- It can show chain summaries and chain detail from `.yard/yard.db`.
+- It can show chain summaries and chain detail from Shunter project memory.
 - It can display receipt content.
 - It exits cleanly on `q` and handles terminal resize.
 - It does not start chains or mutate state.
@@ -438,7 +438,7 @@ Add TUI actions:
 
 - follow selected chain - landed
 - pause selected chain - landed
-- resume selected chain - command handoff landed; in-TUI resume runner continuation remains deferred
+- resume selected chain - landed through the shared `internal/operator` control path
 - cancel selected chain - landed
 - open receipt in `$PAGER` - landed
 - open receipt in `$EDITOR` - landed
@@ -461,7 +461,7 @@ Acceptance:
 
 - TUI can follow a running chain and append new events.
 - TUI can request pause/cancel and the CLI sees the updated status.
-- TUI can resume a paused chain or surface the command needed if resume still requires foreground execution semantics.
+- TUI can resume a paused chain through the shared operator service.
 - Controls are not available for terminal chains.
 
 Verification:
@@ -751,24 +751,23 @@ Avoid:
 - launch workbench
 - browser-first command-center shell
 
-## Database Considerations
+## Project Memory Considerations
 
-Current `chains` schema does not include `launch_id` or `launch_mode`, even though newer specs mention those concepts. The persistent launch slices added `launches` and `launch_presets` tables for shared operator launch state, but they do not link started chains to launches yet.
+Current Shunter chain state does not include `launch_id` or `launch_mode`, even though newer specs mention those concepts. The persistent launch slices added Shunter `launches` and `launch_presets` state for shared operator launch state, but they do not link started chains to launches yet.
 
 When a later feature needs durable launch mode:
 
-- Add `launch_mode TEXT NOT NULL DEFAULT 'sir_topham_decides'` to `chains`.
-- Add compatibility upgrade for existing dev DBs.
-- Update `internal/db/schema.sql`, `internal/db/init.go`, sqlc queries, generated code, and data model tests.
-- Add `launch_id TEXT` only when broader launch history or cross-surface launch resumption actually needs chain-to-launch linkage.
+- Add a Shunter chain field with default launch mode `sir_topham_decides`.
+- Update the Shunter module, reducers, row mapping, and project-memory tests.
+- Add `launch_id` only when broader launch history or cross-surface launch resumption actually needs chain-to-launch linkage.
 
-The `launches` table currently stores the project-local current draft row. The `launch_presets` table stores durable custom role/mode shapes. Do not create `background_operations` tables until background operation tracking is being implemented.
+The Shunter launch state currently stores the project-local current draft row. The launch preset state stores durable custom role/mode shapes. Do not add background operation state until background operation tracking is being implemented.
 
 ## Test Strategy
 
 Use focused tests at each layer:
 
-- `internal/operator`: behavior tests with temp SQLite DB and fake process signaler.
+- `internal/operator`: behavior tests with temp Shunter project memory and fake process signaler.
 - `internal/chainrun`: mode branching, one-step execution, roster execution, status mapping.
 - `internal/spawn`: exported step runner still matches tool behavior.
 - `cmd/yard`: CLI flag parsing and output compatibility.
@@ -805,7 +804,7 @@ The original first slice is complete:
 
 Choose one narrow remaining slice:
 
-1. Project tree file attachment or browser inspector parity.
+1. Use dogfooding runs to choose the next narrow slice; likely candidates are deeper chain metrics, richer receipt rendering, or launch-history ergonomics.
 
 For any slice, keep core operations routed through `internal/operator`, avoid Cobra shell-outs from the TUI, and run `make test` plus `make build`.
 

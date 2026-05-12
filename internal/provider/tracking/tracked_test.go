@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
 )
@@ -163,6 +164,66 @@ func TestComplete_SuccessfulCall(t *testing.T) {
 	}
 }
 
+func TestProjectMemorySubCallStoreRecordsTrackedProviderCall(t *testing.T) {
+	ctx := context.Background()
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: t.TempDir(), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+	if err := backend.CreateConversation(ctx, projectmemory.CreateConversationArgs{
+		ID:          "conv-shunter",
+		ProjectID:   "project-1",
+		Title:       "Tracked Provider",
+		CreatedAtUS: uint64(time.Now().UTC().UnixMicro()),
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	resp := &provider.Response{
+		Model: "gpt-5.5",
+		Usage: provider.Usage{
+			InputTokens:         111,
+			OutputTokens:        22,
+			CacheReadTokens:     3,
+			CacheCreationTokens: 4,
+		},
+	}
+	tp := tracking.NewTrackedProvider(
+		&mockProvider{name: "codex", completeResp: resp},
+		tracking.NewProjectMemorySubCallStore(backend),
+		slog.Default(),
+	)
+	_, err = tp.Complete(ctx, &provider.Request{
+		Purpose:        "chat",
+		ConversationID: "conv-shunter",
+		TurnNumber:     2,
+		Iteration:      1,
+		Model:          "gpt-5.5",
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	subCalls, err := backend.ListSubCalls(ctx, "conv-shunter")
+	if err != nil {
+		t.Fatalf("ListSubCalls: %v", err)
+	}
+	if len(subCalls) != 1 {
+		t.Fatalf("subcalls = %+v, want one recorded call", subCalls)
+	}
+	got := subCalls[0]
+	if got.Provider != "codex" || got.Model != "gpt-5.5" || got.Purpose != "chat" || got.Status != "success" {
+		t.Fatalf("subcall metadata = %+v, want codex/gpt-5.5/chat/success", got)
+	}
+	if got.TokensIn != 111 || got.TokensOut != 22 || got.CacheReadTokens != 3 || got.CacheCreationTokens != 4 {
+		t.Fatalf("subcall tokens = %+v, want tracked usage", got)
+	}
+	if got.TurnNumber != 2 || got.Iteration != 1 {
+		t.Fatalf("subcall turn/iteration = %d/%d, want 2/1", got.TurnNumber, got.Iteration)
+	}
+}
+
 func TestComplete_FailedCall(t *testing.T) {
 	callErr := errors.New("connection timeout")
 	mp := &mockProvider{name: "anthropic", completeErr: callErr}
@@ -214,7 +275,7 @@ func TestComplete_FailedCall(t *testing.T) {
 func TestComplete_FailedCallWithPartialResponse(t *testing.T) {
 	partialResp := &provider.Response{
 		Usage: provider.Usage{
-			InputTokens: 500,
+			InputTokens:  500,
 			OutputTokens: 0,
 		},
 	}

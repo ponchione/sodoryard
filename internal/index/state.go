@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 type projectState struct {
@@ -19,6 +21,104 @@ type fileState struct {
 	FilePath   string
 	FileHash   string
 	ChunkCount int
+}
+
+type stateStore interface {
+	Load(ctx context.Context) (projectState, map[string]fileState, error)
+	Persist(ctx context.Context, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error
+	Close() error
+}
+
+func newStateStore(ctx context.Context, db *sql.DB, cfg *config.Config) (stateStore, error) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		backend, err := openProjectMemoryStateBackend(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &shunterStateStore{backend: backend}, nil
+	}
+	return &sqliteStateStore{db: db, projectID: cfg.ProjectRoot}, nil
+}
+
+type projectMemoryStateBackend interface {
+	ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error)
+	ListCodeFileIndexStates(context.Context) ([]projectmemory.CodeFileIndexState, error)
+	MarkCodeIndexClean(context.Context, string, time.Time, []projectmemory.CodeFileIndexArg, []string, string) error
+	Close() error
+}
+
+func openProjectMemoryStateBackend(ctx context.Context, cfg *config.Config) (projectMemoryStateBackend, error) {
+	if endpoint := os.Getenv(projectmemory.EnvMemoryEndpoint); endpoint != "" {
+		return projectmemory.DialBrainBackend(endpoint)
+	}
+	return projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+		DataDir:    cfg.Memory.ShunterDataDir,
+		DurableAck: cfg.Memory.DurableAck,
+	})
+}
+
+type sqliteStateStore struct {
+	db        *sql.DB
+	projectID string
+}
+
+func (s *sqliteStateStore) Load(ctx context.Context) (projectState, map[string]fileState, error) {
+	projectState, err := loadProjectState(ctx, s.db, s.projectID)
+	if err != nil {
+		return projectState, nil, err
+	}
+	fileStates, err := loadFileStates(ctx, s.db, s.projectID)
+	return projectState, fileStates, err
+}
+
+func (s *sqliteStateStore) Persist(ctx context.Context, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error {
+	return persistSQLiteState(ctx, s.db, s.projectID, revision, indexedAt, indexed, deletedFiles)
+}
+
+func (s *sqliteStateStore) Close() error { return nil }
+
+type shunterStateStore struct {
+	backend projectMemoryStateBackend
+}
+
+func (s *shunterStateStore) Load(ctx context.Context) (projectState, map[string]fileState, error) {
+	state, found, err := s.backend.ReadCodeIndexState(ctx)
+	if err != nil {
+		return projectState{}, nil, err
+	}
+	project := projectState{}
+	if found {
+		project.LastIndexedCommit = state.LastIndexedCommit
+		project.HasIndexedCommit = state.LastIndexedCommit != ""
+	}
+	files, err := s.backend.ListCodeFileIndexStates(ctx)
+	if err != nil {
+		return projectState{}, nil, err
+	}
+	out := make(map[string]fileState, len(files))
+	for _, file := range files {
+		out[file.FilePath] = fileState{FilePath: file.FilePath, FileHash: file.FileHash, ChunkCount: int(file.ChunkCount)}
+	}
+	return project, out, nil
+}
+
+func (s *shunterStateStore) Persist(ctx context.Context, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error {
+	files := make([]projectmemory.CodeFileIndexArg, 0, len(indexed))
+	for _, file := range indexed {
+		files = append(files, projectmemory.CodeFileIndexArg{
+			FilePath:   file.FilePath,
+			FileHash:   file.FileHash,
+			ChunkCount: uint32(file.ChunkCount),
+		})
+	}
+	return s.backend.MarkCodeIndexClean(ctx, revision, indexedAt, files, deletedFiles, `{"source":"yard_index"}`)
+}
+
+func (s *shunterStateStore) Close() error {
+	if s == nil || s.backend == nil {
+		return nil
+	}
+	return s.backend.Close()
 }
 
 func ensureProjectRecord(ctx context.Context, db *sql.DB, cfg *config.Config) error {

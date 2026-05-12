@@ -2,7 +2,6 @@ package cmdutil
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -87,13 +86,11 @@ func RunLLMLogs(ctx context.Context, out io.Writer, configPath string, tail int,
 
 func PrintLLMStatus(out io.Writer, status localservices.StackStatus, jsonOutput bool) error {
 	if jsonOutput {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		return enc.Encode(status)
+		return WriteJSON(out, status)
 	}
-	_, _ = fmt.Fprintf(out, "mode: %s\n", blankIfEmpty(status.Mode, "manual"))
-	_, _ = fmt.Fprintf(out, "compose_file: %s\n", blankIfEmpty(status.ComposeFile, "<unset>"))
-	_, _ = fmt.Fprintf(out, "project_dir: %s\n", blankIfEmpty(status.ProjectDir, "<unset>"))
+	_, _ = fmt.Fprintf(out, "mode: %s\n", valueOrDefault(status.Mode, "manual"))
+	_, _ = fmt.Fprintf(out, "compose_file: %s\n", valueOrDefault(status.ComposeFile, "<unset>"))
+	_, _ = fmt.Fprintf(out, "project_dir: %s\n", valueOrDefault(status.ProjectDir, "<unset>"))
 	_, _ = fmt.Fprintf(out, "docker_available: %t\n", status.DockerAvailable)
 	_, _ = fmt.Fprintf(out, "docker_daemon_available: %t\n", status.DaemonAvailable)
 	_, _ = fmt.Fprintf(out, "compose_available: %t\n", status.ComposeAvailable)
@@ -123,11 +120,4 @@ func PrintLLMStatus(out io.Writer, status localservices.StackStatus, jsonOutput 
 		_, _ = fmt.Fprintf(out, "remediation: %s\n", remediation)
 	}
 	return nil
-}
-
-func blankIfEmpty(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
 }

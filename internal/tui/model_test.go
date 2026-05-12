@@ -15,35 +15,45 @@ import (
 )
 
 type fakeOperator struct {
-	status         operator.RuntimeStatus
-	roles          []operator.AgentRoleSummary
-	chains         []operator.ChainSummary
-	details        map[string]operator.ChainDetail
-	receipts       map[string]operator.ReceiptView
-	eventsSince    map[string][]chain.Event
-	launchRequest  operator.LaunchRequest
-	startRequest   operator.LaunchRequest
-	savedDraft     operator.LaunchDraft
-	loadDraft      operator.LaunchDraft
-	loadDraftFound bool
-	customPresets  []operator.LaunchPreset
-	savedPreset    operator.LaunchPreset
-	chatRequest    operator.ChatTurnRequest
-	chatResult     operator.ChatTurnResult
-	chatWaitCancel bool
-	pausedChain    string
-	cancelledChain string
+	status          operator.RuntimeStatus
+	roles           []operator.AgentRoleSummary
+	chains          []operator.ChainSummary
+	details         map[string]operator.ChainDetail
+	receipts        map[string]operator.ReceiptView
+	approvals       map[string][]operator.ApprovalView
+	eventsSince     map[string][]chain.Event
+	launchRequest   operator.LaunchRequest
+	startRequest    operator.LaunchRequest
+	savedDraft      operator.LaunchDraft
+	loadDraft       operator.LaunchDraft
+	loadDraftFound  bool
+	customPresets   []operator.LaunchPreset
+	savedPreset     operator.LaunchPreset
+	chatRequest     operator.ChatTurnRequest
+	chatResult      operator.ChatTurnResult
+	chatWaitCancel  bool
+	pausedChain     string
+	resumedChain    string
+	cancelledChain  string
+	approvedChain   string
+	approvedID      string
+	approvedReason  string
+	deniedChain     string
+	deniedID        string
+	deniedReason    string
+	reasoningEffort string
 }
 
 func newFakeOperator() *fakeOperator {
 	started := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	return &fakeOperator{
 		status: operator.RuntimeStatus{
-			ProjectRoot: "/tmp/project",
-			ProjectName: "project",
-			Provider:    "codex",
-			Model:       "test-model",
-			AuthStatus:  "not checked",
+			ProjectRoot:     "/tmp/project",
+			ProjectName:     "project",
+			Provider:        "codex",
+			Model:           "test-model",
+			ReasoningEffort: "medium",
+			AuthStatus:      "ready (oauth, private_store)",
 			CodeIndex: operator.RuntimeIndexStatus{
 				Status:            "indexed",
 				LastIndexedAt:     "2026-05-01T12:00:00Z",
@@ -79,6 +89,7 @@ func newFakeOperator() *fakeOperator {
 			"chain-1:1": {ChainID: "chain-1", Step: "1", Path: "receipts/coder/chain-1-step-001.md", Content: "step receipt"},
 			"chain-2:":  {ChainID: "chain-2", Path: "receipts/orchestrator/chain-2.md", Content: "chain 2 receipt"},
 		},
+		approvals:   map[string][]operator.ApprovalView{},
 		eventsSince: map[string][]chain.Event{},
 		chatResult: operator.ChatTurnResult{
 			ConversationID: "chat-1",
@@ -96,6 +107,12 @@ func newFakeOperator() *fakeOperator {
 }
 
 func (f *fakeOperator) RuntimeStatus(context.Context) (operator.RuntimeStatus, error) {
+	return f.status, nil
+}
+
+func (f *fakeOperator) SetReasoningEffort(_ context.Context, effort string) (operator.RuntimeStatus, error) {
+	f.reasoningEffort = effort
+	f.status.ReasoningEffort = effort
 	return f.status, nil
 }
 
@@ -123,6 +140,39 @@ func (f *fakeOperator) ReadReceipt(_ context.Context, chainID string, step strin
 	return receipt, nil
 }
 
+func (f *fakeOperator) ListApprovals(_ context.Context, chainID string) ([]operator.ApprovalView, error) {
+	return append([]operator.ApprovalView(nil), f.approvals[chainID]...), nil
+}
+
+func (f *fakeOperator) ApproveChainApproval(_ context.Context, chainID string, approvalID string, reason string) (operator.ApprovalDecisionResult, error) {
+	f.approvedChain = chainID
+	f.approvedID = approvalID
+	f.approvedReason = reason
+	return f.recordFakeApprovalDecision(chainID, approvalID, chain.ApprovalStatusApproved, reason)
+}
+
+func (f *fakeOperator) DenyChainApproval(_ context.Context, chainID string, approvalID string, reason string) (operator.ApprovalDecisionResult, error) {
+	f.deniedChain = chainID
+	f.deniedID = approvalID
+	f.deniedReason = reason
+	return f.recordFakeApprovalDecision(chainID, approvalID, chain.ApprovalStatusDenied, reason)
+}
+
+func (f *fakeOperator) recordFakeApprovalDecision(chainID string, approvalID string, status string, reason string) (operator.ApprovalDecisionResult, error) {
+	approvals := f.approvals[chainID]
+	for i := range approvals {
+		if approvals[i].ID != approvalID {
+			continue
+		}
+		approvals[i].Status = status
+		approvals[i].DecisionReason = reason
+		approvals[i].DecidedBy = "operator"
+		f.approvals[chainID] = approvals
+		return operator.ApprovalDecisionResult{Approval: approvals[i], Message: "approval " + approvalID + " " + status}, nil
+	}
+	return operator.ApprovalDecisionResult{}, fmt.Errorf("approval %s not found", approvalID)
+}
+
 func (f *fakeOperator) ListEventsSince(_ context.Context, chainID string, afterID int64) ([]chain.Event, error) {
 	var events []chain.Event
 	if detail, ok := f.details[chainID]; ok {
@@ -141,6 +191,11 @@ func (f *fakeOperator) ListEventsSince(_ context.Context, chainID string, afterI
 func (f *fakeOperator) PauseChain(_ context.Context, chainID string) (operator.ControlResult, error) {
 	f.pausedChain = chainID
 	return operator.ControlResult{ChainID: chainID, Message: "pause requested"}, nil
+}
+
+func (f *fakeOperator) ResumeChain(_ context.Context, chainID string) (operator.ControlResult, error) {
+	f.resumedChain = chainID
+	return operator.ControlResult{ChainID: chainID, Message: "resumed"}, nil
 }
 
 func (f *fakeOperator) CancelChain(_ context.Context, chainID string) (operator.ControlResult, error) {
@@ -194,14 +249,32 @@ func (f *fakeOperator) ValidateLaunch(_ context.Context, req operator.LaunchRequ
 		}
 		compiled += "Allowed roles: " + strings.Join(allowedRoles, ", ")
 	}
-	return operator.LaunchPreview{
-		Mode:         req.Mode,
-		Role:         role,
-		AllowedRoles: allowedRoles,
-		Roster:       roster,
-		Summary:      summary,
-		CompiledTask: compiled,
-	}, nil
+	preview := operator.LaunchPreview{
+		Mode:              req.Mode,
+		Role:              role,
+		AllowedRoles:      allowedRoles,
+		Roster:            roster,
+		Summary:           summary,
+		CompiledTask:      compiled,
+		StepMaxTurns:      req.StepMaxTurns,
+		StepMaxTokens:     req.StepMaxTokens,
+		AllowApprovalWait: req.AllowApprovalWait,
+	}
+	if req.StepMaxTurns == 0 && req.StepMaxTokens == 0 {
+		switch req.Mode {
+		case operator.LaunchModeOneStep:
+			warningRole := strings.TrimSpace(req.Role)
+			if warningRole == "" {
+				warningRole = "coder"
+			}
+			preview.Warnings = []operator.RuntimeWarning{{Message: "single-step " + warningRole + " launch has no per-step turn/token caps"}}
+		case operator.LaunchModeManualRoster:
+			if len(roster) == 1 {
+				preview.Warnings = []operator.RuntimeWarning{{Message: "single-step " + roster[0] + " launch has no per-step turn/token caps"}}
+			}
+		}
+	}
+	return preview, nil
 }
 
 func (f *fakeOperator) StartChain(_ context.Context, req operator.LaunchRequest) (operator.StartResult, error) {
@@ -210,7 +283,11 @@ func (f *fakeOperator) StartChain(_ context.Context, req operator.LaunchRequest)
 	ch := operator.ChainSummary{ID: "chain-started", Status: "running", SourceTask: req.SourceTask, StartedAt: started, UpdatedAt: started}
 	f.chains = append([]operator.ChainSummary{ch}, f.chains...)
 	f.details["chain-started"] = operator.ChainDetail{Chain: chain.Chain{ID: "chain-started", Status: "running", SourceTask: req.SourceTask}}
-	return operator.StartResult{ChainID: "chain-started", Status: "running", Preview: operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started"}}, nil
+	preview := operator.LaunchPreview{Mode: req.Mode, Role: req.Role, Summary: "started", StepMaxTurns: req.StepMaxTurns, StepMaxTokens: req.StepMaxTokens, AllowApprovalWait: req.AllowApprovalWait}
+	if req.StepMaxTurns == 0 && req.StepMaxTokens == 0 {
+		preview.Warnings = []operator.RuntimeWarning{{Message: "single-step coder launch has no per-step turn/token caps"}}
+	}
+	return operator.StartResult{ChainID: "chain-started", Status: "running", Preview: preview}, nil
 }
 
 func (f *fakeOperator) SaveLaunchDraft(_ context.Context, req operator.LaunchRequest) (operator.LaunchDraft, error) {
@@ -314,6 +391,34 @@ func TestModelChatEditsAndSendsRawMessage(t *testing.T) {
 	}
 	if got.chatInputTokens != 8 || got.chatOutputTokens != 5 || got.chatStopReason != "stop" {
 		t.Fatalf("chat usage = %d/%d/%q, want 8/5/stop", got.chatInputTokens, got.chatOutputTokens, got.chatStopReason)
+	}
+}
+
+func TestModelChatSendsWhileGeneralRefreshIsLoading(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	got = updated.(Model)
+	got = typeChatText(t, got, "send during refresh")
+	got.loading = true
+	got.chatRunning = false
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("chat enter returned nil command while general loading was true")
+	}
+	if got.notice == "chat turn already running" {
+		t.Fatalf("notice = %q, want chat send allowed while only general loading", got.notice)
+	}
+
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.chatRequest.Message != "send during refresh" {
+		t.Fatalf("chat request message = %q, want send during refresh", fake.chatRequest.Message)
 	}
 }
 
@@ -447,6 +552,190 @@ func TestModelChatCancelRequestsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestSlashStatusRendersConsoleEntry(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, _ = runConsoleInput(t, got, "/status")
+	got.height = 80
+	view := got.View()
+	for _, want := range []string{"Yard Console", "YOU", "/status", "STATUS", "Readiness", "provider: codex", "code index: indexed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("slash status view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSlashNewClearsConsoleSessionAndFollow(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+	got.consoleEntries = []consoleEntry{{Kind: consoleEntryCommand, Title: "OLD", Body: "old output"}}
+	got.chatConversationID = "chat-1"
+	got.chatMessages = []operator.ChatMessage{{Role: "user", Content: "old chat"}}
+	got.chatInputTokens = 12
+	got.chatOutputTokens = 34
+	got.chatStopReason = "stop"
+	got.follow = true
+	got.followID = "chain-1"
+	got.followAfter = 99
+	got.followLog = []chain.Event{{ID: 99}}
+
+	got, _ = runConsoleInput(t, got, "/new")
+	view := got.View()
+	if got.chatConversationID != "" || len(got.chatMessages) != 0 || got.chatInputTokens != 0 || got.chatOutputTokens != 0 || got.chatStopReason != "" {
+		t.Fatalf("chat state after /new = id:%q messages:%d tokens:%d/%d stop:%q", got.chatConversationID, len(got.chatMessages), got.chatInputTokens, got.chatOutputTokens, got.chatStopReason)
+	}
+	if got.follow || got.followID != "" || got.followAfter != 0 || len(got.followLog) != 0 {
+		t.Fatalf("follow state after /new = follow:%v id:%q after:%d log:%d", got.follow, got.followID, got.followAfter, len(got.followLog))
+	}
+	if strings.Contains(view, "old output") || !strings.Contains(view, "NEW SESSION") || !strings.Contains(view, "New Yard console session") {
+		t.Fatalf("/new view did not clear old transcript or show new session:\n%s", view)
+	}
+}
+
+func TestSlashStartLaunchesChainAndFollows(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1, FollowInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, `/start --role coder --allow-approval-wait --task "ship console"`)
+	if cmd == nil {
+		t.Fatal("/start returned nil command")
+	}
+	updated, batch := got.Update(cmd())
+	got = updated.(Model)
+	if fake.startRequest.SourceTask != "ship console" || fake.startRequest.Role != "coder" || !fake.startRequest.AllowApprovalWait {
+		t.Fatalf("start request = %+v, want coder ship console", fake.startRequest)
+	}
+	if !got.follow || got.followID != "chain-started" {
+		t.Fatalf("follow after /start = %v %q, want chain-started", got.follow, got.followID)
+	}
+	view := got.View()
+	for _, want := range []string{"STARTED", "chain: chain-started", "summary: started", "Warnings:", "single-step coder launch has no per-step turn/token caps"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/start view missing %q:\n%s", want, view)
+		}
+	}
+	if batch == nil {
+		t.Fatal("/start result returned nil batch command")
+	}
+}
+
+func TestSlashEffortSetsReasoningEffort(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/effort xhigh")
+	if cmd == nil {
+		t.Fatal("/effort returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.reasoningEffort != "xhigh" || got.status.ReasoningEffort != "xhigh" {
+		t.Fatalf("reasoning effort = fake:%q status:%q, want xhigh", fake.reasoningEffort, got.status.ReasoningEffort)
+	}
+	view := got.View()
+	for _, want := range []string{"EFFORT", "reasoning effort set to xhigh"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/effort view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSlashReceiptLoadsContent(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/receipt chain-1 1")
+	if cmd == nil {
+		t.Fatal("/receipt returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"RECEIPT chain-1 step 1", "receipts/coder/chain-1-step-001.md", "step receipt"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/receipt view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSlashApprovalsListsAndDecides(t *testing.T) {
+	fake := newFakeOperator()
+	fake.approvals["chain-1"] = []operator.ApprovalView{{
+		ID:        "approval-1",
+		ChainID:   "chain-1",
+		ToolName:  "shell",
+		RiskLevel: "high",
+		Status:    chain.ApprovalStatusPending,
+		Reason:    "matched policy",
+	}}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/approvals chain-1")
+	if cmd == nil {
+		t.Fatal("/approvals returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	view := got.View()
+	for _, want := range []string{"APPROVALS chain-1", "approval-1 status=pending tool=shell risk=high reason=\"matched policy\""} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/approvals view missing %q:\n%s", want, view)
+		}
+	}
+
+	got, cmd = runConsoleInput(t, got, `/approve chain-1 approval-1 --reason "reviewed"`)
+	if cmd == nil {
+		t.Fatal("/approve returned nil command")
+	}
+	updated, batch := got.Update(cmd())
+	got = updated.(Model)
+	if fake.approvedChain != "chain-1" || fake.approvedID != "approval-1" || fake.approvedReason != "reviewed" {
+		t.Fatalf("approval decision = chain:%q id:%q reason:%q, want chain-1 approval-1 reviewed", fake.approvedChain, fake.approvedID, fake.approvedReason)
+	}
+	view = got.View()
+	for _, want := range []string{"APPROVE", "approval: approval-1", "status: approved", "reason: reviewed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/approve view missing %q:\n%s", want, view)
+		}
+	}
+	if batch == nil {
+		t.Fatal("/approve result returned nil refresh batch")
+	}
+}
+
+func TestConsoleViewportScrollsTranscript(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	model.screen = screenChat
+	model.height = 18
+	model.width = 100
+	model.resizeChatComposer()
+	model.resizeConsoleViewport()
+	for i := 0; i < 30; i++ {
+		model.appendConsoleEntry(consoleEntryCommand, fmt.Sprintf("ENTRY %02d", i), fmt.Sprintf("body %02d", i))
+	}
+	bottom := model.View()
+	if !strings.Contains(bottom, "ENTRY 29") {
+		t.Fatalf("bottom console view missing newest entry:\n%s", bottom)
+	}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	got := updated.(Model)
+	up := got.View()
+	if strings.Contains(up, "ENTRY 29") && !strings.Contains(up, "ENTRY 20") {
+		t.Fatalf("page up did not move transcript viewport:\n%s", up)
+	}
+}
+
 func typeChatText(t *testing.T, model Model, text string) Model {
 	t.Helper()
 	for _, r := range text {
@@ -458,6 +747,15 @@ func typeChatText(t *testing.T, model Model, text string) Model {
 		model = updated.(Model)
 	}
 	return model
+}
+
+func runConsoleInput(t *testing.T, model Model, input string) (Model, tea.Cmd) {
+	t.Helper()
+	model.screen = screenChat
+	model.chatEdit = true
+	model.chatComposer.SetValue(input)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	return updated.(Model), cmd
 }
 
 func TestModelMovesChainSelectionAndReloadsDetail(t *testing.T) {
@@ -791,6 +1089,115 @@ func TestModelLaunchSpecsEditAndPreview(t *testing.T) {
 	}
 }
 
+func TestModelLaunchStepCapsEditPreviewAndStart(t *testing.T) {
+	fake := newFakeOperator()
+	model := NewModel(fake, Options{RefreshInterval: -1, FollowInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "bounded probe"
+
+	for i := 0; i < 2; i++ {
+		updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyDown})
+		got = updated.(Model)
+	}
+	if got.launchField != launchFieldStepMaxTurns {
+		t.Fatalf("launchField = %v, want step max turns", got.launchField)
+	}
+	updated, _ := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if !got.launchEdit {
+		t.Fatal("step max turns edit mode not enabled")
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	got = updated.(Model)
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("turn cap edit did not request preview")
+	}
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	got = updated.(Model)
+	if got.launchField != launchFieldStepMaxTokens {
+		t.Fatalf("launchField = %v, want step max tokens", got.launchField)
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	for _, r := range []rune("50000") {
+		updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		got = updated.(Model)
+	}
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("token cap edit did not request preview")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	if fake.launchRequest.StepMaxTurns != 4 || fake.launchRequest.StepMaxTokens != 50000 {
+		t.Fatalf("preview step caps = turns %d tokens %d, want 4/50000", fake.launchRequest.StepMaxTurns, fake.launchRequest.StepMaxTokens)
+	}
+	if got.preview == nil || got.preview.StepMaxTurns != 4 || got.preview.StepMaxTokens != 50000 {
+		t.Fatalf("preview = %+v, want step caps", got.preview)
+	}
+	previewView := got.View()
+	for _, want := range []string{"turns: 4", "tokens: 50000", "step caps: turns=4 tokens=50000"} {
+		if !strings.Contains(previewView, want) {
+			t.Fatalf("capped preview view missing %q:\n%s", want, previewView)
+		}
+	}
+	if strings.Contains(previewView, "no per-step turn/token caps") {
+		t.Fatalf("capped preview showed uncapped warning:\n%s", previewView)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("start confirmation returned command before confirmation")
+	}
+	if got.confirm.Action != "launch" {
+		t.Fatalf("confirm action = %q, want launch", got.confirm.Action)
+	}
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("confirmed capped launch returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if fake.startRequest.StepMaxTurns != 4 || fake.startRequest.StepMaxTokens != 50000 {
+		t.Fatalf("start step caps = turns %d tokens %d, want 4/50000", fake.startRequest.StepMaxTurns, fake.startRequest.StepMaxTokens)
+	}
+	if strings.Contains(got.notice, "warnings:") {
+		t.Fatalf("capped launch notice = %q, want no warning text", got.notice)
+	}
+}
+
+func TestModelLaunchPreviewShowsUncappedWarning(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "small probe"
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("launch preview returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"turns: unset", "tokens: unset", "Warnings", "single-step coder launch has no per-step turn/token caps"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("uncapped preview view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestModelLaunchModeAndRoleControls(t *testing.T) {
 	fake := newFakeOperator()
 	model := NewModel(fake, Options{RefreshInterval: -1})
@@ -1042,6 +1449,8 @@ func TestModelSavesLaunchDraft(t *testing.T) {
 	got.launch.Mode = operator.LaunchModeConstrained
 	got.launch.Role = "coder"
 	got.launch.AllowedRoles = []string{"coder", "planner"}
+	got.launch.StepMaxTurns = 6
+	got.launch.StepMaxTokens = 70000
 
 	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	got = updated.(Model)
@@ -1057,6 +1466,9 @@ func TestModelSavesLaunchDraft(t *testing.T) {
 	if fake.savedDraft.Request.Mode != operator.LaunchModeConstrained || !reflect.DeepEqual(fake.savedDraft.Request.AllowedRoles, []string{"coder", "planner"}) {
 		t.Fatalf("saved draft launch shape = %+v, want constrained coder/planner", fake.savedDraft.Request)
 	}
+	if fake.savedDraft.Request.StepMaxTurns != 6 || fake.savedDraft.Request.StepMaxTokens != 70000 {
+		t.Fatalf("saved draft caps = turns %d tokens %d, want 6/70000", fake.savedDraft.Request.StepMaxTurns, fake.savedDraft.Request.StepMaxTokens)
+	}
 	if got.loading || got.err != nil || got.notice != "launch draft saved" {
 		t.Fatalf("post-save state loading=%t err=%v notice=%q", got.loading, got.err, got.notice)
 	}
@@ -1068,11 +1480,13 @@ func TestModelLoadsLaunchDraft(t *testing.T) {
 	fake.loadDraft = operator.LaunchDraft{
 		ID: "current",
 		Request: operator.LaunchRequest{
-			Mode:        operator.LaunchModeManualRoster,
-			Role:        "coder",
-			Roster:      []string{"planner", "coder"},
-			SourceTask:  "loaded draft",
-			SourceSpecs: []string{"specs/loaded.md"},
+			Mode:          operator.LaunchModeManualRoster,
+			Role:          "coder",
+			Roster:        []string{"planner", "coder"},
+			SourceTask:    "loaded draft",
+			SourceSpecs:   []string{"specs/loaded.md"},
+			StepMaxTurns:  8,
+			StepMaxTokens: 90000,
 		},
 		UpdatedAt: "2026-05-01T12:03:00Z",
 	}
@@ -1098,6 +1512,9 @@ func TestModelLoadsLaunchDraft(t *testing.T) {
 	if got.launch.Mode != operator.LaunchModeManualRoster || !reflect.DeepEqual(got.launch.Roster, []string{"planner", "coder"}) {
 		t.Fatalf("loaded launch state = %+v, want manual roster", got.launch)
 	}
+	if got.launch.StepMaxTurns != 8 || got.launch.StepMaxTokens != 90000 {
+		t.Fatalf("loaded launch caps = turns %d tokens %d, want 8/90000", got.launch.StepMaxTurns, got.launch.StepMaxTokens)
+	}
 	if got.preview != nil || got.previewReq != nil {
 		t.Fatalf("preview = %+v/%+v, want cleared after load", got.preview, got.previewReq)
 	}
@@ -1117,6 +1534,8 @@ func TestModelSavesCustomLaunchPreset(t *testing.T) {
 	got.launch.Mode = operator.LaunchModeManualRoster
 	got.launch.Role = "coder"
 	got.launch.Roster = []string{"planner", "coder"}
+	got.launch.StepMaxTurns = 4
+	got.launch.StepMaxTokens = 50000
 
 	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'B'}})
 	got = updated.(Model)
@@ -1135,6 +1554,9 @@ func TestModelSavesCustomLaunchPreset(t *testing.T) {
 	if !reflect.DeepEqual(fake.savedPreset.Request.Roster, []string{"planner", "coder"}) {
 		t.Fatalf("saved preset roster = %v, want planner/coder", fake.savedPreset.Request.Roster)
 	}
+	if fake.savedPreset.Request.StepMaxTurns != 4 || fake.savedPreset.Request.StepMaxTokens != 50000 {
+		t.Fatalf("saved preset caps = turns %d tokens %d, want 4/50000", fake.savedPreset.Request.StepMaxTurns, fake.savedPreset.Request.StepMaxTokens)
+	}
 	if got.notice != "launch preset saved: custom roster planner -> coder" || len(got.customPresets) != 1 {
 		t.Fatalf("post-save notice/customPresets = %q/%d", got.notice, len(got.customPresets))
 	}
@@ -1147,9 +1569,11 @@ func TestModelCyclesCustomLaunchPreset(t *testing.T) {
 			ID:   "custom:custom roster orchestrator -> coder",
 			Name: "custom roster orchestrator -> coder",
 			Request: operator.LaunchRequest{
-				Mode:   operator.LaunchModeManualRoster,
-				Role:   "orchestrator,coder",
-				Roster: []string{"orchestrator", "coder"},
+				Mode:          operator.LaunchModeManualRoster,
+				Role:          "orchestrator,coder",
+				Roster:        []string{"orchestrator", "coder"},
+				StepMaxTurns:  5,
+				StepMaxTokens: 60000,
 			},
 		},
 	}
@@ -1170,6 +1594,9 @@ func TestModelCyclesCustomLaunchPreset(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.launch.Roster, []string{"orchestrator", "coder"}) {
 		t.Fatalf("custom preset roster = %v, want orchestrator/coder", got.launch.Roster)
+	}
+	if got.launch.StepMaxTurns != 5 || got.launch.StepMaxTokens != 60000 {
+		t.Fatalf("custom preset caps = turns %d tokens %d, want 5/60000", got.launch.StepMaxTurns, got.launch.StepMaxTokens)
 	}
 	if got.launch.SourceTask != "preserved" || got.launch.SpecsText != "specs/preserved.md" {
 		t.Fatalf("draft text/specs = %q/%q, want preserved", got.launch.SourceTask, got.launch.SpecsText)
@@ -1238,11 +1665,54 @@ func TestModelStartsPreviewedLaunchAfterConfirmation(t *testing.T) {
 	if got.screen != screenChains || got.followID != "chain-started" || !got.follow {
 		t.Fatalf("post-start state = screen %v follow %t id %q, want chains following chain-started", got.screen, got.follow, got.followID)
 	}
-	if got.notice != "chain chain-started started" {
-		t.Fatalf("notice = %q, want chain started", got.notice)
+	if !strings.Contains(got.notice, "chain chain-started started") || !strings.Contains(got.notice, "warnings: single-step coder launch has no per-step turn/token caps") {
+		t.Fatalf("notice = %q, want chain started with warning", got.notice)
+	}
+	view := got.View()
+	if !strings.Contains(view, "warnings: single-step coder launch has no") || !strings.Contains(view, "per-step turn/token caps") {
+		t.Fatalf("post-start chains view missing launch warning:\n%s", view)
 	}
 	if cmd == nil {
 		t.Fatal("launch start did not trigger refresh/follow batch")
+	}
+}
+
+func TestModelDecliningLaunchConfirmationUsesLaunchNotice(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	loaded, _ := model.Update(model.refreshCmd()())
+	got := loaded.(Model)
+	got.screen = screenLaunch
+	got.launch.SourceTask = "ship launch"
+
+	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	got = updated.(Model)
+	if cmd == nil {
+		t.Fatal("preview returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("start confirmation returned command before confirmation")
+	}
+	if got.confirm.Action != "launch" {
+		t.Fatalf("confirm action = %q, want launch", got.confirm.Action)
+	}
+
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = updated.(Model)
+	if cmd != nil {
+		t.Fatal("declining launch returned command")
+	}
+	if got.notice != "launch aborted" {
+		t.Fatalf("notice = %q, want launch aborted", got.notice)
+	}
+	if got.confirm.Action != "" {
+		t.Fatalf("confirm = %+v, want cleared", got.confirm)
+	}
+	if len(got.consoleEntries) == 0 || got.consoleEntries[len(got.consoleEntries)-1].Body != "launch aborted" {
+		t.Fatalf("last console entry = %+v, want launch aborted", got.consoleEntries)
 	}
 }
 
@@ -1478,7 +1948,7 @@ func TestModelClearsStaleCancelConfirmation(t *testing.T) {
 	}
 }
 
-func TestModelShowsResumeCommandForPausedChain(t *testing.T) {
+func TestModelResumesPausedChain(t *testing.T) {
 	fake := newFakeOperator()
 	fake.chains[1].Status = "paused"
 	fake.details["chain-2"] = operator.ChainDetail{
@@ -1495,12 +1965,17 @@ func TestModelShowsResumeCommandForPausedChain(t *testing.T) {
 
 	updated, cmd := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
 	got = updated.(Model)
-	if cmd != nil {
-		t.Fatal("resume guidance returned command")
+	if cmd == nil {
+		t.Fatal("resume returned no command")
 	}
-	want := "resume in a foreground shell: yard chain resume chain-2"
-	if got.notice != want {
-		t.Fatalf("notice = %q, want %q", got.notice, want)
+	msg := cmd()
+	updated, _ = got.Update(msg)
+	got = updated.(Model)
+	if fake.resumedChain != "chain-2" {
+		t.Fatalf("resumedChain = %q, want chain-2", fake.resumedChain)
+	}
+	if got.notice != "chain chain-2 resumed" {
+		t.Fatalf("notice = %q, want resumed notice", got.notice)
 	}
 }
 

@@ -34,6 +34,7 @@ func TestYardChainPauseCommandPrintsRequestedMessage(t *testing.T) {
 		t.Fatalf("BuildOrchestratorRuntime returned error: %v", err)
 	}
 	defer rt.Cleanup()
+	setRuntimeMemoryEndpointEnv(t, rt)
 
 	chainID, err := rt.ChainStore.StartChain(ctx, chain.ChainSpec{ChainID: "pause-requested", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
 	if err != nil {
@@ -92,6 +93,7 @@ func TestYardChainCancelCommandPrintsRequestedMessage(t *testing.T) {
 		t.Fatalf("BuildOrchestratorRuntime returned error: %v", err)
 	}
 	defer rt.Cleanup()
+	setRuntimeMemoryEndpointEnv(t, rt)
 
 	chainID, err := rt.ChainStore.StartChain(ctx, chain.ChainSpec{ChainID: "cancel-requested", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
 	if err != nil {
@@ -145,9 +147,6 @@ func newYardChainControlTestDB(t *testing.T) *sql.DB {
 func writeYardChainControlConfig(t *testing.T, providerBaseURL string) (string, *appconfig.Config) {
 	t.Helper()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.brain) returned error: %v", err)
-	}
 	if err := os.WriteFile(filepath.Join(projectRoot, "orchestrator-prompt.md"), []byte("You are the orchestrator."), 0o644); err != nil {
 		t.Fatalf("WriteFile(prompt) returned error: %v", err)
 	}
@@ -180,4 +179,15 @@ func writeYardChainControlConfig(t *testing.T, providerBaseURL string) (string, 
 		t.Fatalf("Load(config) returned error: %v", err)
 	}
 	return configPath, cfg
+}
+
+func setRuntimeMemoryEndpointEnv(t *testing.T, rt *rtpkg.OrchestratorRuntime) {
+	t.Helper()
+	for _, entry := range rt.MemoryEndpointEnv {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			t.Fatalf("invalid memory endpoint env entry %q", entry)
+		}
+		t.Setenv(key, value)
+	}
 }

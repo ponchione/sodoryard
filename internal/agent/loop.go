@@ -14,11 +14,16 @@ import (
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/provider"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // ErrTurnCancelled is returned by RunTurn when the turn is cancelled via
 // Cancel() or context cancellation.
 var ErrTurnCancelled = errors.New("agent loop: turn cancelled")
+
+// ErrMaxIterationsExceeded is returned when a turn exhausts its iteration
+// budget without reaching a terminal assistant response.
+var ErrMaxIterationsExceeded = errors.New("agent loop: exceeded max iterations")
 
 const (
 	defaultMaxIterations                 = 50
@@ -30,8 +35,8 @@ const (
 	loopNudgeMessage = "You appear to be repeating the same action. Please try a different approach or explain what you're trying to accomplish."
 
 	// loopDirectiveMessage is injected as a user message on the final
-	// iteration (when tools are disabled) to guide the LLM toward a summary.
-	loopDirectiveMessage = "You have reached the maximum number of tool calls for this turn. Please provide a text summary of your progress and any remaining work."
+	// iteration to guide the LLM toward completion instead of exploration.
+	loopDirectiveMessage = "You have reached the maximum number of exploratory tool calls for this turn. Use any remaining completion tool only to write required brain documents or receipts; otherwise provide a final text summary of your progress and any remaining work."
 )
 
 // ContextAssembler is the narrow Layer 3 boundary the agent loop needs at turn
@@ -114,6 +119,7 @@ type AgentLoopDeps struct {
 	PromptBuilder       *PromptBuilder
 	EventSink           EventSink
 	CompressionEngine   CompressionEngine
+	TraceRecorder       tracepkg.Recorder
 	ToolResultStore     ToolResultStore
 	TitleGenerator      TitleGenerator
 	Config              AgentLoopConfig
@@ -136,6 +142,9 @@ type RunTurnRequest struct {
 	// router's default provider is used. Populated by the WebSocket
 	// model_override event.
 	Provider string `json:"provider,omitempty"`
+
+	ChainID string `json:"chain_id,omitempty"`
+	StepID  string `json:"step_id,omitempty"`
 }
 
 // TurnStartResult holds the frozen per-turn context package plus the history
@@ -158,6 +167,7 @@ type AgentLoop struct {
 	promptBuilder       *PromptBuilder
 	events              *MultiSink
 	compressionEngine   CompressionEngine
+	traceRecorder       tracepkg.Recorder
 	toolResultStore     ToolResultStore
 	toolOutputManager   *ToolOutputManager
 	titleGenerator      TitleGenerator
@@ -194,6 +204,7 @@ func NewAgentLoop(deps AgentLoopDeps) *AgentLoop {
 		promptBuilder:       deps.PromptBuilder,
 		events:              events,
 		compressionEngine:   deps.CompressionEngine,
+		traceRecorder:       deps.TraceRecorder,
 		toolResultStore:     deps.ToolResultStore,
 		titleGenerator:      deps.TitleGenerator,
 		cfg:                 withDefaultConfig(deps.Config),
@@ -284,6 +295,12 @@ func (l *AgentLoop) RunTurn(ctx stdctx.Context, req RunTurnRequest) (*TurnResult
 	if ctx == nil {
 		ctx = stdctx.Background()
 	}
+	ctx = tracepkg.ContextWithScope(ctx, tracepkg.Scope{
+		ConversationID: req.ConversationID,
+		ChainID:        req.ChainID,
+		StepID:         req.StepID,
+		TurnNumber:     req.TurnNumber,
+	})
 
 	prepared, err := l.prepareRunTurn(ctx, req)
 	if err != nil {
@@ -364,7 +381,7 @@ func (l *AgentLoop) PrepareTurnContext(
 // tryPreflightCompression checks whether the rough char-count estimate of
 // the built prompt exceeds the compression threshold. If so and a compression
 // engine is available, it runs compression and returns true.
-func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID string, req *provider.Request, modelContextLimit int) bool {
+func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID string, req *provider.Request, modelContextLimit int, iteration int) bool {
 	if l.compressionEngine == nil {
 		return false
 	}
@@ -380,7 +397,10 @@ func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID s
 	)
 	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
 
-	result, err := l.compressionEngine.Compress(ctx, conversationID, l.contextCfg)
+	result, err := l.runCompressionWithSpan(ctx, "preflight", conversationID, iteration, map[string]any{
+		"estimated_chars":     chars,
+		"model_context_limit": modelContextLimit,
+	})
 	if err != nil {
 		l.logger.Error("preflight compression failed",
 			"conversation_id", conversationID,
@@ -407,7 +427,7 @@ func (l *AgentLoop) tryPreflightCompression(ctx stdctx.Context, conversationID s
 // the API response exceeds the compression threshold. If so, compresses before
 // the next iteration. This is fire-and-forget — compression failure here is
 // logged but non-fatal.
-func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationID string, promptTokens int, modelContextLimit int) bool {
+func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationID string, promptTokens int, modelContextLimit int, iteration int) bool {
 	if l.compressionEngine == nil {
 		return false
 	}
@@ -422,7 +442,10 @@ func (l *AgentLoop) tryPostResponseCompression(ctx stdctx.Context, conversationI
 	)
 	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
 
-	result, err := l.compressionEngine.Compress(ctx, conversationID, l.contextCfg)
+	result, err := l.runCompressionWithSpan(ctx, "post_response", conversationID, iteration, map[string]any{
+		"prompt_tokens":       promptTokens,
+		"model_context_limit": modelContextLimit,
+	})
 	if err != nil {
 		l.logger.Error("post-response compression failed",
 			"conversation_id", conversationID,
@@ -463,6 +486,7 @@ func (l *AgentLoop) tryEmergencyCompression(
 	ctx stdctx.Context,
 	turnExec *turnExecution,
 	iteration int,
+	toolDefinitions []provider.ToolDefinition,
 	disableTools bool,
 ) (*streamResult, error) {
 	if l.compressionEngine == nil {
@@ -476,7 +500,9 @@ func (l *AgentLoop) tryEmergencyCompression(
 	)
 	l.emit(StatusEvent{State: StateCompressing, Time: l.now()})
 
-	compResult, compErr := l.compressionEngine.Compress(ctx, turnExec.req.ConversationID, l.contextCfg)
+	compResult, compErr := l.runCompressionWithSpan(ctx, "emergency", turnExec.req.ConversationID, iteration, map[string]any{
+		"model_context_limit": turnExec.req.ModelContextLimit,
+	})
 	if compErr != nil {
 		l.emit(ErrorEvent{
 			ErrorCode:   "compression_failed",
@@ -518,7 +544,7 @@ func (l *AgentLoop) tryEmergencyCompression(
 		emerProvider = turnExec.req.Provider
 	}
 
-	promptReq, err := l.promptBuilder.BuildPrompt(l.buildPromptConfig(turnExec.turnCtx.ContextPackage, history, turnExec.currentTurnMessages, emerProvider, emerModel, turnExec.req.ModelContextLimit, disableTools, turnExec.req.ConversationID, turnExec.req.TurnNumber, iteration))
+	promptReq, err := l.promptBuilder.BuildPrompt(l.buildPromptConfig(turnExec.turnCtx.ContextPackage, history, turnExec.currentTurnMessages, toolDefinitions, emerProvider, emerModel, turnExec.req.ModelContextLimit, disableTools, turnExec.req.ConversationID, turnExec.req.TurnNumber, iteration))
 	if err != nil {
 		return nil, fmt.Errorf("agent loop: rebuild prompt after emergency compression in iteration %d: %w", iteration, err)
 	}
@@ -532,13 +558,30 @@ func (l *AgentLoop) tryEmergencyCompression(
 	return result, nil
 }
 
-func (l *AgentLoop) buildPromptConfig(contextPackage *contextpkg.FullContextPackage, history []db.Message, currentTurnMessages []provider.Message, providerName, modelName string, contextLimit int, disableTools bool, conversationID string, turnNumber, iteration int) PromptConfig {
+func (l *AgentLoop) runCompressionWithSpan(ctx stdctx.Context, phase string, conversationID string, iteration int, attrs map[string]any) (*contextpkg.CompressionResult, error) {
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
+	attrs["phase"] = phase
+	spanCtx, span := tracepkg.StartSpan(ctx, l.traceRecorder, tracepkg.SpanStart{
+		Name:           "compression." + phase,
+		Kind:           tracepkg.KindCompression,
+		ConversationID: conversationID,
+		Iteration:      iteration,
+		Attributes:     attrs,
+	})
+	result, err := l.compressionEngine.Compress(spanCtx, conversationID, l.contextCfg)
+	span.End(stdctx.Background(), tracepkg.StatusForError(err), err)
+	return result, err
+}
+
+func (l *AgentLoop) buildPromptConfig(contextPackage *contextpkg.FullContextPackage, history []db.Message, currentTurnMessages []provider.Message, toolDefinitions []provider.ToolDefinition, providerName, modelName string, contextLimit int, disableTools bool, conversationID string, turnNumber, iteration int) PromptConfig {
 	return PromptConfig{
 		BasePrompt:                 l.cfg.BasePrompt,
 		ContextPackage:             contextPackage,
 		History:                    history,
 		CurrentTurnMessages:        currentTurnMessages,
-		ToolDefinitions:            l.toolDefinitions,
+		ToolDefinitions:            toolDefinitions,
 		ProviderName:               providerName,
 		ModelName:                  modelName,
 		ContextLimit:               contextLimit,
@@ -645,7 +688,7 @@ func withDefaultConfig(cfg AgentLoopConfig) AgentLoopConfig {
 		cfg.LoopDetectionThreshold = defaultLoopDetectThreshold
 	}
 	if cfg.BasePrompt == "" {
-		cfg.BasePrompt = "You are a helpful AI assistant. Use file tools for project-root files. Use brain_read and brain_search for vault-relative brain notes like notes/...md or .brain/notes/...md. Never use file_read or search_text for .brain paths or vault-relative note paths; those belong to brain tools. If the user asks about project brain notes, prefer brain_read/brain_search first and only use repo file/search tools for project-root code and files outside the vault. Do not double-check project-brain answers with search_text or file_read once a brain tool already found the relevant note or content."
+		cfg.BasePrompt = "You are a helpful AI assistant. Use file tools for project-root files. Use brain_read and brain_search for project-brain notes like notes/...md. Brain notes live in Shunter project memory, so do not use file_read or search_text to inspect them. If the user asks about project brain notes, prefer brain_read/brain_search first and only use repo file/search tools for project-root code and files outside the brain. Do not double-check project-brain answers with search_text or file_read once a brain tool already found the relevant note or content."
 	}
 	if cfg.MaxToolResultsPerMessageChars <= 0 {
 		cfg.MaxToolResultsPerMessageChars = defaultMaxToolResultsPerMessageChars

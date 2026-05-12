@@ -11,6 +11,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/chaininput"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
@@ -38,6 +39,13 @@ const (
 	ModeManualRoster Mode = "manual_roster"
 )
 
+const (
+	headlessExitSafetyLimit = 2
+	headlessExitEscalation  = 3
+	dryRunStatus            = "dry_run"
+	dryRunSummary           = "dry run: orchestrator not started"
+)
+
 type StepRunner interface {
 	RunStep(ctx context.Context, in spawnpkg.AgentStepInput) (spawnpkg.AgentStepResult, string, error)
 }
@@ -49,18 +57,21 @@ type StepRequest struct {
 }
 
 type Options struct {
-	ChainID          string
-	Mode             Mode
-	Role             string
-	AllowedRoles     []string
-	Roster           []StepRequest
-	SourceSpecs      []string
-	SourceTask       string
-	MaxSteps         int
-	MaxResolverLoops int
-	MaxDuration      time.Duration
-	TokenBudget      int
-	DryRun           bool
+	ChainID           string
+	Mode              Mode
+	Role              string
+	AllowedRoles      []string
+	Roster            []StepRequest
+	SourceSpecs       []string
+	SourceTask        string
+	MaxSteps          int
+	MaxResolverLoops  int
+	MaxDuration       time.Duration
+	TokenBudget       int
+	StepMaxTurns      int
+	StepMaxTokens     int
+	AllowApprovalWait bool
+	DryRun            bool
 
 	OnChainID         func(string)
 	OnMessage         func(string)
@@ -106,6 +117,7 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	if err != nil {
 		return nil, err
 	}
+	opts.Mode = mode
 	var roleCfg appconfig.AgentRoleConfig
 	var systemPrompt string
 	if mode == ModeOrchestrator || mode == ModeConstrained {
@@ -151,7 +163,12 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 		opts.OnChainID(chainID)
 	}
 	if opts.DryRun {
-		return &Result{ChainID: chainID, Status: "running"}, nil
+		if isNew {
+			if err := markDryRunChain(ctx, rt.ChainStore, chainID); err != nil {
+				return nil, err
+			}
+		}
+		return &Result{ChainID: chainID, Status: dryRunStatus}, nil
 	}
 
 	executionRegistered := false
@@ -187,6 +204,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 	if err != nil {
 		return nil, err
 	}
+	configureToolRegistryApprovalWait(registry, opts.AllowApprovalWait)
 	conv, err := rt.ConversationManager.Create(ctx, cfg.ProjectRoot, conversation.WithProvider(cfg.Routing.Default.Provider), conversation.WithModel(cfg.Routing.Default.Model))
 	if err != nil {
 		return nil, fmt.Errorf("create conversation: %w", err)
@@ -195,7 +213,28 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 	if err != nil {
 		return nil, err
 	}
-	loop := deps.NewTurnRunner(agent.AgentLoopDeps{ContextAssembler: rt.ContextAssembler, ConversationManager: rt.ConversationManager, ProviderRouter: rt.ProviderRouter, ToolExecutor: &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot}, ToolDefinitions: registry.ToolDefinitions(), PromptBuilder: agent.NewPromptBuilder(rt.Logger), TitleGenerator: conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger), Config: rtpkg.BuildAgentLoopConfig(cfg, roleCfg.MaxTurns, systemPrompt), Logger: rt.Logger})
+	runCtx := ctx
+	cancelRun := func() {}
+	if timeout := roleCfg.Timeout.Duration(); timeout > 0 {
+		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
+	} else if opts.AllowApprovalWait {
+		runCtx, cancelRun = context.WithCancel(ctx)
+	}
+	defer cancelRun()
+	loop := deps.NewTurnRunner(agent.AgentLoopDeps{
+		ContextAssembler:    rt.ContextAssembler,
+		ConversationManager: rt.ConversationManager,
+		ProviderRouter:      rt.ProviderRouter,
+		ToolExecutor:        &rtpkg.RegistryToolExecutor{Registry: registry, ProjectRoot: cfg.ProjectRoot, TraceRecorder: rt.TraceRecorder},
+		ToolDefinitions:     registry.ToolDefinitions(),
+		PromptBuilder:       agent.NewPromptBuilder(rt.Logger),
+		TitleGenerator:      conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, rt.Logger),
+		EventSink:           newApprovalEventSink(ctx, rt.ChainStore, chainID, approvalEventSinkOptions{Wait: opts.AllowApprovalWait, Cancel: cancelRun}),
+		CompressionEngine:   rt.CompressionEngine,
+		TraceRecorder:       rt.TraceRecorder,
+		Config:              rtpkg.BuildAgentLoopConfig(cfg, roleCfg.MaxTurns, systemPrompt),
+		Logger:              rt.Logger,
+	})
 	defer loop.Close()
 
 	steps, err := rt.ChainStore.ListSteps(ctx, chainID)
@@ -203,13 +242,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 		return nil, err
 	}
 	turnTask := buildTask(opts, chainID, existingReceiptPaths(steps))
-	runCtx := ctx
-	cancelRun := func() {}
-	if timeout := roleCfg.Timeout.Duration(); timeout > 0 {
-		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
-	}
-	defer cancelRun()
-	if _, err := loop.RunTurn(runCtx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit}); err != nil {
+	if _, err := loop.RunTurn(runCtx, agent.RunTurnRequest{ConversationID: conv.ID, TurnNumber: 1, Message: turnTask, ModelContextLimit: limit, ChainID: chainID}); err != nil {
 		if handled, handleErr := handleInterruption(runCtx, rt.ChainStore, chainID, err, opts.OnMessage); handled || handleErr != nil {
 			if handleErr != nil {
 				return nil, handleErr
@@ -243,7 +276,8 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 
 func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
-	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false})
+	configureStepRunnerApprovalWait(runner, opts.AllowApprovalWait)
+	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
 	if err != nil {
 		if errors.Is(err, tool.ErrChainComplete) {
 			cleanupCtx := context.WithoutCancel(ctx)
@@ -272,14 +306,18 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 	if stored.Status == "running" {
 		status := oneStepTerminalStatus(stepResult)
 		summary := fmt.Sprintf("one-step chain %s finished with verdict %s", chainID, stepResult.Verdict)
-		if status == "failed" && stepResult.Verdict == receipt.VerdictSafetyLimit {
-			_ = rt.ChainStore.LogEvent(ctx, chainID, stepResult.StepID, chain.EventSafetyLimitHit, map[string]any{"role": opts.Role, "limit": "receipt verdict safety_limit"})
+		if status == "failed" && stepResultSafetyLimited(stepResult) {
+			limit := "receipt verdict safety_limit"
+			if stepResult.Verdict != receipt.VerdictSafetyLimit {
+				limit = "headless exit safety_limit"
+			}
+			_ = rt.ChainStore.LogEvent(ctx, chainID, stepResult.StepID, chain.EventSafetyLimitHit, map[string]any{"role": opts.Role, "limit": limit, "exit_code": stepResult.ExitCode})
 		}
 		if err := chain.ApplyTerminalChainClosure(ctx, rt.ChainStore, chainID, chain.TerminalChainClosure{
 			Status:    status,
 			EventType: chain.EventChainCompleted,
 			Summary:   &summary,
-			Extra:     map[string]any{"summary": summary, "role": opts.Role, "verdict": stepResult.Verdict},
+			Extra:     chainCompletionEventPayload(opts, map[string]any{"summary": summary, "mode": string(ModeOneStep), "role": opts.Role, "verdict": stepResult.Verdict}),
 		}); err != nil {
 			return nil, err
 		}
@@ -289,6 +327,7 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 
 func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
+	configureStepRunnerApprovalWait(runner, opts.AllowApprovalWait)
 	receiptPaths := existingReceiptPaths(mustListSteps(ctx, rt.ChainStore, chainID))
 	results := make([]spawnpkg.AgentStepResult, 0, len(opts.Roster))
 	for i, step := range opts.Roster {
@@ -300,7 +339,7 @@ func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opt
 		if taskContext == "" {
 			taskContext = manualRosterTaskContext(chainID, i+1, step.Role)
 		}
-		stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: step.Role, Task: task, TaskContext: taskContext, ReindexBefore: step.ReindexBefore})
+		stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: step.Role, Task: task, TaskContext: taskContext, ReindexBefore: step.ReindexBefore, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
 		if err != nil {
 			if errors.Is(err, tool.ErrChainComplete) {
 				cleanupCtx := context.WithoutCancel(ctx)
@@ -327,10 +366,31 @@ func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opt
 			return result, err
 		}
 		if shouldStopManualRoster(stepResult) {
-			return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+			return closeManualRoster(ctx, rt.ChainStore, chainID, opts, results, watch, opts.WatchFlushTimeout)
 		}
 	}
-	return closeManualRoster(ctx, rt.ChainStore, chainID, results, watch, opts.WatchFlushTimeout)
+	return closeManualRoster(ctx, rt.ChainStore, chainID, opts, results, watch, opts.WatchFlushTimeout)
+}
+
+type approvalWaitConfigurable interface {
+	SetApprovalWait(bool)
+}
+
+func configureStepRunnerApprovalWait(runner StepRunner, allow bool) {
+	if configurable, ok := runner.(approvalWaitConfigurable); ok {
+		configurable.SetApprovalWait(allow)
+	}
+}
+
+func configureToolRegistryApprovalWait(registry *tool.Registry, allow bool) {
+	if registry == nil {
+		return
+	}
+	for _, registered := range registry.All() {
+		if configurable, ok := registered.(approvalWaitConfigurable); ok {
+			configurable.SetApprovalWait(allow)
+		}
+	}
 }
 
 func withDefaultDeps(deps Deps) Deps {
@@ -346,12 +406,14 @@ func withDefaultDeps(deps Deps) Deps {
 	if deps.NewStepRunner == nil {
 		deps.NewStepRunner = func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
 			return spawnpkg.NewSpawnAgentTool(spawnpkg.SpawnAgentDeps{
-				Store:        rt.ChainStore,
-				Backend:      rt.BrainBackend,
-				Config:       rt.Config,
-				ChainID:      chainID,
-				EngineBinary: "tidmouth",
-				ProjectRoot:  rt.Config.ProjectRoot,
+				Store:         rt.ChainStore,
+				Backend:       rt.BrainBackend,
+				Config:        rt.Config,
+				ChainID:       chainID,
+				EngineBinary:  "tidmouth",
+				ProjectRoot:   rt.Config.ProjectRoot,
+				SubprocessEnv: rt.MemoryEndpointEnv,
+				TraceRecorder: rt.TraceRecorder,
 			})
 		}
 	}
@@ -412,9 +474,9 @@ func resolveStepRoles(cfg *appconfig.Config, opts Options, mode Mode) (Options, 
 }
 
 func resolveAllowedRoles(cfg *appconfig.Config, opts Options) (Options, error) {
-	roles := normalizeRoleNames(opts.AllowedRoles)
+	roles := chaininput.NormalizeRoleSet(opts.AllowedRoles)
 	if len(roles) == 0 && strings.TrimSpace(opts.Role) != "" && opts.Role != "orchestrator" {
-		roles = normalizeRoleNames(strings.Split(opts.Role, ","))
+		roles = chaininput.ParseRoleSet(opts.Role)
 	}
 	if len(roles) == 0 {
 		return opts, fmt.Errorf("chain start: constrained orchestration requires at least one allowed role")
@@ -444,6 +506,12 @@ func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID s
 			return opts, false, false, err
 		}
 		resumed = existing.Status == "paused"
+		if opts.DryRun {
+			return opts, isNew, false, nil
+		}
+		if existing.Status == chain.StatusWaitingApproval {
+			opts.AllowApprovalWait = true
+		}
 		if err := prepareExistingChainForExecution(ctx, store, existing); err != nil {
 			return opts, false, false, err
 		}
@@ -452,12 +520,28 @@ func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID s
 	if _, err := store.StartChain(ctx, chainSpecFromOptions(chainID, opts)); err != nil {
 		return opts, false, false, err
 	}
-	payload := map[string]any{"specs": opts.SourceSpecs, "task": opts.SourceTask, "mode": string(opts.Mode)}
+	payload := chainLaunchEventPayload(opts)
+	if opts.DryRun {
+		payload["dry_run"] = true
+	}
 	if len(opts.AllowedRoles) > 0 {
 		payload["allowed_roles"] = opts.AllowedRoles
 	}
 	_ = store.LogEvent(ctx, chainID, "", chain.EventChainStarted, payload)
 	return opts, isNew, resumed, nil
+}
+
+func markDryRunChain(ctx context.Context, store *chain.Store, chainID string) error {
+	summary := dryRunSummary
+	return chain.ApplyTerminalChainClosure(ctx, store, chainID, chain.TerminalChainClosure{
+		Status:    dryRunStatus,
+		EventType: chain.EventChainCompleted,
+		Summary:   &summary,
+		Extra: map[string]any{
+			"dry_run": true,
+			"summary": summary,
+		},
+	})
 }
 
 func resolveExistingChain(ctx context.Context, store *chain.Store, chainID string) (*chain.Chain, error) {
@@ -500,6 +584,15 @@ func prepareExistingChainForExecution(ctx context.Context, store *chain.Store, e
 	}
 	if !resumeReady {
 		return nil
+	}
+	if existing.Status == chain.StatusWaitingApproval {
+		pending, err := store.PendingApprovals(ctx, existing.ID)
+		if err != nil {
+			return err
+		}
+		if len(pending) > 0 {
+			return fmt.Errorf("chain %s has %d pending approval(s); approve or deny them before resuming", existing.ID, len(pending))
+		}
 	}
 	if err := store.SetChainStatus(ctx, existing.ID, "running"); err != nil {
 		return err
@@ -545,6 +638,12 @@ func handleInterruption(ctx context.Context, store *chain.Store, chainID string,
 			return true, err
 		}
 		emit(onMessage, "chain %s paused\n", chainID)
+		return true, nil
+	case chain.StatusWaitingApproval:
+		if err := chain.CloseTerminalizedActiveExecution(cleanupCtx, store, chainID, ch.Status, nil); err != nil {
+			return true, err
+		}
+		emit(onMessage, "chain %s waiting for approval\n", chainID)
 		return true, nil
 	case "running":
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -622,6 +721,25 @@ func chainSpecFromOptions(chainID string, opts Options) chain.ChainSpec {
 	return chain.ChainSpec{ChainID: chainID, SourceSpecs: append([]string(nil), opts.SourceSpecs...), SourceTask: strings.TrimSpace(opts.SourceTask), MaxSteps: opts.MaxSteps, MaxResolverLoops: opts.MaxResolverLoops, MaxDuration: opts.MaxDuration, TokenBudget: opts.TokenBudget}
 }
 
+func chainLaunchEventPayload(opts Options) map[string]any {
+	return map[string]any{
+		"specs":           opts.SourceSpecs,
+		"task":            opts.SourceTask,
+		"mode":            string(opts.Mode),
+		"step_max_turns":  opts.StepMaxTurns,
+		"step_max_tokens": opts.StepMaxTokens,
+	}
+}
+
+func chainCompletionEventPayload(opts Options, extra map[string]any) map[string]any {
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extra["step_max_turns"] = opts.StepMaxTurns
+	extra["step_max_tokens"] = opts.StepMaxTokens
+	return extra
+}
+
 func buildTask(opts Options, chainID string, receiptPaths []string) string {
 	history := "No existing receipt paths were found for this chain yet."
 	if len(receiptPaths) > 0 {
@@ -683,6 +801,12 @@ func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
 	if result.Status == "failed" {
 		return "failed"
 	}
+	if stepResultSafetyLimited(result) {
+		return "failed"
+	}
+	if result.ExitCode == headlessExitEscalation {
+		return "partial"
+	}
 	switch result.Verdict {
 	case receipt.VerdictCompleted, receipt.VerdictCompletedWithConcerns, receipt.VerdictCompletedNoReceipt:
 		return "completed"
@@ -695,8 +819,12 @@ func oneStepTerminalStatus(result spawnpkg.AgentStepResult) string {
 	}
 }
 
+func stepResultSafetyLimited(result spawnpkg.AgentStepResult) bool {
+	return result.Verdict == receipt.VerdictSafetyLimit || result.ExitCode == headlessExitSafetyLimit
+}
+
 func shouldStopManualRoster(result spawnpkg.AgentStepResult) bool {
-	return !manualRosterVerdictCanContinue(result) || result.Status == "failed"
+	return oneStepTerminalStatus(result) != "completed" || !manualRosterVerdictCanContinue(result)
 }
 
 func manualRosterVerdictCanContinue(result spawnpkg.AgentStepResult) bool {
@@ -728,8 +856,13 @@ func manualRosterTerminalStatus(results []spawnpkg.AgentStepResult) string {
 	return status
 }
 
-func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, results []spawnpkg.AgentStepResult, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
+func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, opts Options, results []spawnpkg.AgentStepResult, watch WatchHandle, watchTimeout time.Duration) (*Result, error) {
 	status := manualRosterTerminalStatus(results)
+	for _, result := range results {
+		if stepResultSafetyLimited(result) {
+			_ = store.LogEvent(ctx, chainID, result.StepID, chain.EventSafetyLimitHit, map[string]any{"limit": "headless exit safety_limit", "exit_code": result.ExitCode, "step": result.Sequence})
+		}
+	}
 	summary := manualRosterSummary(chainID, status, results)
 	extra := map[string]any{"summary": summary, "mode": string(ModeManualRoster), "steps": len(results)}
 	if len(results) > 0 {
@@ -740,7 +873,7 @@ func closeManualRoster(ctx context.Context, store *chain.Store, chainID string, 
 		Status:    status,
 		EventType: chain.EventChainCompleted,
 		Summary:   &summary,
-		Extra:     extra,
+		Extra:     chainCompletionEventPayload(opts, extra),
 	}); err != nil {
 		return nil, err
 	}
@@ -770,24 +903,6 @@ func existingReceiptPaths(steps []chain.Step) []string {
 		paths = append(paths, path)
 	}
 	return paths
-}
-
-func normalizeRoleNames(roles []string) []string {
-	normalized := make([]string, 0, len(roles))
-	seen := make(map[string]struct{}, len(roles))
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
-		key := strings.ToLower(role)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		normalized = append(normalized, role)
-	}
-	return normalized
 }
 
 func exitCode(status string, events []chain.Event) int {

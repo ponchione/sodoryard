@@ -10,6 +10,9 @@ type styles struct {
 	navActive      lipgloss.Style
 	title          lipgloss.Style
 	subtle         lipgloss.Style
+	success        lipgloss.Style
+	warning        lipgloss.Style
+	info           lipgloss.Style
 	selected       lipgloss.Style
 	error          lipgloss.Style
 	footer         lipgloss.Style
@@ -35,6 +38,9 @@ func newStyles() styles {
 		navActive:      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("28")).Padding(0, 1),
 		title:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42")),
 		subtle:         lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
+		success:        lipgloss.NewStyle().Foreground(lipgloss.Color("42")),
+		warning:        lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
+		info:           lipgloss.NewStyle().Foreground(lipgloss.Color("81")),
 		selected:       lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("58")),
 		error:          lipgloss.NewStyle().Foreground(lipgloss.Color("196")),
 		footer:         lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Padding(0, 1),

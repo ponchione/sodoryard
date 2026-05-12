@@ -7,11 +7,13 @@ import (
 )
 
 type launchPreset struct {
-	Name         string
-	Mode         operator.LaunchMode
-	Role         string
-	AllowedRoles []string
-	Roster       []string
+	Name          string
+	Mode          operator.LaunchMode
+	Role          string
+	AllowedRoles  []string
+	Roster        []string
+	StepMaxTurns  int
+	StepMaxTokens int
 }
 
 func availableLaunchPresets(roles []operator.AgentRoleSummary, customPresets []operator.LaunchPreset) []launchPreset {
@@ -38,11 +40,13 @@ func availableLaunchPresets(roles []operator.AgentRoleSummary, customPresets []o
 		}
 		req := custom.Request
 		presets = append(presets, launchPreset{
-			Name:         custom.Name,
-			Mode:         req.Mode,
-			Role:         req.Role,
-			AllowedRoles: append([]string(nil), req.AllowedRoles...),
-			Roster:       append([]string(nil), req.Roster...),
+			Name:          custom.Name,
+			Mode:          req.Mode,
+			Role:          req.Role,
+			AllowedRoles:  append([]string(nil), req.AllowedRoles...),
+			Roster:        append([]string(nil), req.Roster...),
+			StepMaxTurns:  req.StepMaxTurns,
+			StepMaxTokens: req.StepMaxTokens,
 		})
 	}
 	return presets
@@ -76,6 +80,9 @@ func (m Model) activeLaunchPresetName() string {
 
 func launchDraftMatchesPreset(draft launchDraft, preset launchPreset) bool {
 	if draft.Mode != preset.Mode || draft.Role != preset.Role {
+		return false
+	}
+	if draft.StepMaxTurns != preset.StepMaxTurns || draft.StepMaxTokens != preset.StepMaxTokens {
 		return false
 	}
 	if !sameStringSlice(draft.Roster, preset.Roster) {
@@ -121,6 +128,8 @@ func (m *Model) applyLaunchPreset(preset launchPreset) {
 	m.launch.Role = preset.Role
 	m.launch.AllowedRoles = append([]string(nil), preset.AllowedRoles...)
 	m.launch.Roster = append([]string(nil), preset.Roster...)
+	m.launch.StepMaxTurns = preset.StepMaxTurns
+	m.launch.StepMaxTokens = preset.StepMaxTokens
 	m.notice = "launch preset set to " + preset.Name
 	m.clearLaunchPreview()
 	m.err = nil

@@ -40,7 +40,7 @@ func TestNewOpenAIProvider_DirectAPIKey(t *testing.T) {
 }
 
 func TestNewOpenAIProvider_APIKeyFromEnv(t *testing.T) {
-	const envVar = "SIRTOPHAM_TEST_OPENAI_KEY"
+	const envVar = "SODORYARD_TEST_OPENAI_KEY"
 	os.Setenv(envVar, "sk-from-env")
 	defer os.Unsetenv(envVar)
 
@@ -60,7 +60,7 @@ func TestNewOpenAIProvider_APIKeyFromEnv(t *testing.T) {
 }
 
 func TestNewOpenAIProvider_APIKeyEnvUnset(t *testing.T) {
-	const envVar = "SIRTOPHAM_TEST_OPENAI_UNSET_KEY"
+	const envVar = "SODORYARD_TEST_OPENAI_UNSET_KEY"
 	os.Unsetenv(envVar)
 
 	_, err := NewOpenAIProvider(OpenAIConfig{
@@ -91,6 +91,24 @@ func TestNewOpenAIProvider_KeylessLocalMode(t *testing.T) {
 	}
 	if p.apiKey != "" {
 		t.Errorf("expected empty apiKey, got %q", p.apiKey)
+	}
+}
+
+func TestNewOpenAIProvider_DefaultHTTPClientHasNoTotalStreamTimeout(t *testing.T) {
+	p, err := NewOpenAIProvider(OpenAIConfig{
+		Name:          "local",
+		BaseURL:       "http://localhost:8080/v1",
+		Model:         "test-model",
+		ContextLength: 4096,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.client == nil {
+		t.Fatal("client is nil")
+	}
+	if p.client.Timeout != 0 {
+		t.Fatalf("client.Timeout = %s, want 0 so long streams use request context", p.client.Timeout)
 	}
 }
 

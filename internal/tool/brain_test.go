@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
+	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/config"
 	appcontext "github.com/ponchione/sodoryard/internal/context"
 	appdb "github.com/ponchione/sodoryard/internal/db"
@@ -285,7 +287,7 @@ func TestBrainSearchNoResults(t *testing.T) {
 	}
 }
 
-func TestBrainToolDefinitionsSteerVaultNotePathsToBrainTools(t *testing.T) {
+func TestBrainToolDefinitionsSteerBrainNotePathsToBrainTools(t *testing.T) {
 	reg := NewRegistry()
 	RegisterBrainTools(reg, newFakeBackend(map[string]string{}), brainConfig(true))
 
@@ -299,7 +301,7 @@ func TestBrainToolDefinitionsSteerVaultNotePathsToBrainTools(t *testing.T) {
 	if !ok {
 		t.Fatal("brain_read definition missing")
 	}
-	for _, want := range []string{"notes/...md", "file_read", "vault-relative", ".brain paths"} {
+	for _, want := range []string{"notes/...md", "file_read", "brain note paths"} {
 		if !strings.Contains(brainRead.Description, want) {
 			t.Fatalf("brain_read description = %q, want substring %q", brainRead.Description, want)
 		}
@@ -309,7 +311,7 @@ func TestBrainToolDefinitionsSteerVaultNotePathsToBrainTools(t *testing.T) {
 	if !ok {
 		t.Fatal("brain_search definition missing")
 	}
-	for _, want := range []string{"notes/...md", "search_text", "brain_read", ".brain paths", "do not double-check a successful brain hit"} {
+	for _, want := range []string{"notes/...md", "search_text", "brain_read", "brain note paths", "do not double-check a successful brain hit"} {
 		if !strings.Contains(brainSearch.Description, want) {
 			t.Fatalf("brain_search description = %q, want substring %q", brainSearch.Description, want)
 		}
@@ -703,6 +705,24 @@ func TestBrainReadSuccess(t *testing.T) {
 	}
 }
 
+func TestBrainReadRejectsDotBrainPath(t *testing.T) {
+	backend := newFakeBackend(map[string]string{
+		"notes/design.md": "# Design\n",
+	})
+	tool := NewBrainRead(backend, brainConfig(true))
+
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":".brain/notes/design.md"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for .brain-prefixed path")
+	}
+	if !strings.Contains(result.Content, ".brain paths are not supported") {
+		t.Fatalf("content = %q, want .brain rejection", result.Content)
+	}
+}
+
 func TestBrainReadNotFound(t *testing.T) {
 	docs := map[string]string{
 		"arch/other.md": "content",
@@ -881,6 +901,26 @@ func TestBrainWriteSuccess(t *testing.T) {
 	}
 }
 
+func TestBrainWriteShunterSkipsFileBackedStaleState(t *testing.T) {
+	projectRoot := t.TempDir()
+	backend := newFakeBackend(map[string]string{})
+	cfg := brainConfig(true)
+	cfg.Backend = "shunter"
+	cfg.LogBrainOperations = false
+	tool := NewBrainWrite(backend, cfg)
+
+	result, err := tool.Execute(context.Background(), projectRoot, json.RawMessage(`{"path":"notes/shunter.md","content":"---\ntags: [memory]\n---\n# Shunter"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist for Shunter backend", err)
+	}
+}
+
 func TestBrainWriteAppendsOperationLogWithSession(t *testing.T) {
 	backend := newFakeBackend(map[string]string{})
 	tool := NewBrainWrite(backend, brainConfig(true))
@@ -961,13 +1001,28 @@ func TestBrainWriteEmptyContent(t *testing.T) {
 	}
 }
 
-func TestBrainWriteNormalizesPathAndAllowsScopedWrite(t *testing.T) {
+func TestBrainWriteRejectsDotBrainPath(t *testing.T) {
+	tool := NewBrainWrite(newFakeBackend(map[string]string{}), brainConfig(true))
+
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":".brain/notes/run.md","content":"# Run"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for .brain-prefixed path")
+	}
+	if !strings.Contains(result.Content, ".brain paths are not supported") {
+		t.Fatalf("content = %q, want .brain rejection", result.Content)
+	}
+}
+
+func TestBrainWriteAllowsScopedWrite(t *testing.T) {
 	backend := newFakeBackend(map[string]string{})
 	cfg := brainConfig(true)
 	cfg.BrainWritePaths = []string{"receipts/**"}
 	tool := NewBrainWrite(backend, cfg)
 
-	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":".brain/receipts/reviewer/run.md","content":"---\nagent: reviewer\n---\n# Receipt"}`))
+	result, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"path":"receipts/reviewer/run.md","content":"---\nagent: reviewer\n---\n# Receipt"}`))
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
@@ -975,7 +1030,7 @@ func TestBrainWriteNormalizesPathAndAllowsScopedWrite(t *testing.T) {
 		t.Fatalf("Success = false, content = %q", result.Content)
 	}
 	if _, ok := backend.docs["receipts/reviewer/run.md"]; !ok {
-		t.Fatalf("docs = %#v, want normalized receipts/reviewer/run.md", backend.docs)
+		t.Fatalf("docs = %#v, want receipts/reviewer/run.md", backend.docs)
 	}
 }
 
@@ -1034,6 +1089,29 @@ func TestBrainUpdateUsesBackendPatchDocument(t *testing.T) {
 	}
 	if len(backend.patchOps) != 1 || backend.patchOps[0] != "append" {
 		t.Fatalf("patchOps = %#v, want [append]", backend.patchOps)
+	}
+}
+
+func TestBrainUpdateShunterSkipsFileBackedStaleState(t *testing.T) {
+	projectRoot := t.TempDir()
+	backend := newFakeBackend(map[string]string{
+		"notes/design.md": "# Design\n\nOriginal details.",
+	})
+	cfg := brainConfig(true)
+	cfg.Backend = "shunter"
+	cfg.LogBrainOperations = false
+	tool := NewBrainUpdate(backend, cfg)
+	input := json.RawMessage(`{"path":"notes/design.md","operation":"append","content":"## Appendix\n\nExtra notes."}`)
+
+	result, err := tool.Execute(context.Background(), projectRoot, input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, content = %q", result.Content)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist for Shunter backend", err)
 	}
 }
 
@@ -1108,6 +1186,24 @@ func TestBrainUpdateInvalidOperation(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "Invalid operation") {
 		t.Fatalf("content = %q, want invalid operation message", result.Content)
+	}
+}
+
+func TestBrainUpdateRejectsDotBrainPath(t *testing.T) {
+	tool := NewBrainUpdate(newFakeBackend(map[string]string{
+		"notes/journal.md": "# Journal\n",
+	}), brainConfig(true))
+
+	result, err := tool.Execute(context.Background(), "/tmp",
+		json.RawMessage(`{"path":".brain/notes/journal.md","operation":"append","content":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected Success=false for .brain-prefixed path")
+	}
+	if !strings.Contains(result.Content, ".brain paths are not supported") {
+		t.Fatalf("content = %q, want .brain rejection", result.Content)
 	}
 }
 

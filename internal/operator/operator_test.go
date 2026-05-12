@@ -6,6 +6,7 @@ package operator
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,12 +22,39 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
+	"github.com/ponchione/sodoryard/internal/provider"
+	"github.com/ponchione/sodoryard/internal/provider/router"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
 
 type fakeBrainBackend struct {
 	docs      map[string]string
 	readPaths []string
+	launches  map[string]projectmemory.Launch
+	presets   map[string]projectmemory.LaunchPreset
+}
+
+type fakeAuthProvider struct {
+	status *provider.AuthStatus
+}
+
+func (f fakeAuthProvider) Name() string { return "codex" }
+
+func (f fakeAuthProvider) Complete(context.Context, *provider.Request) (*provider.Response, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f fakeAuthProvider) Stream(context.Context, *provider.Request) (<-chan provider.StreamEvent, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f fakeAuthProvider) Models(context.Context) ([]provider.Model, error) {
+	return []provider.Model{{ID: "test-model", Provider: "codex"}}, nil
+}
+
+func (f fakeAuthProvider) AuthStatus(context.Context) (*provider.AuthStatus, error) {
+	return f.status, nil
 }
 
 func (f *fakeBrainBackend) ReadDocument(ctx context.Context, path string) (string, error) {
@@ -53,6 +81,94 @@ func (f *fakeBrainBackend) SearchKeyword(ctx context.Context, query string) ([]b
 
 func (f *fakeBrainBackend) ListDocuments(ctx context.Context, directory string) ([]string, error) {
 	return nil, nil
+}
+
+func (f *fakeBrainBackend) SaveLaunch(ctx context.Context, args projectmemory.SaveLaunchArgs) error {
+	if f.launches == nil {
+		f.launches = map[string]projectmemory.Launch{}
+	}
+	id := projectmemory.ProjectLaunchID(args.ProjectID, args.LaunchID)
+	current := f.launches[id]
+	createdAtUS := current.CreatedAtUS
+	if createdAtUS == 0 {
+		createdAtUS = args.UpdatedAtUS
+	}
+	f.launches[id] = projectmemory.Launch{
+		ID:               id,
+		ProjectID:        args.ProjectID,
+		LaunchID:         args.LaunchID,
+		Status:           args.Status,
+		Mode:             args.Mode,
+		Role:             args.Role,
+		AllowedRolesJSON: args.AllowedRolesJSON,
+		RosterJSON:       args.RosterJSON,
+		SourceTask:       args.SourceTask,
+		SourceSpecsJSON:  args.SourceSpecsJSON,
+		StepMaxTurns:     args.StepMaxTurns,
+		StepMaxTokens:    args.StepMaxTokens,
+		CreatedAtUS:      createdAtUS,
+		UpdatedAtUS:      args.UpdatedAtUS,
+	}
+	return nil
+}
+
+func (f *fakeBrainBackend) ReadLaunch(ctx context.Context, projectID string, launchID string) (projectmemory.Launch, bool, error) {
+	launch, found := f.launches[projectmemory.ProjectLaunchID(projectID, launchID)]
+	return launch, found, nil
+}
+
+func (f *fakeBrainBackend) SaveLaunchPreset(ctx context.Context, args projectmemory.SaveLaunchPresetArgs) error {
+	if f.presets == nil {
+		f.presets = map[string]projectmemory.LaunchPreset{}
+	}
+	id := projectmemory.ProjectLaunchPresetID(args.ProjectID, args.Name)
+	current := f.presets[id]
+	createdAtUS := current.CreatedAtUS
+	if createdAtUS == 0 {
+		createdAtUS = args.UpdatedAtUS
+	}
+	f.presets[id] = projectmemory.LaunchPreset{
+		ID:               id,
+		ProjectID:        args.ProjectID,
+		PresetID:         "custom:" + args.Name,
+		Name:             args.Name,
+		Mode:             args.Mode,
+		Role:             args.Role,
+		AllowedRolesJSON: args.AllowedRolesJSON,
+		RosterJSON:       args.RosterJSON,
+		StepMaxTurns:     args.StepMaxTurns,
+		StepMaxTokens:    args.StepMaxTokens,
+		CreatedAtUS:      createdAtUS,
+		UpdatedAtUS:      args.UpdatedAtUS,
+	}
+	return nil
+}
+
+func (f *fakeBrainBackend) ListLaunchPresets(ctx context.Context, projectID string) ([]projectmemory.LaunchPreset, error) {
+	var presets []projectmemory.LaunchPreset
+	for _, preset := range f.presets {
+		if preset.ProjectID == projectID {
+			presets = append(presets, preset)
+		}
+	}
+	return presets, nil
+}
+
+type fakeShunterIndexBrainBackend struct {
+	fakeBrainBackend
+	brainState projectmemory.BrainIndexState
+	brainFound bool
+	codeState  projectmemory.CodeIndexState
+	codeFound  bool
+	err        error
+}
+
+func (f *fakeShunterIndexBrainBackend) ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error) {
+	return f.brainState, f.brainFound, f.err
+}
+
+func (f *fakeShunterIndexBrainBackend) ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error) {
+	return f.codeState, f.codeFound, f.err
 }
 
 func TestRuntimeStatusCountsActiveChains(t *testing.T) {
@@ -89,8 +205,64 @@ func TestRuntimeStatusCountsActiveChains(t *testing.T) {
 	if status.Provider != "codex" || status.Model != "test-model" {
 		t.Fatalf("provider/model = %q/%q, want codex/test-model", status.Provider, status.Model)
 	}
+	if status.ContextWindow != 400000 || !status.ModelCapabilities.SupportsTools || !status.ModelCapabilities.SupportsReasoningEffort {
+		t.Fatalf("model metadata = context:%d capabilities:%+v, want codex tool/reasoning metadata", status.ContextWindow, status.ModelCapabilities)
+	}
 	if status.ActiveChains != 2 {
 		t.Fatalf("ActiveChains = %d, want 2", status.ActiveChains)
+	}
+}
+
+func TestRuntimeStatusReadsShunterBrainIndexState(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	db := newOperatorTestDB(t)
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Brain.Enabled = true
+	cfg.Brain.Backend = "shunter"
+	cfg.Memory.Backend = "shunter"
+	cfg.Routing.Default.Model = "test-model"
+	store := chain.NewStore(db)
+	staleAt := time.Date(2026, 5, 1, 12, 30, 0, 0, time.UTC)
+	backend := &fakeShunterIndexBrainBackend{
+		brainState: projectmemory.BrainIndexState{
+			LastIndexedAtUS: uint64(time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC).UnixMicro()),
+			Dirty:           true,
+			DirtySinceUS:    uint64(staleAt.UnixMicro()),
+			DirtyReason:     "write_document",
+		},
+		brainFound: true,
+		codeState: projectmemory.CodeIndexState{
+			LastIndexedCommit: "abc123",
+			LastIndexedAtUS:   uint64(time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC).UnixMicro()),
+		},
+		codeFound: true,
+	}
+	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:       cfg,
+		Database:     db,
+		ChainStore:   store,
+		BrainBackend: backend,
+		Cleanup:      func() {},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	status, err := svc.RuntimeStatus(ctx)
+	if err != nil {
+		t.Fatalf("RuntimeStatus returned error: %v", err)
+	}
+	if status.BrainIndex.Status != brainindexstate.StatusStale || status.BrainIndex.StaleSince != staleAt.Format(time.RFC3339) || status.BrainIndex.StaleReason != "write_document" {
+		t.Fatalf("BrainIndex = %+v, want Shunter stale write_document state", status.BrainIndex)
+	}
+	if status.CodeIndex.Status != "indexed" || status.CodeIndex.LastIndexedCommit != "abc123" || status.CodeIndex.LastIndexedAt == "" {
+		t.Fatalf("CodeIndex = %+v, want Shunter indexed abc123 state", status.CodeIndex)
+	}
+	if _, err := os.Stat(brainindexstate.Path(projectRoot)); !os.IsNotExist(err) {
+		t.Fatalf("brain index state file stat err = %v, want not-exist", err)
 	}
 }
 
@@ -124,17 +296,87 @@ func TestOpenReadOnlySkipsInjectedRuntimeBuilder(t *testing.T) {
 	}
 }
 
+func TestOpenReadOnlyUsesShunterMemoryWithoutYardDB(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	dataDir := filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: dataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend returned error: %v", err)
+	}
+	if err := backend.StartChain(ctx, projectmemory.StartChainArgs{
+		ID:          "readonly-shunter-chain",
+		SourceTask:  "inspect Shunter state",
+		CreatedAtUS: uint64(time.Now().UTC().UnixMicro()),
+	}); err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := fmt.Sprintf(`project_root: %q
+memory:
+  backend: shunter
+  shunter_data_dir: .yard/shunter/project-memory
+  durable_ack: true
+brain:
+  enabled: true
+  backend: shunter
+local_services:
+  enabled: false
+routing:
+  default:
+    provider: codex
+    model: test-model
+providers:
+  codex:
+    type: codex
+    model: test-model
+`, projectRoot)
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	svc, err := Open(ctx, Options{
+		ConfigPath: configPath,
+		ReadOnly:   true,
+		BuildRuntime: func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			t.Fatal("BuildRuntime should not be called in read-only mode")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open read-only returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+	if svc.rt.Database != nil || svc.rt.Queries != nil {
+		t.Fatalf("read-only Shunter runtime SQLite = (%v, %v), want nil", svc.rt.Database, svc.rt.Queries)
+	}
+
+	chains, err := svc.ListChains(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListChains returned error: %v", err)
+	}
+	if len(chains) != 1 || chains[0].ID != "readonly-shunter-chain" {
+		t.Fatalf("chains = %+v, want readonly-shunter-chain", chains)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".yard", "yard.db")); !os.IsNotExist(err) {
+		t.Fatalf("read-only Shunter Open touched yard.db: stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".brain")); !os.IsNotExist(err) {
+		t.Fatalf("read-only Shunter Open touched .brain: stat err=%v", err)
+	}
+}
+
 func TestRuntimeStatusIncludesReadinessMetadata(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("create brain dir: %v", err)
-	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	config := fmt.Sprintf(`project_root: %q
 brain:
   enabled: true
-  vault_path: ".brain"
 local_services:
   enabled: true
   mode: manual
@@ -164,9 +406,81 @@ agent_roles:
 	if err := brainindexstate.MarkStale(projectRoot, "brain_update", staleAt); err != nil {
 		t.Fatalf("mark brain index stale: %v", err)
 	}
+	indexedTime, err := time.Parse(time.RFC3339, indexedAt)
+	if err != nil {
+		t.Fatalf("parse indexedAt: %v", err)
+	}
 	store := chain.NewStore(db)
+	indexBackend := &fakeShunterIndexBrainBackend{
+		brainState: projectmemory.BrainIndexState{
+			ProjectID:       projectmemory.DefaultProjectID,
+			LastIndexedAtUS: uint64(staleAt.Add(-time.Hour).UnixMicro()),
+			Dirty:           true,
+			DirtySinceUS:    uint64(staleAt.UnixMicro()),
+			DirtyReason:     "brain_update",
+		},
+		brainFound: true,
+		codeState: projectmemory.CodeIndexState{
+			ProjectID:         projectmemory.DefaultProjectID,
+			LastIndexedCommit: "abc123",
+			LastIndexedAtUS:   uint64(indexedTime.UnixMicro()),
+		},
+		codeFound: true,
+	}
+	providerRouter := newOperatorTestRouter(t, &provider.AuthStatus{
+		Provider:       "codex",
+		Mode:           "oauth",
+		Source:         "private_store",
+		HasAccessToken: true,
+	})
 	svc, err := Open(ctx, Options{
 		ConfigPath: configPath,
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{
+				Config:         cfg,
+				Database:       db,
+				ProviderRouter: providerRouter,
+				ChainStore:     store,
+				BrainBackend:   indexBackend,
+				Cleanup:        func() {},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	status, err := svc.RuntimeStatus(ctx)
+	if err != nil {
+		t.Fatalf("RuntimeStatus returned error: %v", err)
+	}
+	if status.AuthStatus != "ready (oauth, private_store)" {
+		t.Fatalf("AuthStatus = %q, want ready auth detail", status.AuthStatus)
+	}
+	if status.CodeIndex.Status != "indexed" || status.CodeIndex.LastIndexedAt != indexedAt || status.CodeIndex.LastIndexedCommit != "abc123" {
+		t.Fatalf("CodeIndex = %+v, want indexed metadata", status.CodeIndex)
+	}
+	if status.BrainIndex.Status != brainindexstate.StatusStale || status.BrainIndex.StaleSince != staleAt.Format(time.RFC3339) || status.BrainIndex.StaleReason != "brain_update" {
+		t.Fatalf("BrainIndex = %+v, want stale brain_update metadata", status.BrainIndex)
+	}
+	if status.LocalServicesStatus != "manual" {
+		t.Fatalf("LocalServicesStatus = %q, want manual", status.LocalServicesStatus)
+	}
+	if status.ContextWindow != 400000 || !status.ModelCapabilities.SupportsTools || !status.ModelCapabilities.SupportsReasoningEffort {
+		t.Fatalf("model metadata = context:%d capabilities:%+v, want codex capabilities", status.ContextWindow, status.ModelCapabilities)
+	}
+}
+
+func TestRuntimeStatusIncludesStartupWarnings(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	configPath := writeOperatorTestConfig(t, projectRoot)
+	db := newOperatorTestDB(t)
+	store := chain.NewStore(db)
+	svc, err := Open(ctx, Options{
+		ConfigPath:      configPath,
+		StartupWarnings: []RuntimeWarning{{Message: "opened operator in degraded read-only mode"}},
 		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
 			return &rtpkg.OrchestratorRuntime{
 				Config:       cfg,
@@ -186,17 +500,8 @@ agent_roles:
 	if err != nil {
 		t.Fatalf("RuntimeStatus returned error: %v", err)
 	}
-	if status.AuthStatus != "not checked" {
-		t.Fatalf("AuthStatus = %q, want not checked", status.AuthStatus)
-	}
-	if status.CodeIndex.Status != "indexed" || status.CodeIndex.LastIndexedAt != indexedAt || status.CodeIndex.LastIndexedCommit != "abc123" {
-		t.Fatalf("CodeIndex = %+v, want indexed metadata", status.CodeIndex)
-	}
-	if status.BrainIndex.Status != brainindexstate.StatusStale || status.BrainIndex.StaleSince != staleAt.Format(time.RFC3339) || status.BrainIndex.StaleReason != "brain_update" {
-		t.Fatalf("BrainIndex = %+v, want stale brain_update metadata", status.BrainIndex)
-	}
-	if status.LocalServicesStatus != "manual" {
-		t.Fatalf("LocalServicesStatus = %q, want manual", status.LocalServicesStatus)
+	if !hasRuntimeWarning(status.Warnings, "opened operator in degraded read-only mode") {
+		t.Fatalf("Warnings = %+v, want startup warning", status.Warnings)
 	}
 }
 
@@ -227,6 +532,9 @@ func TestListChainsAndDetail(t *testing.T) {
 	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepStarted, map[string]any{"role": "coder"}); err != nil {
 		t.Fatalf("LogEvent returned error: %v", err)
 	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventApprovalRequired, map[string]any{"approval_id": "approval-1", "tool_name": "shell", "status": "pending"}); err != nil {
+		t.Fatalf("LogEvent approval returned error: %v", err)
+	}
 	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
 
 	summaries, err := svc.ListChains(ctx, 10)
@@ -248,8 +556,754 @@ func TestListChainsAndDetail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChainDetail returned error: %v", err)
 	}
-	if detail.Chain.ID != chainID || len(detail.Steps) != 2 || len(detail.RecentEvents) != 1 {
-		t.Fatalf("detail = %+v, want chain, 2 steps, 1 event", detail)
+	if detail.Chain.ID != chainID || len(detail.Steps) != 2 || len(detail.RecentEvents) != 2 || len(detail.Approvals) != 1 {
+		t.Fatalf("detail = %+v, want chain, 2 steps, 2 events, 1 approval", detail)
+	}
+	if detail.Approvals[0].ID != "approval-1" || detail.Approvals[0].Status != chain.ApprovalStatusPending {
+		t.Fatalf("approvals = %+v, want pending approval-1", detail.Approvals)
+	}
+}
+
+func TestGetChainMetricsFlagsDogfoodingWarnings(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{
+		ChainID:          "chain-metrics",
+		SourceTask:       "observe dogfood run",
+		MaxSteps:         2,
+		MaxResolverLoops: 1,
+		MaxDuration:      100 * time.Second,
+		TokenBudget:      100,
+	})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepOne, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"})
+	if err != nil {
+		t.Fatalf("StartStep one returned error: %v", err)
+	}
+	exitZero := 0
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepOne, Status: "completed", Verdict: "accepted", DurationSecs: 95, ExitCode: &exitZero}); err != nil {
+		t.Fatalf("CompleteStep one returned error: %v", err)
+	}
+	stepTwo, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 2, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep two returned error: %v", err)
+	}
+	exitOne := 1
+	if err := store.FailStep(ctx, chain.CompleteStepParams{StepID: stepTwo, Verdict: "failed", ReceiptPath: "receipts/coder/chain-metrics-step-002.md", TokensUsed: 85, TurnsUsed: 2, ExitCode: &exitOne, ErrorMessage: "agent exited"}); err != nil {
+		t.Fatalf("FailStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 2, TotalTokens: 85, TotalDurationSecs: 95, ResolverLoops: 1}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepProcessStarted, map[string]any{"process_id": 1234, "active_process": true}); err != nil {
+		t.Fatalf("LogEvent process start returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepOutput, map[string]any{"stream": "stderr", "line": "running"}); err != nil {
+		t.Fatalf("LogEvent output returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepFailed, map[string]any{"error": "agent exited"}); err != nil {
+		t.Fatalf("LogEvent step failed returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventSafetyLimitHit, map[string]any{"limit": "token_budget"}); err != nil {
+		t.Fatalf("LogEvent safety returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventReindexStarted, map[string]any{"reason": "post_step"}); err != nil {
+		t.Fatalf("LogEvent reindex start returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventReindexCompleted, map[string]any{"reason": "post_step"}); err != nil {
+		t.Fatalf("LogEvent reindex complete returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "failed", "failed"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.Health != "failing" || report.Status != "failed" {
+		t.Fatalf("health/status = %s/%s, want failing/failed", report.Health, report.Status)
+	}
+	if report.TotalSteps != 2 || report.StepRows != 2 || report.CompletedSteps != 1 || report.FailedSteps != 1 {
+		t.Fatalf("step counts = %+v, want one completed and one failed", report)
+	}
+	if report.TotalTokens != 85 || report.StepTokenTotal != 85 || report.TokenBudgetPct != 85 {
+		t.Fatalf("token metrics = recorded %d step_sum %d pct %.1f, want 85/85/85.0", report.TotalTokens, report.StepTokenTotal, report.TokenBudgetPct)
+	}
+	if report.TotalDurationSecs != 95 || report.StepDurationSecs != 95 || report.DurationBudgetPct != 95 {
+		t.Fatalf("duration metrics = recorded %d step_sum %d pct %.1f, want 95/95/95.0", report.TotalDurationSecs, report.StepDurationSecs, report.DurationBudgetPct)
+	}
+	if report.StepFailedEvents != 1 || report.SafetyLimitEvents != 1 || report.ReindexStartedEvents != 1 || report.ReindexDoneEvents != 1 || report.ProcessStartedEvents != 1 || report.ProcessExitedEvents != 0 {
+		t.Fatalf("event counts = %+v, want failed/safety/reindex/process counts", report)
+	}
+	for _, want := range []string{
+		"chain status is failed",
+		"step 1 completed without a receipt path",
+		"step 1 completed without token usage",
+		"step 1 completed without turn count",
+		"step 2 failed",
+		"step 2 exited with code 1",
+		"resolver loop budget exhausted",
+		"token budget 85.0% used",
+		"duration budget 95.0% used",
+		"chain has 1 step_failed event(s)",
+		"chain has 1 safety_limit_hit event(s)",
+		"process events show started=1 exited=0",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
+func TestGetChainMetricsFlagsExpensiveSingleStepLaunch(t *testing.T) {
+	ctx := context.Background()
+	for _, mode := range []string{"one_step_chain", "manual_roster"} {
+		t.Run(mode, func(t *testing.T) {
+			store := chain.NewStore(newOperatorTestDB(t))
+			chainID := "expensive-" + mode
+			startedChainID, err := store.StartChain(ctx, chain.ChainSpec{
+				ChainID:          chainID,
+				SourceTask:       "read one file and summarize it",
+				MaxSteps:         100,
+				MaxResolverLoops: 3,
+				MaxDuration:      2 * time.Minute,
+				TokenBudget:      5_000_000,
+			})
+			if err != nil {
+				t.Fatalf("StartChain returned error: %v", err)
+			}
+			if startedChainID != chainID {
+				t.Fatalf("chainID = %q, want %q", startedChainID, chainID)
+			}
+			if err := store.LogEvent(ctx, chainID, "", chain.EventChainStarted, map[string]any{"mode": mode, "task": "read one file and summarize it", "step_max_turns": 0, "step_max_tokens": 0}); err != nil {
+				t.Fatalf("LogEvent chain start returned error: %v", err)
+			}
+			stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "read one file and summarize it"})
+			if err != nil {
+				t.Fatalf("StartStep returned error: %v", err)
+			}
+			exitZero := 0
+			if err := store.CompleteStep(ctx, chain.CompleteStepParams{
+				StepID:       stepID,
+				Status:       "completed",
+				Verdict:      "completed",
+				ReceiptPath:  "receipts/planner/" + chainID + "-step-001.md",
+				TokensUsed:   120_000,
+				TurnsUsed:    7,
+				DurationSecs: 12,
+				ExitCode:     &exitZero,
+			}); err != nil {
+				t.Fatalf("CompleteStep returned error: %v", err)
+			}
+			if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 120_000, TotalDurationSecs: 12}); err != nil {
+				t.Fatalf("UpdateChainMetrics returned error: %v", err)
+			}
+			if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+				t.Fatalf("CompleteChain returned error: %v", err)
+			}
+			svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+			report, err := svc.GetChainMetrics(ctx, chainID)
+			if err != nil {
+				t.Fatalf("GetChainMetrics returned error: %v", err)
+			}
+			if report.Health != "attention" {
+				t.Fatalf("health = %s, want attention", report.Health)
+			}
+			if report.LaunchMode != mode || !report.HasStepMaxTurns || !report.HasStepMaxTokens || report.StepMaxTurns != 0 || report.StepMaxTokens != 0 {
+				t.Fatalf("launch metrics = mode %q turn cap %d/%t token cap %d/%t, want %s with recorded unset caps", report.LaunchMode, report.StepMaxTurns, report.HasStepMaxTurns, report.StepMaxTokens, report.HasStepMaxTokens, mode)
+			}
+			if len(report.Warnings) != 1 || !hasRuntimeWarning(report.Warnings, mode+" used 7 turns and 120000 tokens in a single completed step") {
+				t.Fatalf("warnings = %+v, want expensive single-step warning", report.Warnings)
+			}
+			if !hasRuntimeWarning(report.Warnings, "--step-max-turns/--step-max-tokens") {
+				t.Fatalf("warnings = %+v, want actionable step-limit guidance", report.Warnings)
+			}
+			if !hasRuntimeWarning(report.Warnings, "no per-step turn/token cap was set") {
+				t.Fatalf("warnings = %+v, want unset cap guidance", report.Warnings)
+			}
+		})
+	}
+}
+
+func TestGetChainMetricsFlagsGuardrailInvariantWarnings(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-guardrails", SourceTask: "guardrails", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: 100 * time.Second, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-guardrails-step-001.md", TokensUsed: 10, TurnsUsed: 1}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 10}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventReceiptValidation, map[string]any{"warning": "missing section"}); err != nil {
+		t.Fatalf("LogEvent receipt warning returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventSourceWriterBlocked, map[string]any{"requested_role": "resolver"}); err != nil {
+		t.Fatalf("LogEvent source writer block returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                   "coder",
+		"sequence":                               1,
+		"source_mutating":                        true,
+		"exit_code":                              2,
+		"duration_secs":                          7,
+		"receipt_present":                        true,
+		"synthetic_receipt_written":              false,
+		"receipt_valid":                          false,
+		"receipt_schema_valid":                   true,
+		"receipt_step_valid":                     true,
+		"receipt_sections_valid":                 false,
+		"receipt_error":                          "receipt: missing required section: Validation",
+		"parsed_verdict":                         "completed",
+		"tokens_used":                            11,
+		"turns_used":                             2,
+		"receipt_duration_seconds":               6,
+		"claimed_validation_commands":            []string{"rtk make test"},
+		"changed_file_claim_present":             true,
+		"claimed_changed_files":                  []string{"claimed.txt"},
+		"changed_file_claim_matches_manifest":    false,
+		"changed_file_claim_extra":               []string{"claimed.txt"},
+		"changed_file_manifest_unclaimed":        []string{"actual.txt"},
+		"changed_file_manifest_present":          false,
+		"changed_file_count":                     1,
+		"code_index_state_found":                 true,
+		"code_index_dirty":                       false,
+		"brain_index_state_found":                true,
+		"brain_index_dirty":                      true,
+		"brain_index_dirty_reason":               "complete_step_with_receipt",
+		"source_writer_lock_release_attempted":   true,
+		"source_writer_lock_released":            false,
+		"source_writer_lock_release_error":       "lock held by other step",
+		"finding_count":                          1,
+		"open_finding_count":                     1,
+		"finding_ids":                            []string{"FIND-correctness-001"},
+		"open_finding_ids":                       []string{"FIND-correctness-001"},
+		"suspicious_verdict_finding_combination": false,
+	}); err != nil {
+		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.Health != "failing" || report.ReceiptWarningEvents != 1 || report.SourceWriterBlocks != 1 || report.StepGuardrailFactEvents != 1 || report.ChangedFileEvents != 0 {
+		t.Fatalf("report = %+v, want failing guardrail counters", report)
+	}
+	for _, want := range []string{
+		"chain has 1 receipt_validation_warning event(s)",
+		"source writer guard blocked 1 spawn attempt(s)",
+		"step 1 receipt guardrail facts show invalid receipt: receipt: missing required section: Validation",
+		"step 1 changed-file receipt claim differs from harness manifest: extra=claimed.txt unclaimed=actual.txt",
+		"step 1 changed files but code index state was not marked stale",
+		"step 1 source writer lock release failed: lock held by other step",
+		"step 1 source-writing role coder completed without changed-file manifest",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+	detail, err := svc.GetChainDetail(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainDetail returned error: %v", err)
+	}
+	if detail.Guardrails.LockHealth.Blocked != 1 || len(detail.Guardrails.StepFacts) != 1 {
+		t.Fatalf("guardrails = %+v, want lock block and step facts", detail.Guardrails)
+	}
+	facts := detail.Guardrails.StepFacts[0]
+	if facts.SequenceNum != 1 || facts.Role != "coder" || facts.ReceiptValid || facts.ReceiptError != "receipt: missing required section: Validation" || facts.SourceWriterLockReleased {
+		t.Fatalf("guardrail facts = %+v, want invalid receipt and unreleased lock", facts)
+	}
+	if !facts.ReceiptPresent || facts.SyntheticReceiptWritten || facts.ParsedVerdict != "completed" || facts.ExitCode != 2 || facts.DurationSecs != 7 || facts.TokensUsed != 11 || facts.TurnsUsed != 2 || facts.ReceiptDurationSeconds != 6 || strings.Join(facts.ClaimedValidationCommands, ",") != "rtk make test" {
+		t.Fatalf("guardrail fact receipt/run fields = %+v, want surfaced post-step metadata", facts)
+	}
+	if !facts.ChangedFileClaimPresent || facts.ChangedFileClaimMatchesManifest || strings.Join(facts.ChangedFileClaimExtra, ",") != "claimed.txt" || strings.Join(facts.ChangedFileManifestUnclaimed, ",") != "actual.txt" {
+		t.Fatalf("guardrail fact changed-file claim = %+v, want mismatch details", facts)
+	}
+	if facts.FindingCount != 1 || facts.OpenFindingCount != 1 || strings.Join(facts.FindingIDs, ",") != "FIND-correctness-001" || strings.Join(facts.OpenFindingIDs, ",") != "FIND-correctness-001" {
+		t.Fatalf("guardrail fact finding fields = %+v, want surfaced finding counts and ids", facts)
+	}
+	if !facts.CodeIndexStateFound || facts.CodeIndexDirty || !facts.BrainIndexStateFound || !facts.BrainIndexDirty || facts.BrainIndexDirtyReason != "complete_step_with_receipt" {
+		t.Fatalf("guardrail fact index state = %+v, want clean code index and dirty brain index", facts)
+	}
+}
+
+func TestGetChainMetricsWarnsWhenCodeIndexDirtyMarkingUnavailable(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-index-mark-unavailable", SourceTask: "guardrails", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "code"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-index-mark-unavailable-step-001.md"}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                          "coder",
+		"sequence":                      1,
+		"source_mutating":               true,
+		"receipt_valid":                 true,
+		"changed_file_manifest_present": true,
+		"changed_file_count":            1,
+		"changed_files":                 []string{"internal/example.go"},
+	}); err != nil {
+		t.Fatalf("LogEvent guardrail facts returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if !hasRuntimeWarning(report.Warnings, "step 1 changed files but code index dirty marking is unavailable") {
+		t.Fatalf("warnings = %+v, want code index dirty marking unavailable warning", report.Warnings)
+	}
+}
+
+func TestGetChainMetricsCombinesGuardrailEventChainFacts(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-guardrail-smoke", SourceTask: "guardrail smoke", MaxSteps: 8, MaxResolverLoops: 3, MaxDuration: time.Hour, TokenBudget: 1000})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	completeOperatorTestStep(t, ctx, store, chainID, 1, "planner")
+	coderID := completeOperatorTestStep(t, ctx, store, chainID, 2, "coder")
+	auditorID := completeOperatorTestStep(t, ctx, store, chainID, 3, "correctness-auditor")
+	resolverID := completeOperatorTestStep(t, ctx, store, chainID, 4, "resolver")
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 4, TotalTokens: 40, TotalDurationSecs: 4, ResolverLoops: 1}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, coderID, chain.EventStepChangedFiles, map[string]any{"paths": []string{"internal/api.go", "internal/api_test.go"}, "count": 2}); err != nil {
+		t.Fatalf("LogEvent coder changed files returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, coderID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                 "coder",
+		"sequence":                             2,
+		"source_mutating":                      true,
+		"receipt_valid":                        true,
+		"receipt_schema_valid":                 true,
+		"receipt_sections_valid":               true,
+		"changed_file_manifest_present":        true,
+		"changed_file_count":                   2,
+		"changed_files":                        []string{"internal/api.go", "internal/api_test.go"},
+		"changed_file_claim_present":           true,
+		"claimed_changed_files":                []string{"internal/api.go", "docs/claim.md"},
+		"changed_file_claim_matches_manifest":  false,
+		"changed_file_claim_extra":             []string{"docs/claim.md"},
+		"changed_file_manifest_unclaimed":      []string{"internal/api_test.go"},
+		"code_index_dirty_mark_supported":      true,
+		"code_index_dirty_mark_attempted":      true,
+		"code_index_dirty_marked":              true,
+		"code_index_state_supported":           true,
+		"code_index_state_found":               true,
+		"code_index_dirty":                     true,
+		"code_index_dirty_reason":              "source_write",
+		"brain_index_state_supported":          true,
+		"brain_index_state_found":              true,
+		"brain_index_dirty":                    true,
+		"brain_index_dirty_reason":             "complete_step_with_receipt",
+		"source_writer_lock_release_attempted": true,
+		"source_writer_lock_released":          true,
+	}); err != nil {
+		t.Fatalf("LogEvent coder guardrail facts returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, auditorID, chain.EventFindingLifecycleFacts, map[string]any{
+		"role":    "correctness-auditor",
+		"verdict": "fix_required",
+		"facts": []map[string]any{{
+			"id":           "FIND-correctness-001",
+			"source_role":  "correctness-auditor",
+			"action":       "opened",
+			"status":       "open",
+			"severity":     "high",
+			"evidence":     "internal/api.go:42",
+			"summary":      "nil panic",
+			"required_fix": "guard nil",
+		}},
+	}); err != nil {
+		t.Fatalf("LogEvent auditor lifecycle returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverID, chain.EventStepChangedFiles, map[string]any{"paths": []string{"internal/api.go"}, "count": 1}); err != nil {
+		t.Fatalf("LogEvent resolver changed files returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverID, chain.EventFindingLifecycleFacts, map[string]any{
+		"role":    "resolver",
+		"verdict": "completed",
+		"facts": []map[string]any{{
+			"id":            "FIND-correctness-001",
+			"action":        "addressed",
+			"status":        "addressed",
+			"resolution":    "fixed",
+			"files_changed": []string{"internal/api.go"},
+			"validation":    []string{"rtk make test"},
+		}},
+	}); err != nil {
+		t.Fatalf("LogEvent resolver lifecycle returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverID, chain.EventStepGuardrailFacts, map[string]any{
+		"role":                                 "resolver",
+		"sequence":                             4,
+		"source_mutating":                      true,
+		"receipt_valid":                        true,
+		"receipt_schema_valid":                 true,
+		"receipt_sections_valid":               true,
+		"changed_file_manifest_present":        true,
+		"changed_file_count":                   1,
+		"changed_files":                        []string{"internal/api.go"},
+		"changed_file_claim_present":           true,
+		"claimed_changed_files":                []string{"internal/api.go"},
+		"changed_file_claim_matches_manifest":  true,
+		"code_index_dirty_mark_supported":      true,
+		"code_index_dirty_mark_attempted":      true,
+		"code_index_dirty_marked":              true,
+		"code_index_state_supported":           true,
+		"code_index_state_found":               true,
+		"code_index_dirty":                     true,
+		"code_index_dirty_reason":              "source_write",
+		"source_writer_lock_release_attempted": true,
+		"source_writer_lock_released":          true,
+		"addressed_ids":                        []string{"FIND-correctness-001"},
+	}); err != nil {
+		t.Fatalf("LogEvent resolver guardrail facts returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.Health != "attention" || report.ChangedFileEvents != 2 || report.StepGuardrailFactEvents != 2 || report.FindingLifecycleFactEvents != 2 {
+		t.Fatalf("report = %+v, want attention with changed-file, guardrail, and lifecycle events", report)
+	}
+	for _, want := range []string{
+		"step 2 changed-file receipt claim differs from harness manifest: extra=docs/claim.md unclaimed=internal/api_test.go",
+		"open audit findings: FIND-correctness-001",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+	if hasRuntimeWarning(report.Warnings, "changed files but code index state was not marked stale") ||
+		hasRuntimeWarning(report.Warnings, "code index dirty marking is unavailable") {
+		t.Fatalf("warnings = %+v, want no stale-marking warnings after successful dirty mark", report.Warnings)
+	}
+	if !equalStringSlices(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
+		!equalStringSlices(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding ids = open %v addressed %v, want FIND-correctness-001 in both", report.OpenFindingIDs, report.AddressedFindingIDs)
+	}
+	if len(report.FindingLifecycle) != 1 {
+		t.Fatalf("finding lifecycle = %+v, want one finding", report.FindingLifecycle)
+	}
+	finding := report.FindingLifecycle[0]
+	if finding.ID != "FIND-correctness-001" || finding.Status != "addressed" || finding.Severity != "high" || finding.Resolution != "fixed" ||
+		!equalStringSlices(finding.FilesChanged, []string{"internal/api.go"}) || !equalStringSlices(finding.Validation, []string{"rtk make test"}) {
+		t.Fatalf("finding lifecycle = %+v, want merged auditor and resolver facts", finding)
+	}
+	detail, err := svc.GetChainDetail(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainDetail returned error: %v", err)
+	}
+	if len(detail.Guardrails.StepFacts) != 2 {
+		t.Fatalf("step facts = %+v, want coder and resolver facts", detail.Guardrails.StepFacts)
+	}
+	coderFacts := detail.Guardrails.StepFacts[0]
+	if coderFacts.SequenceNum != 2 || !coderFacts.CodeIndexDirtyMarked || !coderFacts.CodeIndexDirty || coderFacts.CodeIndexDirtyReason != "source_write" {
+		t.Fatalf("coder facts = %+v, want successful code index dirty mark", coderFacts)
+	}
+	if coderFacts.ChangedFileClaimMatchesManifest || strings.Join(coderFacts.ChangedFileClaimExtra, ",") != "docs/claim.md" || strings.Join(coderFacts.ChangedFileManifestUnclaimed, ",") != "internal/api_test.go" {
+		t.Fatalf("coder claim facts = %+v, want mismatch details", coderFacts)
+	}
+}
+
+func TestProjectLocksListAndForceReleaseAuditsOperatorAction(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "lock-chain", SourceTask: "lock"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "coder", Task: "write"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	if _, err := store.AcquireProjectLock(ctx, chain.AcquireProjectLockParams{
+		LockName:     chain.SourceWriterLockName,
+		OwnerChainID: chainID,
+		OwnerStepID:  stepID,
+		OwnerRole:    "coder",
+		ExpiresAt:    time.Now().Add(time.Hour),
+		MetadataJSON: `{"task":"write"}`,
+	}); err != nil {
+		t.Fatalf("AcquireProjectLock returned error: %v", err)
+	}
+	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:       &appconfig.Config{ProjectRoot: t.TempDir()},
+		ChainStore:   store,
+		BrainBackend: &fakeBrainBackend{docs: map[string]string{}},
+		Cleanup:      func() {},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	locks, err := svc.ListProjectLocks(ctx)
+	if err != nil {
+		t.Fatalf("ListProjectLocks returned error: %v", err)
+	}
+	if len(locks) != 1 || locks[0].LockName != chain.SourceWriterLockName || locks[0].OwnerStepID != stepID || locks[0].Stale {
+		t.Fatalf("locks = %+v, want active source writer lock", locks)
+	}
+
+	result, err := svc.ForceReleaseProjectLock(ctx, chain.SourceWriterLockName, "stale process")
+	if err != nil {
+		t.Fatalf("ForceReleaseProjectLock returned error: %v", err)
+	}
+	if !result.Released || result.OwnerChainID != chainID || result.OwnerStepID != stepID || result.OwnerRole != "coder" {
+		t.Fatalf("result = %+v, want released coder lock", result)
+	}
+	if lock, found, err := store.GetProjectLock(ctx, chain.SourceWriterLockName); err != nil || found {
+		t.Fatalf("lock after force release = %+v found=%t err=%v, want absent", lock, found, err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var auditEvent bool
+	for _, event := range events {
+		if event.EventType == chain.EventSourceWriterLockForceReleased &&
+			strings.Contains(event.EventData, `"operator_initiated":true`) &&
+			strings.Contains(event.EventData, `"reason":"stale process"`) {
+			auditEvent = true
+		}
+	}
+	if !auditEvent {
+		t.Fatalf("events = %+v, want force-release audit event", events)
+	}
+}
+
+func TestGetChainMetricsSummarizesReceiptFindingFacts(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "finding-chain", SourceTask: "findings"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	auditStepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "correctness-auditor", Task: "audit"})
+	if err != nil {
+		t.Fatalf("StartStep audit returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: auditStepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/correctness-auditor/finding-chain-step-001.md", TokensUsed: 1, TurnsUsed: 1}); err != nil {
+		t.Fatalf("CompleteStep audit returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, auditStepID, chain.EventReceiptFindings, map[string]any{
+		"role":             "correctness-auditor",
+		"verdict":          "completed",
+		"open_count":       1,
+		"open_finding_ids": []string{"FIND-correctness-001"},
+	}); err != nil {
+		t.Fatalf("LogEvent finding returned error: %v", err)
+	}
+	resolverStepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 2, Role: "resolver", Task: "resolve"})
+	if err != nil {
+		t.Fatalf("StartStep resolver returned error: %v", err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: resolverStepID, Status: "completed", Verdict: "completed", ReceiptPath: "receipts/resolver/finding-chain-step-002.md", TokensUsed: 1, TurnsUsed: 1}); err != nil {
+		t.Fatalf("CompleteStep resolver returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, resolverStepID, chain.EventReceiptFindings, map[string]any{
+		"role":            "resolver",
+		"verdict":         "completed",
+		"addressed_count": 0,
+		"addressed_ids":   []string{},
+	}); err != nil {
+		t.Fatalf("LogEvent resolver finding returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.ReceiptFindingEvents != 2 || report.OpenFindingCount != 1 || len(report.OpenFindingIDs) != 1 || report.OpenFindingIDs[0] != "FIND-correctness-001" {
+		t.Fatalf("report = %+v, want finding counts and open ID", report)
+	}
+	for _, want := range []string{
+		"correctness-auditor reported 1 open finding(s) with verdict completed",
+		"resolver receipt did not address any finding IDs",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
+func TestGetChainMetricsSummarizesFindingLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "finding-lifecycle-chain", SourceTask: "findings"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	steps := []struct {
+		id      string
+		seq     int
+		role    string
+		verdict string
+		event   map[string]any
+	}{
+		{id: "step-planner", seq: 1, role: "planner", verdict: "completed"},
+		{id: "step-coder", seq: 2, role: "coder", verdict: "completed"},
+		{id: "step-audit-open", seq: 3, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "open_finding_ids": []string{"FIND-correctness-001"}, "open_count": 1}},
+		{id: "step-resolver-one", seq: 4, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "addressed_ids": []string{"FIND-correctness-001"}, "addressed_count": 1}},
+		{id: "step-audit-closed", seq: 5, role: "correctness-auditor", verdict: "completed", event: map[string]any{"role": "correctness-auditor", "verdict": "completed", "closed_finding_ids": []string{"FIND-correctness-001"}, "closed_count": 1}},
+		{id: "step-audit-reopen", seq: 6, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "open_finding_ids": []string{"FIND-correctness-001"}, "open_count": 1}},
+		{id: "step-resolver-two", seq: 7, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "addressed_ids": []string{"FIND-correctness-001"}, "addressed_count": 1}},
+	}
+	for _, spec := range steps {
+		stepID, err := store.StartStep(ctx, chain.StepSpec{StepID: spec.id, ChainID: chainID, SequenceNum: spec.seq, Role: spec.role, Task: spec.role})
+		if err != nil {
+			t.Fatalf("StartStep %s returned error: %v", spec.id, err)
+		}
+		if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: spec.verdict, ReceiptPath: fmt.Sprintf("receipts/%s/finding-lifecycle-chain-step-%03d.md", spec.role, spec.seq), TokensUsed: 1, TurnsUsed: 1}); err != nil {
+			t.Fatalf("CompleteStep %s returned error: %v", spec.id, err)
+		}
+		if spec.event != nil {
+			if err := store.LogEvent(ctx, chainID, stepID, chain.EventReceiptFindings, spec.event); err != nil {
+				t.Fatalf("LogEvent %s returned error: %v", spec.id, err)
+			}
+		}
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: len(steps), TotalTokens: len(steps)}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.OpenFindingCount != 1 || report.ClosedFindingCount != 0 || report.AddressedFindingCount != 1 {
+		t.Fatalf("finding counts = open %d closed %d addressed %d, want 1/0/1", report.OpenFindingCount, report.ClosedFindingCount, report.AddressedFindingCount)
+	}
+	if !reflect.DeepEqual(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.ReopenedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.RepeatedResolverFindingIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding ID summaries = %+v", report)
+	}
+	if len(report.FindingLifecycle) != 1 {
+		t.Fatalf("FindingLifecycle = %+v, want one entry", report.FindingLifecycle)
+	}
+	if got := report.FindingLifecycle[0]; got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Status != "addressed" || got.AddressedCount != 2 || got.ReopenedCount != 1 {
+		t.Fatalf("FindingLifecycle[0] = %+v, want legacy lifecycle counts", got)
+	}
+	for _, want := range []string{
+		"open audit findings: FIND-correctness-001",
+		"reopened audit findings: FIND-correctness-001",
+		"flow: repeated resolver loop for FIND-correctness-001 (2 resolver receipts)",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
+	}
+}
+
+func TestGetChainMetricsSummarizesFindingLifecycleFacts(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "finding-lifecycle-facts-chain", SourceTask: "findings"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	steps := []struct {
+		id      string
+		seq     int
+		role    string
+		verdict string
+		event   map[string]any
+	}{
+		{id: "step-audit-open", seq: 1, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "facts": []map[string]any{{"id": "FIND-correctness-001", "source_role": "correctness-auditor", "action": "opened", "status": "open", "severity": "high"}}}},
+		{id: "step-resolver-one", seq: 2, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "facts": []map[string]any{{"id": "FIND-correctness-001", "action": "addressed", "status": "addressed", "resolution": "fixed"}}}},
+		{id: "step-audit-closed", seq: 3, role: "correctness-auditor", verdict: "completed", event: map[string]any{"role": "correctness-auditor", "verdict": "completed", "facts": []map[string]any{{"id": "FIND-correctness-001", "source_role": "correctness-auditor", "action": "closed", "status": "closed"}}}},
+		{id: "step-audit-reopen", seq: 4, role: "correctness-auditor", verdict: "fix_required", event: map[string]any{"role": "correctness-auditor", "verdict": "fix_required", "facts": []map[string]any{{"id": "FIND-correctness-001", "source_role": "correctness-auditor", "action": "reopened", "status": "open"}}}},
+		{id: "step-resolver-two", seq: 5, role: "resolver", verdict: "completed", event: map[string]any{"role": "resolver", "verdict": "completed", "facts": []map[string]any{{"id": "FIND-correctness-001", "action": "addressed", "status": "addressed", "resolution": "fixed"}}}},
+	}
+	for _, spec := range steps {
+		stepID, err := store.StartStep(ctx, chain.StepSpec{StepID: spec.id, ChainID: chainID, SequenceNum: spec.seq, Role: spec.role, Task: spec.role})
+		if err != nil {
+			t.Fatalf("StartStep %s returned error: %v", spec.id, err)
+		}
+		if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: spec.verdict, ReceiptPath: fmt.Sprintf("receipts/%s/finding-lifecycle-facts-chain-step-%03d.md", spec.role, spec.seq), TokensUsed: 1, TurnsUsed: 1}); err != nil {
+			t.Fatalf("CompleteStep %s returned error: %v", spec.id, err)
+		}
+		if err := store.LogEvent(ctx, chainID, stepID, chain.EventFindingLifecycleFacts, spec.event); err != nil {
+			t.Fatalf("LogEvent %s returned error: %v", spec.id, err)
+		}
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: len(steps), TotalTokens: len(steps)}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	report, err := svc.GetChainMetrics(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainMetrics returned error: %v", err)
+	}
+	if report.FindingLifecycleFactEvents != 5 || report.ReceiptFindingEvents != 0 {
+		t.Fatalf("finding event counts = lifecycle %d receipt %d, want 5/0", report.FindingLifecycleFactEvents, report.ReceiptFindingEvents)
+	}
+	if !reflect.DeepEqual(report.OpenFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.AddressedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.ReopenedFindingIDs, []string{"FIND-correctness-001"}) ||
+		!reflect.DeepEqual(report.RepeatedResolverFindingIDs, []string{"FIND-correctness-001"}) {
+		t.Fatalf("finding ID summaries = %+v", report)
+	}
+	if len(report.FindingLifecycle) != 1 {
+		t.Fatalf("FindingLifecycle = %+v, want one entry", report.FindingLifecycle)
+	}
+	if got := report.FindingLifecycle[0]; got.ID != "FIND-correctness-001" || got.SourceRole != "correctness-auditor" || got.Status != "addressed" || got.Severity != "high" || got.Resolution != "fixed" || got.AddressedCount != 2 || got.ReopenedCount != 1 {
+		t.Fatalf("FindingLifecycle[0] = %+v, want merged lifecycle details", got)
+	}
+	detail, err := svc.GetChainDetail(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChainDetail returned error: %v", err)
+	}
+	if len(detail.Guardrails.Findings) != 1 || detail.Guardrails.Findings[0].ID != "FIND-correctness-001" || detail.Guardrails.Findings[0].Severity != "high" {
+		t.Fatalf("detail guardrail findings = %+v, want lifecycle detail", detail.Guardrails.Findings)
+	}
+	for _, want := range []string{
+		"open audit findings: FIND-correctness-001",
+		"reopened audit findings: FIND-correctness-001",
+		"flow: repeated resolver loop for FIND-correctness-001 (2 resolver receipts)",
+	} {
+		if !hasRuntimeWarning(report.Warnings, want) {
+			t.Fatalf("warnings = %+v, want %q", report.Warnings, want)
+		}
 	}
 }
 
@@ -402,18 +1456,32 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch one-step returned error: %v", err)
 	}
-	if preview.Mode != LaunchModeOneStep || preview.Role != "coder" || preview.Summary != "Run one coder step" || preview.CompiledTask != "fix tests" {
+	if preview.Mode != LaunchModeOneStep || preview.Template.ID != "one_step" || preview.Role != "coder" || preview.Summary != "Run one coder step" || preview.CompiledTask != "fix tests" {
 		t.Fatalf("one-step preview = %+v, want coder preview", preview)
 	}
-	if len(preview.Warnings) != 1 || preview.Warnings[0].Message != "no source specs selected" {
-		t.Fatalf("warnings = %+v, want no source specs warning", preview.Warnings)
+	if !hasRuntimeWarning(preview.Warnings, "no source specs selected") || !hasRuntimeWarning(preview.Warnings, "single-step coder launch has no per-step turn/token caps") {
+		t.Fatalf("warnings = %+v, want no source specs and uncapped single-step warnings", preview.Warnings)
+	}
+	byTemplate, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Role: "coder", SourceTask: "fix by template"})
+	if err != nil {
+		t.Fatalf("ValidateLaunch template one-step returned error: %v", err)
+	}
+	if byTemplate.Mode != LaunchModeOneStep || byTemplate.Template.ID != "one_step" || byTemplate.Role != "coder" || byTemplate.CompiledTask != "fix by template" {
+		t.Fatalf("template preview = %+v, want one-step template preview", byTemplate)
+	}
+	capped, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "bounded probe", StepMaxTurns: 4, StepMaxTokens: 50000})
+	if err != nil {
+		t.Fatalf("ValidateLaunch capped one-step returned error: %v", err)
+	}
+	if capped.StepMaxTurns != 4 || capped.StepMaxTokens != 50000 || hasRuntimeWarning(capped.Warnings, "no per-step turn/token caps") {
+		t.Fatalf("capped preview = %+v, want caps without uncapped warning", capped)
 	}
 
 	orchestrator, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOrchestrator, SourceSpecs: []string{" specs/a.md ", "specs/a.md"}})
 	if err != nil {
 		t.Fatalf("ValidateLaunch orchestrator returned error: %v", err)
 	}
-	if orchestrator.Mode != LaunchModeOrchestrator || orchestrator.Role != "orchestrator" || orchestrator.CompiledTask != "Specs: specs/a.md" {
+	if orchestrator.Mode != LaunchModeOrchestrator || orchestrator.Template.ID != "sir_topham_decides" || orchestrator.Role != "orchestrator" || orchestrator.CompiledTask != "Specs: specs/a.md" {
 		t.Fatalf("orchestrator preview = %+v, want normalized spec preview", orchestrator)
 	}
 
@@ -421,7 +1489,7 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch manual roster returned error: %v", err)
 	}
-	if manual.Mode != LaunchModeManualRoster || manual.Role != "coder,orchestrator" || !reflect.DeepEqual(manual.Roster, []string{"coder", "orchestrator"}) || manual.Summary != "Run manual roster: coder -> orchestrator" {
+	if manual.Mode != LaunchModeManualRoster || manual.Template.ID != "manual_roster" || manual.Role != "coder,orchestrator" || !reflect.DeepEqual(manual.Roster, []string{"coder", "orchestrator"}) || manual.Summary != "Run manual roster: coder -> orchestrator" {
 		t.Fatalf("manual preview = %+v, want normalized roster preview", manual)
 	}
 
@@ -429,8 +1497,39 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateLaunch constrained returned error: %v", err)
 	}
-	if constrained.Mode != LaunchModeConstrained || constrained.Role != "orchestrator" || !reflect.DeepEqual(constrained.AllowedRoles, []string{"coder"}) || constrained.Summary != "Run constrained orchestration with roles: coder" || !strings.Contains(constrained.CompiledTask, "Allowed roles: coder") {
+	if constrained.Mode != LaunchModeConstrained || constrained.Template.ID != "constrained_orchestration" || constrained.Role != "orchestrator" || !reflect.DeepEqual(constrained.AllowedRoles, []string{"coder"}) || constrained.Summary != "Run constrained orchestration with roles: coder" || !strings.Contains(constrained.CompiledTask, "Allowed roles: coder") {
 		t.Fatalf("constrained preview = %+v, want normalized constrained preview", constrained)
+	}
+}
+
+func TestListLaunchTemplatesReturnsTypedMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc := openOperatorTestService(t, t.TempDir(), chain.NewStore(newOperatorTestDB(t)), &fakeBrainBackend{}, nil)
+
+	templates, err := svc.ListLaunchTemplates(ctx)
+	if err != nil {
+		t.Fatalf("ListLaunchTemplates returned error: %v", err)
+	}
+	if len(templates) != 4 {
+		t.Fatalf("templates = %+v, want 4 launch templates", templates)
+	}
+	if templates[0].ID != "constrained_orchestration" || templates[0].Mode != LaunchModeConstrained || templates[0].ReceiptSchema != "yard.receipt.v1" {
+		t.Fatalf("first template = %+v, want constrained template metadata", templates[0])
+	}
+	if !json.Valid(templates[0].InputSchema) || !strings.Contains(string(templates[0].InputSchema), `"allowed_roles"`) {
+		t.Fatalf("first template input schema = %s, want valid constrained schema", templates[0].InputSchema)
+	}
+	templates[0].DefaultRoles = append(templates[0].DefaultRoles, "mutated")
+	templates[0].InputSchema[0] = '['
+	again, err := svc.ListLaunchTemplates(ctx)
+	if err != nil {
+		t.Fatalf("ListLaunchTemplates second call returned error: %v", err)
+	}
+	if reflect.DeepEqual(templates[0].DefaultRoles, again[0].DefaultRoles) {
+		t.Fatalf("template slices were not cloned: first=%+v second=%+v", templates[0], again[0])
+	}
+	if !json.Valid(again[0].InputSchema) || again[0].InputSchema[0] != '{' {
+		t.Fatalf("template input schema was not cloned: first=%s second=%s", templates[0].InputSchema, again[0].InputSchema)
 	}
 }
 
@@ -449,6 +1548,71 @@ func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
 	}
 	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeConstrained, SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "constrained orchestration requires at least one allowed role") {
 		t.Fatalf("ValidateLaunch missing constrained roles error = %v, want missing allowed roles error", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "missing", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "unknown launch template") {
+		t.Fatalf("ValidateLaunch unknown template error = %v, want unknown template", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Mode: LaunchModeManualRoster, Role: "coder", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "uses mode") {
+		t.Fatalf("ValidateLaunch template/mode conflict error = %v, want conflict", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "fix", StepMaxTurns: -1}); err == nil || !strings.Contains(err.Error(), "step_max_turns must not be negative") {
+		t.Fatalf("ValidateLaunch negative step cap error = %v, want step cap validation", err)
+	}
+}
+
+func TestValidateLaunchWarnsWhenModelDoesNotSupportRequiredTools(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	config := fmt.Sprintf(`project_root: %q
+brain:
+  enabled: false
+local_services:
+  enabled: false
+routing:
+  default:
+    provider: local
+    model: local-model
+providers:
+  local:
+    type: openai-compatible
+    base_url: http://localhost:11434/v1
+    model: local-model
+    context_length: 8192
+    supports_tools: false
+agent_roles:
+  coder:
+    system_prompt: prompts/coder.md
+    tools: [file]
+  orchestrator:
+    system_prompt: prompts/orchestrator.md
+`, projectRoot)
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	store := chain.NewStore(newOperatorTestDB(t))
+	svc, err := Open(ctx, Options{
+		ConfigPath: configPath,
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{
+				Config:       cfg,
+				ChainStore:   store,
+				BrainBackend: &fakeBrainBackend{},
+				Cleanup:      func() {},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	preview, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "fix"})
+	if err != nil {
+		t.Fatalf("ValidateLaunch returned error: %v", err)
+	}
+	if !runtimeWarningsContain(preview.Warnings, "does not report tool support") {
+		t.Fatalf("warnings = %+v, want tool capability warning", preview.Warnings)
 	}
 }
 
@@ -480,7 +1644,7 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	}
 	t.Cleanup(svc.Close)
 
-	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it"})
+	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it", StepMaxTurns: 4, StepMaxTokens: 50000, AllowApprovalWait: true})
 	if err != nil {
 		t.Fatalf("StartChain returned error: %v", err)
 	}
@@ -490,8 +1654,8 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	if gotCfg == nil || gotCfg.ProjectRoot != projectRoot {
 		t.Fatalf("got cfg = %+v, want project root %s", gotCfg, projectRoot)
 	}
-	if gotOpts.Mode != chainrun.ModeOneStep || gotOpts.Role != "coder" || gotOpts.SourceTask != "ship it" {
-		t.Fatalf("chainrun opts = %+v, want one-step coder task", gotOpts)
+	if gotOpts.Mode != chainrun.ModeOneStep || gotOpts.Role != "coder" || gotOpts.SourceTask != "ship it" || gotOpts.StepMaxTurns != 4 || gotOpts.StepMaxTokens != 50000 || !gotOpts.AllowApprovalWait {
+		t.Fatalf("chainrun opts = %+v, want one-step coder task with step caps and approval wait", gotOpts)
 	}
 	if gotOpts.MaxSteps != 100 || gotOpts.MaxResolverLoops != 3 || gotOpts.MaxDuration != 4*time.Hour || gotOpts.TokenBudget != 5_000_000 {
 		t.Fatalf("chainrun defaults = steps %d loops %d duration %s budget %d", gotOpts.MaxSteps, gotOpts.MaxResolverLoops, gotOpts.MaxDuration, gotOpts.TokenBudget)
@@ -595,11 +1759,13 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	}
 
 	saved, err := svc.SaveLaunchDraft(ctx, LaunchRequest{
-		Mode:         LaunchModeConstrained,
-		Role:         "coder",
-		AllowedRoles: []string{"coder", "planner"},
-		SourceTask:   "persist launch",
-		SourceSpecs:  []string{"docs/specs/a.md", "docs/specs/b.md"},
+		Mode:          LaunchModeConstrained,
+		Role:          "coder",
+		AllowedRoles:  []string{"coder", "planner"},
+		SourceTask:    "persist launch",
+		SourceSpecs:   []string{"docs/specs/a.md", "docs/specs/b.md"},
+		StepMaxTurns:  6,
+		StepMaxTokens: 70000,
 	})
 	if err != nil {
 		t.Fatalf("SaveLaunchDraft returned error: %v", err)
@@ -621,6 +1787,9 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	if !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "planner"}) || !reflect.DeepEqual(loaded.Request.SourceSpecs, []string{"docs/specs/a.md", "docs/specs/b.md"}) {
 		t.Fatalf("loaded draft slices = allowed %v specs %v", loaded.Request.AllowedRoles, loaded.Request.SourceSpecs)
 	}
+	if loaded.Request.StepMaxTurns != 6 || loaded.Request.StepMaxTokens != 70000 {
+		t.Fatalf("loaded draft caps = turns %d tokens %d, want 6/70000", loaded.Request.StepMaxTurns, loaded.Request.StepMaxTokens)
+	}
 
 	if _, err := svc.SaveLaunchDraft(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "replacement"}); err != nil {
 		t.Fatalf("SaveLaunchDraft replacement returned error: %v", err)
@@ -629,7 +1798,7 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadLaunchDraft replacement returned error: %v", err)
 	}
-	if !found || loaded.Request.Mode != LaunchModeOneStep || loaded.Request.SourceTask != "replacement" || len(loaded.Request.AllowedRoles) != 0 {
+	if !found || loaded.Request.Mode != LaunchModeOneStep || loaded.Request.SourceTask != "replacement" || len(loaded.Request.AllowedRoles) != 0 || loaded.Request.StepMaxTurns != 0 || loaded.Request.StepMaxTokens != 0 {
 		t.Fatalf("loaded replacement = %+v, want overwritten one-step draft", loaded)
 	}
 }
@@ -666,11 +1835,13 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	}
 
 	saved, err := svc.SaveLaunchPreset(ctx, "audit pair", LaunchRequest{
-		Mode:        LaunchModeManualRoster,
-		Role:        "coder",
-		Roster:      []string{"coder", "orchestrator"},
-		SourceTask:  "do not persist",
-		SourceSpecs: []string{"docs/specs/nope.md"},
+		Mode:          LaunchModeManualRoster,
+		Role:          "coder",
+		Roster:        []string{"coder", "orchestrator"},
+		SourceTask:    "do not persist",
+		SourceSpecs:   []string{"docs/specs/nope.md"},
+		StepMaxTurns:  4,
+		StepMaxTokens: 50000,
 	})
 	if err != nil {
 		t.Fatalf("SaveLaunchPreset returned error: %v", err)
@@ -681,12 +1852,15 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	if saved.Request.Mode != LaunchModeManualRoster || saved.Request.Role != "coder,orchestrator" || !reflect.DeepEqual(saved.Request.Roster, []string{"coder", "orchestrator"}) {
 		t.Fatalf("saved preset request = %+v, want manual roster", saved.Request)
 	}
+	if saved.Request.StepMaxTurns != 4 || saved.Request.StepMaxTokens != 50000 {
+		t.Fatalf("saved preset caps = turns %d tokens %d, want 4/50000", saved.Request.StepMaxTurns, saved.Request.StepMaxTokens)
+	}
 
 	presets, err := svc.ListLaunchPresets(ctx)
 	if err != nil {
 		t.Fatalf("ListLaunchPresets returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Name != "audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) {
+	if len(presets) != 1 || presets[0].Name != "audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 4 || presets[0].Request.StepMaxTokens != 50000 {
 		t.Fatalf("presets = %+v, want saved audit pair", presets)
 	}
 
@@ -697,8 +1871,75 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListLaunchPresets after update returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Request.Mode != LaunchModeConstrained || !reflect.DeepEqual(presets[0].Request.AllowedRoles, []string{"coder"}) {
+	if len(presets) != 1 || presets[0].Request.Mode != LaunchModeConstrained || !reflect.DeepEqual(presets[0].Request.AllowedRoles, []string{"coder"}) || presets[0].Request.StepMaxTurns != 0 || presets[0].Request.StepMaxTokens != 0 {
 		t.Fatalf("updated presets = %+v, want constrained replacement", presets)
+	}
+}
+
+func TestLaunchDraftAndPresetsUseProjectMemoryInShunterMode(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "shunter"
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"coder":        {SystemPrompt: "prompts/coder.md"},
+		"orchestrator": {SystemPrompt: "prompts/orchestrator.md"},
+	}
+	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{DataDir: filepath.Join(projectRoot, "memory"), DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer backend.Close()
+	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:        cfg,
+		BrainBackend:  backend,
+		MemoryBackend: backend,
+		Cleanup:       func() {},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	saved, err := svc.SaveLaunchDraft(ctx, LaunchRequest{
+		Mode:          LaunchModeConstrained,
+		Role:          "coder",
+		AllowedRoles:  []string{"coder", "orchestrator"},
+		SourceTask:    "persist shunter launch",
+		StepMaxTurns:  5,
+		StepMaxTokens: 60000,
+	})
+	if err != nil {
+		t.Fatalf("SaveLaunchDraft returned error: %v", err)
+	}
+	if saved.ID != "current" || saved.UpdatedAt == "" {
+		t.Fatalf("saved draft = %+v, want current id", saved)
+	}
+	loaded, found, err := svc.LoadLaunchDraft(ctx)
+	if err != nil {
+		t.Fatalf("LoadLaunchDraft returned error: %v", err)
+	}
+	if !found || loaded.Request.Mode != LaunchModeConstrained || loaded.Request.SourceTask != "persist shunter launch" || !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "orchestrator"}) || loaded.Request.StepMaxTurns != 5 || loaded.Request.StepMaxTokens != 60000 {
+		t.Fatalf("loaded draft = %+v found=%t, want Shunter launch draft", loaded, found)
+	}
+
+	preset, err := svc.SaveLaunchPreset(ctx, "shunter audit pair", LaunchRequest{Mode: LaunchModeManualRoster, Roster: []string{"coder", "orchestrator"}, SourceTask: "do not persist", StepMaxTurns: 4, StepMaxTokens: 50000})
+	if err != nil {
+		t.Fatalf("SaveLaunchPreset returned error: %v", err)
+	}
+	if preset.ID != "custom:shunter audit pair" || preset.Request.SourceTask != "" || preset.Request.StepMaxTurns != 4 || preset.Request.StepMaxTokens != 50000 {
+		t.Fatalf("preset = %+v, want custom preset without source task and with caps", preset)
+	}
+	presets, err := svc.ListLaunchPresets(ctx)
+	if err != nil {
+		t.Fatalf("ListLaunchPresets returned error: %v", err)
+	}
+	if len(presets) != 1 || presets[0].Name != "shunter audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 4 || presets[0].Request.StepMaxTokens != 50000 {
+		t.Fatalf("presets = %+v, want Shunter custom preset", presets)
+	}
+	if _, statErr := os.Stat(cfg.DatabasePath()); !os.IsNotExist(statErr) {
+		t.Fatalf("database stat err = %v, want no SQLite launch dependency in Shunter mode", statErr)
 	}
 }
 
@@ -855,6 +2096,53 @@ func TestPauseResumeCancelStateTransitions(t *testing.T) {
 	}
 }
 
+func TestApprovalControlsListApproveAndBlockPendingResume(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "approval-control-chain", SourceTask: "approval"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.SetChainStatus(ctx, chainID, chain.StatusWaitingApproval); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{
+		"approval_id": "approval-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	svc := openOperatorTestService(t, t.TempDir(), store, &fakeBrainBackend{}, nil)
+
+	if _, err := svc.ResumeChain(ctx, chainID); err == nil || !strings.Contains(err.Error(), "pending approval") {
+		t.Fatalf("ResumeChain error = %v, want pending approval rejection", err)
+	}
+	approvals, err := svc.ListApprovals(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListApprovals returned error: %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].ID != "approval-1" || approvals[0].Status != chain.ApprovalStatusPending {
+		t.Fatalf("approvals = %+v, want one pending approval", approvals)
+	}
+	decision, err := svc.ApproveChainApproval(ctx, chainID, "approval-1", "reviewed")
+	if err != nil {
+		t.Fatalf("ApproveChainApproval returned error: %v", err)
+	}
+	if decision.Approval.Status != chain.ApprovalStatusApproved || !strings.Contains(decision.Message, "approved") {
+		t.Fatalf("decision = %+v, want approved", decision)
+	}
+	resumed, err := svc.ResumeChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ResumeChain after approval returned error: %v", err)
+	}
+	if resumed.PreviousStatus != chain.StatusWaitingApproval || resumed.Status != "running" {
+		t.Fatalf("resumed = %+v, want waiting_approval -> running", resumed)
+	}
+}
+
 func TestCancelChainSignalsInjectedActiveProcesses(t *testing.T) {
 	ctx := context.Background()
 	store := chain.NewStore(newOperatorTestDB(t))
@@ -917,6 +2205,24 @@ func openOperatorTestService(t *testing.T, projectRoot string, store *chain.Stor
 				Cleanup:      func() {},
 			}, nil
 		},
+		ChainStarter: func(ctx context.Context, cfg *appconfig.Config, opts chainrun.Options, deps chainrun.Deps) (*chainrun.Result, error) {
+			chainID := opts.ChainID
+			if chainID == "" {
+				chainID = "operator-test-chain"
+				if _, err := store.StartChain(context.Background(), chain.ChainSpec{ChainID: chainID, SourceTask: opts.SourceTask, SourceSpecs: opts.SourceSpecs}); err != nil {
+					return nil, err
+				}
+			} else {
+				if err := store.SetChainStatus(context.Background(), chainID, "running"); err != nil {
+					return nil, err
+				}
+				_ = store.LogEvent(context.Background(), chainID, "", chain.EventChainResumed, map[string]any{"resumed_by": "test"})
+			}
+			if opts.OnChainID != nil {
+				opts.OnChainID(chainID)
+			}
+			return &chainrun.Result{ChainID: chainID, Status: "running"}, nil
+		},
 		ProcessSignaler: signaler,
 	})
 	if err != nil {
@@ -954,6 +2260,15 @@ agent_roles:
 	return path
 }
 
+func runtimeWarningsContain(warnings []RuntimeWarning, want string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning.Message, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func newOperatorTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	ctx := context.Background()
@@ -970,6 +2285,20 @@ func newOperatorTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("EnsureChainSchema returned error: %v", err)
 	}
 	return db
+}
+
+func newOperatorTestRouter(t *testing.T, status *provider.AuthStatus) *router.Router {
+	t.Helper()
+	r, err := router.NewRouter(router.RouterConfig{
+		Default: router.RouteTarget{Provider: "codex", Model: "test-model"},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewRouter returned error: %v", err)
+	}
+	if err := r.RegisterProvider(fakeAuthProvider{status: status}); err != nil {
+		t.Fatalf("RegisterProvider returned error: %v", err)
+	}
+	return r
 }
 
 func requireSummary(t *testing.T, summaries []ChainSummary, chainID string) ChainSummary {
@@ -992,4 +2321,45 @@ func requireChainStatus(t *testing.T, ctx context.Context, store *chain.Store, c
 	if ch.Status != want {
 		t.Fatalf("chain %s status = %q, want %q", chainID, ch.Status, want)
 	}
+}
+
+func completeOperatorTestStep(t *testing.T, ctx context.Context, store *chain.Store, chainID string, sequence int, role string) string {
+	t.Helper()
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: sequence, Role: role, Task: role + " task"})
+	if err != nil {
+		t.Fatalf("StartStep %s returned error: %v", role, err)
+	}
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{
+		StepID:       stepID,
+		Status:       "completed",
+		Verdict:      "completed",
+		ReceiptPath:  fmt.Sprintf("receipts/%s/%s-step-%03d.md", role, chainID, sequence),
+		TokensUsed:   10,
+		TurnsUsed:    1,
+		DurationSecs: 1,
+	}); err != nil {
+		t.Fatalf("CompleteStep %s returned error: %v", role, err)
+	}
+	return stepID
+}
+
+func hasRuntimeWarning(warnings []RuntimeWarning, want string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning.Message, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func equalStringSlices(got []string, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

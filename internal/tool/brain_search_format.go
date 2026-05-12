@@ -49,7 +49,7 @@ func pluralizeBrainSearchResults(count int) string {
 	return "results"
 }
 
-// titleFromPath extracts a human-readable title from a vault path.
+// titleFromPath extracts a human-readable title from a brain document path.
 func titleFromPath(path string) string {
 	base := filepath.Base(path)
 	ext := filepath.Ext(base)

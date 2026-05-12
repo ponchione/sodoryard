@@ -1,5 +1,5 @@
 // Package router implements the provider router, the entry point for all LLM
-// inference in sirtopham. The router selects which provider handles a request
+// inference in sodoryard. The router selects which provider handles a request
 // based on configuration, per-request overrides, and fallback logic. It
 // implements the provider.Provider interface so consumers are unaware of
 // routing decisions.
@@ -16,6 +16,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // Compile-time interface compliance check.
@@ -60,6 +61,8 @@ type Router struct {
 	mu         sync.RWMutex
 	logger     *slog.Logger
 	store      tracking.SubCallStore
+	hooks      []provider.ProviderHook
+	traceHook  provider.ProviderHook
 	modelIndex map[string]string // modelID → provider name; rebuilt on RegisterProvider
 }
 
@@ -84,6 +87,22 @@ func NewRouter(config RouterConfig, store tracking.SubCallStore, logger *slog.Lo
 		store:      store,
 		modelIndex: make(map[string]string),
 	}, nil
+}
+
+func (r *Router) SetTraceRecorder(recorder tracepkg.Recorder) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if recorder == nil {
+		r.traceHook = nil
+		return
+	}
+	r.traceHook = providerTraceHook{recorder: recorder}
+}
+
+func (r *Router) SetProviderHooks(hooks ...provider.ProviderHook) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hooks = append([]provider.ProviderHook(nil), hooks...)
 }
 
 // RegisterProvider adds a provider to the router. The provider is keyed by its
@@ -116,6 +135,46 @@ func (r *Router) RegisterProvider(p provider.Provider) error {
 
 	r.logger.Info("provider registered", "provider", name)
 	return nil
+}
+
+// ReplaceProvider swaps a registered provider by name. It is used for
+// operator-scoped runtime changes, such as changing Codex reasoning effort,
+// without rebuilding the full runtime.
+func (r *Router) ReplaceProvider(p provider.Provider) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if p == nil {
+		return errors.New("cannot replace with nil provider")
+	}
+	name := p.Name()
+	if name == "" {
+		return errors.New("cannot replace provider with empty name")
+	}
+	if existing, ok := r.providers[name]; ok {
+		if tracked, ok := existing.(*tracking.TrackedProvider); ok {
+			tracked.Wait()
+		}
+	}
+	if r.store != nil {
+		p = tracking.NewTrackedProvider(p, r.store, r.logger)
+	}
+	r.providers[name] = p
+	r.health[name] = &ProviderHealth{Healthy: true}
+	r.rebuildModelIndexLocked()
+	r.logger.Info("provider replaced", "provider", name)
+	return nil
+}
+
+func (r *Router) rebuildModelIndexLocked() {
+	r.modelIndex = make(map[string]string)
+	for name, p := range r.providers {
+		if models, err := p.Models(context.Background()); err == nil {
+			for _, m := range models {
+				r.modelIndex[m.ID] = name
+			}
+		}
+	}
 }
 
 // DrainTracking waits for all in-flight async sub-call writes (from
@@ -158,55 +217,198 @@ func (r *Router) ProviderHealthMap() map[string]*ProviderHealth {
 // Complete routes a completion request to the appropriate provider based on
 // per-request override and default configuration.
 func (r *Router) Complete(ctx context.Context, req *provider.Request) (*provider.Response, error) {
-	target, targetName, err := r.resolveTarget(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	callReq := cloneRequestWithModel(req, r.resolvedModel(req, targetName))
-	resp, callErr := target.Complete(ctx, callReq)
-
-	if callErr == nil {
-		r.markSuccess(targetName)
-		return resp, nil
-	}
-
-	r.markFailure(targetName, callErr)
-
-	switch classifyError(callErr) {
-	case errorClassAuth:
-		return nil, wrapAuthError(targetName, callErr)
-	case errorClassRetriable:
-		return r.completeWithFallback(ctx, req, targetName, callErr)
-	}
-	return nil, callErr
+	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (*provider.Response, error) {
+		return r.completeWithHooks(ctx, p, callReq)
+	})
 }
 
 // Stream routes a streaming request to the appropriate provider based on
 // per-request override and default configuration.
 func (r *Router) Stream(ctx context.Context, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	return routeCall(r, ctx, req, func(p provider.Provider, callReq *provider.Request) (<-chan provider.StreamEvent, error) {
+		return r.streamWithHooks(ctx, p, callReq)
+	})
+}
+
+func (r *Router) completeWithHooks(ctx context.Context, p provider.Provider, req *provider.Request) (*provider.Response, error) {
+	hooks := r.providerHooks()
+	call := providerCall(p, req, "complete")
+	hookCtx, ran, beforeErr := provider.RunProviderBeforeHooks(ctx, hooks, call)
+	if beforeErr != nil {
+		_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, provider.Usage{}, beforeErr)
+		return nil, beforeErr
+	}
+
+	resp, err := p.Complete(hookCtx, req)
+	usage := provider.Usage{}
+	if resp != nil {
+		usage = resp.Usage
+	}
+	afterErr := provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, usage, err)
+	if err != nil {
+		return resp, err
+	}
+	if afterErr != nil {
+		return resp, afterErr
+	}
+	return resp, nil
+}
+
+func (r *Router) streamWithHooks(ctx context.Context, p provider.Provider, req *provider.Request) (<-chan provider.StreamEvent, error) {
+	hooks := r.providerHooks()
+	call := providerCall(p, req, "stream")
+	hookCtx, ran, beforeErr := provider.RunProviderBeforeHooks(ctx, hooks, call)
+	if beforeErr != nil {
+		_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, provider.Usage{}, beforeErr)
+		return nil, beforeErr
+	}
+
+	ch, err := p.Stream(hookCtx, req)
+	if err != nil {
+		_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, provider.Usage{}, err)
+		return nil, err
+	}
+	out := make(chan provider.StreamEvent)
+	go func() {
+		defer close(out)
+		var streamErr error
+		var finalUsage provider.Usage
+		for event := range ch {
+			switch e := event.(type) {
+			case provider.StreamUsage:
+				finalUsage = e.Usage
+			case provider.StreamDone:
+				finalUsage = e.Usage
+			}
+			if streamEventErr, fatal := fatalStreamError(event); fatal {
+				streamErr = streamEventErr
+			}
+			select {
+			case out <- event:
+			case <-hookCtx.Done():
+				streamErr = hookCtx.Err()
+				_ = provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, finalUsage, streamErr)
+				return
+			}
+		}
+		if afterErr := provider.RunProviderAfterHooks(hookCtx, hooks[:ran], call, finalUsage, streamErr); afterErr != nil {
+			select {
+			case out <- provider.StreamError{Err: afterErr, Message: afterErr.Error(), Fatal: true}:
+			case <-hookCtx.Done():
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (r *Router) providerHooks() []provider.ProviderHook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	hooks := make([]provider.ProviderHook, 0, len(r.hooks)+1)
+	if r.traceHook != nil {
+		hooks = append(hooks, r.traceHook)
+	}
+	hooks = append(hooks, r.hooks...)
+	return hooks
+}
+
+func providerCall(p provider.Provider, req *provider.Request, operation string) provider.ProviderCall {
+	providerName := ""
+	if p != nil {
+		providerName = p.Name()
+	}
+	return provider.ProviderCall{
+		Provider:  providerName,
+		Operation: operation,
+		Request:   req,
+	}
+}
+
+type providerTraceHook struct {
+	recorder tracepkg.Recorder
+}
+
+type providerTraceSpanKey struct{}
+
+func (h providerTraceHook) BeforeProviderCall(ctx context.Context, call provider.ProviderCall) (context.Context, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, h.recorder, providerSpanStart(call))
+	return context.WithValue(spanCtx, providerTraceSpanKey{}, span), nil
+}
+
+func (h providerTraceHook) AfterProviderCall(ctx context.Context, _ provider.ProviderCall, _ provider.Usage, callErr error) error {
+	span, _ := ctx.Value(providerTraceSpanKey{}).(*tracepkg.ActiveSpan)
+	if span == nil {
+		return nil
+	}
+	span.End(context.Background(), tracepkg.StatusForError(callErr), callErr)
+	return nil
+}
+
+func providerSpanStart(call provider.ProviderCall) tracepkg.SpanStart {
+	attrs := map[string]any{
+		"operation": call.Operation,
+		"provider":  call.Provider,
+	}
+	req := call.Request
+	if req != nil {
+		attrs["model"] = req.Model
+		attrs["purpose"] = req.Purpose
+		attrs["tool_count"] = len(req.Tools)
+		return tracepkg.SpanStart{
+			Name:           "provider." + call.Operation,
+			Kind:           tracepkg.KindProvider,
+			ConversationID: req.ConversationID,
+			TurnNumber:     req.TurnNumber,
+			Iteration:      req.Iteration,
+			Attributes:     attrs,
+		}
+	}
+	return tracepkg.SpanStart{Name: "provider." + call.Operation, Kind: tracepkg.KindProvider, Attributes: attrs}
+}
+
+func fatalStreamError(event provider.StreamEvent) (error, bool) {
+	streamErr, ok := event.(provider.StreamError)
+	if !ok || !streamErr.Fatal {
+		return nil, false
+	}
+	if streamErr.Err != nil {
+		return streamErr.Err, true
+	}
+	if streamErr.Message != "" {
+		return errors.New(streamErr.Message), true
+	}
+	return errors.New("fatal provider stream error"), true
+}
+
+func routeCall[T any](
+	r *Router,
+	ctx context.Context,
+	req *provider.Request,
+	call func(provider.Provider, *provider.Request) (T, error),
+) (T, error) {
+	var zero T
 	target, targetName, err := r.resolveTarget(ctx, req)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	callReq := cloneRequestWithModel(req, r.resolvedModel(req, targetName))
-	ch, callErr := target.Stream(ctx, callReq)
+	result, callErr := call(target, callReq)
 
 	if callErr == nil {
 		r.markSuccess(targetName)
-		return ch, nil
+		return result, nil
 	}
 
 	r.markFailure(targetName, callErr)
 
 	switch classifyError(callErr) {
 	case errorClassAuth:
-		return nil, wrapAuthError(targetName, callErr)
+		return zero, wrapAuthError(targetName, callErr)
 	case errorClassRetriable:
-		return r.streamWithFallback(ctx, req, targetName, callErr)
+		return runWithFallback(r, req, targetName, callErr, call)
 	}
-	return nil, callErr
+	return zero, callErr
 }
 
 // Models aggregates models from all registered providers. If a provider's
@@ -362,18 +564,6 @@ func (r *Router) fallbackTarget(primaryProvider string) (provider.Provider, stri
 	}
 
 	return p, fallback.Provider, fallback.Model, true
-}
-
-func (r *Router) completeWithFallback(ctx context.Context, req *provider.Request, primaryProvider string, primaryErr error) (*provider.Response, error) {
-	return runWithFallback(r, req, primaryProvider, primaryErr, func(p provider.Provider, callReq *provider.Request) (*provider.Response, error) {
-		return p.Complete(ctx, callReq)
-	})
-}
-
-func (r *Router) streamWithFallback(ctx context.Context, req *provider.Request, primaryProvider string, primaryErr error) (<-chan provider.StreamEvent, error) {
-	return runWithFallback(r, req, primaryProvider, primaryErr, func(p provider.Provider, callReq *provider.Request) (<-chan provider.StreamEvent, error) {
-		return p.Stream(ctx, callReq)
-	})
 }
 
 func runWithFallback[T any](

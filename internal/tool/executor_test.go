@@ -9,7 +9,41 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
+
+type traceRecorderStub struct {
+	mu    sync.Mutex
+	spans []tracepkg.Span
+	ends  []tracepkg.SpanEnd
+}
+
+func (r *traceRecorderStub) StartSpan(_ context.Context, span tracepkg.Span) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans = append(r.spans, span)
+	return nil
+}
+
+func (r *traceRecorderStub) EndSpan(_ context.Context, end tracepkg.SpanEnd) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ends = append(r.ends, end)
+	return nil
+}
+
+func (r *traceRecorderStub) ListSpans(context.Context, tracepkg.Query) ([]tracepkg.Span, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tracepkg.Span(nil), r.spans...), nil
+}
+
+func (r *traceRecorderStub) snapshot() ([]tracepkg.Span, []tracepkg.SpanEnd) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tracepkg.Span(nil), r.spans...), append([]tracepkg.SpanEnd(nil), r.ends...)
+}
 
 func TestExecutorPureCallsConcurrent(t *testing.T) {
 	reg := NewRegistry()
@@ -123,6 +157,44 @@ func TestExecutorMixedBatchOrdering(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("results[%d] failed unexpectedly: %s", i, result.Error)
 		}
+	}
+}
+
+func TestExecutorRecordsBatchAndToolSpans(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(newMockTool("file_read", Pure))
+	traces := &traceRecorderStub{}
+	exec := NewExecutor(reg, ExecutorConfig{}, nil)
+	exec.SetTraceRecorder(traces)
+	ctx := tracepkg.ContextWithScope(context.Background(), tracepkg.Scope{
+		TraceID:        "trace-1",
+		ConversationID: "conv-1",
+		ChainID:        "chain-1",
+		StepID:         "step-1",
+		TurnNumber:     2,
+		Iteration:      3,
+	})
+
+	results := exec.Execute(ctx, []ToolCall{{ID: "tc-1", Name: "file_read", Arguments: json.RawMessage(`{}`)}})
+	if len(results) != 1 || !results[0].Success {
+		t.Fatalf("results = %+v, want one success", results)
+	}
+	details := decodeToolResultDetails(t, results[0].Details)
+	if _, ok := details["trace_span_id"].(string); !ok {
+		t.Fatalf("details = %#v, want trace_span_id", details)
+	}
+	spans, ends := traces.snapshot()
+	if len(spans) != 2 || len(ends) != 2 {
+		t.Fatalf("spans=%+v ends=%+v, want batch and tool spans", spans, ends)
+	}
+	if spans[0].Kind != tracepkg.KindToolBatch || spans[1].Kind != tracepkg.KindTool {
+		t.Fatalf("span kinds = %q/%q, want batch/tool", spans[0].Kind, spans[1].Kind)
+	}
+	if spans[1].ParentID != spans[0].ID || spans[1].TraceID != "trace-1" || spans[1].ChainID != "chain-1" || spans[1].Iteration != 3 {
+		t.Fatalf("tool span = %+v, batch = %+v", spans[1], spans[0])
+	}
+	if ends[0].Status != tracepkg.StatusOK || ends[1].Status != tracepkg.StatusOK {
+		t.Fatalf("span ends = %+v, want ok statuses", ends)
 	}
 }
 

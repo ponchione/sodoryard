@@ -30,7 +30,7 @@ type Report struct {
 
 // ReportEntry is one line of init output.
 type ReportEntry struct {
-	Kind    string // "config", "mkdir", "database", "vault", "gitignore"
+	Kind    string // "config", "mkdir", "gitignore"
 	Path    string // operator-relative path (relative to ProjectRoot)
 	Status  string // "created", "skipped", "added <details>"
 	Details string // optional extra information for "added" entries
@@ -51,7 +51,6 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		configFilename = appconfig.ConfigFilename
 	}
 	projectName := filepath.Base(projectRoot)
-	stateDir := filepath.Join(projectRoot, appconfig.StateDirName)
 
 	report := &Report{}
 
@@ -69,23 +68,13 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		report.Entries = append(report.Entries, entry)
 	}
 
-	// 3. Initialize database.
-	created, err := EnsureDatabase(ctx, projectRoot, projectName, stateDir)
-	if err != nil {
-		return nil, err
-	}
-	dbStatus := "schema created"
-	if !created {
-		dbStatus = "already initialized, skipped"
-	}
-	report.Entries = append(report.Entries, ReportEntry{
-		Kind:   "database",
-		Path:   filepath.Join(appconfig.StateDirName, appconfig.StateDBName),
-		Status: dbStatus,
-	})
-
-	// 4. mkdir lancedb directories under state dir.
-	for _, sub := range []string{filepath.Join("lancedb", "code"), filepath.Join("lancedb", "brain")} {
+	// 3. mkdir derived and runtime state directories under .yard/.
+	for _, sub := range []string{
+		filepath.Join("lancedb", "code"),
+		filepath.Join("lancedb", "brain"),
+		filepath.Join("shunter", "project-memory"),
+		"run",
+	} {
 		if entry, err := mkdirRelative(projectRoot, filepath.Join(appconfig.StateDirName, sub), "mkdir"); err != nil {
 			return nil, err
 		} else {
@@ -93,53 +82,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		}
 	}
 
-	// 5. mkdir .brain/ root.
-	if entry, err := mkdirRelative(projectRoot, ".brain", "mkdir"); err != nil {
-		return nil, err
-	} else {
-		report.Entries = append(report.Entries, entry)
-	}
-
-	// 6. Write .obsidian config.
-	if err := EnsureObsidianConfig(filepath.Join(projectRoot, ".brain")); err != nil {
-		return nil, err
-	}
-	report.Entries = append(report.Entries, ReportEntry{
-		Kind:   "vault",
-		Path:   filepath.Join(".brain", ".obsidian") + "/",
-		Status: "obsidian config ready",
-	})
-
-	// 7. mkdir .brain/notes (operator's free-form notes).
-	if entry, err := mkdirRelative(projectRoot, filepath.Join(".brain", "notes"), "mkdir"); err != nil {
-		return nil, err
-	} else {
-		report.Entries = append(report.Entries, entry)
-	}
-
-	// 8. mkdir .brain/<section>/ for each railway section.
-	sections, err := listBrainSectionDirs()
-	if err != nil {
-		return nil, err
-	}
-	for _, section := range sections {
-		// Create the directory.
-		dir := filepath.Join(".brain", section)
-		if entry, err := mkdirRelative(projectRoot, dir, "mkdir"); err != nil {
-			return nil, err
-		} else {
-			report.Entries = append(report.Entries, entry)
-		}
-		// Place a .gitkeep so empty railway sections survive `git add`.
-		gitkeepPath := filepath.Join(projectRoot, dir, ".gitkeep")
-		if _, err := os.Stat(gitkeepPath); err != nil {
-			if err := os.WriteFile(gitkeepPath, nil, 0o644); err != nil {
-				return nil, fmt.Errorf("write %s: %w", gitkeepPath, err)
-			}
-		}
-	}
-
-	// 9. Patch .gitignore.
+	// 4. Patch .gitignore.
 	added, err := EnsureGitignoreEntries(projectRoot)
 	if err != nil {
 		return nil, err

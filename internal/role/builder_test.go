@@ -129,6 +129,41 @@ func TestBuildRegistryBrainToolsCarryScopedBrainPolicy(t *testing.T) {
 	}
 }
 
+func TestBuildRegistryReadOnlyRoleDisablesBrainMutationLogs(t *testing.T) {
+	cfg := &appconfig.Config{}
+	cfg.Brain = appconfig.BrainConfig{Enabled: true, LogBrainQueries: true, LogBrainOperations: true}
+
+	registry, scopedBrainCfg, err := BuildRegistry(cfg, appconfig.AgentRoleConfig{
+		MutationClass:   appconfig.MutationClassReadOnly,
+		Tools:           []string{"brain"},
+		BrainWritePaths: []string{"receipts/auditor/**"},
+	}, BuilderDeps{ProjectID: "/tmp/project"})
+	if err != nil {
+		t.Fatalf("BuildRegistry returned error: %v", err)
+	}
+	if scopedBrainCfg.LogBrainQueries || scopedBrainCfg.LogBrainOperations {
+		t.Fatalf("read-only brain config logs = queries:%t operations:%t, want both disabled", scopedBrainCfg.LogBrainQueries, scopedBrainCfg.LogBrainOperations)
+	}
+	if !cfg.Brain.LogBrainQueries || !cfg.Brain.LogBrainOperations {
+		t.Fatalf("base config brain logging was mutated: %#v", cfg.Brain)
+	}
+	got := registry.Names()
+	want := []string{"brain_read", "brain_search"}
+	if len(got) != len(want) {
+		t.Fatalf("Names() len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Names()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+		}
+	}
+	for _, registered := range registry.All() {
+		if registered.ToolPurity() != tool.Pure {
+			t.Fatalf("read-only role registered mutating tool %q", registered.Name())
+		}
+	}
+}
+
 func TestBuildRegistryOmitsBrainToolsWhenBrainDisabled(t *testing.T) {
 	cfg := &appconfig.Config{}
 	cfg.Brain = appconfig.BrainConfig{Enabled: false}

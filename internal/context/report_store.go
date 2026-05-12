@@ -10,9 +10,10 @@ import (
 	"time"
 
 	dbpkg "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
-type contextReportStore interface {
+type ReportStore interface {
 	Insert(ctx stdctx.Context, conversationID string, report *ContextAssemblyReport) error
 	Get(ctx stdctx.Context, conversationID string, turnNumber int) (*ContextAssemblyReport, error)
 	UpdateQuality(ctx stdctx.Context, conversationID string, turnNumber int, usedSearchTool bool, readFiles []string, hitRate float64) error
@@ -24,6 +25,17 @@ type SQLiteReportStore struct {
 	now     func() time.Time
 }
 
+type ProjectMemoryContextReportStore interface {
+	StoreContextReport(ctx stdctx.Context, args projectmemory.StoreContextReportArgs) error
+	ReadContextReport(ctx stdctx.Context, conversationID string, turnNumber uint32) (projectmemory.ContextReport, bool, error)
+	UpdateContextReportQuality(ctx stdctx.Context, args projectmemory.UpdateContextReportQualityArgs) error
+}
+
+type ProjectMemoryReportStore struct {
+	memory ProjectMemoryContextReportStore
+	now    func() time.Time
+}
+
 // NewSQLiteReportStore constructs a SQLite-backed report store.
 func NewSQLiteReportStore(database *sql.DB) *SQLiteReportStore {
 	if database == nil {
@@ -32,6 +44,16 @@ func NewSQLiteReportStore(database *sql.DB) *SQLiteReportStore {
 	return &SQLiteReportStore{
 		queries: dbpkg.New(database),
 		now:     time.Now,
+	}
+}
+
+func NewProjectMemoryReportStore(memory ProjectMemoryContextReportStore) *ProjectMemoryReportStore {
+	if memory == nil {
+		return nil
+	}
+	return &ProjectMemoryReportStore{
+		memory: memory,
+		now:    time.Now,
 	}
 }
 
@@ -109,6 +131,49 @@ func (s *SQLiteReportStore) Insert(ctx stdctx.Context, conversationID string, re
 	})
 }
 
+func (s *ProjectMemoryReportStore) Insert(ctx stdctx.Context, conversationID string, report *ContextAssemblyReport) error {
+	if ctx == nil {
+		ctx = stdctx.Background()
+	}
+	if s == nil || s.memory == nil {
+		return fmt.Errorf("insert context report: store is nil")
+	}
+	if report == nil {
+		return fmt.Errorf("insert context report: report is nil")
+	}
+	if report.TurnNumber <= 0 {
+		return fmt.Errorf("insert context report: turn number is required")
+	}
+	reportJSON, err := marshalJSON(report)
+	if err != nil {
+		return fmt.Errorf("insert context report: marshal report: %w", err)
+	}
+	requestJSON, err := marshalJSON(projectMemoryContextReportRequest{
+		ConversationID: conversationID,
+		TurnNumber:     report.TurnNumber,
+	})
+	if err != nil {
+		return fmt.Errorf("insert context report: marshal request: %w", err)
+	}
+	qualityJSON, err := marshalJSON(projectMemoryContextReportQuality{
+		AgentReadFiles: []string{},
+	})
+	if err != nil {
+		return fmt.Errorf("insert context report: marshal default quality: %w", err)
+	}
+	createdAtUS := uint64(s.now().UTC().UnixMicro())
+	return s.memory.StoreContextReport(ctx, projectmemory.StoreContextReportArgs{
+		ID:             projectmemory.ContextReportID(conversationID, uint32(report.TurnNumber)),
+		ConversationID: conversationID,
+		TurnNumber:     uint32(report.TurnNumber),
+		CreatedAtUS:    createdAtUS,
+		UpdatedAtUS:    createdAtUS,
+		RequestJSON:    requestJSON,
+		ReportJSON:     reportJSON,
+		QualityJSON:    qualityJSON,
+	})
+}
+
 func (s *SQLiteReportStore) Get(ctx stdctx.Context, conversationID string, turnNumber int) (*ContextAssemblyReport, error) {
 	if ctx == nil {
 		ctx = stdctx.Background()
@@ -124,6 +189,23 @@ func (s *SQLiteReportStore) Get(ctx stdctx.Context, conversationID string, turnN
 		return nil, fmt.Errorf("get context report: %w", err)
 	}
 	return decodeContextReportRow(row)
+}
+
+func (s *ProjectMemoryReportStore) Get(ctx stdctx.Context, conversationID string, turnNumber int) (*ContextAssemblyReport, error) {
+	if ctx == nil {
+		ctx = stdctx.Background()
+	}
+	if s == nil || s.memory == nil {
+		return nil, fmt.Errorf("get context report: store is nil")
+	}
+	row, found, err := s.memory.ReadContextReport(ctx, conversationID, uint32(turnNumber))
+	if err != nil {
+		return nil, fmt.Errorf("get context report: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("get context report: %w", sql.ErrNoRows)
+	}
+	return decodeProjectMemoryContextReport(row)
 }
 
 func (s *SQLiteReportStore) UpdateQuality(ctx stdctx.Context, conversationID string, turnNumber int, usedSearchTool bool, readFiles []string, hitRate float64) error {
@@ -148,6 +230,30 @@ func (s *SQLiteReportStore) UpdateQuality(ctx stdctx.Context, conversationID str
 		ContextHitRate:      sql.NullFloat64{Float64: hitRate, Valid: true},
 		ConversationID:      conversationID,
 		TurnNumber:          int64(turnNumber),
+	})
+}
+
+func (s *ProjectMemoryReportStore) UpdateQuality(ctx stdctx.Context, conversationID string, turnNumber int, usedSearchTool bool, readFiles []string, hitRate float64) error {
+	if ctx == nil {
+		ctx = stdctx.Background()
+	}
+	if s == nil || s.memory == nil {
+		return fmt.Errorf("update context report quality: store is nil")
+	}
+	readFiles = normalizeUniquePaths(readFiles)
+	qualityJSON, err := marshalJSON(projectMemoryContextReportQuality{
+		AgentUsedSearchTool: usedSearchTool,
+		AgentReadFiles:      readFiles,
+		ContextHitRate:      hitRate,
+	})
+	if err != nil {
+		return fmt.Errorf("update context report quality: marshal quality: %w", err)
+	}
+	return s.memory.UpdateContextReportQuality(ctx, projectmemory.UpdateContextReportQualityArgs{
+		ConversationID: conversationID,
+		TurnNumber:     uint32(turnNumber),
+		UpdatedAtUS:    uint64(s.now().UTC().UnixMicro()),
+		QualityJSON:    qualityJSON,
 	})
 }
 
@@ -223,6 +329,42 @@ func decodeContextReportRow(row dbpkg.ContextReport) (*ContextAssemblyReport, er
 	}
 	report.IncludedChunks = collectIncludedChunkKeys(report)
 	report.ExcludedChunks, report.ExclusionReasons = collectExcludedChunkKeys(report)
+	ensureUnifiedRetrievalResults(report)
+	if report.BudgetBreakdown == nil {
+		report.BudgetBreakdown = map[string]int{}
+	}
+	return report, nil
+}
+
+type projectMemoryContextReportRequest struct {
+	ConversationID string `json:"conversation_id"`
+	TurnNumber     int    `json:"turn_number"`
+}
+
+type projectMemoryContextReportQuality struct {
+	AgentUsedSearchTool bool     `json:"agent_used_search_tool"`
+	AgentReadFiles      []string `json:"agent_read_files"`
+	ContextHitRate      float64  `json:"context_hit_rate"`
+}
+
+func decodeProjectMemoryContextReport(row projectmemory.ContextReport) (*ContextAssemblyReport, error) {
+	report := &ContextAssemblyReport{TurnNumber: int(row.TurnNumber)}
+	if err := unmarshalJSONString(row.ReportJSON, report); err != nil {
+		return nil, fmt.Errorf("decode report_json: %w", err)
+	}
+	var quality projectMemoryContextReportQuality
+	if err := unmarshalJSONString(row.QualityJSON, &quality); err != nil {
+		return nil, fmt.Errorf("decode quality_json: %w", err)
+	}
+	if report.TurnNumber == 0 {
+		report.TurnNumber = int(row.TurnNumber)
+	}
+	report.AgentUsedSearchTool = quality.AgentUsedSearchTool
+	report.AgentReadFiles = normalizeUniquePaths(quality.AgentReadFiles)
+	report.ContextHitRate = quality.ContextHitRate
+	report.IncludedChunks = collectIncludedChunkKeys(report)
+	report.ExcludedChunks, report.ExclusionReasons = collectExcludedChunkKeys(report)
+	ensureUnifiedRetrievalResults(report)
 	if report.BudgetBreakdown == nil {
 		report.BudgetBreakdown = map[string]int{}
 	}

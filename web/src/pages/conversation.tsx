@@ -179,8 +179,9 @@ export function ConversationPage() {
   const handleSend = () => {
     const text = input.trim();
     if (!text || isStreaming) return;
-    setInput("");
-    sendMessage(text);
+    if (sendMessage(text)) {
+      setInput("");
+    }
   };
 
   return (
@@ -221,6 +222,7 @@ export function ConversationPage() {
         <ConversationComposer
           input={input}
           isStreaming={isStreaming}
+          canSend={connectionStatus === "connected"}
           onInputChange={setInput}
           onSend={handleSend}
           onCancel={cancel}

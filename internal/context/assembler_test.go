@@ -12,6 +12,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/config"
 	dbpkg "github.com/ponchione/sodoryard/internal/db"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type assemblerAnalyzerStub struct {
@@ -184,6 +185,8 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	}}
 	serializer := &assemblerSerializerStub{content: "## Relevant Code\n\nassembled context"}
 	assembler := NewContextAssembler(analyzer, extractor, momentum, retriever, budgeter, serializer, config.ContextConfig{StoreAssemblyReports: true}, db)
+	traceRecorder := tracepkg.NewSQLiteRecorder(db)
+	assembler.SetTraceRecorder(traceRecorder)
 
 	pkg, compressionNeeded, err := assembler.Assemble(stdctx.Background(), "fix auth middleware", history, AssemblyScope{
 		ConversationID: conversationID,
@@ -235,6 +238,9 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	if len(pkg.Report.GraphResults) != 1 || pkg.Report.GraphResults[0].ExclusionReason != "budget_exceeded" {
 		t.Fatalf("GraphResults = %+v, want budget_exceeded exclusion", pkg.Report.GraphResults)
 	}
+	if len(pkg.Report.UnifiedResults) != 4 || pkg.Report.UnifiedResults[0].Kind != "code_chunk" || pkg.Report.UnifiedResults[1].Kind != "brain_doc" {
+		t.Fatalf("UnifiedResults = %+v, want normalized retrieval results", pkg.Report.UnifiedResults)
+	}
 	if !pkg.Report.Needs.PreferBrainContext {
 		t.Fatalf("report PreferBrainContext = false, want true")
 	}
@@ -251,6 +257,13 @@ func TestContextAssemblerAssemblePersistsReportAndReturnsFrozenPackage(t *testin
 	}
 	if !row.AgentReadFilesJson.Valid || row.AgentReadFilesJson.String != "[]" {
 		t.Fatalf("AgentReadFilesJson = %+v, want []", row.AgentReadFilesJson)
+	}
+	spans, err := traceRecorder.ListSpans(stdctx.Background(), tracepkg.Query{ConversationID: conversationID})
+	if err != nil {
+		t.Fatalf("ListSpans returned error: %v", err)
+	}
+	if len(spans) != 1 || spans[0].Kind != tracepkg.KindContext || spans[0].Name != "context.assemble" || spans[0].ConversationID != conversationID || spans[0].TurnNumber != 2 || spans[0].Status != tracepkg.StatusOK {
+		t.Fatalf("context spans = %+v, want completed context assembly span", spans)
 	}
 	var persistedNeeds ContextNeeds
 	if err := json.Unmarshal([]byte(row.NeedsJson.String), &persistedNeeds); err != nil {

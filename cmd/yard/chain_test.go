@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
@@ -107,8 +110,8 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag == nil {
 		t.Fatal("expected max-resolver-loops flag")
 	}
-	if flag.DefValue != "3" {
-		t.Fatalf("default max-resolver-loops = %q, want 3", flag.DefValue)
+	if flag.DefValue != fmt.Sprint(chaininput.DefaultMaxResolverLoops) {
+		t.Fatalf("default max-resolver-loops = %q, want %d", flag.DefValue, chaininput.DefaultMaxResolverLoops)
 	}
 	if flag := cmd.Flags().Lookup("project"); flag == nil {
 		t.Fatal("expected project flag")
@@ -116,14 +119,23 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	if flag := cmd.Flags().Lookup("role"); flag == nil {
 		t.Fatal("expected role flag")
 	}
-	if flag := cmd.Flags().Lookup("brain"); flag == nil {
-		t.Fatal("expected brain flag")
+	if flag := cmd.Flags().Lookup("template"); flag == nil {
+		t.Fatal("expected template flag")
+	}
+	if flag := cmd.Flags().Lookup("allowed-roles"); flag == nil {
+		t.Fatal("expected allowed-roles flag")
+	}
+	if flag := cmd.Flags().Lookup("roster"); flag == nil {
+		t.Fatal("expected roster flag")
 	}
 	if flag := cmd.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
 		t.Fatalf("watch flag = %#v, want default true", flag)
 	}
 	if flag := cmd.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
 		t.Fatalf("verbosity flag = %#v, want default normal", flag)
+	}
+	if flag := cmd.Flags().Lookup("allow-approval-wait"); flag == nil || flag.DefValue != "false" {
+		t.Fatalf("allow-approval-wait flag = %#v, want default false", flag)
 	}
 	resume := newYardChainResumeCmd(&configPath)
 	if flag := resume.Flags().Lookup("watch"); flag == nil || flag.DefValue != "true" {
@@ -135,6 +147,113 @@ func TestYardChainStartExposesMaxResolverLoopsFlag(t *testing.T) {
 	logs := newYardChainLogsCmd(&configPath)
 	if flag := logs.Flags().Lookup("verbosity"); flag == nil || flag.DefValue != "normal" {
 		t.Fatalf("logs verbosity flag = %#v, want default normal", flag)
+	}
+	chainEval := newYardChainEvalCmd(&configPath)
+	if flag := chainEval.Flags().Lookup("json"); flag == nil {
+		t.Fatal("expected chain eval json flag")
+	}
+	templates := newYardChainTemplatesCmd(&configPath)
+	if flag := templates.Flags().Lookup("json"); flag == nil {
+		t.Fatal("expected chain templates json flag")
+	}
+}
+
+func TestYardChainEvalCommandPrintsStoredChainReport(t *testing.T) {
+	ctx := context.Background()
+	configPath, cfg := writeYardChainControlConfig(t, "http://localhost:1")
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	backend := &yardChainTestBrainBackend{docs: map[string]string{}}
+	withYardOperatorTestRuntime(t, cfg.ProjectRoot, store, backend)
+
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-eval-ok", SourceTask: "evaluate stored chain"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	for _, spec := range []chain.StepSpec{
+		{StepID: "step-planner", ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"},
+		{StepID: "step-coder", ChainID: chainID, SequenceNum: 2, Role: "coder", Task: "code"},
+		{StepID: "step-auditor", ChainID: chainID, SequenceNum: 3, Role: "correctness-auditor", Task: "audit"},
+	} {
+		stepID, err := store.StartStep(ctx, spec)
+		if err != nil {
+			t.Fatalf("StartStep returned error: %v", err)
+		}
+		if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "completed"}); err != nil {
+			t.Fatalf("CompleteStep returned error: %v", err)
+		}
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 3}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "ok"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	cmd := newYardChainEvalCmd(&configPath)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v\nstdout=%s", err, out.String())
+	}
+	for _, want := range []string{
+		"suite=chain-flow status=pass",
+		"case=chain-eval-ok status=pass",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("stdout = %q, want %q", out.String(), want)
+		}
+	}
+}
+
+func TestYardChainTemplatesCommandPrintsTemplates(t *testing.T) {
+	configPath, cfg := writeYardChainControlConfig(t, "http://localhost:1")
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	backend := &yardChainTestBrainBackend{docs: map[string]string{}}
+	withYardOperatorTestRuntime(t, cfg.ProjectRoot, store, backend)
+
+	var out bytes.Buffer
+	cmd := newYardChainTemplatesCmd(&configPath)
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"one_step\tmode=one_step_chain",
+		"manual_roster\tmode=manual_roster",
+		"receipt_schema=yard.receipt.v1",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("stdout = %q, want %q", out.String(), want)
+		}
+	}
+}
+
+func TestYardChainTemplatesCommandPrintsJSON(t *testing.T) {
+	configPath, cfg := writeYardChainControlConfig(t, "http://localhost:1")
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	backend := &yardChainTestBrainBackend{docs: map[string]string{}}
+	withYardOperatorTestRuntime(t, cfg.ProjectRoot, store, backend)
+
+	var out bytes.Buffer
+	cmd := newYardChainTemplatesCmd(&configPath)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	var templates []operator.LaunchTemplate
+	if err := json.Unmarshal(out.Bytes(), &templates); err != nil {
+		t.Fatalf("json output decode failed: %v\n%s", err, out.String())
+	}
+	if len(templates) != 4 || templates[0].ID != "constrained_orchestration" {
+		t.Fatalf("templates = %+v, want typed template JSON", templates)
+	}
+	if !strings.Contains(out.String(), `"receipt_schema"`) {
+		t.Fatalf("stdout = %q, want snake_case JSON fields", out.String())
+	}
+	if len(templates[0].InputSchema) == 0 || !strings.Contains(string(templates[0].InputSchema), `"allowed_roles"`) {
+		t.Fatalf("templates[0].InputSchema = %s, want constrained input schema", templates[0].InputSchema)
 	}
 }
 
@@ -168,6 +287,49 @@ func TestYardChainReceiptCommandPrintsStepReceipt(t *testing.T) {
 	}
 	if out.String() != "step receipt" {
 		t.Fatalf("stdout = %q, want step receipt", out.String())
+	}
+}
+
+func TestYardChainApprovalCommands(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "approval-cli-chain", SourceTask: "approval"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{
+		"approval_id": "approval-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+	}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	listCmd := newYardChainApprovalsCmd(&cfgPath)
+	var listOut bytes.Buffer
+	listCmd.SetContext(ctx)
+	listCmd.SetOut(&listOut)
+	listCmd.SetArgs([]string{chainID})
+	if err := listCmd.Execute(); err != nil {
+		t.Fatalf("approvals command returned error: %v", err)
+	}
+	if !strings.Contains(listOut.String(), "approval-1 status=pending tool=shell") {
+		t.Fatalf("approvals output = %q, want pending approval", listOut.String())
+	}
+
+	approveCmd := newYardChainApproveCmd(&cfgPath)
+	var approveOut bytes.Buffer
+	approveCmd.SetContext(ctx)
+	approveCmd.SetOut(&approveOut)
+	approveCmd.SetArgs([]string{chainID, "approval-1", "--reason", "reviewed"})
+	if err := approveCmd.Execute(); err != nil {
+		t.Fatalf("approve command returned error: %v", err)
+	}
+	if !strings.Contains(approveOut.String(), "approval approval-1 approved") {
+		t.Fatalf("approve output = %q, want approved message", approveOut.String())
 	}
 }
 
@@ -217,6 +379,122 @@ func TestYardChainStatusCommandPrintsExistingFormats(t *testing.T) {
 	}
 }
 
+func TestYardChainMetricsCommandPrintsDogfoodingSummary(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-cli-metrics", SourceTask: "metrics", MaxSteps: 5, MaxResolverLoops: 2, MaxDuration: 100 * time.Second, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	stepID, err := store.StartStep(ctx, chain.StepSpec{ChainID: chainID, SequenceNum: 1, Role: "planner", Task: "plan"})
+	if err != nil {
+		t.Fatalf("StartStep returned error: %v", err)
+	}
+	exitZero := 0
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "accepted", DurationSecs: 3, ExitCode: &exitZero}); err != nil {
+		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalDurationSecs: 3}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepProcessStarted, map[string]any{"process_id": 1111, "active_process": true}); err != nil {
+		t.Fatalf("LogEvent process start returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepOutput, map[string]any{"stream": "stdout", "line": "ok"}); err != nil {
+		t.Fatalf("LogEvent output returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, stepID, chain.EventStepProcessExited, map[string]any{"process_id": 1111, "exit_code": 0}); err != nil {
+		t.Fatalf("LogEvent process exit returned error: %v", err)
+	}
+	if err := store.CompleteChain(ctx, chainID, "completed", "done"); err != nil {
+		t.Fatalf("CompleteChain returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	var out bytes.Buffer
+	cmd := newYardChainMetricsCmd(&cfgPath)
+	cmd.SetContext(ctx)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	want := "chain=chain-cli-metrics health=attention status=completed\n" +
+		"steps recorded=1 rows=1 completed=1 running=0 pending=0 failed=0 budget=5 pct=20.0\n" +
+		"tokens recorded=0 step_sum=0 budget=100 pct=0.0\n" +
+		"turns step_sum=0\n" +
+		"duration recorded=3s step_sum=3s budget=100s pct=3.0\n" +
+		"resolver_loops used=0 budget=2 pct=0.0\n" +
+		"events total=3 output=1 changed_files=0 guardrail_facts=0 receipt_warnings=0 source_writer_blocks=0 source_writer_lock_acquired=0 source_writer_lock_released=0 source_writer_lock_force_released=0 source_writer_lock_release_failed=0 source_writer_lock_heartbeat_failed=0 source_writer_lock_stale_replaced=0 step_failed=0 safety_limit=0 reindex_started=0 reindex_done=0 process_started=1 process_exited=1\n" +
+		"findings events=0 lifecycle_facts=0 open=0 closed=0 addressed=0 open_ids= closed_ids= addressed_ids= reopened_ids= repeated_resolver_ids=\n" +
+		"warnings=3\n" +
+		"warning: step 1 completed without a receipt path\n" +
+		"warning: step 1 completed without token usage\n" +
+		"warning: step 1 completed without turn count\n" +
+		"step=1 role=planner status=completed verdict=accepted tokens=0 turns=0 duration=3s exit=0 receipt=<unset>\n"
+	if out.String() != want {
+		t.Fatalf("stdout = %q, want %q", out.String(), want)
+	}
+}
+
+func TestRenderYardChainMetricsPrintsFindingLifecycle(t *testing.T) {
+	report := operator.ChainMetricsReport{
+		ChainID:                    "chain-findings",
+		Status:                     "running",
+		Health:                     "attention",
+		OpenFindingIDs:             []string{"FIND-correctness-001"},
+		AddressedFindingIDs:        []string{"FIND-correctness-001"},
+		ReopenedFindingIDs:         []string{"FIND-correctness-001"},
+		RepeatedResolverFindingIDs: []string{"FIND-correctness-001"},
+		FindingLifecycle: []operator.FindingLifecycleMetric{{
+			ID:              "FIND-correctness-001",
+			SourceRole:      "correctness-auditor",
+			Status:          "addressed",
+			Severity:        "high",
+			Evidence:        "internal/example.go:42",
+			Summary:         "nil panic",
+			RequiredFix:     "guard nil",
+			Resolution:      "fixed",
+			FilesChanged:    []string{"internal/example.go"},
+			Validation:      []string{"rtk make test"},
+			AddressedCount:  2,
+			ReopenedCount:   1,
+			FirstSeenStep:   3,
+			LastUpdatedStep: 7,
+		}},
+	}
+
+	var out bytes.Buffer
+	renderYardChainMetrics(&out, report)
+	for _, want := range []string{
+		"findings events=0 lifecycle_facts=0 open=0 closed=0 addressed=0 open_ids=FIND-correctness-001 closed_ids= addressed_ids=FIND-correctness-001 reopened_ids=FIND-correctness-001 repeated_resolver_ids=FIND-correctness-001",
+		"finding id=FIND-correctness-001 source=correctness-auditor status=addressed addressed=2 closed=0 reopened=1 first_step=3 last_step=7 severity=high evidence=\"internal/example.go:42\" summary=\"nil panic\" required_fix=\"guard nil\" resolution=\"fixed\" files=internal/example.go validation=\"rtk make test\"",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("metrics output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRenderYardChainMetricsPrintsLaunchCaps(t *testing.T) {
+	report := operator.ChainMetricsReport{
+		ChainID:          "chain-caps",
+		Status:           "completed",
+		Health:           "attention",
+		LaunchMode:       "one_step_chain",
+		StepMaxTurns:     4,
+		HasStepMaxTurns:  true,
+		HasStepMaxTokens: true,
+	}
+
+	var out bytes.Buffer
+	renderYardChainMetrics(&out, report)
+	if !strings.Contains(out.String(), "launch mode=one_step_chain step_max_turns=4 step_max_tokens=<unset>\n") {
+		t.Fatalf("stdout = %q, want launch caps line", out.String())
+	}
+}
+
 func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 	ctx := context.Background()
 	cfgPath, projectRoot := writeYardRunConfig(t)
@@ -248,17 +526,50 @@ func TestYardChainLogsCommandPrintsRenderedOperatorEvents(t *testing.T) {
 	}
 }
 
+func TestYardChainLogsCommandSupportsAfterIDCursor(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, projectRoot := writeYardRunConfig(t)
+	store := chain.NewStore(newYardChainControlTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "chain-logs-after", SourceTask: "logs"})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventStepStarted, map[string]any{"role": "planner", "task": "old"}); err != nil {
+		t.Fatalf("LogEvent old returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventStepStarted, map[string]any{"role": "coder", "task": "new"}); err != nil {
+		t.Fatalf("LogEvent new returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	withYardOperatorTestRuntime(t, projectRoot, store, &yardChainTestBrainBackend{docs: map[string]string{}})
+
+	var out bytes.Buffer
+	cmd := newYardChainLogsCmd(&cfgPath)
+	cmd.SetContext(ctx)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{chainID, "--after-id", fmt.Sprint(events[0].ID)})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(out.String(), `task="old"`) {
+		t.Fatalf("stdout = %q, want cursor to skip old event", out.String())
+	}
+	if !strings.Contains(out.String(), `task="new"`) {
+		t.Fatalf("stdout = %q, want cursor to include new event", out.String())
+	}
+}
+
 func TestApplyYardChainOverrides(t *testing.T) {
 	cfg := &appconfig.Config{ProjectRoot: "/old/project"}
-	flags := yardChainFlags{ProjectRoot: "/new/project", Brain: "/new/brain"}
+	flags := yardChainFlags{ProjectRoot: "/new/project"}
 
 	applyYardChainOverrides(cfg, flags)
 
 	if cfg.ProjectRoot != "/new/project" {
 		t.Fatalf("ProjectRoot = %q, want /new/project", cfg.ProjectRoot)
-	}
-	if cfg.Brain.VaultPath != "/new/brain" {
-		t.Fatalf("Brain.VaultPath = %q, want /new/brain", cfg.Brain.VaultPath)
 	}
 }
 
@@ -275,6 +586,17 @@ func TestYardParseSpecsTrimsWhitespaceDropsEmptyEntriesAndDeduplicates(t *testin
 	}
 }
 
+func TestYardParseRolesAndRoster(t *testing.T) {
+	roles := yardParseRoles(" coder, Coder, planner ,, ")
+	if want := []string{"coder", "planner"}; !slices.Equal(roles, want) {
+		t.Fatalf("yardParseRoles() = %v, want %v", roles, want)
+	}
+	roster := yardParseRoster(" planner, coder, coder ")
+	if len(roster) != 3 || roster[0].Role != "planner" || roster[1].Role != "coder" || roster[2].Role != "coder" {
+		t.Fatalf("yardParseRoster() = %+v, want ordered planner,coder,coder", roster)
+	}
+}
+
 func TestValidateYardChainFlagsRejectsInvalidNumericFlags(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -286,11 +608,121 @@ func TestValidateYardChainFlagsRejectsInvalidNumericFlags(t *testing.T) {
 		{name: "negative resolver loops", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: -1, MaxDuration: time.Second, TokenBudget: 1}, wantErr: "--max-resolver-loops must be >= 0"},
 		{name: "nonpositive max duration", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: 0, TokenBudget: 1}, wantErr: "--max-duration must be > 0"},
 		{name: "nonpositive token budget", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 0}, wantErr: "--token-budget must be > 0"},
+		{name: "negative step max turns", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTurns: -1}, wantErr: "--step-max-turns must not be negative"},
+		{name: "negative step max tokens", flags: yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1, StepMaxTokens: -1}, wantErr: "--step-max-tokens must not be negative"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validateYardChainFlags(tc.flags); err == nil || err.Error() != tc.wantErr {
 				t.Fatalf("validateYardChainFlags() error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateYardChainFlagsRejectsInvalidTemplateCombinations(t *testing.T) {
+	base := yardChainFlags{Task: "x", MaxSteps: 1, MaxResolverLoops: 0, MaxDuration: time.Second, TokenBudget: 1}
+	tests := []struct {
+		name    string
+		mutate  func(*yardChainFlags)
+		wantErr string
+	}{
+		{name: "unknown template", mutate: func(flags *yardChainFlags) { flags.TemplateID = "missing" }, wantErr: `unknown launch template "missing"`},
+		{name: "one step missing role", mutate: func(flags *yardChainFlags) { flags.TemplateID = "one_step" }, wantErr: "--template one_step requires --role"},
+		{name: "manual missing roster", mutate: func(flags *yardChainFlags) { flags.TemplateID = "manual_roster" }, wantErr: "--template manual_roster requires --roster"},
+		{name: "constrained missing roles", mutate: func(flags *yardChainFlags) { flags.TemplateID = "constrained_orchestration" }, wantErr: "--template constrained_orchestration requires --allowed-roles or --role"},
+		{name: "orchestrator with role", mutate: func(flags *yardChainFlags) {
+			flags.TemplateID = "sir_topham_decides"
+			flags.Role = "coder"
+		}, wantErr: "--template sir_topham_decides cannot be combined with --role, --allowed-roles, or --roster"},
+		{name: "roster with role", mutate: func(flags *yardChainFlags) {
+			flags.Roster = "planner,coder"
+			flags.Role = "coder"
+		}, wantErr: "--roster cannot be combined with --role or --allowed-roles"},
+		{name: "allowed with role", mutate: func(flags *yardChainFlags) {
+			flags.AllowedRoles = "coder"
+			flags.Role = "planner"
+		}, wantErr: "--allowed-roles cannot be combined with --role"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			flags := base
+			tc.mutate(&flags)
+			if err := validateYardChainFlags(flags); err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("validateYardChainFlags() error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestYardChainOptionsFromFlagsUsesTemplateFields(t *testing.T) {
+	opts, err := yardChainOptionsFromFlags(yardChainFlags{
+		TemplateID:       "constrained_orchestration",
+		AllowedRoles:     " coder, planner, coder ",
+		Task:             "ship it",
+		Specs:            "specs/a.md,specs/a.md",
+		MaxSteps:         5,
+		MaxResolverLoops: 2,
+		MaxDuration:      time.Minute,
+		TokenBudget:      100,
+		StepMaxTurns:     3,
+		StepMaxTokens:    200,
+		DryRun:           true,
+	})
+	if err != nil {
+		t.Fatalf("yardChainOptionsFromFlags returned error: %v", err)
+	}
+	if opts.Mode != chainrun.ModeConstrained || opts.SourceTask != "ship it" || opts.StepMaxTurns != 3 || !opts.DryRun {
+		t.Fatalf("options = %+v, want constrained dry-run options", opts)
+	}
+	if !slices.Equal(opts.AllowedRoles, []string{"coder", "planner"}) {
+		t.Fatalf("AllowedRoles = %v, want coder/planner", opts.AllowedRoles)
+	}
+	if !slices.Equal(opts.SourceSpecs, []string{"specs/a.md"}) {
+		t.Fatalf("SourceSpecs = %v, want deduped spec", opts.SourceSpecs)
+	}
+}
+
+func TestYardSingleStepCapWarnings(t *testing.T) {
+	tests := []struct {
+		name string
+		opts chainrun.Options
+		want string
+	}{
+		{
+			name: "one step without caps",
+			opts: chainrun.Options{Role: "coder"},
+			want: "single-step coder launch has no per-step turn/token caps",
+		},
+		{
+			name: "manual singleton without caps",
+			opts: chainrun.Options{Mode: chainrun.ModeManualRoster, Roster: []chainrun.StepRequest{{Role: "planner"}}},
+			want: "single-step planner launch has no per-step turn/token caps",
+		},
+		{
+			name: "one step with turn cap",
+			opts: chainrun.Options{Role: "coder", StepMaxTurns: 4},
+		},
+		{
+			name: "manual multi step",
+			opts: chainrun.Options{Mode: chainrun.ModeManualRoster, Roster: []chainrun.StepRequest{{Role: "planner"}, {Role: "coder"}}},
+		},
+		{
+			name: "orchestrator",
+			opts: chainrun.Options{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			warnings := yardSingleStepCapWarnings(tc.opts)
+			if tc.want == "" {
+				if len(warnings) != 0 {
+					t.Fatalf("warnings = %v, want none", warnings)
+				}
+				return
+			}
+			if len(warnings) != 1 || !strings.Contains(warnings[0], tc.want) || !strings.Contains(warnings[0], "--step-max-turns") {
+				t.Fatalf("warnings = %v, want %q and cap guidance", warnings, tc.want)
 			}
 		})
 	}
@@ -764,9 +1196,6 @@ func waitForYardChainActiveExecution(ctx context.Context, store *chain.Store, ch
 func writeYardRunConfig(t *testing.T) (string, string) {
 	t.Helper()
 	projectRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".brain"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.brain) returned error: %v", err)
-	}
 	if err := os.WriteFile(filepath.Join(projectRoot, "orchestrator-prompt.md"), []byte("You are the orchestrator."), 0o644); err != nil {
 		t.Fatalf("WriteFile(prompt) returned error: %v", err)
 	}
@@ -826,6 +1255,32 @@ func TestFormatChainEventRendersStepStartedCompactly(t *testing.T) {
 	event := chain.Event{ID: 7, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepStarted, EventData: `{"role":"coder","task":"fix auth","receipt_path":"receipts/coder/chain-step-001.md"}`}
 	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
 	want := "7\t2026-04-21T01:02:03Z\tstep_started\trole=coder task=\"fix auth\" receipt_path=receipts/coder/chain-step-001.md\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatChainEventRendersGuardrailFactsCompactly(t *testing.T) {
+	event := chain.Event{ID: 8, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventStepGuardrailFacts, EventData: `{"role":"coder","sequence":1,"source_mutating":true,"exit_code":0,"duration_secs":9,"receipt_present":true,"synthetic_receipt_written":false,"receipt_valid":true,"receipt_schema_valid":true,"receipt_step_valid":true,"receipt_sections_valid":true,"parsed_verdict":"completed","tokens_used":21,"turns_used":3,"receipt_duration_seconds":8,"claimed_validation_commands":["rtk make test"],"changed_file_count":2,"changed_file_claim_present":true,"changed_file_claim_matches_manifest":false,"claimed_changed_files":["internal/a.go"],"changed_file_manifest_unclaimed":["internal/b.go"],"code_index_state_supported":true,"code_index_state_found":true,"code_index_dirty_mark_supported":true,"code_index_dirty_mark_attempted":true,"code_index_dirty_marked":true,"code_index_dirty":true,"code_index_dirty_reason":"source_write","brain_index_state_supported":true,"brain_index_state_found":true,"brain_index_dirty":true,"brain_index_dirty_reason":"complete_step_with_receipt","source_writer_lock_release_attempted":true,"source_writer_lock_released":true,"finding_count":1,"open_finding_count":1,"closed_finding_count":0,"addressed_finding_count":0,"finding_ids":["FIND-correctness-001"],"open_finding_ids":["FIND-correctness-001"]}`}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "8\t2026-04-21T01:02:03Z\tstep_guardrail_facts\trole=coder sequence=1 source_mutating=true exit_code=0 duration_secs=9 receipt_present=true synthetic_receipt_written=false receipt_valid=true receipt_schema_valid=true receipt_step_valid=true receipt_sections_valid=true parsed_verdict=completed tokens_used=21 turns_used=3 receipt_duration_seconds=8 claimed_validation_commands=\"[rtk make test]\" changed_file_count=2 changed_file_claim_present=true changed_file_claim_matches_manifest=false claimed_changed_files=\"[internal/a.go]\" changed_file_manifest_unclaimed=\"[internal/b.go]\" code_index_state_supported=true code_index_state_found=true code_index_dirty_mark_supported=true code_index_dirty_mark_attempted=true code_index_dirty_marked=true code_index_dirty=true code_index_dirty_reason=\"source_write\" brain_index_state_supported=true brain_index_state_found=true brain_index_dirty=true brain_index_dirty_reason=\"complete_step_with_receipt\" source_writer_lock_release_attempted=true source_writer_lock_released=true finding_count=1 open_finding_count=1 closed_finding_count=0 addressed_finding_count=0 finding_ids=\"[FIND-correctness-001]\" open_finding_ids=\"[FIND-correctness-001]\"\n"
+	if got != want {
+		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatChainEventRendersFindingLifecycleFactsCompactly(t *testing.T) {
+	event := chain.Event{ID: 9, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventFindingLifecycleFacts, EventData: `{"role":"correctness-auditor","verdict":"fix_required","receipt_path":"receipts/correctness-auditor/chain-step-001.md","facts":[{"id":"FIND-correctness-001","action":"opened","status":"open"}]}`}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	if !strings.Contains(got, "finding_lifecycle_facts") || !strings.Contains(got, "role=correctness-auditor") || !strings.Contains(got, "verdict=fix_required") || !strings.Contains(got, "FIND-correctness-001") {
+		t.Fatalf("formatChainEvent() = %q, want compact lifecycle fact details", got)
+	}
+}
+
+func TestFormatChainEventRendersApprovalRequiredCompactly(t *testing.T) {
+	event := chain.Event{ID: 10, CreatedAt: time.Date(2026, 4, 21, 1, 2, 3, 0, time.UTC), EventType: chain.EventApprovalRequired, EventData: `{"approval_id":"approval-tc-1","tool_name":"shell","risk_level":"high","status":"pending","reason":"shell command matches approval pattern \"git push --force\""}`}
+	got := formatChainEvent(event, chainRenderOptions{Verbosity: chainVerbosityNormal})
+	want := "10\t2026-04-21T01:02:03Z\tapproval_required\tapproval_id=approval-tc-1 tool_name=shell risk_level=high status=pending reason=\"shell command matches approval pattern \\\"git push --force\\\"\"\n"
 	if got != want {
 		t.Fatalf("formatChainEvent() = %q, want %q", got, want)
 	}

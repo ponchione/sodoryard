@@ -39,6 +39,16 @@ func newRetryTestProvider() *AnthropicProvider {
 	return p
 }
 
+func TestNewAnthropicProvider_DefaultHTTPClientHasNoTotalStreamTimeout(t *testing.T) {
+	p := newAnthropicProviderInternal(&mockCredentials{})
+	if p.httpClient == nil {
+		t.Fatal("httpClient is nil")
+	}
+	if p.httpClient.Timeout != 0 {
+		t.Fatalf("httpClient.Timeout = %s, want 0 so long streams use request context", p.httpClient.Timeout)
+	}
+}
+
 // --- Request Building Tests ---
 
 func TestBuildRequestBody_Defaults(t *testing.T) {

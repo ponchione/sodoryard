@@ -12,24 +12,42 @@ import (
 type EventType string
 
 const (
-	EventChainStarted       EventType = "chain_started"
-	EventStepStarted        EventType = "step_started"
-	EventStepProcessStarted EventType = "step_process_started"
-	EventStepProcessExited  EventType = "step_process_exited"
-	EventStepOutput         EventType = "step_output"
-	EventStepCompleted      EventType = "step_completed"
-	EventStepFailed         EventType = "step_failed"
-	EventReindexStarted     EventType = "reindex_started"
-	EventReindexCompleted   EventType = "reindex_completed"
-	EventResolverLoop       EventType = "resolver_loop"
-	EventSafetyLimitHit     EventType = "safety_limit_hit"
-	EventChainPaused        EventType = "chain_paused"
-	EventChainResumed       EventType = "chain_resumed"
-	EventChainCompleted     EventType = "chain_completed"
-	EventChainCancelled     EventType = "chain_cancelled"
+	EventChainStarted                    EventType = "chain_started"
+	EventStepStarted                     EventType = "step_started"
+	EventStepProcessStarted              EventType = "step_process_started"
+	EventStepProcessExited               EventType = "step_process_exited"
+	EventStepOutput                      EventType = "step_output"
+	EventStepChangedFiles                EventType = "step_changed_files"
+	EventStepGuardrailFacts              EventType = "step_guardrail_facts"
+	EventStepCompleted                   EventType = "step_completed"
+	EventStepFailed                      EventType = "step_failed"
+	EventReceiptValidation               EventType = "receipt_validation_warning"
+	EventReceiptFindings                 EventType = "receipt_findings"
+	EventFindingLifecycleFacts           EventType = "finding_lifecycle_facts"
+	EventSourceWriterBlocked             EventType = "source_writer_guard_blocked"
+	EventSourceWriterLockAcquired        EventType = "source_writer_lock_acquired"
+	EventSourceWriterLockReleased        EventType = "source_writer_lock_released"
+	EventSourceWriterLockForceReleased   EventType = "source_writer_lock_force_released"
+	EventSourceWriterLockReleaseFailed   EventType = "source_writer_lock_release_failed"
+	EventSourceWriterLockHeartbeatFailed EventType = "source_writer_lock_heartbeat_failed"
+	EventSourceWriterLockStaleReplaced   EventType = "source_writer_lock_stale_replaced"
+	EventReindexStarted                  EventType = "reindex_started"
+	EventReindexCompleted                EventType = "reindex_completed"
+	EventResolverLoop                    EventType = "resolver_loop"
+	EventSafetyLimitHit                  EventType = "safety_limit_hit"
+	EventApprovalRequired                EventType = "approval_required"
+	EventApprovalDecision                EventType = "approval_decision"
+	EventChainWaitingApproval            EventType = "chain_waiting_approval"
+	EventChainPaused                     EventType = "chain_paused"
+	EventChainResumed                    EventType = "chain_resumed"
+	EventChainCompleted                  EventType = "chain_completed"
+	EventChainCancelled                  EventType = "chain_cancelled"
 )
 
 func (s *Store) LogEvent(ctx context.Context, chainID string, stepID string, eventType EventType, eventData any) error {
+	if s != nil && s.memory != nil {
+		return s.memory.LogEvent(ctx, chainID, stepID, eventType, eventData)
+	}
 	var payload sql.NullString
 	if eventData != nil {
 		b, err := json.Marshal(eventData)
@@ -45,17 +63,12 @@ func (s *Store) LogEvent(ctx context.Context, chainID string, stepID string, eve
 }
 
 func (s *Store) ListEventsSince(ctx context.Context, chainID string, afterID int64) ([]Event, error) {
+	if s != nil && s.memory != nil {
+		return s.memory.ListEventsSince(ctx, chainID, afterID)
+	}
 	rows, err := s.q.ListEventsByChainSince(ctx, appdb.ListEventsByChainSinceParams{ChainID: chainID, ID: afterID})
 	if err != nil {
 		return nil, fmt.Errorf("list events since: %w", err)
 	}
-	events := make([]Event, 0, len(rows))
-	for _, row := range rows {
-		mapped, err := mapEvent(row)
-		if err != nil {
-			return nil, fmt.Errorf("list events since: %w", err)
-		}
-		events = append(events, mapped)
-	}
-	return events, nil
+	return mapRows(rows, "list events since", mapEvent)
 }

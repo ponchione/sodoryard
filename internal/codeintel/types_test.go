@@ -85,7 +85,7 @@ func TestChunkFields(t *testing.T) {
 	indexedAt := time.Date(2026, time.March, 29, 12, 0, 0, 0, time.UTC)
 	chunk := Chunk{
 		ID:               "chunk-id",
-		ProjectName:      "sirtopham",
+		ProjectName:      "sodoryard",
 		FilePath:         "internal/auth/middleware.go",
 		Language:         "go",
 		ChunkType:        ChunkTypeFunction,
@@ -105,7 +105,7 @@ func TestChunkFields(t *testing.T) {
 		Embedding:        []float32{0.1, 0.2, 0.3},
 	}
 
-	if chunk.ID != "chunk-id" || chunk.ProjectName != "sirtopham" {
+	if chunk.ID != "chunk-id" || chunk.ProjectName != "sodoryard" {
 		t.Fatalf("identity fields = %+v, want ID and ProjectName preserved", chunk)
 	}
 	if chunk.FilePath != "internal/auth/middleware.go" || chunk.Language != "go" {

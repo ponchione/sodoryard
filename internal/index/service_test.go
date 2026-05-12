@@ -17,6 +17,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/codeintel"
 	"github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 type fakeStore struct {
@@ -83,6 +84,8 @@ func TestRunWithDependenciesIndexesIncrementallyAndDeletesRemovedFiles(t *testin
 
 	cfg := config.Default()
 	cfg.ProjectRoot = projectRoot
+	cfg.Memory.Backend = "legacy"
+	cfg.Brain.Backend = "vault"
 	cfg.Index.Include = []string{"**/*.go"}
 	cfg.Index.Exclude = []string{"**/.git/**"}
 	cfg.Index.MaxFileSizeBytes = 1024 * 1024
@@ -187,6 +190,177 @@ func TestRunWithDependenciesIndexesIncrementallyAndDeletesRemovedFiles(t *testin
 	}
 	if graphRebuilds != 3 {
 		t.Fatalf("graph rebuilds after no-op run = %d, want unchanged 3", graphRebuilds)
+	}
+}
+
+func TestRunWithDependenciesUsesShunterCodeIndexState(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeTestFile(t, projectRoot, "main.go", "package main\n\nfunc Example() {}\n")
+
+	cfg := config.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Index.Include = []string{"**/*.go"}
+	cfg.Index.Exclude = []string{"**/.git/**"}
+	cfg.Index.MaxFileSizeBytes = 1024 * 1024
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(projectRoot, ".yard", "shunter", "project-memory")
+	cfg.Memory.DurableAck = true
+
+	store := &fakeStore{}
+	now := time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC)
+	deps := dependencies{
+		openDB: func(context.Context, string) (*sql.DB, error) {
+			t.Fatal("openDB should not be called for Shunter code index state")
+			return nil, nil
+		},
+		newStore: func(context.Context, string) (codeintel.Store, error) {
+			return store, nil
+		},
+		newParser: func(string) (codeintel.Parser, error) {
+			return fakeParser{}, nil
+		},
+		newEmbedder: func(config.Embedding) codeintel.Embedder {
+			return fakeEmbedder{}
+		},
+		newDescriber: func(*config.Config) codeintel.Describer {
+			return noopDescriber{}
+		},
+		ensureIndexServices: func(context.Context, *config.Config) error {
+			return nil
+		},
+		rebuildGraphIndex: func(context.Context, *config.Config) error {
+			return nil
+		},
+		now: func() time.Time {
+			now = now.Add(time.Second)
+			return now
+		},
+	}
+
+	first, err := runWithDependencies(context.Background(), Options{Config: cfg}, deps)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if first.FilesChanged != 1 || len(first.IndexedFiles) != 1 || first.IndexedFiles[0] != "main.go" {
+		t.Fatalf("first result = %+v, want indexed main.go", first)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
+	}
+
+	backend, err := projectmemory.OpenBrainBackend(context.Background(), projectmemory.Config{DataDir: cfg.Memory.ShunterDataDir, DurableAck: true})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	codeState, found, err := backend.ReadCodeIndexState(context.Background())
+	if err != nil {
+		t.Fatalf("ReadCodeIndexState: %v", err)
+	}
+	if !found || codeState.LastIndexedAtUS == 0 || codeState.Dirty {
+		t.Fatalf("code state = %+v found=%t, want clean indexed state", codeState, found)
+	}
+	fileStates, err := backend.ListCodeFileIndexStates(context.Background())
+	if err != nil {
+		t.Fatalf("ListCodeFileIndexStates: %v", err)
+	}
+	if len(fileStates) != 1 || fileStates[0].FilePath != "main.go" || fileStates[0].ChunkCount != 1 {
+		t.Fatalf("file states = %+v, want main.go state", fileStates)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	second, err := runWithDependencies(context.Background(), Options{Config: cfg}, deps)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if second.FilesChanged != 0 || second.FilesDeleted != 0 {
+		t.Fatalf("second result = %+v, want no-op from Shunter state", second)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err after second run = %v, want no yard.db created in Shunter mode", err)
+	}
+}
+
+func TestRunWithDependenciesUsesMemoryEndpointForShunterCodeIndexState(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	writeTestFile(t, projectRoot, "main.go", "package main\n\nfunc Example() {}\n")
+
+	parent, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
+		DataDir:    filepath.Join(projectRoot, "parent-memory"),
+		DurableAck: true,
+	})
+	if err != nil {
+		t.Fatalf("OpenBrainBackend: %v", err)
+	}
+	defer parent.Close()
+	socketPath := filepath.Join(projectRoot, "run", "memory.sock")
+	server, err := projectmemory.StartRPCServer(ctx, projectmemory.RPCConfig{Transport: "unix", Path: socketPath}, parent)
+	if err != nil {
+		t.Fatalf("StartRPCServer: %v", err)
+	}
+	defer server.Close()
+	t.Setenv(projectmemory.EnvMemoryEndpoint, "unix:"+socketPath)
+
+	cfg := config.Default()
+	cfg.ProjectRoot = projectRoot
+	cfg.Index.Include = []string{"**/*.go"}
+	cfg.Index.Exclude = []string{"**/.git/**"}
+	cfg.Index.MaxFileSizeBytes = 1024 * 1024
+	cfg.Memory.Backend = "shunter"
+	cfg.Memory.ShunterDataDir = filepath.Join(projectRoot, "child-should-not-open")
+	cfg.Memory.DurableAck = true
+
+	now := time.Date(2026, 5, 5, 15, 0, 0, 0, time.UTC)
+	deps := dependencies{
+		openDB: func(context.Context, string) (*sql.DB, error) {
+			t.Fatal("openDB should not be called for Shunter code index state")
+			return nil, nil
+		},
+		newStore: func(context.Context, string) (codeintel.Store, error) {
+			return &fakeStore{}, nil
+		},
+		newParser: func(string) (codeintel.Parser, error) {
+			return fakeParser{}, nil
+		},
+		newEmbedder: func(config.Embedding) codeintel.Embedder {
+			return fakeEmbedder{}
+		},
+		newDescriber: func(*config.Config) codeintel.Describer {
+			return noopDescriber{}
+		},
+		ensureIndexServices: func(context.Context, *config.Config) error {
+			return nil
+		},
+		rebuildGraphIndex: func(context.Context, *config.Config) error {
+			return nil
+		},
+		now: func() time.Time {
+			now = now.Add(time.Second)
+			return now
+		},
+	}
+
+	result, err := runWithDependencies(ctx, Options{Config: cfg}, deps)
+	if err != nil {
+		t.Fatalf("runWithDependencies: %v", err)
+	}
+	if result.FilesChanged != 1 || len(result.IndexedFiles) != 1 || result.IndexedFiles[0] != "main.go" {
+		t.Fatalf("result = %+v, want indexed main.go through RPC", result)
+	}
+	state, found, err := parent.ReadCodeIndexState(ctx)
+	if err != nil {
+		t.Fatalf("parent ReadCodeIndexState: %v", err)
+	}
+	if !found || state.LastIndexedAtUS == 0 || state.Dirty {
+		t.Fatalf("parent code state = %+v found=%t, want clean indexed state", state, found)
+	}
+	if _, err := os.Stat(cfg.Memory.ShunterDataDir); !os.IsNotExist(err) {
+		t.Fatalf("child Shunter data dir stat err = %v, want not-exist", err)
+	}
+	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
 	}
 }
 

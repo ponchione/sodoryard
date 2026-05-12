@@ -24,7 +24,7 @@ func newInflightToolTurn(req RunTurnRequest, iteration, completedIterations int,
 	return inflight
 }
 
-func (l *AgentLoop) validateToolCalls(ctx stdctx.Context, turnExec *turnExecution, iteration int, result *streamResult, inflight *inflightTurn) validatedToolCalls {
+func (l *AgentLoop) validateToolCalls(ctx stdctx.Context, turnExec *turnExecution, iteration int, result *streamResult, inflight *inflightTurn, toolDefinitions []provider.ToolDefinition) validatedToolCalls {
 	validated := validatedToolCalls{
 		toolResults:  make([]provider.ToolResult, 0, len(result.ToolCalls)),
 		validCalls:   make([]provider.ToolCall, 0, len(result.ToolCalls)),
@@ -37,7 +37,7 @@ func (l *AgentLoop) validateToolCalls(ctx stdctx.Context, turnExec *turnExecutio
 		}
 
 		turnExec.allToolCalls = append(turnExec.allToolCalls, completedToolCall{ToolName: tc.Name, Arguments: tc.Input})
-		validation := validateToolCallAgainstSchema(tc, l.toolDefinitions)
+		validation := validateToolCallAgainstSchema(tc, toolDefinitions)
 		if !validation.Valid {
 			l.logger.Warn("malformed tool call",
 				"conversation_id", turnExec.req.ConversationID,

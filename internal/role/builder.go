@@ -66,11 +66,19 @@ func BuildRegistry(cfg *appconfig.Config, roleCfg appconfig.AgentRoleConfig, dep
 	brainCfg := cfg.Brain
 	brainCfg.BrainWritePaths = append([]string(nil), roleCfg.BrainWritePaths...)
 	brainCfg.BrainDenyPaths = append([]string(nil), roleCfg.BrainDenyPaths...)
+	if roleCfg.MutationClass == appconfig.MutationClassReadOnly {
+		brainCfg.LogBrainQueries = false
+		brainCfg.LogBrainOperations = false
+	}
 
 	registry := tool.NewRegistry()
 	for _, group := range roleCfg.Tools {
 		name := strings.TrimSpace(group)
 		if name == "" {
+			continue
+		}
+		if name == toolgroup.Brain && roleCfg.MutationClass == appconfig.MutationClassReadOnly {
+			tool.RegisterBrainReadToolsWithProviderRuntimeAndIndex(registry, deps.BrainBackend, deps.BrainSearcher, brainCfg, deps.Queries, deps.ProjectID)
 			continue
 		}
 		registrar, ok := toolGroupRegistrars[name]

@@ -1,4 +1,6 @@
-**Status:** Draft v0.1 **Last Updated:** 2026-04-29 **Author:** Mitchell
+**Status:** Historical tool-system draft, partially superseded for brain storage **Last Updated:** 2026-04-29 **Author:** Mitchell
+
+**Supersession note:** Brain-tool storage details in this draft are not current operator guidance. Current brain tools operate on Shunter project-memory documents and reject `.brain/...` paths; there is no supported vault, SQLite import/export, or standalone brain-server compatibility surface.
 
 ---
 
@@ -8,7 +10,7 @@ The tool system is Layer 4 in sodoryard's architecture. It provides the agent wi
 
 Every tool exists because it provides something the `shell` tool alone cannot — structured output for the web UI, safety guardrails, or token efficiency. Adding a new tool is: implement the interface, register it, done.
 
-This document is the authoritative reference for the tool system. It consolidates tool definitions previously spread across [[05-agent-loop]] (core tools, dispatch model) and [[09-project-brain]] (brain tools), and adds the missing pieces: the Go interface contract, registry mechanics, JSON Schema definitions, and per-tool implementation specifications.
+This document is a historical/reference draft for the tool system. The general tool interface remains useful background, but live brain-tool behavior follows the Shunter project-memory implementation and tests.
 
 ---
 

@@ -14,7 +14,7 @@ That packet is assembled from a few different places:
 - semantically relevant code from the code index (RAG)
 - files the user named directly
 - structurally related code from the code graph
-- project-brain notes from the vault
+- project-brain documents from the configured brain backend
 - project conventions
 - small bits of git history
 
@@ -231,13 +231,13 @@ The project brain is the long-term project knowledge layer.
 
 This is not the codebase itself. It is the notes layer.
 
-The source of truth is a vault of markdown notes, accessed through the brain backend.
+The source of truth is Shunter project memory.
 
 Those notes can contain things like:
 
 - architectural rationale
 - conventions
-n- debugging notes
+- debugging notes
 - past discoveries
 - project-specific decisions
 - session summaries
@@ -341,18 +341,18 @@ So code retrieval is not just one naive nearest-neighbor lookup. It is a small r
 
 The easiest honest explanation is:
 
-- the vault is the source of truth
-- SQLite and vector indexes are derived helper layers
+- Shunter project memory is the source of truth
+- vector indexes and other retrieval metadata are derived helper layers
 
-### The vault
+### Project memory documents
 
-The real brain content lives as markdown notes.
+The real brain content lives in Shunter project memory.
 
-The brain backend reads, writes, patches, lists, and keyword-searches those notes.
+The brain backend reads, writes, patches, lists, and keyword-searches those documents.
 
-So if someone asks "where is the brain stored?", the best answer is:
+So if someone asks "where is the brain stored?", the answer is:
 
-- in markdown notes in the project brain vault
+- in Shunter project memory under `.yard/shunter/project-memory`
 
 ### Derived metadata and graph
 
@@ -365,21 +365,21 @@ That index includes things like:
 - parsed links between notes
 - semantic chunks for vector search
 
-Those derived pieces are stored in SQLite and LanceDB.
+Parsed metadata and link helpers are rebuilt from Shunter documents, and semantic chunks are stored in LanceDB.
 
 This means the brain can support more than raw keyword search.
 
 Depending on what is available and fresh, the runtime can mix:
 
-- keyword matches from the vault backend
+- keyword matches from the configured brain backend
 - semantic matches from the brain vector index
 - graph expansion through note links and backlinks
 
 ### Important freshness caveat
 
-The vault is the truth, but the derived brain indexes can go stale.
+The configured brain backend is the truth, but the derived brain indexes can go stale.
 
-So if notes are edited, the markdown vault is updated immediately, but the semantic and graph helpers may need a reindex to catch up.
+So if brain documents are edited, the backend is updated immediately, but the semantic and graph helpers may need a reindex to catch up.
 
 That means the current brain system is powerful, but it is not a magical always-perfectly-live graph database.
 
@@ -387,17 +387,17 @@ That means the current brain system is powerful, but it is not a magical always-
 
 There are really two different kinds of storage involved here.
 
-### A. The vault and vector stores hold the content/indexes
+### A. Project memory and vector stores hold the content/indexes
 
 - code vectors go in LanceDB
 - brain vectors can also go in LanceDB
-- brain source documents live in the vault
+- brain source documents live in the configured brain backend
 
-### B. SQLite holds operational and observability data
+### B. The memory backend holds operational and observability data
 
-SQLite is heavily used for the app's internal state and reporting.
+Shunter project memory stores the app's canonical internal state and reporting data.
 
-For context assembly specifically, SQLite stores the context assembly report for each turn.
+For context assembly specifically, the configured memory backend stores the context assembly report for each turn.
 
 That report includes things like:
 
@@ -415,7 +415,7 @@ That report includes things like:
 
 So if someone asks "where does the system remember what context it assembled?" the answer is:
 
-- in SQLite, as a per-turn context report
+- in the configured memory backend, as a per-turn context report; new Shunter-mode projects store that report in Shunter
 
 ## Budgeting: how it decides what actually fits
 
@@ -514,7 +514,7 @@ The inspector can show things like:
 
 So if someone asks "how do we know whether context assembly is working well?" the answer is:
 
-- the system stores a detailed report in SQLite
+- the system stores a detailed report in the configured memory backend
 - the web inspector reads that report and visualizes it
 - post-turn quality metrics tell us whether the proactive context was actually sufficient
 
@@ -533,7 +533,7 @@ There is also a live event path for `context_debug`, so the newest turn can show
 
 So the UI view is a combination of:
 
-- durable per-turn report data from SQLite
+- durable per-turn report data from the configured memory backend
 - live per-turn updates from the websocket event stream
 
 ## The simplest way to explain the whole system to someone else
@@ -570,19 +570,15 @@ Code:
 - actual implementation in the repository
 - functions, files, symbols, dependencies
 
-### Vault/LanceDB/SQLite
+### Shunter/LanceDB
 
-Vault:
+Shunter:
 
-- source of truth for brain notes
+- source of truth for brain notes and project memory
 
 LanceDB:
 
 - vector storage for semantic retrieval
-
-SQLite:
-
-- operational database for reports, metadata, links, analytics, and app state
 
 ### Proactive vs reactive retrieval
 
@@ -631,7 +627,7 @@ In simple terms, the design is good because:
 Also important to communicate clearly:
 
 - retrieval quality depends on the indexes being built and reasonably fresh
-- brain-derived indexes can lag behind vault edits until reindexing runs
+- brain-derived indexes can lag behind backend document edits until reindexing runs
 - budgeting means some relevant material may still be cut
 - the analyzer is heuristic-based, so it can miss intent or over-trigger sometimes
 - the model can still need reactive tool use even after proactive assembly
@@ -642,4 +638,4 @@ That is normal. The system is designed to reduce missing context, not to elimina
 
 The simplest accurate one-paragraph summary is:
 
-This project assembles a fresh context package at the start of every turn. It uses heuristics to figure out what the user is asking about, pulls relevant material from code search, direct file reads, the structural code graph, the project brain, conventions, and git history, trims that material to fit the model's budget, and passes the result into the prompt. It also records exactly what it did in SQLite so the team can inspect and improve context quality over time. In other words, the system tries to do the first round of repository research automatically before the model answers.
+This project assembles a fresh context package at the start of every turn. It uses heuristics to figure out what the user is asking about, pulls relevant material from code search, direct file reads, the structural code graph, the project brain, conventions, and git history, trims that material to fit the model's budget, and passes the result into the prompt. It also records exactly what it did in the configured memory backend so the team can inspect and improve context quality over time. In other words, the system tries to do the first round of repository research automatically before the model answers.

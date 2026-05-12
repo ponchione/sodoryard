@@ -11,12 +11,19 @@ import (
 
 // Model describes an LLM model's capabilities. Returned by Provider.Models().
 type Model struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Provider         string `json:"provider,omitempty"`
-	ContextWindow    int    `json:"context_window"`
-	SupportsTools    bool   `json:"supports_tools"`
-	SupportsThinking bool   `json:"supports_thinking"`
+	ID                       string   `json:"id"`
+	Name                     string   `json:"name"`
+	Provider                 string   `json:"provider,omitempty"`
+	ContextWindow            int      `json:"context_window"`
+	SupportsTools            bool     `json:"supports_tools"`
+	SupportsThinking         bool     `json:"supports_thinking"`
+	SupportsReasoningEffort  bool     `json:"supports_reasoning_effort"`
+	SupportsStructuredOutput bool     `json:"supports_structured_output"`
+	SupportsPromptCache      bool     `json:"supports_prompt_cache"`
+	SupportsImages           bool     `json:"supports_images"`
+	SupportsToolChoice       bool     `json:"supports_tool_choice"`
+	MaxOutputTokens          int      `json:"max_output_tokens,omitempty"`
+	KnownQuirks              []string `json:"known_quirks,omitempty"`
 }
 
 // ToolCall represents a tool invocation requested by the model.

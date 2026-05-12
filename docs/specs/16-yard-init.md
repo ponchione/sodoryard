@@ -1,16 +1,18 @@
 # 16 — Yard Init
 
-**Status:** Design (ready for implementation plan)
+**Status:** Historical init design, superseded by Shunter-native `yard init`
 **Owner:** Mitchell Ponchione
 **Last Updated:** 2026-04-29
 **Roadmap phase:** 5b
 **Depends on:** Phase 1 (monorepo restructure), Phase 5a (yard paths rename)
 
+**Supersession note:** This draft predates the Shunter base design. Current `yard init` creates `yard.yaml`, `.yard/` Shunter/runtime/LanceDB roots, and `.gitignore` entries; it does not create `.brain/` or `.yard/yard.db`.
+
 ---
 
 ## 1. Goal
 
-Ship `yard init` as the canonical, top-level operator command for bootstrapping any new project for railway use. After a single `yard init` invocation in an empty (or existing) directory, the operator has a project that the railway can immediately operate against — providers, brain vault, agent role configuration, SQLite state, and `.gitignore` hygiene all in place.
+Ship `yard init` as the canonical, top-level operator command for bootstrapping any new project. In the current Shunter-native design, a single `yard init` invocation seeds providers, agent role configuration, Shunter project-memory roots, and `.gitignore` hygiene without creating legacy `.brain/` or `.yard/yard.db` state.
 
 The command lives in a new `cmd/yard` binary, not as a Tidmouth subcommand. This aligns the operator-facing CLI with the `yard` brand that Phase 5a already locked in across `yard.yaml`, `.yard/`, and `YARD_PROJECT`.
 
@@ -131,11 +133,12 @@ providers:
   codex:
     type: codex
     model: gpt-5.5
+    reasoning_effort: medium
 ```
 
 **Why:** codex is the path that worked on the maintainer's host when this spec was written (verified by the Phase 3 `phase3-smoke-1` smoke chain on 2026-04-11), uses the existing local Codex auth store, and requires no environment variable setup at the operator level. Anthropic was the previous default in `cmd/tidmouth/init.go` but currently failed its `Ping()` startup check on the same host with `Claude credentials file missing accessToken field`.
 
-`gpt-5.5` matches the runtime-pinned Codex daily-driver model so generated config, `/api/config`, and the actual request payload report the same model.
+`gpt-5.5` matches the runtime-pinned Codex daily-driver model so generated config, `/api/config`, and the actual request payload report the same model. `reasoning_effort: medium` keeps daily-driver dogfood runs bounded by default; operators can raise it for complex work.
 
 **Out of scope:** `yard init --provider <name>` flag, multi-provider seeding, or any first-run wizard. The operator edits `yard.yaml` after init if they want a different provider.
 
@@ -315,7 +318,7 @@ local_services:
   enabled: true
   mode: manual
   provider: docker-compose
-  compose_file: ./ops/llm/docker-compose.yml
+  compose_file: docker-compose.yml
   project_dir: ./ops/llm
   required_networks:
     - llm-net

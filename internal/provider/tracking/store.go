@@ -1,5 +1,5 @@
 // Package tracking provides a cross-cutting sub-call tracking layer that wraps
-// any provider to record every LLM invocation to SQLite.
+// any provider to record every LLM invocation to the configured project store.
 package tracking
 
 import (
@@ -9,8 +9,7 @@ import (
 	db "github.com/ponchione/sodoryard/internal/db"
 )
 
-// SubCallStore is the persistence boundary for sub-call tracking. Its sole
-// method maps directly to the sqlc-generated INSERT query for the sub_calls table.
+// SubCallStore is the persistence boundary for sub-call tracking.
 type SubCallStore interface {
 	InsertSubCall(ctx context.Context, params InsertSubCallParams) error
 }

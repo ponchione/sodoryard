@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -44,12 +43,7 @@ func (m *Manager) Status(ctx context.Context, cfg *appconfig.Config) (StackStatu
 			status.Problems = append(status.Problems, fmt.Sprintf("required docker network missing: %s", network))
 		}
 	}
-	serviceNames := make([]string, 0, len(cfg.LocalServices.Services))
-	for name := range cfg.LocalServices.Services {
-		serviceNames = append(serviceNames, name)
-	}
-	sort.Strings(serviceNames)
-	for _, name := range serviceNames {
+	for _, name := range ConfiguredServiceNames(cfg.LocalServices) {
 		service := cfg.LocalServices.Services[name]
 		probed := ProbeService(ctx, m.client, name, service)
 		status.Services = append(status.Services, probed)
@@ -88,9 +82,7 @@ func (m *Manager) EnsureUp(ctx context.Context, cfg *appconfig.Config) (StackSta
 			}
 		}
 	}
-	serviceNames := append([]string(nil), status.RequiredServices...)
-	sort.Strings(serviceNames)
-	if err := composeUp(ctx, m.runner, cfg.LocalServices.ProjectDir, cfg.LocalServices.ComposeFile, serviceNames); err != nil {
+	if err := composeUp(ctx, m.runner, cfg.LocalServices.ProjectDir, cfg.LocalServices.ComposeFile, status.RequiredServices); err != nil {
 		status.Problems = append(status.Problems, err.Error())
 		status.Remediation = remediationLines(cfg, status)
 		return status, &ManagerError{Op: "ensure-up", Status: status}
@@ -119,9 +111,7 @@ func (m *Manager) Down(ctx context.Context, cfg *appconfig.Config) error {
 }
 
 func (m *Manager) Logs(ctx context.Context, cfg *appconfig.Config, tail int) (string, error) {
-	services := ConfiguredServiceNames(cfg.LocalServices)
-	sort.Strings(services)
-	return composeLogs(ctx, m.runner, cfg.LocalServices.ProjectDir, cfg.LocalServices.ComposeFile, tail, services)
+	return composeLogs(ctx, m.runner, cfg.LocalServices.ProjectDir, cfg.LocalServices.ComposeFile, tail, ConfiguredServiceNames(cfg.LocalServices))
 }
 
 func remediationLines(cfg *appconfig.Config, status StackStatus) []string {

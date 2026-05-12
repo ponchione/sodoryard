@@ -2,8 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/operator"
 )
 
 func newYardChainStatusCmd(configPath *string) *cobra.Command {
@@ -36,25 +41,51 @@ func newYardChainStatusCmd(configPath *string) *cobra.Command {
 	}}
 }
 
+func newYardChainMetricsCmd(configPath *string) *cobra.Command {
+	return &cobra.Command{Use: "metrics <chain-id>", Short: "Show chain dogfooding metrics", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		svc, err := openYardReadOnlyOperator(cmd.Context(), *configPath)
+		if err != nil {
+			return err
+		}
+		defer svc.Close()
+		report, err := svc.GetChainMetrics(cmd.Context(), args[0])
+		if err != nil {
+			return err
+		}
+		renderYardChainMetrics(cmd.OutOrStdout(), report)
+		return nil
+	}}
+}
+
 func newYardChainLogsCmd(configPath *string) *cobra.Command {
 	var follow bool
 	var verbosity string
+	var afterID int64
 	cmd := &cobra.Command{Use: "logs <chain-id>", Short: "Show chain event log", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if afterID < 0 {
+			return fmt.Errorf("--after-id must be >= 0")
+		}
 		svc, err := openYardReadOnlyOperator(cmd.Context(), *configPath)
 		if err != nil {
 			return err
 		}
 		defer svc.Close()
 		if !follow {
-			events, err := svc.ListEvents(cmd.Context(), args[0])
+			var events []chain.Event
+			if afterID > 0 {
+				events, err = svc.ListEventsSince(cmd.Context(), args[0], afterID)
+			} else {
+				events, err = svc.ListEvents(cmd.Context(), args[0])
+			}
 			if err != nil {
 				return err
 			}
 			renderYardChainEvents(cmd.OutOrStdout(), events, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
 			return nil
 		}
-		return yardFollowOperatorChainEvents(cmd.Context(), cmd.OutOrStdout(), svc, args[0], 0, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
+		return yardFollowOperatorChainEvents(cmd.Context(), cmd.OutOrStdout(), svc, args[0], afterID, chainRenderOptions{Verbosity: normalizeChainVerbosity(verbosity)})
 	}}
+	cmd.Flags().Int64Var(&afterID, "after-id", 0, "Only print events with an id greater than this cursor")
 	cmd.Flags().BoolVar(&follow, "follow", false, "Poll and print new events until the chain stops")
 	cmd.Flags().StringVar(&verbosity, "verbosity", chainVerbosityNormal, "Chain log verbosity: normal or debug")
 	return cmd
@@ -78,4 +109,78 @@ func newYardChainReceiptCmd(configPath *string) *cobra.Command {
 		_, _ = fmt.Fprint(cmd.OutOrStdout(), receipt.Content)
 		return nil
 	}}
+}
+
+func renderYardChainMetrics(out io.Writer, report operator.ChainMetricsReport) {
+	_, _ = fmt.Fprintf(out, "chain=%s health=%s status=%s\n", report.ChainID, report.Health, report.Status)
+	if report.LaunchMode != "" || report.HasStepMaxTurns || report.HasStepMaxTokens {
+		_, _ = fmt.Fprintf(out, "launch mode=%s step_max_turns=%s step_max_tokens=%s\n", valueOrUnset(report.LaunchMode), stepCapLabel(report.StepMaxTurns, report.HasStepMaxTurns), stepCapLabel(report.StepMaxTokens, report.HasStepMaxTokens))
+	}
+	_, _ = fmt.Fprintf(out, "steps recorded=%d rows=%d completed=%d running=%d pending=%d failed=%d budget=%d pct=%.1f\n", report.TotalSteps, report.StepRows, report.CompletedSteps, report.RunningSteps, report.PendingSteps, report.FailedSteps, report.MaxSteps, report.StepBudgetPct)
+	_, _ = fmt.Fprintf(out, "tokens recorded=%d step_sum=%d budget=%d pct=%.1f\n", report.TotalTokens, report.StepTokenTotal, report.TokenBudget, report.TokenBudgetPct)
+	_, _ = fmt.Fprintf(out, "turns step_sum=%d\n", report.StepTurnTotal)
+	_, _ = fmt.Fprintf(out, "duration recorded=%ds step_sum=%ds budget=%ds pct=%.1f\n", report.TotalDurationSecs, report.StepDurationSecs, report.MaxDurationSecs, report.DurationBudgetPct)
+	_, _ = fmt.Fprintf(out, "resolver_loops used=%d budget=%d pct=%.1f\n", report.ResolverLoops, report.MaxResolverLoops, report.ResolverLoopPct)
+	_, _ = fmt.Fprintf(out, "events total=%d output=%d changed_files=%d guardrail_facts=%d receipt_warnings=%d source_writer_blocks=%d source_writer_lock_acquired=%d source_writer_lock_released=%d source_writer_lock_force_released=%d source_writer_lock_release_failed=%d source_writer_lock_heartbeat_failed=%d source_writer_lock_stale_replaced=%d step_failed=%d safety_limit=%d reindex_started=%d reindex_done=%d process_started=%d process_exited=%d\n", report.EventTotal, report.OutputEvents, report.ChangedFileEvents, report.StepGuardrailFactEvents, report.ReceiptWarningEvents, report.SourceWriterBlocks, report.SourceWriterLockAcquires, report.SourceWriterLockReleases, report.SourceWriterLockForceReleases, report.SourceWriterLockReleaseFailures, report.SourceWriterLockHeartbeatFailures, report.SourceWriterLockStaleReplacements, report.StepFailedEvents, report.SafetyLimitEvents, report.ReindexStartedEvents, report.ReindexDoneEvents, report.ProcessStartedEvents, report.ProcessExitedEvents)
+	_, _ = fmt.Fprintf(out, "findings events=%d lifecycle_facts=%d open=%d closed=%d addressed=%d open_ids=%s closed_ids=%s addressed_ids=%s reopened_ids=%s repeated_resolver_ids=%s\n", report.ReceiptFindingEvents, report.FindingLifecycleFactEvents, report.OpenFindingCount, report.ClosedFindingCount, report.AddressedFindingCount, strings.Join(report.OpenFindingIDs, ","), strings.Join(report.ClosedFindingIDs, ","), strings.Join(report.AddressedFindingIDs, ","), strings.Join(report.ReopenedFindingIDs, ","), strings.Join(report.RepeatedResolverFindingIDs, ","))
+	for _, finding := range report.FindingLifecycle {
+		_, _ = fmt.Fprintf(out, "finding id=%s source=%s status=%s addressed=%d closed=%d reopened=%d first_step=%d last_step=%d", valueOrUnset(finding.ID), valueOrUnset(finding.SourceRole), valueOrUnset(finding.Status), finding.AddressedCount, finding.ClosedCount, finding.ReopenedCount, finding.FirstSeenStep, finding.LastUpdatedStep)
+		if finding.Severity != "" {
+			_, _ = fmt.Fprintf(out, " severity=%s", finding.Severity)
+		}
+		if finding.Evidence != "" {
+			_, _ = fmt.Fprintf(out, " evidence=%q", finding.Evidence)
+		}
+		if finding.Summary != "" {
+			_, _ = fmt.Fprintf(out, " summary=%q", finding.Summary)
+		}
+		if finding.RequiredFix != "" {
+			_, _ = fmt.Fprintf(out, " required_fix=%q", finding.RequiredFix)
+		}
+		if finding.Resolution != "" {
+			_, _ = fmt.Fprintf(out, " resolution=%q", finding.Resolution)
+		}
+		if len(finding.FilesChanged) > 0 {
+			_, _ = fmt.Fprintf(out, " files=%s", strings.Join(finding.FilesChanged, ","))
+		}
+		if len(finding.Validation) > 0 {
+			_, _ = fmt.Fprintf(out, " validation=%q", strings.Join(finding.Validation, "; "))
+		}
+		_, _ = fmt.Fprintln(out)
+	}
+	_, _ = fmt.Fprintf(out, "warnings=%d\n", len(report.Warnings))
+	for _, warning := range report.Warnings {
+		_, _ = fmt.Fprintf(out, "warning: %s\n", warning.Message)
+	}
+	for _, step := range report.Steps {
+		_, _ = fmt.Fprintf(out, "step=%d role=%s status=%s verdict=%s tokens=%d turns=%d duration=%ds exit=%s receipt=%s", step.SequenceNum, valueOrUnset(step.Role), valueOrUnset(step.Status), valueOrUnset(step.Verdict), step.TokensUsed, step.TurnsUsed, step.DurationSecs, exitCodeLabel(step.ExitCode), valueOrUnset(step.ReceiptPath))
+		if step.ErrorMessage != "" {
+			_, _ = fmt.Fprintf(out, " error=%q", step.ErrorMessage)
+		}
+		_, _ = fmt.Fprintln(out)
+	}
+}
+
+func valueOrUnset(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "<unset>"
+	}
+	return value
+}
+
+func exitCodeLabel(exitCode *int) string {
+	if exitCode == nil {
+		return "<unset>"
+	}
+	return fmt.Sprintf("%d", *exitCode)
+}
+
+func stepCapLabel(value int, present bool) string {
+	if !present {
+		return "<unrecorded>"
+	}
+	if value <= 0 {
+		return "<unset>"
+	}
+	return fmt.Sprintf("%d", value)
 }

@@ -7,6 +7,9 @@ import "./index.css";
 const RootLayout = lazy(() => import("@/components/layout/root-layout").then((m) => ({ default: m.RootLayout })));
 const ConversationListPage = lazy(() => import("@/pages/conversation-list").then((m) => ({ default: m.ConversationListPage })));
 const ConversationPage = lazy(() => import("@/pages/conversation").then((m) => ({ default: m.ConversationPage })));
+const ChainsPage = lazy(() => import("@/pages/chains").then((m) => ({ default: m.ChainsPage })));
+const ChainDetailPage = lazy(() => import("@/pages/chain-detail").then((m) => ({ default: m.ChainDetailPage })));
+const MetricsPage = lazy(() => import("@/pages/metrics").then((m) => ({ default: m.MetricsPage })));
 const SettingsPage = lazy(() => import("@/pages/settings").then((m) => ({ default: m.SettingsPage })));
 
 function RouteFallback() {
@@ -35,6 +38,30 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<RouteFallback />}>
             <ConversationPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "chains",
+        element: (
+          <Suspense fallback={<RouteFallback />}>
+            <ChainsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "chains/:id",
+        element: (
+          <Suspense fallback={<RouteFallback />}>
+            <ChainDetailPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "metrics",
+        element: (
+          <Suspense fallback={<RouteFallback />}>
+            <MetricsPage />
           </Suspense>
         ),
       },

@@ -11,6 +11,7 @@
 # After confirming provider/auth settings, run:
 #
 #   yard index --config yard.yaml
+#   yard brain index --config yard.yaml
 #   yard chain start --config yard.yaml --task "..."
 #
 # See docs/specs/13_Headless_Run_Command.md and
@@ -37,6 +38,7 @@ providers:
   codex:
     type: codex
     model: gpt-5.5
+    reasoning_effort: medium
 
 index:
   include:
@@ -56,7 +58,6 @@ index:
   exclude:
     - "**/.git/**"
     - "**/.yard/**"
-    - "**/.brain/**"
     - "**/node_modules/**"
     - "**/vendor/**"
     - "**/dist/**"
@@ -66,9 +67,17 @@ index:
     - "**/.turbo/**"
     - "**/*.min.js"
 
+memory:
+  backend: shunter
+  shunter_data_dir: .yard/shunter/project-memory
+  durable_ack: true
+  rpc:
+    transport: unix
+    path: .yard/run/memory.sock
+
 brain:
   enabled: true
-  vault_path: .brain
+  backend: shunter
   log_brain_queries: true
 
 # Agent roles — all 13 are seeded by `yard init`. Stock roles use
@@ -97,6 +106,7 @@ brain:
 agent_roles:
   orchestrator:
     system_prompt: "builtin:orchestrator"
+    mutation_class: orchestrator
     tools:
       - brain
     custom_tools:
@@ -118,6 +128,7 @@ agent_roles:
 
   coder:
     system_prompt: "builtin:coder"
+    mutation_class: source_write
     tools:
       - brain
       - file
@@ -140,6 +151,7 @@ agent_roles:
 
   planner:
     system_prompt: "builtin:planner"
+    mutation_class: brain_write
     tools:
       - brain
       - file:read
@@ -160,6 +172,7 @@ agent_roles:
 
   test-writer:
     system_prompt: "builtin:test-writer"
+    mutation_class: source_write
     tools:
       - brain
       - file
@@ -182,6 +195,7 @@ agent_roles:
 
   resolver:
     system_prompt: "builtin:resolver"
+    mutation_class: source_write
     tools:
       - brain
       - file
@@ -204,6 +218,7 @@ agent_roles:
 
   correctness-auditor:
     system_prompt: "builtin:correctness-auditor"
+    mutation_class: read_only
     tools:
       - brain
       - file:read
@@ -225,12 +240,12 @@ agent_roles:
 
   integration-auditor:
     system_prompt: "builtin:integration-auditor"
+    mutation_class: read_only
     tools:
       - brain
       - file:read
       - git
       - search
-      - shell
     brain_write_paths:
       - "receipts/integration-auditor/**"
       - "logs/integration-auditor/**"
@@ -247,12 +262,12 @@ agent_roles:
 
   performance-auditor:
     system_prompt: "builtin:performance-auditor"
+    mutation_class: read_only
     tools:
       - brain
       - file:read
       - git
       - search
-      - shell
     brain_write_paths:
       - "receipts/performance-auditor/**"
       - "logs/performance-auditor/**"
@@ -269,6 +284,7 @@ agent_roles:
 
   security-auditor:
     system_prompt: "builtin:security-auditor"
+    mutation_class: read_only
     tools:
       - brain
       - file:read
@@ -290,6 +306,7 @@ agent_roles:
 
   quality-auditor:
     system_prompt: "builtin:quality-auditor"
+    mutation_class: read_only
     tools:
       - brain
       - file:read
@@ -311,6 +328,7 @@ agent_roles:
 
   docs-arbiter:
     system_prompt: "builtin:docs-arbiter"
+    mutation_class: brain_write
     tools:
       - brain
       - file:read
@@ -331,6 +349,7 @@ agent_roles:
 
   epic-decomposer:
     system_prompt: "builtin:epic-decomposer"
+    mutation_class: brain_write
     tools:
       - brain
       - file:read
@@ -351,6 +370,7 @@ agent_roles:
 
   task-decomposer:
     system_prompt: "builtin:task-decomposer"
+    mutation_class: brain_write
     tools:
       - brain
       - file:read
@@ -373,7 +393,7 @@ local_services:
   enabled: true
   mode: manual
   provider: docker-compose
-  compose_file: ./ops/llm/docker-compose.yml
+  compose_file: docker-compose.yml
   project_dir: ./ops/llm
   required_networks:
     - llm-net

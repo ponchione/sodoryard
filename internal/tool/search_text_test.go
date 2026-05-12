@@ -130,6 +130,17 @@ func TestSearchTextExcludesBrainAndWorkspaceHiddenStateByDefault(t *testing.T) {
 			t.Fatalf("did not expect hidden-state paths in results for %s, got:\n%s", raw, hidden.Content)
 		}
 	}
+
+	explicitHidden, err := SearchText{}.Execute(context.Background(), dir, json.RawMessage(`{"pattern":"token-visible","path":".brain","context_lines":0}`))
+	if err != nil {
+		t.Fatalf("unexpected explicit hidden search error: %v", err)
+	}
+	if !explicitHidden.Success || !strings.Contains(explicitHidden.Content, "No matches found") {
+		t.Fatalf("expected explicit hidden-state path to search no files, got:\n%s", explicitHidden.Content)
+	}
+	if strings.Contains(explicitHidden.Content, "visible.md") {
+		t.Fatalf("explicit hidden-state scope searched project root, got:\n%s", explicitHidden.Content)
+	}
 }
 
 func TestSearchTextRegex(t *testing.T) {
@@ -271,6 +282,9 @@ func TestSearchTextSchema(t *testing.T) {
 	if !strings.Contains(string(schema), `"path"`) {
 		t.Fatal("Schema() does not contain path property")
 	}
+	if !strings.Contains(string(schema), `"paths"`) {
+		t.Fatal("Schema() does not contain paths property")
+	}
 }
 
 func TestSearchTextPathScope(t *testing.T) {
@@ -297,6 +311,54 @@ func TestSearchTextPathScope(t *testing.T) {
 	}
 	if strings.Contains(result.Content, "b.go") {
 		t.Fatalf("did NOT expect b.go in scoped results, got:\n%s", result.Content)
+	}
+}
+
+func TestSearchTextWhitespaceSeparatedPathScopes(t *testing.T) {
+	requireRipgrep(t)
+	dir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(dir, "cmd"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "internal"), 0o755)
+	os.WriteFile(filepath.Join(dir, "cmd", "main.go"), []byte("package main\nvar target = 1\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "internal", "svc.go"), []byte("package internal\nvar target = 2\n"), 0o644)
+
+	result, err := SearchText{}.Execute(context.Background(), dir,
+		json.RawMessage(`{"pattern":"target","path":"cmd internal","context_lines":0}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "cmd/main.go") {
+		t.Fatalf("expected cmd/main.go in results, got:\n%s", result.Content)
+	}
+	if !strings.Contains(result.Content, "internal/svc.go") {
+		t.Fatalf("expected internal/svc.go in results, got:\n%s", result.Content)
+	}
+}
+
+func TestSearchTextPathsArraySkipsMissingScopes(t *testing.T) {
+	requireRipgrep(t)
+	dir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(dir, "docs"), 0o755)
+	os.WriteFile(filepath.Join(dir, "docs", "note.md"), []byte("target\n"), 0o644)
+
+	result, err := SearchText{}.Execute(context.Background(), dir,
+		json.RawMessage(`{"pattern":"target","paths":["docs","missing"],"context_lines":0}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "docs/note.md") {
+		t.Fatalf("expected docs/note.md in results, got:\n%s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Skipped missing search paths: missing") {
+		t.Fatalf("expected skipped-path note, got:\n%s", result.Content)
 	}
 }
 

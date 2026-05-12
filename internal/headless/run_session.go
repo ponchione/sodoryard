@@ -5,16 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/approval"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	"github.com/ponchione/sodoryard/internal/id"
 	"github.com/ponchione/sodoryard/internal/role"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type ExitCode int
@@ -31,11 +34,11 @@ type RunRequest struct {
 	Task        string
 	TaskFile    string
 	ChainID     string
-	Brain       string
 	MaxTurns    int
 	MaxTokens   int
 	Timeout     time.Duration
 	ReceiptPath string
+	StepID      string
 	Quiet       bool
 	ProjectRoot string
 }
@@ -45,7 +48,11 @@ type RunResult struct {
 	ExitCode    ExitCode
 }
 
-const defaultRunTimeout = 30 * time.Minute
+const (
+	defaultRunTimeout     = 30 * time.Minute
+	receiptWriteTimeout   = 30 * time.Second
+	infrastructureVerdict = "blocked"
+)
 
 type AgentLoop interface {
 	RunTurn(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error)
@@ -107,10 +114,23 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 		return nil, err
 	}
 	req.Role = roleName
+	req.ChainID = chainID
+	if strings.TrimSpace(req.StepID) == "" {
+		req.StepID = os.Getenv(tracepkg.EnvStepID)
+	}
+	receiptPath := ResolveReceiptPath(req.Role, chainID, req.ReceiptPath)
+	roleCfg = scopeReadOnlyRoleToReceiptPath(roleCfg, receiptPath)
 
 	timeout := resolveRunTimeout(roleCfg, req.Timeout)
 	ctx, cancel := context.WithTimeout(parentContext(parentCtx), timeout)
 	defer cancel()
+	ctx = tracepkg.ContextFromEnv(ctx)
+	ctx = tracepkg.ContextWithScope(ctx, tracepkg.Scope{
+		ChainID:      chainID,
+		StepID:       req.StepID,
+		TraceID:      os.Getenv(tracepkg.EnvTraceID),
+		ParentSpanID: os.Getenv(tracepkg.EnvParentSpanID),
+	})
 
 	rt, err := deps.BuildRuntime(ctx, cfg)
 	if err != nil {
@@ -137,17 +157,33 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 	}
 
 	receiptVerdict, exitCode, err := determineExitStatus(ctx, turnResult, turnErr, loopMaxTurns, maxTokens)
+	receiptCtx, cancelReceipt := detachedReceiptContext(ctx)
+	defer cancelReceipt()
 	if err != nil {
-		return nil, err
+		writtenPath, _, receiptErr := EnsureReceipt(
+			receiptCtx,
+			rt.BrainBackend,
+			scopedBrainCfg,
+			req.Role,
+			chainID,
+			receiptPath,
+			infrastructureVerdict,
+			infrastructureFailureText(err),
+			turnResult,
+		)
+		if receiptErr != nil {
+			return nil, fmt.Errorf("%w; write fallback receipt: %v", err, receiptErr)
+		}
+		return &RunResult{ReceiptPath: writtenPath, ExitCode: exitCode}, nil
 	}
 
 	receiptPath, receiptMeta, err := EnsureReceipt(
-		ctx,
+		receiptCtx,
 		rt.BrainBackend,
 		scopedBrainCfg,
 		req.Role,
 		chainID,
-		ResolveReceiptPath(req.Role, chainID, req.ReceiptPath),
+		receiptPath,
 		receiptVerdict,
 		FinalText(turnResult),
 		turnResult,
@@ -165,6 +201,22 @@ func RunSession(parentCtx context.Context, progressOut io.Writer, configPath str
 	}
 
 	return &RunResult{ReceiptPath: receiptPath, ExitCode: exitCode}, nil
+}
+
+func detachedReceiptContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if ctx != nil {
+		base = context.WithoutCancel(ctx)
+	}
+	return context.WithTimeout(base, receiptWriteTimeout)
+}
+
+func infrastructureFailureText(err error) string {
+	msg := strings.TrimSpace(fmt.Sprint(err))
+	if msg == "" {
+		msg = "unknown infrastructure error"
+	}
+	return "The headless run stopped before the agent could complete.\n\nError:\n\n" + msg
 }
 
 func validateRunRequest(req RunRequest) error {
@@ -198,9 +250,6 @@ func prepareRunRequest(configPath string, req RunRequest, newChainID func() stri
 	if strings.TrimSpace(req.ProjectRoot) != "" {
 		cfg.ProjectRoot = strings.TrimSpace(req.ProjectRoot)
 	}
-	if strings.TrimSpace(req.Brain) != "" {
-		cfg.Brain.VaultPath = strings.TrimSpace(req.Brain)
-	}
 	if err := cfg.Validate(); err != nil {
 		return "", nil, "", appconfig.AgentRoleConfig{}, "", "", err
 	}
@@ -223,8 +272,14 @@ func prepareRunRequest(configPath string, req RunRequest, newChainID func() stri
 }
 
 func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.Config, req RunRequest, taskText string, systemPrompt string, rt *rtpkg.EngineRuntime, registry *tool.Registry, loopMaxTurns int, deps Deps) (*agent.TurnResult, error, error) {
-	executor := tool.NewExecutor(registry, tool.ExecutorConfig{MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens, ProjectRoot: cfg.ProjectRoot}, rt.Logger)
-	executor.SetRecorder(tool.NewToolExecutionRecorder(rt.Queries))
+	executor := tool.NewExecutor(registry, tool.ExecutorConfig{
+		MaxOutputTokens:       cfg.Agent.ToolOutputMaxTokens,
+		ProjectRoot:           cfg.ProjectRoot,
+		ShellApprovalPatterns: cfg.Agent.ShellApprovalPatterns,
+		ApprovalDecisions:     approval.DecodeDecisionEnv(os.Getenv(approval.EnvDecisions)),
+	}, rt.Logger)
+	executor.SetRecorder(rt.ToolRecorder)
+	executor.SetTraceRecorder(rt.TraceRecorder)
 	adapter := tool.NewAgentLoopAdapter(executor)
 
 	var sink agent.EventSink
@@ -242,6 +297,8 @@ func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.C
 		PromptBuilder:       agent.NewPromptBuilder(rt.Logger),
 		TitleGenerator:      titleGen,
 		EventSink:           sink,
+		CompressionEngine:   rt.CompressionEngine,
+		TraceRecorder:       rt.TraceRecorder,
 		Config:              rtpkg.BuildAgentLoopConfig(cfg, loopMaxTurns, systemPrompt),
 		Logger:              rt.Logger,
 	})
@@ -260,6 +317,8 @@ func executeRunTurn(ctx context.Context, progressOut io.Writer, cfg *appconfig.C
 		TurnNumber:        1,
 		Message:           taskText,
 		ModelContextLimit: modelContextLimit,
+		ChainID:           req.ChainID,
+		StepID:            req.StepID,
 	})
 	return turnResult, turnErr, nil
 }
@@ -271,9 +330,12 @@ func determineExitStatus(ctx context.Context, turnResult *agent.TurnResult, turn
 		if errors.Is(turnErr, agent.ErrTurnCancelled) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "safety_limit", ExitSafetyLimit, nil
 		}
+		if errors.Is(turnErr, agent.ErrMaxIterationsExceeded) {
+			return "safety_limit", ExitSafetyLimit, nil
+		}
 		return "", ExitInfrastructure, turnErr
 	}
-	if (loopMaxTurns > 0 && turnResult.IterationCount >= loopMaxTurns) || ExceededMaxTokens(turnResult, maxTokens) {
+	if ExceededMaxTokens(turnResult, maxTokens) {
 		receiptVerdict = "safety_limit"
 		exitCode = ExitSafetyLimit
 	}
@@ -307,6 +369,14 @@ func resolveRunTimeout(roleCfg appconfig.AgentRoleConfig, requested time.Duratio
 		return requested
 	}
 	return roleTimeout
+}
+
+func scopeReadOnlyRoleToReceiptPath(roleCfg appconfig.AgentRoleConfig, receiptPath string) appconfig.AgentRoleConfig {
+	if roleCfg.MutationClass != appconfig.MutationClassReadOnly {
+		return roleCfg
+	}
+	roleCfg.BrainWritePaths = []string{receiptPath}
+	return roleCfg
 }
 
 func buildConversationOptions(cfg *appconfig.Config) []conversation.CreateOption {

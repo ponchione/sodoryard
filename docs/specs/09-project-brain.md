@@ -1,18 +1,18 @@
 # 09 — Project Brain
 
-**Status:** Draft, carried into v0.2 scoping **Last Updated:** 2026-04-29 **Author:** Mitchell
+**Status:** Historical vault draft, superseded for canonical memory **Last Updated:** 2026-04-29 **Author:** Mitchell
 
-Note: portions of this draft still describe the pre-MCP Obsidian Local REST design. The implemented runtime has since moved to an MCP-backed vault backend; treat REST-specific details here as historical planning context, not the current supported path.
+Supersession note: this draft is not current operator guidance. The supported brain source of truth is Shunter project memory, not an Obsidian vault, `.brain/`, or MCP/vault compatibility path. Use `SHUNTER_PROJECT_MEMORY_SPEC.md`, `README.md`, and `docs/context-assembly-plain-english.md` for the live Shunter brain design.
 
-Current phase note: v0.1 shipped the brain as reactive tools only. The v0.2 runtime now includes proactive brain retrieval in context assembly, a dedicated brain budget tier, context-report visibility, explicit `yard brain index`, relational brain metadata, a semantic LanceDB brain index, and hybrid keyword/semantic/graph search when the runtime searcher is available. The maintained live proofs cover fact canaries, rationale/decision notes, convention/policy notes, and prior-debugging/history notes.
+Current Shunter phase note: brain tools and proactive context assembly read/write Shunter project-memory documents. `yard brain index` rebuilds derived brain metadata and LanceDB semantic chunks from Shunter documents.
 
 ---
 
 ## Overview
 
-The project brain is a persistent, project-scoped knowledge base backed by an Obsidian vault. It accumulates intelligence over the lifetime of working on a codebase — architectural decisions, debugging insights, conventions, session histories, relationship maps, and anything else worth persisting across sessions.
+The project brain is a persistent, project-scoped knowledge base backed by Shunter project memory. It accumulates intelligence over the lifetime of working on a codebase — architectural decisions, debugging insights, conventions, session histories, relationship maps, and anything else worth persisting across sessions.
 
-Both the developer and the agent are co-authors. The developer works directly in Obsidian — reading, editing, organizing, browsing the graph view. The agent reads from and writes to the vault via tools, and context assembly queries the brain alongside code RAG to surface relevant project knowledge on each turn.
+Both the developer and the agent are co-authors. The agent reads from and writes to Shunter brain documents via tools, and context assembly queries the brain alongside code RAG to surface relevant project knowledge on each turn.
 
 This is sodoryard's long-term memory. Conversations are ephemeral — they live for a session, get compressed, eventually fade. The brain is where durable insights get extracted and persisted. A conversation is a working session. The brain is the institutional knowledge that sessions contribute to.
 

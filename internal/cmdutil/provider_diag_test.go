@@ -60,7 +60,7 @@ func TestRunProviderDiagnosticsJSONIncludesLocalServicesForDoctor(t *testing.T) 
 				Mode:           "oauth",
 				Source:         "yard_store",
 				HasAccessToken: true,
-				ExpiresAt:      time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
+				ExpiresAt:      time.Now().Add(time.Hour).UTC(),
 			},
 		}, nil
 	})
@@ -85,6 +85,9 @@ func TestRunProviderDiagnosticsJSONIncludesLocalServicesForDoctor(t *testing.T) 
 	}
 	if payload.Providers[0].Name != "codex" || payload.Providers[0].Auth == nil || payload.Providers[0].Auth.Mode != "oauth" {
 		t.Fatalf("provider payload = %#v, want codex status report", payload.Providers[0])
+	}
+	if payload.Providers[0].AuthState != "ready" || !payload.Providers[0].Healthy {
+		t.Fatalf("provider auth health = %q/%v, want ready/healthy", payload.Providers[0].AuthState, payload.Providers[0].Healthy)
 	}
 	if payload.LocalServices.Mode != "auto" {
 		t.Fatalf("local_services.mode = %q, want auto", payload.LocalServices.Mode)
@@ -124,18 +127,63 @@ func TestCollectProviderAuthReportsCapturesBuildAndPingFailures(t *testing.T) {
 	}
 }
 
+func TestCollectProviderAuthReportsMarksExpiredAccessTokenUnhealthy(t *testing.T) {
+	cfg := &appconfig.Config{
+		ConfiguredProviders: []string{"codex"},
+		Providers: map[string]appconfig.ProviderConfig{
+			"codex": {Type: "codex"},
+		},
+	}
+	builder := fakeProviderBuilder(func(name string, cfg appconfig.ProviderConfig) (provider.Provider, error) {
+		return &fakeAuthProvider{
+			name: name,
+			authStatus: &provider.AuthStatus{
+				Provider:        name,
+				Mode:            "oauth",
+				Source:          "yard_store",
+				HasAccessToken:  true,
+				HasRefreshToken: true,
+				ExpiresAt:       time.Now().Add(-time.Minute).UTC(),
+			},
+		}, nil
+	})
+
+	reports := CollectProviderAuthReports(context.Background(), cfg, false, builder.Build)
+	if len(reports) != 1 {
+		t.Fatalf("reports len = %d, want 1", len(reports))
+	}
+	if reports[0].Healthy || reports[0].AuthState != "expired_access_token" {
+		t.Fatalf("codex report = %#v, want expired unhealthy auth state", reports[0])
+	}
+
+	var out bytes.Buffer
+	PrintProviderAuthReports(&out, reports)
+	got := out.String()
+	for _, want := range []string{
+		"codex (codex): expired",
+		"  auth_state: expired_access_token",
+		"  has_refresh_token: true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestPrintProviderAuthReportsRendersReadableText(t *testing.T) {
 	var out bytes.Buffer
 	reports := []ProviderAuthReport{{
 		Name:      "codex",
 		Type:      "codex",
 		Healthy:   false,
+		AuthState: "ready",
 		PingError: "token expired",
 		Auth: &provider.AuthStatus{
 			Mode:            "oauth",
 			Source:          "yard_store",
 			HasAccessToken:  true,
 			HasRefreshToken: false,
+			ExpiresAt:       time.Now().Add(time.Hour).UTC(),
 			Detail:          "expired",
 			Remediation:     "run yard auth login codex",
 		},
@@ -146,6 +194,7 @@ func TestPrintProviderAuthReportsRendersReadableText(t *testing.T) {
 	for _, want := range []string{
 		"codex (codex): unhealthy",
 		"  ping_error: token expired",
+		"  auth_state: ready",
 		"  auth_mode: oauth",
 		"  has_access_token: true",
 		"  remediation: run yard auth login codex",

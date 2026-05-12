@@ -8,6 +8,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/provider"
 	toolpkg "github.com/ponchione/sodoryard/internal/tool"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 type toolExecutionRecord struct {
@@ -17,6 +18,13 @@ type toolExecutionRecord struct {
 }
 
 func buildToolExecutionContext(ctx stdctx.Context, req RunTurnRequest, iteration int) stdctx.Context {
+	ctx = tracepkg.ContextWithScope(ctx, tracepkg.Scope{
+		ConversationID: req.ConversationID,
+		ChainID:        req.ChainID,
+		StepID:         req.StepID,
+		TurnNumber:     req.TurnNumber,
+		Iteration:      iteration,
+	})
 	return toolpkg.ContextWithExecutionMeta(ctx, toolpkg.ExecutionMeta{
 		ConversationID: req.ConversationID,
 		TurnNumber:     req.TurnNumber,

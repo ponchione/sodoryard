@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -28,25 +29,35 @@ type ShellConfig struct {
 // Shell implements the shell tool — arbitrary command execution with safety
 // guardrails, timeout management, and process group lifecycle control.
 type Shell struct {
-	config       ShellConfig
-	rtkAvailable bool
+	config  ShellConfig
+	rtkPath string
 }
 
 // NewShell creates a shell tool with the given configuration.
 func NewShell(config ShellConfig) *Shell {
-	_, err := exec.LookPath("rtk")
 	return &Shell{
-		config:       config,
-		rtkAvailable: err == nil,
+		config:  config,
+		rtkPath: detectRTKPath(),
 	}
+}
+
+func detectRTKPath() string {
+	path, err := exec.LookPath("rtk")
+	if err != nil {
+		return ""
+	}
+	if absPath, err := filepath.Abs(path); err == nil {
+		return absPath
+	}
+	return path
 }
 
 var rtkSkipPrefixes = []string{
 	"rtk", "cd", "export", "source", "eval",
 }
 
-func applyRTKPrefix(command string, rtkAvailable bool) string {
-	if !rtkAvailable {
+func applyRTKPrefix(command string, rtkPath string) string {
+	if rtkPath == "" {
 		return command
 	}
 	trimmed := strings.TrimSpace(command)
@@ -55,7 +66,11 @@ func applyRTKPrefix(command string, rtkAvailable bool) string {
 			return command
 		}
 	}
-	return "rtk " + command
+	return shellQuoteArg(rtkPath) + " " + command
+}
+
+func shellQuoteArg(arg string) string {
+	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
 }
 
 type shellInput struct {
@@ -133,7 +148,7 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 		timeout = time.Duration(*params.TimeoutSeconds) * time.Second
 	}
 
-	execCommand := applyRTKPrefix(params.Command, s.rtkAvailable)
+	execCommand := applyRTKPrefix(params.Command, s.rtkPath)
 	run, result := runShellProcess(ctx, execCommand, workDir, timeout)
 	if result != nil {
 		return result, nil

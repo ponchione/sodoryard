@@ -23,11 +23,11 @@ type HeadlessRunFlags struct {
 	Task        string
 	TaskFile    string
 	ChainID     string
-	Brain       string
 	MaxTurns    int
 	MaxTokens   int
 	Timeout     time.Duration
 	ReceiptPath string
+	StepID      string
 	Quiet       bool
 	ProjectRoot string
 }
@@ -57,11 +57,12 @@ func RegisterHeadlessRunFlags(flags *pflag.FlagSet, values *HeadlessRunFlags) {
 	flags.StringVar(&values.Task, "task", "", "Task text for the headless run")
 	flags.StringVar(&values.TaskFile, "task-file", "", "Read task text from file")
 	flags.StringVar(&values.ChainID, "chain-id", "", "Chain execution identifier")
-	flags.StringVar(&values.Brain, "brain", "", "Override brain vault path")
 	flags.IntVar(&values.MaxTurns, "max-turns", 0, "Override max turns for this run")
 	flags.IntVar(&values.MaxTokens, "max-tokens", 0, "Override max total tokens for this run")
 	flags.DurationVar(&values.Timeout, "timeout", 0, "Wall-clock timeout for the entire session; 0 uses the role/default timeout")
 	flags.StringVar(&values.ReceiptPath, "receipt-path", "", "Override brain-relative receipt path")
+	flags.StringVar(&values.StepID, "step-id", "", "Internal chain step identifier for trace correlation")
+	_ = flags.MarkHidden("step-id")
 	flags.BoolVar(&values.Quiet, "quiet", false, "Suppress progress output")
 	flags.StringVar(&values.ProjectRoot, "project-root", "", "Override project root")
 }
@@ -73,7 +74,7 @@ func NewHeadlessRunCommand(use string, short string, configPath *string) *cobra.
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := RunHeadlessForCommand(cmd, *configPath, flags)
-			if result != nil && (result.ExitCode == HeadlessExitOK || result.ExitCode == HeadlessExitSafetyLimit) {
+			if result != nil && result.ReceiptPath != "" {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), result.ReceiptPath)
 			}
 			if err != nil {
@@ -103,11 +104,11 @@ func RunHeadless(ctx context.Context, errOut io.Writer, configPath string, flags
 		Task:        flags.Task,
 		TaskFile:    flags.TaskFile,
 		ChainID:     flags.ChainID,
-		Brain:       flags.Brain,
 		MaxTurns:    flags.MaxTurns,
 		MaxTokens:   flags.MaxTokens,
 		Timeout:     flags.Timeout,
 		ReceiptPath: flags.ReceiptPath,
+		StepID:      flags.StepID,
 		Quiet:       flags.Quiet,
 		ProjectRoot: flags.ProjectRoot,
 	}, headless.Deps{})

@@ -57,10 +57,18 @@ func (s *Service) SendChatMessage(ctx context.Context, req ChatTurnRequest) (Cha
 
 	turnNumber, err := s.rt.ConversationManager.NextTurnNumber(ctx, convID)
 	if err != nil {
-		return ChatTurnResult{}, fmt.Errorf("compute chat turn number: %w", err)
+		cause := fmt.Errorf("compute chat turn number: %w", err)
+		if createdConversation {
+			return ChatTurnResult{}, s.cleanupFailedRawChatTurn(ctx, convID, 0, true, cause)
+		}
+		return ChatTurnResult{}, cause
 	}
 	if err := s.rt.ConversationManager.PersistUserMessage(ctx, convID, turnNumber, message); err != nil {
-		return ChatTurnResult{}, fmt.Errorf("persist chat user message: %w", err)
+		cause := fmt.Errorf("persist chat user message: %w", err)
+		if createdConversation {
+			return ChatTurnResult{}, s.cleanupFailedRawChatTurn(ctx, convID, turnNumber, true, cause)
+		}
+		return ChatTurnResult{}, cause
 	}
 	history, err := s.rt.ConversationManager.ReconstructHistory(ctx, convID)
 	if err != nil {

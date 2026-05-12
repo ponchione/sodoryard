@@ -11,6 +11,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	"github.com/ponchione/sodoryard/internal/brain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/provider"
 )
 
 type fakeReceiptBackend struct {
@@ -101,6 +102,12 @@ func TestEnsureReceiptWritesFallbackWhenMissing(t *testing.T) {
 	if !strings.Contains(backend.docs[path], "finished work") {
 		t.Fatalf("fallback receipt content = %q, want final text", backend.docs[path])
 	}
+	if !strings.Contains(backend.docs[path], "schema_version: yard.receipt.v1") || !strings.Contains(backend.docs[path], "metrics:") {
+		t.Fatalf("fallback receipt content = %q, want structured metadata", backend.docs[path])
+	}
+	if !strings.Contains(backend.docs[path], "## Changed Files") {
+		t.Fatalf("fallback receipt content = %q, want Changed Files section", backend.docs[path])
+	}
 }
 
 func TestEnsureReceiptUsesExistingValidReceipt(t *testing.T) {
@@ -125,6 +132,44 @@ Escalate.`,
 	}
 	if path != "receipts/coder/chain-1.md" || receipt == nil || receipt.Verdict != "escalate" {
 		t.Fatalf("got (%q, %#v), want existing escalate receipt", path, receipt)
+	}
+}
+
+func TestEnsureReceiptRewritesExistingReceiptUsageMetrics(t *testing.T) {
+	backend := &fakeReceiptBackend{docs: map[string]string{
+		"receipts/coder/chain-1.md": `---
+agent: coder
+chain_id: chain-1
+step: 1
+verdict: completed
+timestamp: 2026-04-11T00:00:00Z
+turns_used: 0
+tokens_used: 0
+duration_seconds: 0
+---
+
+## Summary
+Done.`,
+	}}
+	turnResult := &agent.TurnResult{IterationCount: 4, Duration: 9 * time.Second}
+	turnResult.TotalUsage.InputTokens = 120
+	turnResult.TotalUsage.OutputTokens = 30
+
+	path, receipt, err := EnsureReceipt(context.Background(), backend, appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/**"}}, "coder", "chain-1", "receipts/coder/chain-1.md", "completed_no_receipt", "ignored", turnResult)
+	if err != nil {
+		t.Fatalf("EnsureReceipt returned error: %v", err)
+	}
+	if path != "receipts/coder/chain-1.md" {
+		t.Fatalf("path = %q, want receipts/coder/chain-1.md", path)
+	}
+	if receipt == nil || receipt.TurnsUsed != 4 || receipt.TokensUsed != 150 || receipt.DurationSeconds != 9 {
+		t.Fatalf("receipt usage = %#v, want turns=4 tokens=150 duration=9", receipt)
+	}
+	updated := backend.docs[path]
+	for _, want := range []string{"turns_used: 4", "tokens_used: 150", "duration_seconds: 9", "## Summary\nDone."} {
+		if !strings.Contains(updated, want) {
+			t.Fatalf("updated receipt = %q, want %q", updated, want)
+		}
 	}
 }
 
@@ -174,5 +219,19 @@ func TestFormatEventFormatsKeyEvents(t *testing.T) {
 	}
 	if got := FormatEvent(agent.TurnCompleteEvent{IterationCount: 2, Duration: time.Second}); !strings.Contains(got, "complete: iterations=2") {
 		t.Fatalf("turn complete format = %q", got)
+	}
+}
+
+func TestFormatEventFormatsApprovalRequiredProgress(t *testing.T) {
+	details := provider.NewToolResultDetails("approval_required", map[string]any{
+		"approval_id": "approval-tc-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	})
+	got := FormatEvent(agent.ToolCallEndEvent{ToolCallID: "tc-1", Details: details})
+	if !strings.HasPrefix(got, "approval_required: ") || !strings.Contains(got, `"approval_id":"approval-tc-1"`) || !strings.Contains(got, `"tool_name":"shell"`) {
+		t.Fatalf("approval format = %q", got)
 	}
 }

@@ -137,5 +137,5 @@ func yardFollowOperatorChainEvents(ctx context.Context, out io.Writer, svc *oper
 }
 
 func yardChainFollowStatusActive(status string) bool {
-	return status == "running" || status == "pause_requested" || status == "cancel_requested"
+	return status == "running" || status == "pause_requested" || status == "cancel_requested" || status == chain.StatusWaitingApproval
 }

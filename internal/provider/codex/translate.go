@@ -8,12 +8,20 @@ import (
 )
 
 const (
-	forcedCodexModel           = "gpt-5.5"
-	forcedCodexReasoningEffort = "xhigh"
+	forcedCodexModel            = "gpt-5.5"
+	defaultCodexReasoningEffort = "medium"
 )
 
 func codexRequestModel(_ string) string {
 	return forcedCodexModel
+}
+
+func normalizeCodexReasoningEffort(effort string) string {
+	normalized := strings.ToLower(strings.TrimSpace(effort))
+	if normalized == "" {
+		return defaultCodexReasoningEffort
+	}
+	return normalized
 }
 
 // responsesRequest is the top-level JSON body for POST /v1/responses.
@@ -39,7 +47,7 @@ type responsesInput struct {
 	CallID           string                           `json:"call_id,omitempty"`
 	Name             string                           `json:"name,omitempty"`
 	Arguments        string                           `json:"arguments,omitempty"`
-	Output           string                           `json:"output,omitempty"`
+	Output           *string                          `json:"output,omitempty"`
 	EncryptedContent string                           `json:"encrypted_content,omitempty"`
 	Summary          []provider.ReasoningSummaryBlock `json:"summary,omitempty"`
 }
@@ -54,13 +62,18 @@ type responsesTool struct {
 
 // responsesReasoning controls reasoning behavior.
 type responsesReasoning struct {
-	Effort  string `json:"effort"` // "high", "medium", "low"
+	Effort  string `json:"effort"` // "low", "medium", "high", "xhigh"
 	Summary string `json:"summary,omitempty"`
 }
 
 // buildResponsesRequest translates a unified Request into the Responses API
-// request body. The model parameter comes from the provider config or request.
+// request body using the default Codex reasoning effort. The model parameter
+// comes from the provider config or request.
 func buildResponsesRequest(model string, req *provider.Request, streamResponse bool) responsesRequest {
+	return buildResponsesRequestWithReasoning(model, req, streamResponse, defaultCodexReasoningEffort)
+}
+
+func buildResponsesRequestWithReasoning(model string, req *provider.Request, streamResponse bool, reasoningEffort string) responsesRequest {
 	model = codexRequestModel(model)
 	rr := responsesRequest{
 		Model:        model,
@@ -152,7 +165,7 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 			rr.Input = append(rr.Input, responsesInput{
 				Type:   "function_call_output",
 				CallID: msg.ToolUseID,
-				Output: text,
+				Output: stringPtr(text),
 			})
 		}
 	}
@@ -169,12 +182,16 @@ func buildResponsesRequest(model string, req *provider.Request, streamResponse b
 		}
 	}
 
-	// Reasoning configuration is currently pinned for the forced Codex daily-driver model.
+	// Reasoning is configurable while the Codex daily-driver model stays pinned.
 	rr.Reasoning = &responsesReasoning{
-		Effort:  forcedCodexReasoningEffort,
+		Effort:  normalizeCodexReasoningEffort(reasoningEffort),
 		Summary: "auto",
 	}
 	rr.Include = []string{"reasoning.encrypted_content"}
 
 	return rr
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

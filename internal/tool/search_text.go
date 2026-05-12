@@ -16,11 +16,12 @@ import (
 type SearchText struct{}
 
 type searchTextInput struct {
-	Pattern      string `json:"pattern"`
-	Path         string `json:"path,omitempty"`
-	FileGlob     string `json:"file_glob,omitempty"`
-	ContextLines *int   `json:"context_lines,omitempty"`
-	MaxResults   *int   `json:"max_results,omitempty"`
+	Pattern      string   `json:"pattern"`
+	Path         string   `json:"path,omitempty"`
+	Paths        []string `json:"paths,omitempty"`
+	FileGlob     string   `json:"file_glob,omitempty"`
+	ContextLines *int     `json:"context_lines,omitempty"`
+	MaxResults   *int     `json:"max_results,omitempty"`
 }
 
 func (SearchText) Name() string { return "search_text" }
@@ -42,7 +43,12 @@ func (SearchText) Schema() json.RawMessage {
 				},
 				"path": {
 					"type": "string",
-					"description": "Optional subdirectory to scope the search to (relative to project root)"
+					"description": "Optional file or subdirectory to scope the search to (relative to project root). For multiple scopes, prefer paths."
+				},
+				"paths": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Optional list of files or subdirectories to scope the search to (relative to project root)"
 				},
 				"file_glob": {
 					"type": "string",
@@ -102,21 +108,14 @@ func (SearchText) Execute(ctx context.Context, projectRoot string, input json.Ra
 	}
 	args = append(args, "--", params.Pattern)
 
-	searchDir := "."
-	if params.Path != "" {
-		if _, err := resolvePath(projectRoot, params.Path); err != nil {
-			return &ToolResult{
-				Success: false,
-				Content: err.Error(),
-				Error:   err.Error(),
-			}, nil
-		}
-		if isHiddenStateSearchPath(params.Path) {
-			return &ToolResult{Success: true, Content: fmt.Sprintf("No matches found for pattern: '%s'", params.Pattern)}, nil
-		}
-		searchDir = params.Path
+	searchDirs, skippedPaths, scopeErr := resolveSearchTextScopes(projectRoot, params)
+	if scopeErr != nil {
+		return scopeErr, nil
 	}
-	args = append(args, searchDir)
+	if len(searchDirs) == 0 {
+		return &ToolResult{Success: true, Content: withSkippedSearchPaths(fmt.Sprintf("No matches found for pattern: '%s'", params.Pattern), skippedPaths)}, nil
+	}
+	args = append(args, searchDirs...)
 
 	searchCtx, stopSearch := context.WithCancel(ctx)
 	defer stopSearch()
@@ -168,7 +167,7 @@ func (SearchText) Execute(ctx context.Context, projectRoot string, input json.Ra
 		}
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) && exitErr.ExitCode() == 1 && matches == 0 {
-			return &ToolResult{Success: true, Content: fmt.Sprintf("No matches found for pattern: '%s'", params.Pattern)}, nil
+			return &ToolResult{Success: true, Content: withSkippedSearchPaths(fmt.Sprintf("No matches found for pattern: '%s'", params.Pattern), skippedPaths)}, nil
 		}
 		if stderr.Len() > 0 {
 			return &ToolResult{
@@ -184,5 +183,70 @@ func (SearchText) Execute(ctx context.Context, projectRoot string, input json.Ra
 		}, nil
 	}
 
-	return &ToolResult{Success: true, Content: formatted}, nil
+	return &ToolResult{Success: true, Content: withSkippedSearchPaths(formatted, skippedPaths)}, nil
+}
+
+func resolveSearchTextScopes(projectRoot string, params searchTextInput) ([]string, []string, *ToolResult) {
+	rawScopes := append([]string(nil), params.Paths...)
+	if strings.TrimSpace(params.Path) != "" {
+		rawScopes = append(rawScopes, params.Path)
+	}
+	if len(rawScopes) == 0 {
+		return []string{"."}, nil, nil
+	}
+
+	var scopes []string
+	var skipped []string
+	seen := map[string]struct{}{}
+	for _, raw := range rawScopes {
+		candidates, split := expandSearchTextScope(projectRoot, raw)
+		for _, candidate := range candidates {
+			resolved, err := resolvePath(projectRoot, candidate)
+			if err != nil {
+				return nil, nil, failureResult(err.Error(), err.Error())
+			}
+			if isHiddenStateSearchPath(candidate) {
+				continue
+			}
+			if !fileExists(resolved) {
+				if split || len(rawScopes) > 1 {
+					skipped = append(skipped, candidate)
+					continue
+				}
+				msg := fmt.Sprintf("search path not found: %s", candidate)
+				return nil, nil, failureResult(msg, msg)
+			}
+			if _, ok := seen[candidate]; ok {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			scopes = append(scopes, candidate)
+		}
+	}
+	if len(scopes) == 0 {
+		return nil, skipped, nil
+	}
+	return scopes, skipped, nil
+}
+
+func expandSearchTextScope(projectRoot string, raw string) ([]string, bool) {
+	scope := strings.TrimSpace(raw)
+	if scope == "" {
+		return nil, false
+	}
+	if resolved, err := resolvePath(projectRoot, scope); err == nil && fileExists(resolved) {
+		return []string{scope}, false
+	}
+	fields := strings.Fields(scope)
+	if len(fields) > 1 {
+		return fields, true
+	}
+	return []string{scope}, false
+}
+
+func withSkippedSearchPaths(content string, skipped []string) string {
+	if len(skipped) == 0 {
+		return content
+	}
+	return fmt.Sprintf("Skipped missing search paths: %s\n\n%s", strings.Join(skipped, ", "), content)
 }

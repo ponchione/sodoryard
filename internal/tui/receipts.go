@@ -28,7 +28,11 @@ func (m Model) renderReceipts() string {
 		return strings.Join(lines, "\n")
 	}
 	for i, item := range visibleItems {
-		line := fmt.Sprintf("%-18s %s", item.Label, item.Path)
+		meta := m.receiptItemMeta(item)
+		if meta == "" {
+			meta = "-"
+		}
+		line := fmt.Sprintf("%-18s %-22s %s", item.Label, meta, item.Path)
 		if i == m.receiptCursor {
 			line = m.styles.selected.Render("> " + line)
 		} else {

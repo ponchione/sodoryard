@@ -43,6 +43,7 @@ func shouldSuppressStepOutput(line string, opts chainRenderOptions) bool {
 		"registered provider",
 		"provider failed ping() startup validation",
 		"brain backend: mcp (in-process)",
+		"brain backend: shunter",
 		"status: waiting_for_llm",
 		"status: executing_tools",
 		"status: assembling_context",
@@ -115,11 +116,29 @@ func formatKnownChainEvent(event chain.Event, opts chainRenderOptions) string {
 			stream = "stdout"
 		}
 		return fmt.Sprintf("[%s] %s", stream, line)
+	case chain.EventStepChangedFiles:
+		return join(plain("count"), quoted("paths"), quoted("error"))
+	case chain.EventStepGuardrailFacts:
+		return join(plain("role"), plain("sequence"), plain("source_mutating"), plain("exit_code"), plain("duration_secs"), plain("receipt_present"), plain("synthetic_receipt_written"), plain("receipt_valid"), plain("receipt_schema_valid"), plain("receipt_step_valid"), plain("receipt_sections_valid"), plain("parsed_verdict"), plain("tokens_used"), plain("turns_used"), plain("receipt_duration_seconds"), quoted("claimed_validation_commands"), plain("changed_file_count"), plain("changed_file_claim_present"), plain("changed_file_claim_matches_manifest"), quoted("claimed_changed_files"), quoted("changed_file_claim_extra"), quoted("changed_file_manifest_unclaimed"), quoted("changed_file_manifest_error"), plain("code_index_state_supported"), plain("code_index_state_found"), plain("code_index_dirty_mark_supported"), plain("code_index_dirty_mark_attempted"), plain("code_index_dirty_marked"), quoted("code_index_dirty_mark_error"), plain("code_index_dirty"), quoted("code_index_dirty_reason"), plain("brain_index_state_supported"), plain("brain_index_state_found"), plain("brain_index_dirty"), quoted("brain_index_dirty_reason"), plain("source_writer_lock_release_attempted"), plain("source_writer_lock_released"), plain("finding_count"), plain("open_finding_count"), plain("closed_finding_count"), plain("addressed_finding_count"), quoted("finding_ids"), quoted("open_finding_ids"), quoted("closed_finding_ids"), quoted("addressed_ids"), quoted("receipt_error"), plain("suspicious_verdict_finding_combination"), quoted("suspicious_verdict_finding_reason"), quoted("run_error"))
 	case chain.EventStepCompleted, chain.EventStepFailed:
 		return join(plain("role"), plain("verdict"), plain("tokens_used"), plain("duration_secs"), plain("exit_code"), quoted("error"))
+	case chain.EventReceiptValidation:
+		return join(plain("role"), plain("receipt_path"), quoted("warning"), quoted("error"))
+	case chain.EventReceiptFindings:
+		return join(plain("role"), plain("verdict"), plain("finding_count"), plain("open_count"), plain("closed_count"), plain("addressed_count"), quoted("open_finding_ids"), quoted("closed_finding_ids"), quoted("addressed_ids"))
+	case chain.EventFindingLifecycleFacts:
+		return join(plain("role"), plain("verdict"), quoted("receipt_path"), quoted("facts"))
+	case chain.EventSourceWriterBlocked:
+		return join(plain("requested_role"), plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), quoted("error"))
+	case chain.EventApprovalRequired:
+		return join(plain("approval_id"), plain("tool_name"), plain("risk_level"), plain("status"), quoted("reason"))
+	case chain.EventApprovalDecision:
+		return join(plain("approval_id"), plain("status"), quoted("reason"), plain("decided_by"), plain("decided_at"))
+	case chain.EventSourceWriterLockAcquired, chain.EventSourceWriterLockReleased, chain.EventSourceWriterLockForceReleased, chain.EventSourceWriterLockReleaseFailed, chain.EventSourceWriterLockHeartbeatFailed, chain.EventSourceWriterLockStaleReplaced:
+		return join(plain("lock_name"), plain("owner_role"), plain("owner_step_id"), plain("owner_chain_id"), plain("expires_at"), quoted("error"), quoted("reason"))
 	case chain.EventResolverLoop:
 		return join(plain("count"), quoted("task_context"))
-	case chain.EventReindexStarted, chain.EventReindexCompleted, chain.EventSafetyLimitHit, chain.EventChainPaused, chain.EventChainCancelled, chain.EventChainCompleted:
+	case chain.EventReindexStarted, chain.EventReindexCompleted, chain.EventSafetyLimitHit, chain.EventChainWaitingApproval, chain.EventChainPaused, chain.EventChainCancelled, chain.EventChainCompleted:
 		parts := make([]string, 0, len(payload))
 		for _, key := range []string{"status", "summary", "duration_secs", "limit", "role", "exit_code", "execution_id", "finalized_from"} {
 			if key == "summary" {

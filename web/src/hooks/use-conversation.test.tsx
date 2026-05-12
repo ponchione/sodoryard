@@ -1,10 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ServerEvent } from "@/hooks/use-websocket";
+import type { ConnectionStatus, ServerEvent } from "@/hooks/use-websocket";
 
 const { wsState } = vi.hoisted(() => ({
   wsState: {
-    status: "connected" as const,
+    status: "connected" as ConnectionStatus,
     eventQueue: { current: [] as ServerEvent[] },
     eventTick: 0,
     sendMessage: vi.fn(),
@@ -30,11 +30,22 @@ function tokenEvent(token: string): ServerEvent {
   } as ServerEvent;
 }
 
+function conversationCreatedEvent(conversationId: string): ServerEvent {
+  return {
+    type: "conversation_created",
+    timestamp: new Date().toISOString(),
+    data: {
+      conversation_id: conversationId,
+    },
+  } as ServerEvent;
+}
+
 describe("useConversation", () => {
   beforeEach(() => {
+    wsState.status = "connected";
     wsState.eventQueue.current = [];
     wsState.eventTick = 0;
-    wsState.sendMessage.mockReset();
+    wsState.sendMessage.mockReset().mockReturnValue(true);
     wsState.cancel.mockReset();
   });
 
@@ -60,5 +71,68 @@ describe("useConversation", () => {
     expect(wsState.eventQueue.current).toHaveLength(0);
     expect(result.current.messages[0].content).toBe("abcd");
     expect(result.current.streamingText).toBe("1");
+  });
+
+  it("does not append a local user message when websocket send fails", () => {
+    wsState.status = "disconnected";
+    wsState.sendMessage.mockReturnValue(false);
+
+    const { result } = renderHook(() => useConversation("conv-1"));
+
+    act(() => {
+      expect(result.current.sendMessage("hello")).toBe(false);
+    });
+
+    expect(wsState.sendMessage).toHaveBeenCalledWith("hello", "conv-1");
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.error).toBe("Disconnected. Reconnecting to the server.");
+  });
+
+  it("clears stale messages when the routed conversation changes", () => {
+    const { result, rerender } = renderHook(({ id }) => useConversation(id), {
+      initialProps: { id: "conv-1" as string | undefined },
+    });
+
+    act(() => {
+      result.current.loadHistory([{ role: "user", content: "old message", blocks: [] }]);
+    });
+
+    expect(result.current.conversationId).toBe("conv-1");
+    expect(result.current.messages).toHaveLength(1);
+
+    act(() => {
+      rerender({ id: "conv-2" });
+    });
+
+    expect(result.current.conversationId).toBe("conv-2");
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.error).toBeNull();
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("keeps optimistic messages when a new conversation receives its route id", () => {
+    const { result, rerender } = renderHook(({ id }) => useConversation(id), {
+      initialProps: { id: undefined as string | undefined },
+    });
+
+    act(() => {
+      expect(result.current.sendMessage("new message")).toBe(true);
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+
+    act(() => {
+      wsState.eventQueue.current.push(conversationCreatedEvent("conv-new"));
+      wsState.eventTick += 1;
+      rerender({ id: undefined });
+    });
+    act(() => {
+      rerender({ id: "conv-new" });
+    });
+
+    expect(result.current.conversationId).toBe("conv-new");
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].content).toBe("new message");
   });
 });

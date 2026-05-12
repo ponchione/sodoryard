@@ -584,6 +584,39 @@ func TestRefreshToken_HTTPFailureReturnsProviderError(t *testing.T) {
 	}
 }
 
+func TestRefreshToken_ObjectErrorReturnsProviderError(t *testing.T) {
+	tmpDir := t.TempDir()
+	overrideHomeDir(t, tmpDir)
+	writeAuthFile(t, tmpDir, `{"auth_mode":"chatgpt","tokens":{"access_token":"expired_token","refresh_token":"refresh_token"}}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"refresh expired","code":"invalid_grant"}}`))
+	}))
+	defer server.Close()
+	overrideCodexRefreshEndpoint(t, "test-client-id", server.URL)
+
+	p := &CodexProvider{}
+	err := p.refreshToken(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	pe, ok := err.(*provider.ProviderError)
+	if !ok {
+		t.Fatalf("expected *provider.ProviderError, got %T", err)
+	}
+	if pe.StatusCode != http.StatusUnauthorized || pe.AuthKind != provider.AuthExpiredCredentials {
+		t.Fatalf("ProviderError = %+v, want 401 expired credentials", pe)
+	}
+	if !strings.Contains(pe.Message, "refresh expired") {
+		t.Errorf("expected message containing object error detail, got %q", pe.Message)
+	}
+	if !provider.IsAuthenticationFailure(err) {
+		t.Fatal("expected object-shaped OAuth error to classify as auth failure")
+	}
+}
+
 func TestRefreshToken_Timeout(t *testing.T) {
 	tmpDir := t.TempDir()
 	overrideHomeDir(t, tmpDir)

@@ -26,7 +26,7 @@ A chain step session is identical to a web UI agent session in runtime machinery
 
 ### Receipt
 
-Every chain step writes a receipt document to the brain vault at a known path. The receipt is the durable output contract. The chain runner, orchestrator, browser UI, or operator reads the receipt to determine what happened and what should happen next. See **Receipt Format** below.
+Every chain step writes a receipt document to Shunter project memory at a known brain-relative path. The receipt is the durable output contract. The chain runner, orchestrator, browser UI, or operator reads the receipt to determine what happened and what should happen next. See **Receipt Format** below.
 
 ### Agent Role
 
@@ -66,7 +66,6 @@ The target operator-facing command creates a one-step chain. There is no separat
 | Flag | Default | Description |
 |---|---|---|
 | `--chain-id <string>` | auto-generated | Identifier for the chain execution. Used in receipt paths and logging. |
-| `--brain <path>` | config default | Override the brain vault path. |
 | `--max-turns <int>` | 50 | Maximum turns before forced stop. |
 | `--max-tokens <int>` | 500000 | Total token budget across all turns. |
 | `--timeout <duration>` | 30m | Wall-clock timeout for the entire session. |
@@ -79,7 +78,7 @@ The target operator-facing command creates a one-step chain. There is no separat
 | Code | Meaning |
 |---|---|
 | 0 | Agent completed normally, receipt written. |
-| 1 | Infrastructure error (config, vault, provider failure). |
+| 1 | Infrastructure error (config, Shunter project memory, provider failure). |
 | 2 | Safety limit reached (max turns, max tokens, or timeout). |
 | 3 | Agent signaled an explicit escalation (cannot complete task). |
 
@@ -201,7 +200,7 @@ Brain read operations (`brain_read`, `brain_search`) are never restricted — ev
 yard chain start --role coder --task "implement JWT auth" --chain-id auth-2026-04-11
     │
     ├─ Create one-step chain
-    ├─ Load config, resolve brain vault path
+    ├─ Load config and open Shunter project memory, or connect to the parent memory endpoint
     ├─ Validate role exists in agent_roles config
     ├─ Build tool registry for role (tool groups + brain path scoping)
     ├─ Initialize provider (same routing as serve mode)
@@ -249,7 +248,7 @@ On turn completion or safety limit:
 
 ## Receipt Format
 
-Receipts are markdown documents with YAML frontmatter, stored in the brain vault. The frontmatter is machine-parseable; the body is human-readable context.
+Receipts are markdown documents with YAML frontmatter, stored as Shunter brain documents. The frontmatter is machine-parseable; the body is human-readable context.
 
 ### Required Frontmatter Fields
 
@@ -305,7 +304,7 @@ What the agent recommends the next agent (or human) should do.
 
 - Tool registry with per-group registration (`register.go`) — no changes needed.
 - Tool executor with purity-based dispatch (`executor.go`) — no changes needed.
-- Brain vault client with read/write/patch/search/list (`vault/client.go`) — no changes needed.
+- Brain backend read/write/patch/search/list through Shunter project memory.
 - Brain tools with operation logging (`brain_write.go`, `brain_log.go`) — needs path enforcement added.
 - Context assembly pipeline (`context/assembler.go`) — no changes needed.
 - Provider routing and model selection (`provider/`) — no changes needed.

@@ -26,6 +26,8 @@ type TerminalChainClosure struct {
 
 var ErrChainAlreadyRunning = errors.New("chain already running")
 
+const StatusWaitingApproval = "waiting_approval"
+
 func NextControlStatus(currentStatus string, targetStatus string) (string, error) {
 	switch targetStatus {
 	case "paused":
@@ -39,7 +41,7 @@ func NextControlStatus(currentStatus string, targetStatus string) (string, error
 		}
 	case "cancelled":
 		switch currentStatus {
-		case "running", "pause_requested", "cancel_requested":
+		case "running", "pause_requested", "cancel_requested", StatusWaitingApproval:
 			return "cancel_requested", nil
 		case "paused", "cancelled":
 			return "cancelled", nil
@@ -48,7 +50,7 @@ func NextControlStatus(currentStatus string, targetStatus string) (string, error
 		}
 	case "running":
 		switch currentStatus {
-		case "paused", "running":
+		case "paused", "running", StatusWaitingApproval:
 			return "running", nil
 		default:
 			return "", fmt.Errorf("chain is %s and cannot be resumed", currentStatus)
@@ -60,7 +62,7 @@ func NextControlStatus(currentStatus string, targetStatus string) (string, error
 
 func ResumeExecutionReady(currentStatus string) (bool, error) {
 	switch currentStatus {
-	case "paused":
+	case "paused", StatusWaitingApproval:
 		return true, nil
 	case "running":
 		return false, ErrChainAlreadyRunning
@@ -99,6 +101,8 @@ func TerminalEventTypeForStatus(status string) (EventType, bool) {
 		return EventChainPaused, true
 	case "cancelled":
 		return EventChainCancelled, true
+	case StatusWaitingApproval:
+		return EventChainWaitingApproval, true
 	case "completed", "partial", "failed":
 		return EventChainCompleted, true
 	default:
@@ -162,7 +166,7 @@ func LatestActiveExecution(events []Event) (ActiveExecution, bool) {
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
 		switch event.EventType {
-		case EventChainPaused, EventChainCancelled, EventChainCompleted:
+		case EventChainPaused, EventChainCancelled, EventChainCompleted, EventChainWaitingApproval:
 			var payload struct {
 				ExecutionID string `json:"execution_id"`
 			}
@@ -251,7 +255,7 @@ func LatestActiveStepProcess(events []Event) (ActiveStepProcess, bool) {
 
 func ShouldStopScheduling(status string) bool {
 	switch status {
-	case "paused", "cancelled", "pause_requested", "cancel_requested":
+	case "paused", "cancelled", "pause_requested", "cancel_requested", StatusWaitingApproval:
 		return true
 	default:
 		return false

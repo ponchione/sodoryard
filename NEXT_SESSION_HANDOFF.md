@@ -1,75 +1,112 @@
-# Next session handoff
+# Next Session Handoff
 
-You are resuming work in `/home/gernsback/source/sodoryard`.
+Date: 2026-05-09
 
-Objective
-- Keep work narrow, behavior-preserving, and well-validated.
-- Prefer current-truth docs (`README.md`, specs, this handoff) over historical planning artifacts.
-- Do not reopen runtime/provider/UI/broad architecture work unless the user explicitly asks.
+## Current State
 
-Read first
-1. `AGENTS.md`
-2. `RTK.md`
-3. `README.md`
-4. `NEXT_SESSION_HANDOFF.md`
-5. `docs/specs/20-operator-console-tui.md`
-6. `TUI_IMPLEMENTATION_PLAN.md`
+The latest completed work before the current approval-control slice was:
 
-Current repo truth
-- The active UI direction is TUI-first: bare `yard` is the daily-driver operator console, and `yard serve` remains the optional web inspector/API surface.
-- Bare `yard` is wired through `cmd/yard/tui.go`; the Bubble Tea app lives in `internal/tui`.
-- Shared operator services live in `internal/operator`; the TUI calls them directly and does not require or start `yard serve`.
-- `tidmouth` remains internal engine plumbing. Do not expose it as an operator-facing surface.
-- Landed TUI features include raw provider/model chat without an agent role prompt, readiness metadata, recent chains and chain detail, step/event display, live event follow, pause/cancel, receipt summaries/content, receipt opening through `$PAGER`/`$EDITOR`, launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`, chain/receipt filtering, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, and launch role-list add/remove/clear controls.
-- Resume is still a foreground command handoff: the TUI shows `yard chain resume <chain-id>` rather than continuing runner execution inside the TUI.
-- Remaining TUI-first product gaps are project tree file attachment and fuller browser inspector parity.
+- `5c412f6 Persist actual headless usage metrics`
+- `44b3109 Add chain dogfooding metrics`
+- `87a3337 Tighten Shunter audit smoke surfaces`
 
-Most recent landed slices
-- Implemented TUI search/filter for chains and receipts inside `internal/tui`.
-- `/` starts filter editing on the chains and receipts screens.
-- `esc` exits filter editing and keeps the current query; `ctrl+u` clears it; backspace edits it; an empty query means no filtering.
-- Chain filtering matches loaded chain summary data: chain ID, status, source task, source specs, and current step role/status/verdict/receipt path where available.
-- Receipt filtering matches loaded receipt summary data: label, step, path, and the visible loaded receipt content without broad receipt reads.
-- Filter changes clamp cursors safely and refresh the currently selected chain/detail/receipt so selection stays coherent.
-- Help/footer and render output now show the filter keys and active filter state.
-- Implemented notice-only web-inspector handoffs for selected chains and receipts.
-- `w` shows the `yard serve` command and target URL. It does not detect, start, or supervise the web server.
-- The TUI target base URL comes from the configured `server.host` / `server.port` when available and falls back to `http://localhost:8090`.
-- Implemented constrained orchestration through `internal/operator` and `internal/chainrun`.
-- The TUI launch mode cycle now includes `constrained_orchestration`; `n` adds allowed roles for that mode.
-- Constrained orchestration reuses the existing orchestrator execution path and injects the allowed-role list into the orchestrator task packet. It does not add a second scheduler or durable launch table.
-- Implemented built-in TUI launch presets. `b` cycles presets generated from configured roles; presets preserve the current task/spec draft and only change mode/role selection.
-- Implemented persistent current launch drafts. The launch screen saves with `s` and loads with `L`; drafts are stored through `internal/operator` in the `.yard/yard.db` `launches` table and do not add a second execution path.
-- Implemented custom TUI launch presets. `B` saves the current role/mode shape as a durable preset in `launch_presets`; `b` cycles built-in and custom presets while preserving task/spec draft text.
-- Implemented richer launch role-list controls. `n` adds a manual roster or constrained allowed-role entry, `-` removes the last entry, and `ctrl+u` clears the active role list.
+Shunter is the base brain/project-memory design. Do not reintroduce legacy migration, vault, SQLite import/export, compatibility aliases, public memory commands, or backwards-compatible command surfaces.
 
-Validation completed for the landed slice
-- Focused TUI package:
-  - `rtk env CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sodoryard/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sodoryard/lib/linux_amd64' go test -tags sqlite_fts5 ./internal/tui` ✅
-- Focused TUI plus CLI command wiring:
-  - `rtk env CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sodoryard/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sodoryard/lib/linux_amd64' go test -tags sqlite_fts5 ./internal/tui ./cmd/yard` ✅
-- Focused constrained launch support:
-  - `rtk env CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sodoryard/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sodoryard/lib/linux_amd64' go test -tags sqlite_fts5 ./internal/chainrun ./internal/operator ./internal/tui` ✅
-- Focused built-in preset support:
-  - `rtk env CGO_ENABLED=1 CGO_LDFLAGS='-L/home/gernsback/source/sodoryard/lib/linux_amd64 -llancedb_go -lm -ldl -lpthread' LD_LIBRARY_PATH='/home/gernsback/source/sodoryard/lib/linux_amd64' go test -tags sqlite_fts5 ./internal/tui` ✅
-- Full project validation should be rerun after any follow-up slice:
-  - `rtk make test`
-  - `rtk make build`
+2026-05-09 update: the Spec 23 approval-control slices now derive durable approval state from chain events, record `approval_decision` events, expose `yard chain approvals|approve|deny`, TUI `/approvals|/approve|/deny`, and browser chain-detail approval controls, and add opt-in approval wait behavior through `yard chain start --allow-approval-wait` or TUI `/start --allow-approval-wait`. Chains move into `waiting_approval` for approval-required orchestrator tool results and spawned headless steps. Decided approvals are propagated into resumed spawned agents, so a matching approved shell call can run and a matching denied shell call returns a denial tool result. Full replay of the exact paused tool turn remains open.
 
-Recommended next order
-1. Project tree file attachment or browser inspector parity.
+2026-05-09 update: the Spec 23 prompt-metadata sync slice now adds frontmatter metadata to every checked-in built-in role prompt and matching embedded prompt asset. The runtime strips this frontmatter before sending prompts to models, and tests now validate role key, persona, expected configured tools, receipt schema, recommended max turns, and structured-finding expectations. `yard config` now warns when prompt `recommended_max_turns` drifts from configured role `max_turns`.
 
-Do not change by default
-- Do not add search behavior to `cmd/yard`.
-- Do not shell out from the TUI to Cobra commands for core behavior.
-- Do not add database tables for TUI filter/search.
-- Do not secretly start `yard serve` from the TUI unless a future slice explicitly designs that behavior.
-- Do not churn `yard.yaml`, `.yard/`, or `.brain/` unless the task explicitly requires it.
-- Do not create new standing plan docs unless specifically needed.
+2026-05-09 update: the web inspector chain detail response and `GET /api/chains/{id}/metrics` now carry the same dogfooding metrics report used by `yard chain metrics`, and the browser chain detail page renders a compact metrics panel for steps, tokens, duration, events, warnings, findings, and process counts.
 
-Recommended workflow for the next agent
-1. Inspect repo state with `rtk git status --short --branch`.
-2. Read the files listed above before deciding scope.
-3. Keep new TUI behavior in `internal/tui` unless the feature genuinely belongs in shared runtime packages.
-4. Prefer focused model/render tests in `internal/tui/model_test.go` and `internal/tui/render_test.go`.
-5. Finish with `rtk make test` and `rtk make build`.
+## What Changed Tonight
+
+`yard chain metrics <chain-id>` now exists and is the primary quick check for dogfooding chain health. It reports:
+
+- chain health: `ok`, `attention`, or `failing`
+- step counts and per-step rows
+- token, turn, duration, resolver-loop, and budget usage
+- event counts including output, step failures, safety limits, reindexing, and child process start/exit counts
+- concrete warning lines for suspicious harness behavior
+
+The live metrics smoke found two real issues, both fixed:
+
+- Headless child receipts could contain model-authored `tokens_used: 0` / `turns_used: 0`; the headless runner now rewrites receipt usage fields from actual `RunTurn` metrics before returning.
+- `./bin/yard` could spawn a stale `tidmouth` from `PATH`; the spawn tool now prefers a sibling `tidmouth` beside the running `yard` binary when available.
+
+The smoke-test docs and README now include the metrics command in the dogfooding path.
+
+## Validation Already Run
+
+These passed after the final commits:
+
+```bash
+rtk make test
+rtk make build
+rtk ./bin/yard config
+rtk ./bin/yard auth status
+rtk ./bin/yard doctor
+```
+
+Runtime state from the final live smoke:
+
+```text
+chain_id: 019df9f0-fd8f-768b-a4d8-bd8094922000
+metrics: health=ok warnings=0 tokens=251436 turns=10 duration=39s
+provider/model: codex / gpt-5.5
+auth: healthy, yard_store, expires 2026-05-15T20:19:35Z
+local services: docker/compose available; nomic-embed and qwen-coder healthy/reachable/model-ready
+```
+
+Inspect command:
+
+```bash
+rtk ./bin/yard chain metrics 019df9f0-fd8f-768b-a4d8-bd8094922000
+```
+
+## Next Agent Starting Point
+
+Start by confirming the same baseline:
+
+```bash
+rtk git status --short
+rtk git log --oneline -8
+rtk make test
+rtk make build
+rtk ./bin/yard config
+rtk ./bin/yard auth status
+rtk ./bin/yard doctor
+```
+
+Then dogfood with a real but bounded one-step chain:
+
+```bash
+rtk ./bin/yard chain start \
+  --role coder \
+  --max-steps 1 \
+  --max-duration 2m \
+  --task "<small read-only or tightly scoped task>"
+
+rtk ./bin/yard chain metrics <chain-id>
+rtk ./bin/yard chain receipt <chain-id> 1
+```
+
+## Useful Next Work
+
+The most useful next slice is not more legacy cleanup. It is either finishing the approval replay/control loop or dogfooding and performance/ergonomics tuning around the active Shunter-native harness.
+
+Good candidates:
+
+- Implement exact paused-turn approval replay/resume semantics so an approved pending tool call can continue as that original call instead of requiring the resumed agent to issue the same approved input again.
+- Investigate why a simple one-sentence read-only chain used 10 turns and about 251k tokens. The metrics command now makes this visible; the next useful work is reducing that behavior.
+- Surface the same chain metrics report in the TUI or web inspector if dogfooding shows the CLI is not enough.
+- Improve launch prompts or role instructions so small read-only tasks finish faster and avoid unnecessary broad searches.
+- Keep watching for metrics warnings after real chains: zero token/turn usage, missing receipts, process started/exited mismatch, failed events, or aggregate-vs-step drift.
+
+## Guardrails
+
+- Use `rtk` for shell commands.
+- Prefer `rtk make test` and `rtk make build`.
+- If running Go directly, use `-tags sqlite_fts5` with the Makefile CGO/LanceDB environment.
+- Do not churn `yard.yaml`, `.yard/`, `.brain/`, generated web output, or local runtime state unless the task requires it.
+- Do not restore legacy vault, migration, import/export, or compatibility command surfaces.
+- Keep `tidmouth` limited to the internal engine subprocess contract unless intentionally redesigning the spawn contract.

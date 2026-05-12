@@ -36,14 +36,14 @@ type brainLintInput struct {
 
 func (b *BrainLint) Name() string { return "brain_lint" }
 func (b *BrainLint) Description() string {
-	return "Run deterministic health checks over brain documents in the Obsidian vault"
+	return "Run deterministic health checks over Shunter brain documents"
 }
 func (b *BrainLint) ToolPurity() Purity { return Mutating }
 
 func (b *BrainLint) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"name": "brain_lint",
-		"description": "Run deterministic lint checks over the project brain (Obsidian vault). Supports full-vault, path-prefix, #tag, or combined path+tag scope like 'notes/+#architecture', plus optional check subsets. The contradictions check is model-assisted and only runs when explicitly opted in.",
+		"description": "Run deterministic lint checks over the project brain. Supports full-brain, path-prefix, #tag, or combined path+tag scope like 'notes/+#architecture', plus optional check subsets. The contradictions check is model-assisted and only runs when explicitly opted in.",
 		"input_schema": {
 			"type": "object",
 			"properties": {
@@ -132,13 +132,7 @@ func (b *BrainLint) Execute(ctx context.Context, projectRoot string, input json.
 			summaryParts = append(summaryParts, fmt.Sprintf("%d contradictions across %d examined pairs", report.Summary.Contradictions, report.Summary.ContradictionPairsExamined))
 		}
 		summary := "Found " + strings.Join(summaryParts, ", ") + "."
-		if err := appendBrainLog(ctx, b.client, BrainLogEntry{
-			Timestamp: time.Now().UTC(),
-			Operation: "lint",
-			Target:    params.Scope,
-			Summary:   summary,
-			Session:   sessionIDFromContext(ctx),
-		}); err != nil {
+		if err := appendBrainOperationLog(ctx, b.client, "lint", params.Scope, summary); err != nil {
 			return &ToolResult{Success: false, Content: fmt.Sprintf("Lint completed but failed to append operation log: %v", err), Error: err.Error()}, nil
 		}
 	}

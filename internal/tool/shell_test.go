@@ -3,6 +3,8 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,7 +48,7 @@ func TestShellNonZeroExitCode(t *testing.T) {
 }
 
 func TestShellDetails(t *testing.T) {
-	s := &Shell{config: ShellConfig{}, rtkAvailable: false}
+	s := &Shell{config: ShellConfig{}}
 	result, err := s.Execute(context.Background(), t.TempDir(),
 		json.RawMessage(`{"command":"printf out; printf err >&2; exit 7"}`))
 	if err != nil {
@@ -230,50 +232,66 @@ func TestRegisterShellTool(t *testing.T) {
 }
 
 func TestShellRTKPrefix(t *testing.T) {
-	got := applyRTKPrefix("git status", true)
-	want := "rtk git status"
+	got := applyRTKPrefix("git status", "/usr/local/bin/rtk")
+	want := "'/usr/local/bin/rtk' git status"
 	if got != want {
-		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "git status", got, want)
+		t.Fatalf("applyRTKPrefix(%q, %q) = %q; want %q", "git status", "/usr/local/bin/rtk", got, want)
+	}
+}
+
+func TestShellRTKPrefixQuotesResolvedPath(t *testing.T) {
+	got := applyRTKPrefix("git status", "/tmp/fake tools/fake rtk")
+	want := "'/tmp/fake tools/fake rtk' git status"
+	if got != want {
+		t.Fatalf("applyRTKPrefix quoted path = %q; want %q", got, want)
+	}
+}
+
+func TestShellRTKPrefixQuotesSingleQuotes(t *testing.T) {
+	got := applyRTKPrefix("git status", "/tmp/fake 'tools'/rtk")
+	want := `'/tmp/fake '\''tools'\''/rtk' git status`
+	if got != want {
+		t.Fatalf("applyRTKPrefix single-quote path = %q; want %q", got, want)
 	}
 }
 
 func TestShellRTKPrefixSkipsWhenUnavailable(t *testing.T) {
-	got := applyRTKPrefix("git status", false)
+	got := applyRTKPrefix("git status", "")
 	want := "git status"
 	if got != want {
-		t.Fatalf("applyRTKPrefix(%q, false) = %q; want %q", "git status", got, want)
+		t.Fatalf("applyRTKPrefix(%q, empty path) = %q; want %q", "git status", got, want)
 	}
 }
 
 func TestShellRTKPrefixSkipsRTKCommands(t *testing.T) {
-	got := applyRTKPrefix("rtk git status", true)
+	got := applyRTKPrefix("rtk git status", "/usr/local/bin/rtk")
 	want := "rtk git status"
 	if got != want {
-		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "rtk git status", got, want)
+		t.Fatalf("applyRTKPrefix(%q, path) = %q; want %q", "rtk git status", got, want)
 	}
 }
 
 func TestShellRTKPrefixSkipsShellBuiltins(t *testing.T) {
-	got := applyRTKPrefix("cd /tmp && ls", true)
+	got := applyRTKPrefix("cd /tmp && ls", "/usr/local/bin/rtk")
 	want := "cd /tmp && ls"
 	if got != want {
-		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "cd /tmp && ls", got, want)
+		t.Fatalf("applyRTKPrefix(%q, path) = %q; want %q", "cd /tmp && ls", got, want)
 	}
 }
 
 func TestShellRTKPrefixSkipsExport(t *testing.T) {
-	got := applyRTKPrefix("export FOO=bar", true)
+	got := applyRTKPrefix("export FOO=bar", "/usr/local/bin/rtk")
 	want := "export FOO=bar"
 	if got != want {
-		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "export FOO=bar", got, want)
+		t.Fatalf("applyRTKPrefix(%q, path) = %q; want %q", "export FOO=bar", got, want)
 	}
 }
 
 func TestShellRTKPrefixSkipsSource(t *testing.T) {
-	got := applyRTKPrefix("source .env", true)
+	got := applyRTKPrefix("source .env", "/usr/local/bin/rtk")
 	want := "source .env"
 	if got != want {
-		t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", "source .env", got, want)
+		t.Fatalf("applyRTKPrefix(%q, path) = %q; want %q", "source .env", got, want)
 	}
 }
 
@@ -288,9 +306,32 @@ func TestShellRTKPrefixSkipsBareBuiltins(t *testing.T) {
 		{"source", "source"},
 	}
 	for _, tc := range cases {
-		got := applyRTKPrefix(tc.cmd, true)
+		got := applyRTKPrefix(tc.cmd, "/usr/local/bin/rtk")
 		if got != tc.want {
-			t.Fatalf("applyRTKPrefix(%q, true) = %q; want %q", tc.cmd, got, tc.want)
+			t.Fatalf("applyRTKPrefix(%q, path) = %q; want %q", tc.cmd, got, tc.want)
 		}
+	}
+}
+
+func TestDetectRTKPath(t *testing.T) {
+	dir := t.TempDir()
+	rtkPath := filepath.Join(dir, "rtk")
+	if err := os.WriteFile(rtkPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake rtk: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	got := detectRTKPath()
+	if got != rtkPath {
+		t.Fatalf("detectRTKPath() = %q; want %q", got, rtkPath)
+	}
+}
+
+func TestDetectRTKPathUnavailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	got := detectRTKPath()
+	if got != "" {
+		t.Fatalf("detectRTKPath() = %q; want empty path", got)
 	}
 }

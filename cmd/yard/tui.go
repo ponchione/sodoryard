@@ -34,7 +34,11 @@ func newYardTUICmd(configPath *string) *cobra.Command {
 func runYardTUICommand(cmd *cobra.Command, configPath string) error {
 	svc, err := openYardOperator(cmd.Context(), configPath)
 	if err != nil {
-		return fmt.Errorf("open operator: %w", err)
+		degradedSvc, degradedErr := openYardDegradedOperator(cmd.Context(), configPath, err)
+		if degradedErr != nil {
+			return fmt.Errorf("open operator: %w; degraded operator open also failed: %v", err, degradedErr)
+		}
+		svc = degradedSvc
 	}
 	defer svc.Close()
 	return runYardTUI(cmd.Context(), svc, tuiapp.Options{WebBaseURL: yardTUIWebBaseURL(configPath)})

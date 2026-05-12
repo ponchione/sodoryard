@@ -6,11 +6,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
+	"github.com/ponchione/sodoryard/internal/modelcap"
 )
 
 func (s *Service) ListAgentRoles(ctx context.Context) ([]AgentRoleSummary, error) {
@@ -35,9 +35,19 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 	if err != nil {
 		return LaunchPreview{}, err
 	}
-	req = normalizeLaunchRequest(req)
+	req, err = resolveLaunchTemplateRequest(req)
+	if err != nil {
+		return LaunchPreview{}, err
+	}
+	if err := validateLaunchStepCaps(req); err != nil {
+		return LaunchPreview{}, err
+	}
 	if req.SourceTask == "" && len(req.SourceSpecs) == 0 {
 		return LaunchPreview{}, fmt.Errorf("one of task or specs is required")
+	}
+	template, ok := launchTemplateForMode(req.Mode)
+	if !ok {
+		return LaunchPreview{}, fmt.Errorf("unsupported launch mode %s", req.Mode)
 	}
 	switch req.Mode {
 	case LaunchModeOneStep:
@@ -71,18 +81,20 @@ func (s *Service) ValidateLaunch(ctx context.Context, req LaunchRequest) (Launch
 		}
 		req.Roster = roster
 		req.Role = strings.Join(roster, ",")
-	default:
-		return LaunchPreview{}, fmt.Errorf("unsupported launch mode %s", req.Mode)
 	}
 	compiled := compileLaunchTask(req)
 	return LaunchPreview{
-		Mode:         req.Mode,
-		Role:         req.Role,
-		AllowedRoles: append([]string(nil), req.AllowedRoles...),
-		Roster:       append([]string(nil), req.Roster...),
-		Summary:      summarizeLaunch(req),
-		CompiledTask: compiled,
-		Warnings:     launchWarnings(req),
+		Mode:              req.Mode,
+		Template:          template,
+		Role:              req.Role,
+		AllowedRoles:      append([]string(nil), req.AllowedRoles...),
+		Roster:            append([]string(nil), req.Roster...),
+		Summary:           summarizeLaunch(req),
+		CompiledTask:      compiled,
+		StepMaxTurns:      req.StepMaxTurns,
+		StepMaxTokens:     req.StepMaxTokens,
+		AllowApprovalWait: req.AllowApprovalWait,
+		Warnings:          launchWarnings(cfg, req),
 	}, nil
 }
 
@@ -102,16 +114,19 @@ func (s *Service) StartChain(ctx context.Context, req LaunchRequest) (StartResul
 	req.Roster = append([]string(nil), preview.Roster...)
 
 	startOpts := chainrun.Options{
-		Mode:             chainrun.Mode(req.Mode),
-		Role:             req.Role,
-		AllowedRoles:     append([]string(nil), req.AllowedRoles...),
-		Roster:           chainrunRoster(req.Roster),
-		SourceSpecs:      append([]string(nil), req.SourceSpecs...),
-		SourceTask:       req.SourceTask,
-		MaxSteps:         req.MaxSteps,
-		MaxResolverLoops: req.MaxResolverLoops,
-		MaxDuration:      req.MaxDuration,
-		TokenBudget:      req.TokenBudget,
+		Mode:              chainrun.Mode(req.Mode),
+		Role:              req.Role,
+		AllowedRoles:      append([]string(nil), req.AllowedRoles...),
+		Roster:            chainrunRoster(req.Roster),
+		SourceSpecs:       append([]string(nil), req.SourceSpecs...),
+		SourceTask:        req.SourceTask,
+		MaxSteps:          req.MaxSteps,
+		MaxResolverLoops:  req.MaxResolverLoops,
+		MaxDuration:       req.MaxDuration,
+		TokenBudget:       req.TokenBudget,
+		StepMaxTurns:      req.StepMaxTurns,
+		StepMaxTokens:     req.StepMaxTokens,
+		AllowApprovalWait: req.AllowApprovalWait,
 	}
 	chainIDCh := make(chan string, 1)
 	doneCh := make(chan startChainDone, 1)
@@ -180,11 +195,12 @@ type startChainDone struct {
 }
 
 func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
+	req.TemplateID = strings.TrimSpace(req.TemplateID)
 	req.Role = strings.TrimSpace(req.Role)
 	req.SourceTask = strings.TrimSpace(req.SourceTask)
 	req.SourceSpecs = chaininput.NormalizeSpecs(req.SourceSpecs)
-	req.AllowedRoles = normalizeRoster(req.AllowedRoles)
-	req.Roster = normalizeRoster(req.Roster)
+	req.AllowedRoles = chaininput.NormalizeRoleSet(req.AllowedRoles)
+	req.Roster = chaininput.NormalizeRoleList(req.Roster)
 	if req.Mode == "" {
 		if len(req.Roster) > 0 {
 			req.Mode = LaunchModeManualRoster
@@ -199,21 +215,33 @@ func normalizeLaunchRequest(req LaunchRequest) LaunchRequest {
 	return req
 }
 
+func resolveLaunchTemplateRequest(req LaunchRequest) (LaunchRequest, error) {
+	req.TemplateID = strings.TrimSpace(req.TemplateID)
+	req.Mode = LaunchMode(strings.TrimSpace(string(req.Mode)))
+	if req.TemplateID != "" {
+		template, ok := LaunchTemplateForID(req.TemplateID)
+		if !ok {
+			return LaunchRequest{}, fmt.Errorf("unknown launch template %q", req.TemplateID)
+		}
+		if req.Mode != "" && req.Mode != template.Mode {
+			return LaunchRequest{}, fmt.Errorf("launch template %q uses mode %s, not %s", req.TemplateID, template.Mode, req.Mode)
+		}
+		req.Mode = template.Mode
+	}
+	return normalizeLaunchRequest(req), nil
+}
+
 func withLaunchDefaults(req LaunchRequest) LaunchRequest {
-	if req.MaxSteps <= 0 {
-		req.MaxSteps = 100
-	}
-	if req.MaxResolverLoops < 0 {
-		req.MaxResolverLoops = 0
-	} else if req.MaxResolverLoops == 0 {
-		req.MaxResolverLoops = 3
-	}
-	if req.MaxDuration <= 0 {
-		req.MaxDuration = 4 * time.Hour
-	}
-	if req.TokenBudget <= 0 {
-		req.TokenBudget = 5_000_000
-	}
+	limits := chaininput.NormalizeLimits(chaininput.Limits{
+		MaxSteps:         req.MaxSteps,
+		MaxResolverLoops: req.MaxResolverLoops,
+		MaxDuration:      req.MaxDuration,
+		TokenBudget:      req.TokenBudget,
+	})
+	req.MaxSteps = limits.MaxSteps
+	req.MaxResolverLoops = limits.MaxResolverLoops
+	req.MaxDuration = limits.MaxDuration
+	req.TokenBudget = limits.TokenBudget
 	return req
 }
 
@@ -244,18 +272,91 @@ func summarizeLaunch(req LaunchRequest) string {
 	}
 }
 
-func launchWarnings(req LaunchRequest) []RuntimeWarning {
+func launchWarnings(cfg *appconfig.Config, req LaunchRequest) []RuntimeWarning {
 	var warnings []RuntimeWarning
 	if len(req.SourceSpecs) == 0 {
 		warnings = append(warnings, RuntimeWarning{Message: "no source specs selected"})
 	}
+	warnings = append(warnings, launchStepCapWarnings(req)...)
+	model, err := modelcap.ResolveConfiguredModel(cfg, "", "")
+	if err != nil {
+		warnings = append(warnings, RuntimeWarning{Message: "model capability metadata unavailable: " + err.Error()})
+		return warnings
+	}
+	if !model.SupportsTools && launchRequiresTools(cfg, req) {
+		warnings = append(warnings, RuntimeWarning{Message: fmt.Sprintf("default model %s:%s does not report tool support, but launch roles require tools", model.Provider, model.ID)})
+	}
 	return warnings
 }
 
+func validateLaunchStepCaps(req LaunchRequest) error {
+	if req.StepMaxTurns < 0 {
+		return fmt.Errorf("step_max_turns must not be negative")
+	}
+	if req.StepMaxTokens < 0 {
+		return fmt.Errorf("step_max_tokens must not be negative")
+	}
+	return nil
+}
+
+func launchStepCapWarnings(req LaunchRequest) []RuntimeWarning {
+	if req.StepMaxTurns > 0 || req.StepMaxTokens > 0 {
+		return nil
+	}
+	role := ""
+	switch req.Mode {
+	case LaunchModeOneStep:
+		role = strings.TrimSpace(req.Role)
+	case LaunchModeManualRoster:
+		if len(req.Roster) != 1 {
+			return nil
+		}
+		role = strings.TrimSpace(req.Roster[0])
+	default:
+		return nil
+	}
+	if role == "" {
+		role = "selected-role"
+	}
+	return []RuntimeWarning{{Message: fmt.Sprintf("single-step %s launch has no per-step turn/token caps; set step_max_turns or step_max_tokens for bounded probes", role)}}
+}
+
+func launchRequiresTools(cfg *appconfig.Config, req LaunchRequest) bool {
+	if cfg == nil {
+		return false
+	}
+	for _, role := range launchRoleNames(req) {
+		roleCfg, ok := cfg.AgentRoles[role]
+		if !ok {
+			continue
+		}
+		if len(roleCfg.Tools) > 0 || len(roleCfg.CustomTools) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func launchRoleNames(req LaunchRequest) []string {
+	switch req.Mode {
+	case LaunchModeOneStep:
+		if strings.TrimSpace(req.Role) == "" {
+			return nil
+		}
+		return []string{req.Role}
+	case LaunchModeManualRoster:
+		return append([]string(nil), req.Roster...)
+	case LaunchModeConstrained:
+		return append([]string{"orchestrator"}, req.AllowedRoles...)
+	default:
+		return []string{"orchestrator"}
+	}
+}
+
 func resolveLaunchRoster(cfg *appconfig.Config, req LaunchRequest) ([]string, error) {
-	roster := normalizeRoster(req.Roster)
+	roster := chaininput.NormalizeRoleList(req.Roster)
 	if len(roster) == 0 && strings.TrimSpace(req.Role) != "" {
-		roster = normalizeRoster(strings.Split(req.Role, ","))
+		roster = chaininput.ParseRoleList(req.Role)
 	}
 	if len(roster) == 0 {
 		return nil, fmt.Errorf("manual roster requires at least one role")
@@ -271,9 +372,9 @@ func resolveLaunchRoster(cfg *appconfig.Config, req LaunchRequest) ([]string, er
 }
 
 func resolveLaunchAllowedRoles(cfg *appconfig.Config, req LaunchRequest) ([]string, error) {
-	roles := normalizeAllowedRoles(req.AllowedRoles)
+	roles := chaininput.NormalizeRoleSet(req.AllowedRoles)
 	if len(roles) == 0 && strings.TrimSpace(req.Role) != "" && req.Role != "orchestrator" {
-		roles = normalizeAllowedRoles(strings.Split(req.Role, ","))
+		roles = chaininput.ParseRoleSet(req.Role)
 	}
 	if len(roles) == 0 {
 		return nil, fmt.Errorf("constrained orchestration requires at least one allowed role")
@@ -286,36 +387,6 @@ func resolveLaunchAllowedRoles(cfg *appconfig.Config, req LaunchRequest) ([]stri
 		roles[i] = roleName
 	}
 	return roles, nil
-}
-
-func normalizeAllowedRoles(roles []string) []string {
-	normalized := make([]string, 0, len(roles))
-	seen := make(map[string]struct{}, len(roles))
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
-		key := strings.ToLower(role)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		normalized = append(normalized, role)
-	}
-	return normalized
-}
-
-func normalizeRoster(roles []string) []string {
-	normalized := make([]string, 0, len(roles))
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
-		normalized = append(normalized, role)
-	}
-	return normalized
 }
 
 func chainrunRoster(roles []string) []chainrun.StepRequest {

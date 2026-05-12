@@ -128,11 +128,13 @@ func (s *retrievalConventionSourceStub) Load(ctx stdctx.Context) (string, error)
 type retrievalBrainSearcherStub struct {
 	hits        []brain.SearchHit
 	hitsByQuery map[string][]brain.SearchHit
+	docs        map[string]string
 	err         error
 	delay       time.Duration
 	calls       int
 	gotQueries  []string
 	gotRequests []BrainSearchRequest
+	readCalls   []string
 }
 
 func (s *retrievalBrainSearcherStub) Search(ctx stdctx.Context, request BrainSearchRequest) ([]BrainSearchResult, error) {
@@ -167,6 +169,25 @@ func (s *retrievalBrainSearcherStub) Search(ctx stdctx.Context, request BrainSea
 		})
 	}
 	return results, nil
+}
+
+func (s *retrievalBrainSearcherStub) ReadDocument(ctx stdctx.Context, path string) (string, error) {
+	s.readCalls = append(s.readCalls, path)
+	if s.delay > 0 {
+		select {
+		case <-time.After(s.delay):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	if s.docs == nil {
+		return "", errors.New("document not found")
+	}
+	content, ok := s.docs[path]
+	if !ok {
+		return "", errors.New("document not found")
+	}
+	return content, nil
 }
 
 func TestRetrievalOrchestratorNormalizesBrainKeywordQueries(t *testing.T) {
@@ -621,6 +642,87 @@ func TestRetrievalOrchestratorSkipsTraversalAndMissingFilesGracefully(t *testing
 	}
 	if results.FileResults[0].Content != "01234567" {
 		t.Fatalf("Content = %q, want truncated prefix", results.FileResults[0].Content)
+	}
+}
+
+func TestRetrievalOrchestratorPreloadsExplicitBrainDocumentPaths(t *testing.T) {
+	projectRoot := t.TempDir()
+	mustWriteFile(t, projectRoot, "internal/tool/shell.go", "package tool\n")
+
+	brainSearcher := &retrievalBrainSearcherStub{docs: map[string]string{
+		"plans/dogfood/first-maint-004.md": "---\ntitle: RTK Prefix Plan\n---\n# RTK Prefix Plan\n\nUse the resolved RTK path.",
+	}}
+	graph := &retrievalGraphStoreStub{}
+	orchestrator := NewRetrievalOrchestrator(nil, graph, NoopConventionSource{}, brainSearcher, projectRoot)
+	planPath := filepath.Join(projectRoot, "plans", "dogfood", "first-maint-004.md")
+	orchestrator.fileReader = func(ctx stdctx.Context, path string, maxBytes int) ([]byte, bool, error) {
+		if path == planPath {
+			t.Fatalf("brain document path %q was read as a workspace file", path)
+		}
+		return readFileBounded(ctx, path, maxBytes)
+	}
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{
+		ExplicitFiles:   []string{"plans/dogfood/first-maint-004.md", "internal/tool/shell.go"},
+		ExplicitSymbols: []string{"plans/dogfood/first-maint-004.md"},
+	}, nil, config.ContextConfig{MaxExplicitFiles: 5})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+
+	if !slices.Equal(brainSearcher.readCalls, []string{"plans/dogfood/first-maint-004.md"}) {
+		t.Fatalf("brain read calls = %v, want explicit plan read", brainSearcher.readCalls)
+	}
+	if graph.calls != 0 {
+		t.Fatalf("graph calls = %d, want brain path filtered out of structural graph", graph.calls)
+	}
+	if len(results.FileResults) != 1 || results.FileResults[0].FilePath != "internal/tool/shell.go" {
+		t.Fatalf("FileResults = %v, want only repo file result", results.FileResults)
+	}
+	if len(results.BrainHits) != 1 {
+		t.Fatalf("BrainHits = %v, want explicit brain plan hit", results.BrainHits)
+	}
+	hit := results.BrainHits[0]
+	if hit.DocumentPath != "plans/dogfood/first-maint-004.md" {
+		t.Fatalf("DocumentPath = %q, want explicit plan path", hit.DocumentPath)
+	}
+	if hit.Title != "RTK Prefix Plan" {
+		t.Fatalf("Title = %q, want frontmatter title", hit.Title)
+	}
+	if hit.MatchMode != "explicit_path" || hit.MatchScore != 1 {
+		t.Fatalf("brain hit match metadata = %+v, want explicit_path score 1", hit)
+	}
+	if !slices.Contains(hit.MatchSources, "explicit_path") {
+		t.Fatalf("MatchSources = %v, want explicit_path", hit.MatchSources)
+	}
+}
+
+func TestRetrievalOrchestratorSkipsMissingExplicitBrainDocuments(t *testing.T) {
+	projectRoot := t.TempDir()
+	brainSearcher := &retrievalBrainSearcherStub{docs: map[string]string{}}
+	orchestrator := NewRetrievalOrchestrator(nil, nil, NoopConventionSource{}, brainSearcher, projectRoot)
+	orchestrator.fileReader = func(ctx stdctx.Context, path string, maxBytes int) ([]byte, bool, error) {
+		t.Fatalf("missing brain document path %q was read as a workspace file", path)
+		return nil, false, nil
+	}
+
+	results, err := orchestrator.Retrieve(stdctx.Background(), &ContextNeeds{
+		ExplicitFiles:   []string{"receipts/coder/dogfood-rtk-prefix-001-step-001.md"},
+		ExplicitSymbols: []string{"receipts/coder/dogfood-rtk-prefix-001-step-001.md"},
+	}, nil, config.ContextConfig{MaxExplicitFiles: 5})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+
+	wantRead := []string{"receipts/coder/dogfood-rtk-prefix-001-step-001.md"}
+	if !slices.Equal(brainSearcher.readCalls, wantRead) {
+		t.Fatalf("brain read calls = %v, want %v", brainSearcher.readCalls, wantRead)
+	}
+	if len(results.FileResults) != 0 {
+		t.Fatalf("FileResults = %v, want none for missing brain doc", results.FileResults)
+	}
+	if len(results.BrainHits) != 0 {
+		t.Fatalf("BrainHits = %v, want missing brain doc skipped", results.BrainHits)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/receipt"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	spawnpkg "github.com/ponchione/sodoryard/internal/spawn"
@@ -38,6 +39,201 @@ func TestExitCodeMapsSpecStatuses(t *testing.T) {
 		if got := exitCode(tc.status, tc.events); got != tc.want {
 			t.Fatalf("exitCode(%q) = %d, want %d", tc.status, got, tc.want)
 		}
+	}
+}
+
+func TestOneStepTerminalStatusHonorsHeadlessExitCodes(t *testing.T) {
+	tests := []struct {
+		name   string
+		result spawnpkg.AgentStepResult
+		want   string
+	}{
+		{
+			name:   "completed receipt with ok process completes",
+			result: spawnpkg.AgentStepResult{Status: "completed", Verdict: receipt.VerdictCompleted, ExitCode: 0},
+			want:   "completed",
+		},
+		{
+			name:   "completed receipt with safety-limit process fails",
+			result: spawnpkg.AgentStepResult{Status: "completed", Verdict: receipt.VerdictCompleted, ExitCode: headlessExitSafetyLimit},
+			want:   "failed",
+		},
+		{
+			name:   "completed receipt with escalation process is partial",
+			result: spawnpkg.AgentStepResult{Status: "completed", Verdict: receipt.VerdictCompleted, ExitCode: headlessExitEscalation},
+			want:   "partial",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := oneStepTerminalStatus(tc.result); got != tc.want {
+				t.Fatalf("oneStepTerminalStatus() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultStepRunnerPassesMemoryEndpointEnv(t *testing.T) {
+	expectedEnv := []string{"SODORYARD_MEMORY_ENDPOINT=unix:/tmp/memory.sock"}
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	deps := withDefaultDeps(Deps{})
+
+	runner := deps.NewStepRunner(&rtpkg.OrchestratorRuntime{
+		Config:            cfg,
+		MemoryEndpointEnv: expectedEnv,
+	}, "chain-env")
+	spawnTool, ok := runner.(*spawnpkg.SpawnAgentTool)
+	if !ok {
+		t.Fatalf("NewStepRunner returned %T, want *spawn.SpawnAgentTool", runner)
+	}
+	if strings.Join(spawnTool.SubprocessEnv, "\n") != strings.Join(expectedEnv, "\n") {
+		t.Fatalf("SubprocessEnv = %v, want %v", spawnTool.SubprocessEnv, expectedEnv)
+	}
+}
+
+func TestStartLogsApprovalRequiredEventsFromOrchestratorToolResults(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.Routing.Default.Provider = "test"
+	cfg.Routing.Default.Model = "test-model"
+	cfg.Providers = map[string]appconfig.ProviderConfig{
+		"test": {Type: "openai-compatible", Model: "test-model", ContextLength: 128},
+	}
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"orchestrator": {SystemPrompt: "builtin:orchestrator", MaxTurns: 3},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	details := provider.NewToolResultDetails("approval_required", map[string]any{
+		"approval_id": "approval-tc-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	})
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+				return nil, err
+			}
+			return &rtpkg.OrchestratorRuntime{
+				Config:              cfg,
+				Logger:              slog.Default(),
+				Database:            db,
+				Queries:             appdb.New(db),
+				ConversationManager: conversation.NewManager(db, nil, slog.Default()),
+				ContextAssembler:    rtpkg.NoopContextAssembler{},
+				ChainStore:          store,
+				Cleanup:             func() {},
+			}, nil
+		},
+		BuildRegistry: func(*rtpkg.OrchestratorRuntime, appconfig.AgentRoleConfig, string) (*tool.Registry, error) {
+			return tool.NewRegistry(), nil
+		},
+		NewTurnRunner: func(loopDeps agent.AgentLoopDeps) TurnRunner {
+			if loopDeps.EventSink == nil {
+				t.Fatal("orchestrator loop missing approval event sink")
+			}
+			return fakeTurnRunner{run: func(runCtx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+				loopDeps.EventSink.Emit(agent.ToolCallEndEvent{ToolCallID: "tc-1", Details: details})
+				return &agent.TurnResult{}, nil
+			}}
+		},
+		NewChainID: func() string { return "approval-event-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	if _, err := Start(ctx, cfg, Options{SourceTask: "approval", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	events, err := store.ListEvents(ctx, "approval-event-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if event.EventType == chain.EventApprovalRequired && containsAll(event.EventData, `"approval_id":"approval-tc-1"`, `"tool_name":"shell"`, `"chain_id":"approval-event-chain"`) {
+			return
+		}
+	}
+	t.Fatalf("events = %+v, want approval_required event", events)
+}
+
+func TestStartWaitsForApprovalWhenOptedIn(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.Routing.Default.Provider = "test"
+	cfg.Routing.Default.Model = "test-model"
+	cfg.Providers = map[string]appconfig.ProviderConfig{
+		"test": {Type: "openai-compatible", Model: "test-model", ContextLength: 128},
+	}
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"orchestrator": {SystemPrompt: "builtin:orchestrator", MaxTurns: 3},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	details := provider.NewToolResultDetails("approval_required", map[string]any{
+		"approval_id": "approval-wait-1",
+		"tool_name":   "shell",
+		"status":      "pending",
+		"reason":      "matched policy",
+		"risk_level":  "high",
+	})
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			if err := rtpkg.EnsureProjectRecord(ctx, db, cfg); err != nil {
+				return nil, err
+			}
+			return &rtpkg.OrchestratorRuntime{
+				Config:              cfg,
+				Logger:              slog.Default(),
+				Database:            db,
+				Queries:             appdb.New(db),
+				ConversationManager: conversation.NewManager(db, nil, slog.Default()),
+				ContextAssembler:    rtpkg.NoopContextAssembler{},
+				ChainStore:          store,
+				Cleanup:             func() {},
+			}, nil
+		},
+		BuildRegistry: func(*rtpkg.OrchestratorRuntime, appconfig.AgentRoleConfig, string) (*tool.Registry, error) {
+			return tool.NewRegistry(), nil
+		},
+		NewTurnRunner: func(loopDeps agent.AgentLoopDeps) TurnRunner {
+			return fakeTurnRunner{run: func(runCtx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+				loopDeps.EventSink.Emit(agent.ToolCallEndEvent{ToolCallID: "tc-1", Details: details})
+				<-runCtx.Done()
+				return nil, agent.ErrTurnCancelled
+			}}
+		},
+		NewChainID: func() string { return "approval-wait-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{SourceTask: "approval", AllowApprovalWait: true, MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != chain.StatusWaitingApproval {
+		t.Fatalf("result status = %q, want %s", result.Status, chain.StatusWaitingApproval)
+	}
+	stored, err := store.GetChain(ctx, "approval-wait-chain")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != chain.StatusWaitingApproval {
+		t.Fatalf("stored status = %q, want waiting approval", stored.Status)
+	}
+	events, err := store.ListEvents(ctx, "approval-wait-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if !eventsInclude(events, chain.EventChainWaitingApproval) {
+		t.Fatalf("events = %+v, want chain_waiting_approval event", events)
 	}
 }
 
@@ -153,6 +349,30 @@ func TestPrepareExistingChainForExecutionStopsDuplicateRunningResume(t *testing.
 	err := prepareExistingChainForExecution(context.Background(), nil, &chain.Chain{ID: "chain-1", Status: "running"})
 	if err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Fatalf("error = %v, want already running rejection", err)
+	}
+}
+
+func TestPrepareExistingChainForExecutionRejectsPendingApprovalResume(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newChainrunTestDB(t))
+	chainID, err := store.StartChain(ctx, chain.ChainSpec{ChainID: "approval-resume-chain", MaxSteps: 5, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if err := store.SetChainStatus(ctx, chainID, chain.StatusWaitingApproval); err != nil {
+		t.Fatalf("SetChainStatus returned error: %v", err)
+	}
+	if err := store.LogEvent(ctx, chainID, "", chain.EventApprovalRequired, map[string]any{"approval_id": "approval-1", "tool_name": "shell", "status": "pending"}); err != nil {
+		t.Fatalf("LogEvent returned error: %v", err)
+	}
+	existing, err := store.GetChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+
+	err = prepareExistingChainForExecution(ctx, store, existing)
+	if err == nil || !strings.Contains(err.Error(), "pending approval") {
+		t.Fatalf("error = %v, want pending approval rejection", err)
 	}
 }
 
@@ -310,7 +530,7 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 		ProcessID:  func() int { return 1234 },
 	}
 
-	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "implement one thing", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100}, deps)
+	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "implement one thing", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100, StepMaxTurns: 4, StepMaxTokens: 50000}, deps)
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
 	}
@@ -319,6 +539,9 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	}
 	if gotInput.Role != "coder" || gotInput.Task != "implement one thing" {
 		t.Fatalf("step input = %+v, want coder task", gotInput)
+	}
+	if gotInput.MaxTurns != 4 || gotInput.MaxTokens != 50000 {
+		t.Fatalf("step limits = turns %d tokens %d, want 4/50000", gotInput.MaxTurns, gotInput.MaxTokens)
 	}
 	steps, err := store.ListSteps(ctx, "one-step-chain")
 	if err != nil {
@@ -338,8 +561,87 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
+	var startedMode, completedMode, startedLimits, completedLimits bool
+	for _, event := range events {
+		if event.EventType == chain.EventChainStarted && strings.Contains(event.EventData, `"mode":"one_step_chain"`) {
+			startedMode = true
+			if strings.Contains(event.EventData, `"step_max_turns":4`) && strings.Contains(event.EventData, `"step_max_tokens":50000`) {
+				startedLimits = true
+			}
+		}
+		if event.EventType == chain.EventChainCompleted && strings.Contains(event.EventData, `"mode":"one_step_chain"`) {
+			completedMode = true
+			if strings.Contains(event.EventData, `"step_max_turns":4`) && strings.Contains(event.EventData, `"step_max_tokens":50000`) {
+				completedLimits = true
+			}
+		}
+	}
+	if !startedMode || !completedMode {
+		t.Fatalf("events = %+v, want one-step mode in start and completion payloads", events)
+	}
+	if !startedLimits || !completedLimits {
+		t.Fatalf("events = %+v, want one-step per-step limits in start and completion payloads", events)
+	}
 	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
 		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false after terminal closure", exec, ok)
+	}
+}
+
+func TestStartDryRunMarksNewChainNonRunning(t *testing.T) {
+	ctx := context.Background()
+	cfg := appconfig.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.AgentRoles = map[string]appconfig.AgentRoleConfig{
+		"coder": {SystemPrompt: "builtin:coder"},
+	}
+
+	db := newChainrunTestDB(t)
+	store := chain.NewStore(db)
+	deps := Deps{
+		BuildRuntime: func(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+			return &rtpkg.OrchestratorRuntime{Config: cfg, ChainStore: store, Cleanup: func() {}}, nil
+		},
+		NewStepRunner: func(rt *rtpkg.OrchestratorRuntime, chainID string) StepRunner {
+			t.Fatalf("NewStepRunner called during dry run")
+			return nil
+		},
+		NewChainID: func() string { return "dry-run-chain" },
+		ProcessID:  func() int { return 1234 },
+	}
+
+	result, err := Start(ctx, cfg, Options{Mode: ModeOneStep, Role: "coder", SourceTask: "preview only", MaxSteps: 10, MaxResolverLoops: 1, MaxDuration: time.Hour, TokenBudget: 100, DryRun: true}, deps)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if result.Status != dryRunStatus {
+		t.Fatalf("result status = %q, want %q", result.Status, dryRunStatus)
+	}
+	stored, err := store.GetChain(ctx, "dry-run-chain")
+	if err != nil {
+		t.Fatalf("GetChain returned error: %v", err)
+	}
+	if stored.Status != dryRunStatus || stored.Summary != dryRunSummary || stored.CompletedAt == nil {
+		t.Fatalf("stored chain = %+v, want completed dry-run chain", stored)
+	}
+	steps, err := store.ListSteps(ctx, "dry-run-chain")
+	if err != nil {
+		t.Fatalf("ListSteps returned error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %+v, want none for dry run", steps)
+	}
+	events, err := store.ListEvents(ctx, "dry-run-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %+v, want chain_started and chain_completed", events)
+	}
+	if !strings.Contains(events[0].EventData, `"dry_run":true`) || !strings.Contains(events[1].EventData, `"status":"dry_run"`) {
+		t.Fatalf("events = %+v, want dry-run payloads", events)
+	}
+	if exec, ok := chain.LatestActiveExecution(events); ok || exec.ExecutionID != "" || exec.OrchestratorPID != 0 {
+		t.Fatalf("LatestActiveExecution() = (%+v, %t), want empty,false", exec, ok)
 	}
 }
 
@@ -433,6 +735,8 @@ func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
 		MaxResolverLoops: 1,
 		MaxDuration:      time.Hour,
 		TokenBudget:      100,
+		StepMaxTurns:     3,
+		StepMaxTokens:    40000,
 	}, deps)
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
@@ -442,6 +746,9 @@ func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
 	}
 	if len(inputs) != 2 || inputs[0].Role != "planner" || inputs[1].Role != "coder" {
 		t.Fatalf("inputs = %+v, want planner then coder", inputs)
+	}
+	if inputs[0].MaxTurns != 3 || inputs[1].MaxTurns != 3 || inputs[0].MaxTokens != 40000 || inputs[1].MaxTokens != 40000 {
+		t.Fatalf("input limits = %+v, want 3 turns and 40000 tokens for each roster step", inputs)
 	}
 	if !strings.Contains(inputs[0].Task, "No previous receipt paths are available yet.") {
 		t.Fatalf("first task = %q, want no previous receipts", inputs[0].Task)
@@ -462,6 +769,22 @@ func TestStartManualRosterRunsRolesInOrderWithReceiptHistory(t *testing.T) {
 	}
 	if stored.Status != "completed" || stored.TotalSteps != 2 || stored.TotalTokens != 20 {
 		t.Fatalf("stored chain = %+v, want completed with roster metrics", stored)
+	}
+	events, err := store.ListEvents(ctx, "manual-roster-chain")
+	if err != nil {
+		t.Fatalf("ListEvents returned error: %v", err)
+	}
+	var startedLimits, completedLimits bool
+	for _, event := range events {
+		if event.EventType == chain.EventChainStarted && strings.Contains(event.EventData, `"step_max_turns":3`) && strings.Contains(event.EventData, `"step_max_tokens":40000`) {
+			startedLimits = true
+		}
+		if event.EventType == chain.EventChainCompleted && strings.Contains(event.EventData, `"step_max_turns":3`) && strings.Contains(event.EventData, `"step_max_tokens":40000`) {
+			completedLimits = true
+		}
+	}
+	if !startedLimits || !completedLimits {
+		t.Fatalf("events = %+v, want manual roster per-step limits in start and completion payloads", events)
 	}
 }
 

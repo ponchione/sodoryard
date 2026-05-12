@@ -17,8 +17,10 @@ The current React app already provides:
 - inline tool-call rendering
 - context inspector
 - per-conversation metrics
+- read-only chain list/detail routes
+- chain-level metrics route
 - provider/project/settings panels
-- project tree/file REST endpoints
+- project metadata endpoints
 
 The target is to sharpen that app into an inspector rather than growing it into a second full command center.
 
@@ -85,7 +87,6 @@ Minimum useful routes:
 | `/c/:id` | Existing conversation transcript with tool details and context inspector |
 | `/chains` | Read-oriented chain list with filters and links to receipts/events |
 | `/chains/:id` | Chain detail, event log, step summaries, receipts, and agent output |
-| `/project` | Read-only project tree and file preview |
 | `/metrics` | Conversation, chain, provider/model, tool, and context metrics |
 | `/settings` | Existing provider/model/project settings and diagnostics |
 
@@ -199,7 +200,7 @@ GET    /api/metrics/conversation/:id/context/:turn/signals
 WS     /api/ws
 ```
 
-Target chain/readiness endpoints may mirror the service methods used by [[20-operator-console-tui]]:
+Current chain/readiness endpoints mirror the service methods used by [[20-operator-console-tui]]:
 
 ```text
 GET    /api/runtime/status
@@ -207,9 +208,12 @@ GET    /api/chains
 GET    /api/chains/:id
 GET    /api/chains/:id/events
 GET    /api/chains/:id/receipts
+GET    /api/chains/:id/receipt?step=...
+POST   /api/chains/:id/approvals/:approval_id/approve
+POST   /api/chains/:id/approvals/:approval_id/deny
 ```
 
-Pause/resume/cancel endpoints may exist for parity, but their presence does not make the browser the primary control surface.
+Approval controls exist on chain detail because they are tied to inspecting an approval-required timeline. Pause/resume/cancel endpoints may exist for parity, but their presence does not make the browser the primary control surface.
 
 ---
 
@@ -235,7 +239,7 @@ The previous browser-first command-center spec has been superseded. Useful ideas
 | Context inspector | Web inspector |
 | Tool details/diffs | Web inspector |
 | Metrics/charts | Web inspector |
-| Project browser | Web inspector plus limited TUI file attachment |
+| Project browser | IDE; browser keeps project metadata/settings only |
 | Document intake | Deferred/shared; browser only if it remains materially better |
 
 The old route-heavy browser plan should not be implemented wholesale.

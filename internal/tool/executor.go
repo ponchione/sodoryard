@@ -2,13 +2,16 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/provider"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // ExecutorConfig carries executor-level configuration.
@@ -19,17 +22,29 @@ type ExecutorConfig struct {
 
 	// ProjectRoot restricts file tool operations to this directory.
 	ProjectRoot string
+
+	// ShellApprovalPatterns require operator approval before matching shell
+	// commands execute. Headless callers fail closed until a resume path exists.
+	ShellApprovalPatterns []string
+
+	// ApprovalDecisions are already-recorded operator decisions that may allow
+	// or deny matching approval-gated tool calls during resumed execution.
+	ApprovalDecisions []approval.Decision
 }
 
 // Executor dispatches tool call batches with purity-based execution strategy.
 // It is the single entry point for all tool dispatch — the agent loop never
 // calls tools directly.
 type Executor struct {
-	registry *Registry
-	recorder *ToolExecutionRecorder
-	config   ExecutorConfig
-	logger   *slog.Logger
-	nowFn    func() time.Time // injectable for testing
+	registry  *Registry
+	recorder  *ToolExecutionRecorder
+	tracer    tracepkg.Recorder
+	hooks     []Hook
+	traceHook Hook
+	approval  Hook
+	config    ExecutorConfig
+	logger    *slog.Logger
+	nowFn     func() time.Time // injectable for testing
 }
 
 // NewExecutor creates an executor backed by the given registry.
@@ -38,18 +53,35 @@ func NewExecutor(registry *Registry, config ExecutorConfig, logger *slog.Logger)
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Executor{
+	executor := &Executor{
 		registry: registry,
 		config:   config,
 		logger:   logger,
 		nowFn:    time.Now,
 	}
+	if approval := NewShellApprovalHook(config.ShellApprovalPatterns, config.ApprovalDecisions); approval != nil {
+		executor.approval = approval
+	}
+	return executor
 }
 
 // SetRecorder attaches a tool execution recorder for analytics persistence.
 // Safe to call before any Execute calls. Passing nil disables persistence.
 func (e *Executor) SetRecorder(recorder *ToolExecutionRecorder) {
 	e.recorder = recorder
+}
+
+func (e *Executor) SetTraceRecorder(recorder tracepkg.Recorder) {
+	e.tracer = recorder
+	if recorder == nil {
+		e.traceHook = nil
+		return
+	}
+	e.traceHook = traceToolHook{recorder: recorder}
+}
+
+func (e *Executor) SetHooks(hooks ...Hook) {
+	e.hooks = append([]Hook(nil), hooks...)
 }
 
 // Execute dispatches a batch of tool calls with purity-based strategy:
@@ -102,6 +134,17 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 		}
 	}
 
+	batchCtx, batchSpan := tracepkg.StartSpan(ctx, e.tracer, tracepkg.SpanStart{
+		Name: "tool.batch",
+		Kind: tracepkg.KindToolBatch,
+		Attributes: map[string]any{
+			"call_count":     len(calls),
+			"pure_count":     len(pureCalls),
+			"mutating_count": len(mutatingCalls),
+		},
+	})
+	ctx = batchCtx
+
 	// Execute pure calls concurrently.
 	var wg sync.WaitGroup
 	for _, ic := range pureCalls {
@@ -149,12 +192,35 @@ func (e *Executor) Execute(ctx context.Context, calls []ToolCall) []ToolResult {
 		}
 	}
 
+	batchStatus := tracepkg.StatusOK
+	var batchErr error
+	if ctx.Err() != nil {
+		batchStatus = tracepkg.StatusCancelled
+		batchErr = ctx.Err()
+	} else {
+		for _, result := range results {
+			if !result.Success {
+				batchStatus = tracepkg.StatusError
+				batchErr = fmt.Errorf("one or more tool calls failed")
+				break
+			}
+		}
+	}
+	batchSpan.End(context.Background(), batchStatus, batchErr)
+
 	return results
 }
 
 // executeSingle runs a single tool call with panic recovery and timing.
 func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (result ToolResult) {
 	start := e.nowFn()
+	hooks := e.executionHooks()
+	hookCtx, ran, beforeErr := runBeforeHooks(ctx, hooks, call, t)
+	if beforeErr != nil {
+		result = blockedBeforeToolResult(call, beforeErr, e.nowFn().Sub(start).Milliseconds())
+		return e.finishToolHooks(hookCtx, hooks[:ran], call, result)
+	}
+	ctx = hookCtx
 
 	// Panic recovery — tool panics become failed results, not crashes.
 	defer func() {
@@ -172,6 +238,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (re
 				"panic", r,
 			)
 		}
+		result = e.finishToolHooks(ctx, hooks[:ran], call, result)
 	}()
 
 	tr, err := t.Execute(ctx, e.config.ProjectRoot, call.Arguments)
@@ -190,6 +257,70 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall, t Tool) (re
 	tr.CallID = call.ID
 	tr.DurationMs = duration.Milliseconds()
 	return *tr
+}
+
+func (e *Executor) executionHooks() []Hook {
+	hooks := make([]Hook, 0, len(e.hooks)+1)
+	if e.traceHook != nil {
+		hooks = append(hooks, e.traceHook)
+	}
+	if e.approval != nil {
+		hooks = append(hooks, e.approval)
+	}
+	hooks = append(hooks, e.hooks...)
+	return hooks
+}
+
+func blockedBeforeToolResult(call ToolCall, err error, durationMs int64) ToolResult {
+	var deniedErr *ApprovalDeniedError
+	if errors.As(err, &deniedErr) {
+		reason := strings.TrimSpace(deniedErr.Decision.Reason)
+		if reason == "" {
+			reason = "operator denied the approval"
+		}
+		return ToolResult{
+			CallID:     call.ID,
+			Content:    fmt.Sprintf("Approval denied for tool %q: %s. The tool was not run.", call.Name, reason),
+			Success:    false,
+			Error:      ErrApprovalDenied.Error(),
+			DurationMs: durationMs,
+			Details:    approvalDeniedDetails(deniedErr.Decision),
+		}
+	}
+	var approvalErr *ApprovalRequiredError
+	if errors.As(err, &approvalErr) {
+		pending := approvalErr.Pending
+		return ToolResult{
+			CallID:     call.ID,
+			Content:    fmt.Sprintf("Approval required before executing tool %q: %s. The tool was not run.", call.Name, pending.Reason),
+			Success:    false,
+			Error:      ErrApprovalRequired.Error(),
+			DurationMs: durationMs,
+			Details:    approvalRequiredDetails(pending),
+		}
+	}
+	return ToolResult{
+		CallID:     call.ID,
+		Content:    fmt.Sprintf("Tool %q blocked before execution: %v", call.Name, err),
+		Success:    false,
+		Error:      err.Error(),
+		DurationMs: durationMs,
+	}
+}
+
+func (e *Executor) finishToolHooks(ctx context.Context, hooks []Hook, call ToolCall, result ToolResult) ToolResult {
+	next, err := runAfterHooks(ctx, hooks, call, result)
+	if err == nil {
+		return next
+	}
+	if next.Success {
+		next.Success = false
+		next.Content = fmt.Sprintf("Tool %q hook failed: %v", call.Name, err)
+	}
+	if next.Error == "" {
+		next.Error = err.Error()
+	}
+	return next
 }
 
 // ExecuteWithMeta dispatches tool calls and records analytics for each
@@ -215,4 +346,58 @@ func (e *Executor) ExecuteWithMeta(ctx context.Context, calls []ToolCall, meta E
 	}
 
 	return results
+}
+
+type traceToolHook struct {
+	recorder tracepkg.Recorder
+}
+
+type traceToolSpanKey struct{}
+
+func (h traceToolHook) BeforeTool(ctx context.Context, call ToolCall, t Tool) (context.Context, error) {
+	spanCtx, span := tracepkg.StartSpan(ctx, h.recorder, tracepkg.SpanStart{
+		Name: "tool." + call.Name,
+		Kind: tracepkg.KindTool,
+		Attributes: map[string]any{
+			"tool_name":    call.Name,
+			"tool_call_id": call.ID,
+			"purity":       t.ToolPurity().String(),
+		},
+	})
+	return context.WithValue(spanCtx, traceToolSpanKey{}, span), nil
+}
+
+func (h traceToolHook) AfterTool(ctx context.Context, _ ToolCall, result ToolResult) (ToolResult, error) {
+	span, _ := ctx.Value(traceToolSpanKey{}).(*tracepkg.ActiveSpan)
+	if span == nil {
+		return result, nil
+	}
+	result.Details = withTraceSpanDetails(result.Details, span.ID())
+	status := tracepkg.StatusOK
+	var spanErr error
+	if !result.Success {
+		status = tracepkg.StatusError
+		if result.Error != "" {
+			spanErr = errors.New(result.Error)
+		} else {
+			spanErr = errors.New(result.Content)
+		}
+		if ctx.Err() != nil {
+			status = tracepkg.StatusCancelled
+			spanErr = ctx.Err()
+		}
+	}
+	span.End(context.Background(), status, spanErr)
+	return result, nil
+}
+
+func withTraceSpanDetails(details []byte, spanID string) []byte {
+	if strings.TrimSpace(spanID) == "" {
+		return details
+	}
+	fields := map[string]any{"trace_span_id": spanID}
+	if len(details) == 0 {
+		return provider.NewToolResultDetails("tool_execution", fields)
+	}
+	return provider.MergeToolResultDetails(details, fields)
 }

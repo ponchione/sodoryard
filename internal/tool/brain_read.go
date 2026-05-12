@@ -17,8 +17,8 @@ import (
 
 var wikilinkRegexp = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
-// BrainRead implements the brain_read tool — read a specific brain document
-// by its vault-relative path.
+// BrainRead implements the brain_read tool: read a specific brain document by
+// Shunter brain path.
 type BrainRead struct {
 	client    brain.Backend
 	config    config.BrainConfig
@@ -43,20 +43,20 @@ type brainReadInput struct {
 
 func (b *BrainRead) Name() string { return "brain_read" }
 func (b *BrainRead) Description() string {
-	return "Read a brain document by path from the Obsidian vault"
+	return "Read a brain document by path from Shunter project memory"
 }
 func (b *BrainRead) ToolPurity() Purity { return Pure }
 
 func (b *BrainRead) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"name": "brain_read",
-		"description": "Read a specific brain document from the Obsidian vault by its vault-relative path. Use this for brain notes like 'notes/...md' or '.brain/notes/...md', not repo-root files. Prefer brain_read instead of file_read for vault-relative note paths, and never use file_read for .brain paths. Returns the markdown content, extracted YAML frontmatter, and outgoing wikilinks.",
+		"description": "Read a specific brain document from Shunter project memory by path. Use this for brain notes like 'notes/...md', not repo-root files. Prefer brain_read instead of file_read for brain note paths. Returns the markdown content, extracted YAML frontmatter, and outgoing wikilinks.",
 		"input_schema": {
 			"type": "object",
 			"properties": {
 				"path": {
 					"type": "string",
-					"description": "Vault-relative path to the document (e.g., 'architecture/provider-design.md')"
+					"description": "Brain document path (e.g., 'architecture/provider-design.md')"
 				},
 				"include_backlinks": {
 					"type": "boolean",
@@ -81,6 +81,15 @@ func (b *BrainRead) Execute(ctx context.Context, projectRoot string, input json.
 	if result := validateBrainPath(params.Path); result != nil {
 		return result, nil
 	}
+	normalizedPath, err := normalizeBrainDocumentPath(params.Path)
+	if err != nil {
+		return &ToolResult{
+			Success: false,
+			Content: fmt.Sprintf("Invalid brain path: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+	params.Path = normalizedPath
 
 	content, err := b.client.ReadDocument(ctx, params.Path)
 	if err != nil {

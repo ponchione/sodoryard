@@ -116,6 +116,34 @@ func TestProviderErrorUnwrap(t *testing.T) {
 	}
 }
 
+func TestAuthStatusStateClassifiesExpiry(t *testing.T) {
+	now := time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name   string
+		status *provider.AuthStatus
+		want   string
+		ready  bool
+	}{
+		{name: "nil", status: nil, want: "unavailable"},
+		{name: "missing", status: &provider.AuthStatus{}, want: "missing_credentials"},
+		{name: "refresh only", status: &provider.AuthStatus{HasRefreshToken: true}, want: "missing_access_token"},
+		{name: "opaque access", status: &provider.AuthStatus{HasAccessToken: true}, want: "ready", ready: true},
+		{name: "future access", status: &provider.AuthStatus{HasAccessToken: true, ExpiresAt: now.Add(time.Hour)}, want: "ready", ready: true},
+		{name: "expires soon", status: &provider.AuthStatus{HasAccessToken: true, HasRefreshToken: true, ExpiresAt: now.Add(time.Minute)}, want: "access_token_expires_soon"},
+		{name: "expired", status: &provider.AuthStatus{HasAccessToken: true, HasRefreshToken: true, ExpiresAt: now.Add(-time.Minute)}, want: "expired_access_token"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := provider.AuthStatusState(tc.status, now); got != tc.want {
+				t.Fatalf("AuthStatusState() = %q, want %q", got, tc.want)
+			}
+			if got := provider.AuthStatusReady(tc.status, now); got != tc.ready {
+				t.Fatalf("AuthStatusReady() = %v, want %v", got, tc.ready)
+			}
+		})
+	}
+}
+
 func TestUsageAdd(t *testing.T) {
 	a := provider.Usage{InputTokens: 100, OutputTokens: 50, CacheReadTokens: 10, CacheCreationTokens: 5}
 	b := provider.Usage{InputTokens: 200, OutputTokens: 75, CacheReadTokens: 20, CacheCreationTokens: 15}

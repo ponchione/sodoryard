@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/ponchione/sodoryard/internal/chain"
 	"github.com/ponchione/sodoryard/internal/operator"
 )
 
@@ -16,10 +17,45 @@ func TestDashboardRenderIncludesStableFragments(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"Dashboard", "project: project", "provider: codex", "auth: not checked", "code index: indexed at 2026-05-01T12:00:00Z commit abc123", "brain index: disabled", "local services: disabled", "chain-1"} {
+	for _, want := range []string{"Dashboard", "project: project", "provider: codex", "auth: ready (oauth, private_store)", "code index: indexed at 2026-05-01T12:00:00Z commit abc123", "brain index: disabled", "local services: disabled", "chain-1"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dashboard view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestDashboardRenderShowsReadinessActions(t *testing.T) {
+	fake := newFakeOperator()
+	fake.status.AuthStatus = "missing credentials"
+	fake.status.CodeIndex = operator.RuntimeIndexStatus{Status: "never_indexed"}
+	fake.status.BrainIndex = operator.RuntimeIndexStatus{Status: "stale", StaleReason: "brain_update"}
+	fake.status.Warnings = []operator.RuntimeWarning{
+		{Message: "code index has not been built; run `yard index` before retrieval/runtime validation"},
+		{Message: "brain index is stale; run `yard brain index`"},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenDashboard
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"readiness:", "Readiness", "FAIL", "code index", "fix: yard index", "fix: yard brain index", "Next actions", "yard auth status", "yard doctor"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dashboard readiness view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestStatusLineIncludesWarningCount(t *testing.T) {
+	fake := newFakeOperator()
+	fake.status.Warnings = []operator.RuntimeWarning{{Message: "degraded runtime"}, {Message: "index stale"}}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	if !strings.Contains(view, "warnings:2") {
+		t.Fatalf("status line missing warning count:\n%s", view)
 	}
 }
 
@@ -36,7 +72,7 @@ func TestChatRenderIncludesTranscriptAndComposer(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"Chat", "runtime codex:test-model", "YOU", "draft a spec", "ASSISTANT", "Here is a spec outline.", "next step"} {
+	for _, want := range []string{"Yard Console", "runtime codex:test-model", "YOU", "draft a spec", "ASSISTANT", "Here is a spec outline.", "next step"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chat view missing %q:\n%s", want, view)
 		}
@@ -96,8 +132,115 @@ func TestFooterHelpIsScreenSpecific(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	model.screen = screenLaunch
 	view := model.View()
-	if !strings.Contains(view, "v preview") || strings.Contains(view, "ctrl+g cancel chat") {
+	if !strings.Contains(view, "j/k fields") || !strings.Contains(view, "v preview") || strings.Contains(view, "ctrl+g cancel chat") {
 		t.Fatalf("launch footer is not screen-specific:\n%s", view)
+	}
+}
+
+func TestHelpRenderIncludesLaunchCapFields(t *testing.T) {
+	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
+	model.screen = screenHelp
+
+	view := model.View()
+	for _, want := range []string{"edit selected launch field", "turns/tokens", "set per-step caps"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("help view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChainRenderShowsHealthBudgetsAndCurrentStep(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: "running", SourceTask: "first task", TotalSteps: 1, TotalTokens: 85, TotalDurationSecs: 9, MaxSteps: 2, TokenBudget: 100, MaxDurationSecs: 20, MaxResolverLoops: 2},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md", TokensUsed: 85, TurnsUsed: 3, DurationSecs: 9}},
+		Receipts: []operator.ReceiptSummary{
+			{Label: "step 1 coder", Step: "1", Path: "receipts/coder/chain-1-step-001.md"},
+		},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"health: attention", "budgets: steps 1/2 (50%)", "tokens 85/100 (85%)", "current: #1 coder completed verdict=completed", "turns=3", "duration=9s"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain polish view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChainRenderShowsApprovals(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: chain.StatusWaitingApproval, SourceTask: "risky task"},
+		Approvals: []operator.ApprovalView{{
+			ID:        "approval-1",
+			ToolName:  "shell",
+			Status:    chain.ApprovalStatusPending,
+			RiskLevel: "high",
+			Reason:    "matched policy",
+		}},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"status: waiting_approval", "controls: F follow  w web  R resume  X cancel", "Approvals", "approval-1 status=pending tool=shell risk=high reason=\"matched policy\""} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain approval view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChainRenderShowsGuardrailWarnings(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain:    chain.Chain{ID: "chain-1", Status: "completed", SourceTask: "first task"},
+		Health:   "attention",
+		Warnings: []operator.RuntimeWarning{{Message: "flow: chain completed after coder step 1 without later auditor"}},
+		Guardrails: operator.ChainGuardrailDetails{
+			OpenFindingIDs:      []string{"FIND-correctness-001"},
+			AddressedFindingIDs: []string{"FIND-correctness-001"},
+			Findings: []operator.FindingLifecycleMetric{
+				{ID: "FIND-correctness-001", SourceRole: "correctness-auditor", Status: "addressed", Severity: "high", Evidence: "internal/example.go:42", Resolution: "fixed", FilesChanged: []string{"internal/example.go"}, Validation: []string{"rtk make test"}, AddressedCount: 2, ReopenedCount: 1},
+			},
+			LockHealth: operator.GuardrailLockHealth{Acquired: 1, Released: 1},
+			ChangedFiles: []operator.ChangedFileManifest{
+				{StepID: "step-1", SequenceNum: 1, Role: "coder", Paths: []string{"internal/example.go"}},
+			},
+			StepFacts: []operator.StepGuardrailFactSummary{
+				{StepID: "step-1", SequenceNum: 1, Role: "coder", ParsedVerdict: "completed", ReceiptPresent: true, ReceiptValid: true, ClaimedValidationCommands: []string{"rtk make test"}, ChangedFileManifestPresent: true, ChangedFileCount: 1, ChangedFileClaimPresent: true, ClaimedChangedFiles: []string{"internal/example.go"}, ChangedFileClaimMatchesManifest: true, CodeIndexDirty: true, CodeIndexDirtyMarkSupported: true, CodeIndexDirtyMarkAttempted: true, CodeIndexDirtyMarked: true, BrainIndexDirty: true, SourceWriterLockReleased: true, FindingCount: 1, OpenFindingIDs: []string{"FIND-correctness-001"}, AddressedIDs: []string{"FIND-correctness-001"}},
+			},
+		},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md"}},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"health: attention", "Warnings", "flow: chain completed after coder step 1 without later auditor", "Guardrails", "open=FIND-correctness-001", "finding id=FIND-correctness-001 source=correctness-auditor", "status=addressed addressed=2", "severity=high", "validation=rtk make test", "source_writer_lock acquired=1 released=1", "internal/example.go", "verdict=completed", "receipt_present=true", "receipt_valid=true", "claim_matches=true", "code_index_dirty=true", "code_index_mark_supported=true", "code_index_mark_attempted=true", "code_index_marked=true", "brain_index_dirty=true", "findings=1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain warning view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChainDetailHealthTreatsDryRunAsOK(t *testing.T) {
+	detail := &operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-dry", Status: "dry_run"},
+		Steps: []chain.Step{
+			{SequenceNum: 1, Role: "coder", Status: "completed", ReceiptPath: "receipts/coder/chain-dry-step-001.md"},
+		},
+	}
+
+	if got := chainDetailHealth(detail); got != readinessOK {
+		t.Fatalf("chainDetailHealth = %v, want readinessOK", got)
 	}
 }
 
@@ -111,6 +254,40 @@ func TestReceiptRenderIncludesContent(t *testing.T) {
 	for _, want := range []string{"Receipts", "chain: chain-1", "orchestrator", "orchestrator receipt"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("receipt view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestReceiptRenderParsesFrontmatter(t *testing.T) {
+	fake := newFakeOperator()
+	fake.receipts["chain-1:"] = operator.ReceiptView{
+		ChainID: "chain-1",
+		Path:    "receipts/orchestrator/chain-1.md",
+		Content: `---
+agent: coder
+chain_id: chain-1
+step: 1
+verdict: completed
+timestamp: 2026-05-01T12:00:00Z
+turns_used: 3
+tokens_used: 99
+duration_seconds: 7
+---
+
+# Summary
+
+- Changed code.
+`,
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenReceipts
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"Metadata", "agent: coder  verdict: completed  step: 1", "turns: 3  tokens: 99  duration: 7s", "Body", "Summary", "- Changed code."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("receipt parsed view missing %q:\n%s", want, view)
 		}
 	}
 }

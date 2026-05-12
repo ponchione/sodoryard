@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/agent"
+	"github.com/ponchione/sodoryard/internal/approval"
 	"github.com/ponchione/sodoryard/internal/brain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/receipt"
@@ -63,11 +64,16 @@ func EnsureReceipt(ctx context.Context, backend brain.Backend, brainCfg appconfi
 	}
 	content, err := backend.ReadDocument(ctx, normalizedPath)
 	if err == nil {
-		r, validateErr := ValidateReceiptContent(content)
+		updatedContent, r, changed, validateErr := receipt.RewriteUsageMetrics([]byte(content), usageMetrics(turnResult))
 		if validateErr != nil {
 			return "", nil, fmt.Errorf("invalid receipt at %s: %w", normalizedPath, validateErr)
 		}
-		return normalizedPath, r, nil
+		if changed {
+			if err := backend.WriteDocument(ctx, normalizedPath, string(updatedContent)); err != nil {
+				return "", nil, fmt.Errorf("update receipt metrics %s: %w", normalizedPath, err)
+			}
+		}
+		return normalizedPath, &r, nil
 	}
 	if !strings.Contains(err.Error(), "Document not found") {
 		return "", nil, fmt.Errorf("read receipt %s: %w", normalizedPath, err)
@@ -77,6 +83,17 @@ func EnsureReceipt(ctx context.Context, backend brain.Backend, brainCfg appconfi
 		return "", nil, fmt.Errorf("write fallback receipt %s: %w", normalizedPath, err)
 	}
 	return normalizedPath, r, nil
+}
+
+func usageMetrics(turnResult *agent.TurnResult) receipt.UsageMetrics {
+	if turnResult == nil {
+		return receipt.UsageMetrics{}
+	}
+	return receipt.UsageMetrics{
+		TurnsUsed:       turnResult.IterationCount,
+		TokensUsed:      turnResult.TotalUsage.InputTokens + turnResult.TotalUsage.OutputTokens,
+		DurationSeconds: int(turnResult.Duration.Round(time.Second) / time.Second),
+	}
 }
 
 func FormatFallbackReceipt(role string, chainID string, receiptPath string, verdict string, finalText string, turnResult *agent.TurnResult) (string, *receipt.Receipt) {
@@ -91,28 +108,50 @@ func FormatFallbackReceipt(role string, chainID string, receiptPath string, verd
 	now := time.Now().UTC()
 	step := receipt.StepFromPath(receiptPath)
 	r := &receipt.Receipt{
+		SchemaVersion:   receipt.SchemaVersion,
 		Agent:           role,
+		Role:            role,
 		ChainID:         chainID,
 		Step:            step,
+		StepID:          fmt.Sprintf("step-%03d", step),
 		Verdict:         receipt.Verdict(verdict),
 		Timestamp:       now,
 		TurnsUsed:       turnsUsed,
 		TokensUsed:      tokensUsed,
 		DurationSeconds: durationSeconds,
+		ChangedFiles:    []string{},
+		Findings:        []receipt.Finding{},
+		Followups:       []string{"Inspect the task outcome and decide whether follow-up work is needed."},
+		Metrics: receipt.Metrics{
+			Turns:           turnsUsed,
+			Tokens:          tokensUsed,
+			DurationSeconds: durationSeconds,
+		},
 	}
 	body := strings.TrimSpace(finalText)
 	if body == "" {
 		body = "No final text was returned."
 	}
 	content := fmt.Sprintf(`---
+schema_version: %s
 agent: %s
+role: %s
 chain_id: %s
 step: %d
+step_id: step-%03d
 verdict: %s
 timestamp: %s
 turns_used: %d
 tokens_used: %d
 duration_seconds: %d
+changed_files: []
+findings: []
+followups:
+  - Inspect the task outcome and decide whether follow-up work is needed.
+metrics:
+  turns: %d
+  tokens: %d
+  duration_seconds: %d
 ---
 
 ## Summary
@@ -121,12 +160,18 @@ duration_seconds: %d
 ## Changes
 - No agent-authored receipt was found; this fallback receipt was written by the harness.
 
+## Changed Files
+None.
+
+## Validation
+- The harness did not receive an agent-authored validation summary.
+
 ## Concerns
 - Review the final text and session logs if more detail is needed.
 
 ## Next Steps
 - Inspect the task outcome and decide whether follow-up work is needed.
-`, role, chainID, step, verdict, now.Format(time.RFC3339), turnsUsed, tokensUsed, durationSeconds, body)
+`, receipt.SchemaVersion, role, role, chainID, step, step, verdict, now.Format(time.RFC3339), turnsUsed, tokensUsed, durationSeconds, turnsUsed, tokensUsed, durationSeconds, body)
 	return content, r
 }
 
@@ -190,6 +235,11 @@ func FormatEvent(event agent.Event) string {
 		}
 		return fmt.Sprintf("tool: start %s%s", e.ToolName, args)
 	case agent.ToolCallEndEvent:
+		if payload, ok := approval.PayloadFromToolResultDetails(e.Details); ok {
+			if line := approval.EncodeProgressLine(payload); line != "" {
+				return line
+			}
+		}
 		return fmt.Sprintf("tool: end %s success=%t duration=%s", e.ToolCallID, e.Success, e.Duration)
 	case agent.TurnCompleteEvent:
 		return fmt.Sprintf("complete: iterations=%d input_tokens=%d output_tokens=%d duration=%s", e.IterationCount, e.TotalInputTokens, e.TotalOutputTokens, e.Duration)

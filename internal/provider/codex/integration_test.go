@@ -438,8 +438,8 @@ func TestIntegration_CompleteRequestBodyValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected reasoning map, got %T", body["reasoning"])
 	}
-	if reasoning["effort"] != "xhigh" {
-		t.Errorf("expected effort %q, got %v", "xhigh", reasoning["effort"])
+	if reasoning["effort"] != "medium" {
+		t.Errorf("expected effort %q, got %v", "medium", reasoning["effort"])
 	}
 	if reasoning["summary"] != "auto" {
 		t.Errorf("expected summary %q, got %v", "auto", reasoning["summary"])

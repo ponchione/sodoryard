@@ -10,6 +10,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/db"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // ContextAssembler orchestrates the full Layer 3 turn-start assembly flow.
@@ -20,7 +21,8 @@ type ContextAssembler struct {
 	retriever   Retriever
 	budgeter    BudgetManager
 	serializer  Serializer
-	reportStore contextReportStore
+	reportStore ReportStore
+	tracer      tracepkg.Recorder
 	cfg         config.ContextConfig
 	now         func() time.Time
 }
@@ -36,6 +38,28 @@ func NewContextAssembler(
 	cfg config.ContextConfig,
 	database *sql.DB,
 ) *ContextAssembler {
+	return NewContextAssemblerWithReportStore(
+		analyzer,
+		extractor,
+		momentum,
+		retriever,
+		budgeter,
+		serializer,
+		cfg,
+		NewSQLiteReportStore(database),
+	)
+}
+
+func NewContextAssemblerWithReportStore(
+	analyzer TurnAnalyzer,
+	extractor QueryExtractor,
+	momentum MomentumTracker,
+	retriever Retriever,
+	budgeter BudgetManager,
+	serializer Serializer,
+	cfg config.ContextConfig,
+	reportStore ReportStore,
+) *ContextAssembler {
 	return &ContextAssembler{
 		analyzer:    analyzer,
 		extractor:   extractor,
@@ -43,10 +67,17 @@ func NewContextAssembler(
 		retriever:   retriever,
 		budgeter:    budgeter,
 		serializer:  serializer,
-		reportStore: NewSQLiteReportStore(database),
+		reportStore: reportStore,
 		cfg:         cfg,
 		now:         time.Now,
 	}
+}
+
+func (a *ContextAssembler) SetTraceRecorder(recorder tracepkg.Recorder) {
+	if a == nil {
+		return
+	}
+	a.tracer = recorder
 }
 
 // Assemble runs the Layer 3 pipeline once at turn start.
@@ -61,7 +92,39 @@ func (a *ContextAssembler) Assemble(
 	if ctx == nil {
 		ctx = stdctx.Background()
 	}
+	if a != nil {
+		spanCtx, span := tracepkg.StartSpan(ctx, a.tracer, tracepkg.SpanStart{
+			Name:           "context.assemble",
+			Kind:           tracepkg.KindContext,
+			ConversationID: scope.ConversationID,
+			TurnNumber:     scope.TurnNumber,
+			Attributes: map[string]any{
+				"history_messages":    len(history),
+				"model_context_limit": modelContextLimit,
+				"history_token_count": historyTokenCount,
+			},
+		})
+		ctx = spanCtx
+		var spanErr error
+		defer func() {
+			span.End(stdctx.Background(), tracepkg.StatusForError(spanErr), spanErr)
+		}()
+		return a.assembleWithSpan(ctx, message, history, scope, modelContextLimit, historyTokenCount, &spanErr)
+	}
+	return nil, false, fmt.Errorf("context assembler: assembler is nil")
+}
+
+func (a *ContextAssembler) assembleWithSpan(
+	ctx stdctx.Context,
+	message string,
+	history []db.Message,
+	scope AssemblyScope,
+	modelContextLimit int,
+	historyTokenCount int,
+	spanErr *error,
+) (*FullContextPackage, bool, error) {
 	if err := a.validate(); err != nil {
+		setSpanErr(spanErr, err)
 		return nil, false, err
 	}
 
@@ -86,7 +149,9 @@ func (a *ContextAssembler) Assemble(
 	retrievalStart := time.Now()
 	results, err := a.retriever.Retrieve(ctx, needs, queries, a.cfg)
 	if err != nil {
-		return nil, false, fmt.Errorf("context assembler: retrieve context: %w", err)
+		err = fmt.Errorf("context assembler: retrieve context: %w", err)
+		setSpanErr(spanErr, err)
+		return nil, false, err
 	}
 	if results == nil {
 		results = &RetrievalResults{}
@@ -100,7 +165,9 @@ func (a *ContextAssembler) Assemble(
 
 	budget, err := a.budgeter.Fit(results, modelContextLimit, resolvedHistoryTokens, a.cfg)
 	if err != nil {
-		return nil, false, fmt.Errorf("context assembler: fit budget: %w", err)
+		err = fmt.Errorf("context assembler: fit budget: %w", err)
+		setSpanErr(spanErr, err)
+		return nil, false, err
 	}
 	if budget == nil {
 		budget = &BudgetResult{}
@@ -108,7 +175,9 @@ func (a *ContextAssembler) Assemble(
 
 	content, err := a.serializer.Serialize(budget, scope.SeenFiles)
 	if err != nil {
-		return nil, false, fmt.Errorf("context assembler: serialize context: %w", err)
+		err = fmt.Errorf("context assembler: serialize context: %w", err)
+		setSpanErr(spanErr, err)
+		return nil, false, err
 	}
 
 	totalLatency := a.now().Sub(startedAt).Milliseconds()
@@ -122,16 +191,24 @@ func (a *ContextAssembler) Assemble(
 
 	if a.cfg.StoreAssemblyReports {
 		if strings.TrimSpace(scope.ConversationID) == "" {
-			return nil, false, fmt.Errorf("context assembler: conversation ID is required when report persistence is enabled")
+			err := fmt.Errorf("context assembler: conversation ID is required when report persistence is enabled")
+			setSpanErr(spanErr, err)
+			return nil, false, err
 		}
 		if scope.TurnNumber <= 0 {
-			return nil, false, fmt.Errorf("context assembler: turn number must be positive when report persistence is enabled")
+			err := fmt.Errorf("context assembler: turn number must be positive when report persistence is enabled")
+			setSpanErr(spanErr, err)
+			return nil, false, err
 		}
 		if a.reportStore == nil {
-			return nil, false, fmt.Errorf("context assembler: report store is unavailable")
+			err := fmt.Errorf("context assembler: report store is unavailable")
+			setSpanErr(spanErr, err)
+			return nil, false, err
 		}
 		if err := a.reportStore.Insert(ctx, scope.ConversationID, report); err != nil {
-			return nil, false, fmt.Errorf("context assembler: persist report: %w", err)
+			err = fmt.Errorf("context assembler: persist report: %w", err)
+			setSpanErr(spanErr, err)
+			return nil, false, err
 		}
 	}
 
@@ -150,6 +227,12 @@ func (a *ContextAssembler) Assemble(
 	)
 
 	return pkg, budget.CompressionNeeded, nil
+}
+
+func setSpanErr(target *error, err error) {
+	if target != nil {
+		*target = err
+	}
 }
 
 // UpdateQuality fills the post-turn quality metrics for a persisted context report.
@@ -213,16 +296,22 @@ func buildContextAssemblyReport(
 		budget = &BudgetResult{}
 	}
 
+	ragResults := annotateRAGResults(results.RAGHits, budget)
+	brainResults := annotateBrainResults(results.BrainHits, budget)
+	fileResults := annotateFileResults(results.FileResults, budget)
+	graphResults := annotateGraphResults(results.GraphHits, budget)
+
 	report := &ContextAssemblyReport{
 		TurnNumber:          turnNumber,
 		AnalysisLatencyMs:   analysisLatencyMs,
 		RetrievalLatencyMs:  retrievalLatencyMs,
 		TotalLatencyMs:      totalLatencyMs,
 		Needs:               cloneContextNeeds(*needs),
-		RAGResults:          annotateRAGResults(results.RAGHits, budget),
-		BrainResults:        annotateBrainResults(results.BrainHits, budget),
-		ExplicitFileResults: annotateFileResults(results.FileResults, budget),
-		GraphResults:        annotateGraphResults(results.GraphHits, budget),
+		RAGResults:          ragResults,
+		BrainResults:        brainResults,
+		ExplicitFileResults: fileResults,
+		GraphResults:        graphResults,
+		UnifiedResults:      BuildRetrievalResults(ragResults, brainResults, graphResults, fileResults),
 		IncludedChunks:      append([]string(nil), budget.IncludedChunks...),
 		ExcludedChunks:      append([]string(nil), budget.ExcludedChunks...),
 		ExclusionReasons:    cloneStringMap(budget.ExclusionReasons),

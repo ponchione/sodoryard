@@ -40,3 +40,45 @@ type AuthStatus struct {
 type AuthStatusReporter interface {
 	AuthStatus(ctx context.Context) (*AuthStatus, error)
 }
+
+const AuthStatusExpiryWindow = 2 * time.Minute
+
+// AuthStatusState classifies auth metadata without probing the provider.
+// It is intentionally conservative: a refresh token is useful, but it does
+// not make an expired access token ready until a refresh or ping succeeds.
+func AuthStatusState(status *AuthStatus, now time.Time) string {
+	if status == nil {
+		return "unavailable"
+	}
+	if !status.HasAccessToken && !status.HasRefreshToken {
+		return "missing_credentials"
+	}
+	if !status.HasAccessToken {
+		return "missing_access_token"
+	}
+	if AuthStatusAccessExpired(status, now) {
+		return "expired_access_token"
+	}
+	if AuthStatusAccessExpiresSoon(status, now) {
+		return "access_token_expires_soon"
+	}
+	return "ready"
+}
+
+func AuthStatusReady(status *AuthStatus, now time.Time) bool {
+	return AuthStatusState(status, now) == "ready"
+}
+
+func AuthStatusAccessExpired(status *AuthStatus, now time.Time) bool {
+	if status == nil || !status.HasAccessToken || status.ExpiresAt.IsZero() {
+		return false
+	}
+	return !status.ExpiresAt.After(now)
+}
+
+func AuthStatusAccessExpiresSoon(status *AuthStatus, now time.Time) bool {
+	if status == nil || !status.HasAccessToken || status.ExpiresAt.IsZero() {
+		return false
+	}
+	return status.ExpiresAt.After(now) && !status.ExpiresAt.After(now.Add(AuthStatusExpiryWindow))
+}

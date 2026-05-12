@@ -8,6 +8,7 @@ import (
 
 	contextpkg "github.com/ponchione/sodoryard/internal/context"
 	"github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 )
 
 // HistoryManager provides the first real conversation-history operations needed
@@ -15,6 +16,7 @@ import (
 type HistoryManager struct {
 	database *sql.DB
 	queries  *db.Queries
+	memory   ProjectMemoryStore
 	seen     *SeenFiles
 	now      func() time.Time
 }
@@ -49,6 +51,14 @@ func (m *HistoryManager) PersistUserMessage(ctx context.Context, conversationID 
 	}
 	if err := m.validate(); err != nil {
 		return err
+	}
+	if m.memory != nil {
+		return m.memory.AppendUserMessage(ctx, projectmemory.AppendUserMessageArgs{
+			ConversationID: conversationID,
+			TurnNumber:     uint32(turnNumber),
+			Content:        message,
+			CreatedAtUS:    uint64(m.now().UTC().UnixMicro()),
+		})
 	}
 
 	tx, err := m.database.BeginTx(ctx, nil)
@@ -94,6 +104,17 @@ func (m *HistoryManager) ReconstructHistory(ctx context.Context, conversationID 
 	if err := m.validate(); err != nil {
 		return nil, err
 	}
+	if m.memory != nil {
+		messages, err := m.memory.ListMessages(ctx, conversationID, false)
+		if err != nil {
+			return nil, fmt.Errorf("conversation history: list active messages: %w", err)
+		}
+		out := make([]db.Message, 0, len(messages))
+		for _, message := range messages {
+			out = append(out, dbMessageFromMemory(message))
+		}
+		return out, nil
+	}
 	messages, err := m.queries.ListActiveMessages(ctx, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("conversation history: list active messages: %w", err)
@@ -137,6 +158,24 @@ func (m *HistoryManager) PersistIteration(ctx context.Context, conversationID st
 	}
 	if len(messages) == 0 {
 		return fmt.Errorf("conversation history: persist iteration: no messages provided")
+	}
+	if m.memory != nil {
+		pmMessages := make([]projectmemory.PersistIterationMessage, 0, len(messages))
+		for _, msg := range messages {
+			pmMessages = append(pmMessages, projectmemory.PersistIterationMessage{
+				Role:      msg.Role,
+				Content:   msg.Content,
+				ToolUseID: msg.ToolUseID,
+				ToolName:  msg.ToolName,
+			})
+		}
+		return m.memory.PersistIteration(ctx, projectmemory.PersistIterationArgs{
+			ConversationID: conversationID,
+			TurnNumber:     uint32(turnNumber),
+			Iteration:      uint32(iteration),
+			Messages:       pmMessages,
+			CreatedAtUS:    uint64(m.now().UTC().UnixMicro()),
+		})
 	}
 
 	tx, err := m.database.BeginTx(ctx, nil)
@@ -226,6 +265,13 @@ func (m *HistoryManager) CancelIteration(ctx context.Context, conversationID str
 	if err := m.validate(); err != nil {
 		return err
 	}
+	if m.memory != nil {
+		return m.memory.CancelIteration(ctx, projectmemory.CancelIterationArgs{
+			ConversationID: conversationID,
+			TurnNumber:     uint32(turnNumber),
+			Iteration:      uint32(iteration),
+		})
+	}
 
 	tx, err := m.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -275,6 +321,12 @@ func (m *HistoryManager) DiscardTurn(ctx context.Context, conversationID string,
 	if err := m.validate(); err != nil {
 		return err
 	}
+	if m.memory != nil {
+		return m.memory.DiscardTurn(ctx, projectmemory.DiscardTurnArgs{
+			ConversationID: conversationID,
+			TurnNumber:     uint32(turnNumber),
+		})
+	}
 
 	tx, err := m.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -310,6 +362,12 @@ func (m *HistoryManager) validate() error {
 	if m == nil {
 		return fmt.Errorf("conversation history: manager is nil")
 	}
+	if m.memory != nil {
+		if m.now == nil {
+			return fmt.Errorf("conversation history: clock is nil")
+		}
+		return nil
+	}
 	if m.database == nil {
 		return fmt.Errorf("conversation history: database is nil")
 	}
@@ -320,6 +378,30 @@ func (m *HistoryManager) validate() error {
 		return fmt.Errorf("conversation history: clock is nil")
 	}
 	return nil
+}
+
+func dbMessageFromMemory(row projectmemory.Message) db.Message {
+	return db.Message{
+		ID:             int64(row.Sequence) + 1,
+		ConversationID: row.ConversationID,
+		Role:           row.Role,
+		Content:        sql.NullString{String: row.Content, Valid: row.Content != ""},
+		ToolUseID:      sql.NullString{String: row.ToolUseID, Valid: row.ToolUseID != ""},
+		ToolName:       sql.NullString{String: row.ToolName, Valid: row.ToolName != ""},
+		TurnNumber:     int64(row.TurnNumber),
+		Iteration:      int64(row.Iteration),
+		Sequence:       float64(row.Sequence),
+		IsCompressed:   boolToInt64(row.Compressed),
+		IsSummary:      boolToInt64(row.IsSummary),
+		CreatedAt:      unixMicroTime(row.CreatedAtUS).UTC().Format(time.RFC3339),
+	}
+}
+
+func boolToInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func nextSequence(ctx context.Context, q *db.Queries, conversationID string) (float64, error) {

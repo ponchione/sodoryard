@@ -21,10 +21,6 @@ import (
 
 func writeRunSessionConfig(t *testing.T, projectRoot string, roleYAML string) string {
 	t.Helper()
-	brainRoot := filepath.Join(projectRoot, ".brain")
-	if err := os.MkdirAll(brainRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := strings.Join([]string{
 		"project_root: " + projectRoot,
@@ -32,7 +28,6 @@ func writeRunSessionConfig(t *testing.T, projectRoot string, roleYAML string) st
 		"log_format: text",
 		"brain:",
 		"  enabled: true",
-		"  vault_path: .brain",
 		"routing:",
 		"  default:",
 		"    provider: codex",
@@ -208,6 +203,47 @@ func TestRunSessionAcceptsPersonaAliasAndUsesCanonicalRole(t *testing.T) {
 	}
 }
 
+func TestRunSessionScopesReadOnlyRoleWritesToAssignedReceiptPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
+		"  correctness-auditor:",
+		"    system_prompt: builtin:correctness-auditor",
+		"    mutation_class: read_only",
+		"    tools:",
+		"      - brain",
+		"      - file:read",
+		"      - git",
+		"    brain_write_paths:",
+		"      - receipts/correctness-auditor/**",
+		"      - logs/correctness-auditor/**",
+	}, "\n"))
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	registry := tool.NewRegistry()
+	var gotRoleCfg appconfig.AgentRoleConfig
+	deps := stubRunSessionDeps(
+		&rtpkg.EngineRuntime{BrainBackend: backend, Logger: slog.Default(), Cleanup: func() {}},
+		registry,
+		appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/correctness-auditor/chain-readonly.md"}},
+		&conversation.Conversation{ID: "conv-1"},
+		&fakeRunSessionLoop{result: &agent.TurnResult{FinalText: "audit done"}},
+	)
+	deps.BuildRegistry = func(cfg *appconfig.Config, roleCfg appconfig.AgentRoleConfig, deps role.BuilderDeps) (*tool.Registry, appconfig.BrainConfig, error) {
+		gotRoleCfg = roleCfg
+		return registry, appconfig.BrainConfig{Enabled: true, BrainWritePaths: roleCfg.BrainWritePaths}, nil
+	}
+
+	result, err := RunSession(context.Background(), nil, configPath, RunRequest{Role: "correctness-auditor", Task: "audit", ChainID: "chain-readonly", Timeout: time.Minute}, deps)
+	if err != nil {
+		t.Fatalf("RunSession returned error: %v", err)
+	}
+	if result.ReceiptPath != "receipts/correctness-auditor/chain-readonly.md" {
+		t.Fatalf("receipt path = %q, want assigned read-only receipt path", result.ReceiptPath)
+	}
+	if len(gotRoleCfg.BrainWritePaths) != 1 || gotRoleCfg.BrainWritePaths[0] != "receipts/correctness-auditor/chain-readonly.md" {
+		t.Fatalf("read-only BrainWritePaths = %#v, want only assigned receipt path", gotRoleCfg.BrainWritePaths)
+	}
+}
+
 func TestRunSessionReturnsSafetyLimitExitAndReceiptPath(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
@@ -247,6 +283,46 @@ func TestRunSessionReturnsSafetyLimitExitAndReceiptPath(t *testing.T) {
 	}
 	if !strings.Contains(backend.docs[result.ReceiptPath], "verdict: safety_limit") {
 		t.Fatalf("receipt content = %q, want safety_limit verdict", backend.docs[result.ReceiptPath])
+	}
+}
+
+func TestRunSessionAllowsCompletedTurnAtMaxTurns(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
+		"  coder:",
+		"    system_prompt: agents/coder.md",
+		"    tools:",
+		"      - brain",
+		"    brain_write_paths:",
+		"      - receipts/coder/**",
+		"    max_turns: 3",
+	}, "\n"))
+	promptDir := filepath.Join(projectRoot, "agents")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("prompt"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	loopResult := &agent.TurnResult{FinalText: "finished at the cap", IterationCount: 3}
+	deps := stubRunSessionDeps(
+		&rtpkg.EngineRuntime{BrainBackend: backend, Logger: slog.Default(), Cleanup: func() {}},
+		tool.NewRegistry(),
+		appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/coder/**"}},
+		&conversation.Conversation{ID: "conv-1"},
+		&fakeRunSessionLoop{result: loopResult},
+	)
+
+	result, err := RunSession(context.Background(), nil, configPath, RunRequest{Role: "coder", Task: "work", ChainID: "chain-max", Timeout: time.Minute}, deps)
+	if err != nil {
+		t.Fatalf("RunSession returned error: %v", err)
+	}
+	if result == nil || result.ExitCode != ExitOK {
+		t.Fatalf("result=%#v, want ok exit", result)
+	}
+	if !strings.Contains(backend.docs[result.ReceiptPath], "verdict: completed_no_receipt") {
+		t.Fatalf("receipt content = %q, want completed_no_receipt verdict", backend.docs[result.ReceiptPath])
 	}
 }
 
@@ -336,6 +412,48 @@ func TestRunSessionReturnsSafetyLimitOnDeadlineCancellation(t *testing.T) {
 	}
 	if !strings.Contains(backend.docs[result.ReceiptPath], "verdict: safety_limit") {
 		t.Fatalf("receipt content = %q, want safety_limit verdict", backend.docs[result.ReceiptPath])
+	}
+}
+
+func TestRunSessionWritesBlockedReceiptOnTurnInfrastructureError(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeRunSessionConfig(t, projectRoot, strings.Join([]string{
+		"  coder:",
+		"    system_prompt: agents/coder.md",
+		"    tools:",
+		"      - brain",
+		"    brain_write_paths:",
+		"      - receipts/coder/**",
+	}, "\n"))
+	promptDir := filepath.Join(projectRoot, "agents")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "coder.md"), []byte("prompt"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	backend := &fakeReceiptBackend{docs: map[string]string{}}
+	deps := stubRunSessionDeps(
+		&rtpkg.EngineRuntime{BrainBackend: backend, Logger: slog.Default(), Cleanup: func() {}},
+		tool.NewRegistry(),
+		appconfig.BrainConfig{Enabled: true, BrainWritePaths: []string{"receipts/coder/**"}},
+		&conversation.Conversation{ID: "conv-1"},
+		&fakeRunSessionLoop{err: fmt.Errorf("provider stream failed")},
+	)
+
+	result, err := RunSession(context.Background(), nil, configPath, RunRequest{Role: "coder", Task: "work", ChainID: "chain-infra", Timeout: time.Minute}, deps)
+	if err != nil {
+		t.Fatalf("RunSession returned error: %v", err)
+	}
+	if result == nil || result.ExitCode != ExitInfrastructure {
+		t.Fatalf("result=%#v, want infrastructure exit 1", result)
+	}
+	content := backend.docs[result.ReceiptPath]
+	if !strings.Contains(content, "verdict: blocked") {
+		t.Fatalf("receipt content = %q, want blocked verdict", content)
+	}
+	if !strings.Contains(content, "provider stream failed") {
+		t.Fatalf("receipt content = %q, want provider error details", content)
 	}
 }
 

@@ -10,7 +10,7 @@ func TestMatch_DoublestarPatterns(t *testing.T) {
 		want    bool
 	}{
 		{name: "go include nested", pattern: "**/*.go", path: "internal/codeintel/graph/store.go", want: true},
-		{name: "yaml include root", pattern: "**/*.yaml", path: "sirtopham.yaml", want: true},
+		{name: "yaml include root", pattern: "**/*.yaml", path: "yard.yaml", want: true},
 		{name: "exclude node_modules nested", pattern: "**/node_modules/**", path: "web/node_modules/react/index.js", want: true},
 		{name: "exclude hidden state dir", pattern: "**/.yard/**", path: ".yard/lancedb/code/0001.lance", want: true},
 		{name: "exclude hidden brain", pattern: "**/.brain/**", path: ".brain/notes/hello.md", want: true},

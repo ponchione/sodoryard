@@ -17,6 +17,9 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/modelcap"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
+	"github.com/ponchione/sodoryard/internal/provider"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 )
 
@@ -34,17 +37,20 @@ type Options struct {
 	ProcessSignaler func(pid int) error
 	ProcessID       func() int
 	ReadOnly        bool
+	StartupWarnings []RuntimeWarning
 }
 
 type Service struct {
-	cfg             *appconfig.Config
-	rt              *rtpkg.OrchestratorRuntime
-	buildRuntime    func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error)
-	chainStarter    ChainStarter
-	processSignaler func(pid int) error
-	processID       func() int
-	activeMu        sync.Mutex
-	activeStarts    map[string]*activeStart
+	cfg                  *appconfig.Config
+	rt                   *rtpkg.OrchestratorRuntime
+	buildRuntime         func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error)
+	chainStarter         ChainStarter
+	processSignaler      func(pid int) error
+	processID            func() int
+	startupWarnings      []RuntimeWarning
+	authStatusFromConfig bool
+	activeMu             sync.Mutex
+	activeStarts         map[string]*activeStart
 }
 
 type activeStart struct {
@@ -87,7 +93,68 @@ func Open(ctx context.Context, opts Options) (*Service, error) {
 	if processID == nil {
 		processID = os.Getpid
 	}
-	return &Service{cfg: cfg, rt: rt, buildRuntime: buildRuntime, chainStarter: starter, processSignaler: signaler, processID: processID, activeStarts: make(map[string]*activeStart)}, nil
+	return &Service{
+		cfg:                  cfg,
+		rt:                   rt,
+		buildRuntime:         buildRuntime,
+		chainStarter:         starter,
+		processSignaler:      signaler,
+		processID:            processID,
+		startupWarnings:      cloneRuntimeWarnings(opts.StartupWarnings),
+		authStatusFromConfig: opts.ReadOnly && len(opts.StartupWarnings) > 0,
+		activeStarts:         make(map[string]*activeStart),
+	}, nil
+}
+
+func NewForRuntime(rt *rtpkg.OrchestratorRuntime, opts Options) (*Service, error) {
+	if rt == nil {
+		return nil, errors.New("operator: runtime is nil")
+	}
+	cfg := optsConfig(opts, rt)
+	if cfg == nil {
+		return nil, errors.New("operator: runtime config is nil")
+	}
+	signaler := opts.ProcessSignaler
+	if signaler == nil {
+		signaler = interruptProcess
+	}
+	starter := opts.ChainStarter
+	if starter == nil {
+		starter = chainrun.Start
+	}
+	processID := opts.ProcessID
+	if processID == nil {
+		processID = os.Getpid
+	}
+	buildRuntime := opts.BuildRuntime
+	if buildRuntime == nil {
+		buildRuntime = rtpkg.BuildOrchestratorRuntime
+	}
+	return &Service{
+		cfg:                  cfg,
+		rt:                   rt,
+		buildRuntime:         buildRuntime,
+		chainStarter:         starter,
+		processSignaler:      signaler,
+		processID:            processID,
+		startupWarnings:      cloneRuntimeWarnings(opts.StartupWarnings),
+		authStatusFromConfig: opts.ReadOnly && len(opts.StartupWarnings) > 0,
+		activeStarts:         make(map[string]*activeStart),
+	}, nil
+}
+
+func optsConfig(opts Options, rt *rtpkg.OrchestratorRuntime) *appconfig.Config {
+	if rt != nil && rt.Config != nil {
+		return rt.Config
+	}
+	if opts.ConfigPath == "" {
+		return nil
+	}
+	cfg, err := appconfig.Load(opts.ConfigPath)
+	if err != nil {
+		return nil
+	}
+	return cfg
 }
 
 func openRuntime(ctx context.Context, cfg *appconfig.Config, opts Options, buildRuntime func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error)) (*rtpkg.OrchestratorRuntime, error) {
@@ -98,6 +165,40 @@ func openRuntime(ctx context.Context, cfg *appconfig.Config, opts Options, build
 }
 
 func buildReadOnlyRuntime(ctx context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		if _, err := os.Stat(cfg.Memory.ShunterDataDir); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("stat project memory %q: %w", cfg.Memory.ShunterDataDir, err)
+			}
+		} else {
+			logger := slog.New(slog.DiscardHandler)
+			brainBackend, closeBrain, err := rtpkg.BuildBrainBackend(ctx, cfg.Brain, logger)
+			if err != nil {
+				return nil, fmt.Errorf("build brain backend: %w", err)
+			}
+			memoryBackend, closeMemory, err := rtpkg.BuildProjectMemoryStore(ctx, cfg, brainBackend, logger)
+			if err != nil {
+				closeBrain()
+				return nil, fmt.Errorf("build project memory store: %w", err)
+			}
+			chainStore, err := rtpkg.BuildChainStore(cfg, nil, memoryBackend)
+			if err != nil {
+				closeMemory()
+				closeBrain()
+				return nil, fmt.Errorf("build chain store: %w", err)
+			}
+			return &rtpkg.OrchestratorRuntime{
+				Config:        cfg,
+				BrainBackend:  brainBackend,
+				MemoryBackend: memoryBackend,
+				ChainStore:    chainStore,
+				Cleanup: rtpkg.ChainCleanup(closeBrain, func() {
+					closeMemory()
+				}),
+			}, nil
+		}
+	}
+
 	dbPath := cfg.DatabasePath()
 	removeDBOnCleanup := false
 	if _, err := os.Stat(dbPath); err != nil {
@@ -249,21 +350,33 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 			activeChains++
 		}
 	}
-	warnings := make([]RuntimeWarning, 0, 2)
+	warnings := cloneRuntimeWarnings(s.startupWarnings)
 	codeIndex, codeWarning := s.codeIndexStatus(ctx, cfg)
 	if codeWarning != nil {
 		warnings = append(warnings, *codeWarning)
 	}
-	brainIndex, brainWarning := brainIndexStatus(cfg)
+	brainIndex, brainWarning := brainIndexStatus(ctx, cfg, s.rt.BrainBackend)
 	if brainWarning != nil {
 		warnings = append(warnings, *brainWarning)
+	}
+	warnings = append(warnings, indexReadinessWarnings(codeIndex, brainIndex)...)
+	authStatus, authWarning := s.authStatus(ctx, cfg)
+	if authWarning != nil {
+		warnings = append(warnings, *authWarning)
+	}
+	model, modelWarning := runtimeModelMetadata(cfg)
+	if modelWarning != nil {
+		warnings = append(warnings, *modelWarning)
 	}
 	return RuntimeStatus{
 		ProjectRoot:         cfg.ProjectRoot,
 		ProjectName:         cfg.ProjectName(),
 		Provider:            cfg.Routing.Default.Provider,
 		Model:               cfg.Routing.Default.Model,
-		AuthStatus:          "not checked",
+		ContextWindow:       model.ContextWindow,
+		ReasoningEffort:     defaultProviderReasoningEffort(cfg),
+		ModelCapabilities:   modelCapabilitiesFromProvider(model),
+		AuthStatus:          authStatus,
 		CodeIndex:           codeIndex,
 		BrainIndex:          brainIndex,
 		LocalServicesStatus: localServicesStatus(cfg),
@@ -272,7 +385,188 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 	}, nil
 }
 
+func runtimeModelMetadata(cfg *appconfig.Config) (provider.Model, *RuntimeWarning) {
+	model, err := modelcap.ResolveConfiguredModel(cfg, "", "")
+	if err != nil {
+		return provider.Model{}, &RuntimeWarning{Message: "model capability metadata unavailable: " + err.Error()}
+	}
+	return model, nil
+}
+
+func modelCapabilitiesFromProvider(model provider.Model) ModelCapabilities {
+	return ModelCapabilities{
+		SupportsTools:            model.SupportsTools,
+		SupportsThinking:         model.SupportsThinking,
+		SupportsReasoningEffort:  model.SupportsReasoningEffort,
+		SupportsStructuredOutput: model.SupportsStructuredOutput,
+		SupportsPromptCache:      model.SupportsPromptCache,
+		SupportsImages:           model.SupportsImages,
+		SupportsToolChoice:       model.SupportsToolChoice,
+		MaxOutputTokens:          model.MaxOutputTokens,
+		KnownQuirks:              append([]string(nil), model.KnownQuirks...),
+	}
+}
+
+func (s *Service) SetReasoningEffort(ctx context.Context, effort string) (RuntimeStatus, error) {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	switch effort {
+	case "low", "medium", "high", "xhigh":
+	default:
+		return RuntimeStatus{}, fmt.Errorf("reasoning effort must be low, medium, high, or xhigh")
+	}
+	cfg, err := s.config()
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	providerName := strings.TrimSpace(cfg.Routing.Default.Provider)
+	if providerName == "" {
+		return RuntimeStatus{}, fmt.Errorf("routing.default.provider is not configured")
+	}
+	providerCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return RuntimeStatus{}, fmt.Errorf("default provider %s is not configured", providerName)
+	}
+	if providerCfg.Type != "codex" {
+		return RuntimeStatus{}, fmt.Errorf("reasoning effort is only supported for codex providers; default provider %s is %s", providerName, providerCfg.Type)
+	}
+	providerCfg.ReasoningEffort = effort
+	cfg.Providers[providerName] = providerCfg
+	if s.rt != nil && s.rt.ProviderRouter != nil {
+		prov, err := rtpkg.BuildProvider(providerName, providerCfg)
+		if err != nil {
+			return RuntimeStatus{}, fmt.Errorf("build provider %s: %w", providerName, err)
+		}
+		if err := s.rt.ProviderRouter.ReplaceProvider(prov); err != nil {
+			return RuntimeStatus{}, fmt.Errorf("replace provider %s: %w", providerName, err)
+		}
+	}
+	return s.RuntimeStatus(ctx)
+}
+
+func (s *Service) authStatus(ctx context.Context, cfg *appconfig.Config) (string, *RuntimeWarning) {
+	if cfg == nil || strings.TrimSpace(cfg.Routing.Default.Provider) == "" {
+		return "unconfigured", ptrWarning(warningf("routing.default.provider is not configured"))
+	}
+	if s == nil || s.rt == nil || s.rt.ProviderRouter == nil {
+		if s != nil && s.authStatusFromConfig {
+			return configProviderAuthStatus(ctx, cfg)
+		}
+		return "unavailable", ptrWarning(warningf("provider auth status is unavailable in this runtime"))
+	}
+	providerName := cfg.Routing.Default.Provider
+	statuses, err := s.rt.ProviderRouter.AuthStatuses(ctx)
+	if err != nil {
+		return "unknown", ptrWarning(warningf("load auth status for %s: %v", providerName, err))
+	}
+	status, ok := statuses[providerName]
+	if !ok {
+		return "not registered", ptrWarning(warningf("default provider %s is not registered", providerName))
+	}
+	if status == nil {
+		return "not reported", nil
+	}
+	display := formatAuthStatus(status)
+	if authStatusReady(status) {
+		return display, nil
+	}
+	message := fmt.Sprintf("default provider %s auth is %s", providerName, authStatusDisplayState(status))
+	if strings.TrimSpace(status.Remediation) != "" {
+		message = message + ": " + strings.TrimSpace(status.Remediation)
+	} else if strings.TrimSpace(status.Detail) != "" {
+		message = message + ": " + strings.TrimSpace(status.Detail)
+	}
+	return display, ptrWarning(warningf("%s", message))
+}
+
+func configProviderAuthStatus(ctx context.Context, cfg *appconfig.Config) (string, *RuntimeWarning) {
+	providerName := strings.TrimSpace(cfg.Routing.Default.Provider)
+	provCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return "not registered", ptrWarning(warningf("default provider %s is not configured", providerName))
+	}
+	p, err := rtpkg.BuildProvider(providerName, provCfg)
+	if err != nil {
+		return "unknown", ptrWarning(warningf("build default provider %s for auth status: %v", providerName, err))
+	}
+	reporter, ok := p.(provider.AuthStatusReporter)
+	if !ok {
+		return "not reported", ptrWarning(warningf("default provider %s does not report auth status", providerName))
+	}
+	status, err := reporter.AuthStatus(ctx)
+	if err != nil {
+		return "unknown", ptrWarning(warningf("load auth status for %s: %v", providerName, err))
+	}
+	display := formatAuthStatus(status)
+	if authStatusReady(status) {
+		return display, nil
+	}
+	message := fmt.Sprintf("default provider %s auth is %s", providerName, authStatusDisplayState(status))
+	if status != nil && strings.TrimSpace(status.Remediation) != "" {
+		message = message + ": " + strings.TrimSpace(status.Remediation)
+	} else if status != nil && strings.TrimSpace(status.Detail) != "" {
+		message = message + ": " + strings.TrimSpace(status.Detail)
+	}
+	return display, ptrWarning(warningf("%s", message))
+}
+
+func formatAuthStatus(status *provider.AuthStatus) string {
+	if status == nil {
+		return "not reported"
+	}
+	state := authStatusDisplayState(status)
+	var parts []string
+	if strings.TrimSpace(status.Mode) != "" {
+		parts = append(parts, status.Mode)
+	}
+	if strings.TrimSpace(status.Source) != "" {
+		parts = append(parts, status.Source)
+	}
+	if strings.TrimSpace(status.Detail) != "" {
+		parts = append(parts, status.Detail)
+	}
+	if len(parts) == 0 {
+		return state
+	}
+	return fmt.Sprintf("%s (%s)", state, strings.Join(parts, ", "))
+}
+
+func authStatusReady(status *provider.AuthStatus) bool {
+	return provider.AuthStatusReady(status, time.Now())
+}
+
+func authStatusDisplayState(status *provider.AuthStatus) string {
+	switch provider.AuthStatusState(status, time.Now()) {
+	case "ready":
+		return "ready"
+	case "expired_access_token":
+		return "expired"
+	case "access_token_expires_soon":
+		return "expires soon"
+	case "missing_credentials":
+		return "missing credentials"
+	case "missing_access_token":
+		return "missing access token"
+	case "unavailable":
+		return "unavailable"
+	default:
+		return "not ready"
+	}
+}
+
 func (s *Service) codeIndexStatus(ctx context.Context, cfg *appconfig.Config) (RuntimeIndexStatus, *RuntimeWarning) {
+	if cfg != nil && cfg.Memory.Backend == "shunter" {
+		reader, ok := s.rt.BrainBackend.(interface {
+			ReadCodeIndexState(context.Context) (projectmemory.CodeIndexState, bool, error)
+		})
+		if !ok || reader == nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load code index state: Shunter backend unavailable"))
+		}
+		state, found, err := reader.ReadCodeIndexState(ctx)
+		if err != nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load code index state: %v", err))
+		}
+		return runtimeStatusFromShunterCodeIndexState(state, found), nil
+	}
 	if s == nil || s.rt == nil || s.rt.Database == nil {
 		return RuntimeIndexStatus{Status: "unavailable"}, nil
 	}
@@ -296,9 +590,39 @@ func (s *Service) codeIndexStatus(ctx context.Context, cfg *appconfig.Config) (R
 	return status, nil
 }
 
-func brainIndexStatus(cfg *appconfig.Config) (RuntimeIndexStatus, *RuntimeWarning) {
+func runtimeStatusFromShunterCodeIndexState(state projectmemory.CodeIndexState, found bool) RuntimeIndexStatus {
+	status := RuntimeIndexStatus{Status: "never_indexed"}
+	if !found {
+		return status
+	}
+	if state.LastIndexedAtUS > 0 {
+		status.Status = "indexed"
+		status.LastIndexedAt = time.UnixMicro(int64(state.LastIndexedAtUS)).UTC().Format(time.RFC3339)
+	}
+	status.LastIndexedCommit = state.LastIndexedCommit
+	if state.Dirty {
+		status.Status = brainindexstate.StatusStale
+		status.StaleReason = state.DirtyReason
+	}
+	return status
+}
+
+func brainIndexStatus(ctx context.Context, cfg *appconfig.Config, backend any) (RuntimeIndexStatus, *RuntimeWarning) {
 	if cfg == nil || !cfg.Brain.Enabled {
 		return RuntimeIndexStatus{Status: "disabled"}, nil
+	}
+	if cfg.Brain.Backend == "shunter" {
+		reader, ok := backend.(interface {
+			ReadBrainIndexState(context.Context) (projectmemory.BrainIndexState, bool, error)
+		})
+		if !ok || reader == nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load brain index state: Shunter backend unavailable"))
+		}
+		state, found, err := reader.ReadBrainIndexState(ctx)
+		if err != nil {
+			return RuntimeIndexStatus{Status: "unknown"}, ptrWarning(warningf("load brain index state: %v", err))
+		}
+		return runtimeStatusFromShunterBrainIndexState(state, found), nil
 	}
 	state, err := brainindexstate.Load(cfg.ProjectRoot)
 	if err != nil {
@@ -312,6 +636,44 @@ func brainIndexStatus(cfg *appconfig.Config) (RuntimeIndexStatus, *RuntimeWarnin
 	}, nil
 }
 
+func runtimeStatusFromShunterBrainIndexState(state projectmemory.BrainIndexState, found bool) RuntimeIndexStatus {
+	status := RuntimeIndexStatus{Status: brainindexstate.StatusNeverIndexed}
+	if !found {
+		return status
+	}
+	if state.LastIndexedAtUS > 0 {
+		status.Status = brainindexstate.StatusClean
+		status.LastIndexedAt = time.UnixMicro(int64(state.LastIndexedAtUS)).UTC().Format(time.RFC3339)
+	}
+	if state.Dirty {
+		status.Status = brainindexstate.StatusStale
+		if state.DirtySinceUS > 0 {
+			status.StaleSince = time.UnixMicro(int64(state.DirtySinceUS)).UTC().Format(time.RFC3339)
+		}
+		status.StaleReason = state.DirtyReason
+	}
+	return status
+}
+
+func indexReadinessWarnings(codeIndex RuntimeIndexStatus, brainIndex RuntimeIndexStatus) []RuntimeWarning {
+	var warnings []RuntimeWarning
+	switch codeIndex.Status {
+	case "never_indexed":
+		warnings = append(warnings, warningf("code index has not been built; run `yard index` before retrieval/runtime validation"))
+	case "unknown", "unavailable":
+		warnings = append(warnings, warningf("code index status is %s; run `yard index` if retrieval quality looks poor", codeIndex.Status))
+	}
+	switch brainIndex.Status {
+	case brainindexstate.StatusNeverIndexed:
+		warnings = append(warnings, warningf("brain index has not been built; run `yard brain index` if brain retrieval is enabled"))
+	case brainindexstate.StatusStale:
+		warnings = append(warnings, warningf("brain index is stale; run `yard brain index`"))
+	case "unknown":
+		warnings = append(warnings, warningf("brain index status is unknown; run `yard brain index` if brain retrieval is enabled"))
+	}
+	return warnings
+}
+
 func localServicesStatus(cfg *appconfig.Config) string {
 	if cfg == nil || !cfg.LocalServices.Enabled {
 		return "disabled"
@@ -321,6 +683,25 @@ func localServicesStatus(cfg *appconfig.Config) string {
 		return "enabled"
 	}
 	return mode
+}
+
+func defaultProviderReasoningEffort(cfg *appconfig.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	providerName := strings.TrimSpace(cfg.Routing.Default.Provider)
+	if providerName == "" {
+		return ""
+	}
+	providerCfg, ok := cfg.Providers[providerName]
+	if !ok || providerCfg.Type != "codex" {
+		return ""
+	}
+	effort := strings.ToLower(strings.TrimSpace(providerCfg.ReasoningEffort))
+	if effort == "" {
+		return "medium"
+	}
+	return effort
 }
 
 func (s *Service) config() (*appconfig.Config, error) {
@@ -366,4 +747,19 @@ func warningf(format string, args ...any) RuntimeWarning {
 
 func ptrWarning(warning RuntimeWarning) *RuntimeWarning {
 	return &warning
+}
+
+func cloneRuntimeWarnings(warnings []RuntimeWarning) []RuntimeWarning {
+	if len(warnings) == 0 {
+		return nil
+	}
+	cloned := make([]RuntimeWarning, 0, len(warnings))
+	for _, warning := range warnings {
+		message := strings.TrimSpace(warning.Message)
+		if message == "" {
+			continue
+		}
+		cloned = append(cloned, RuntimeWarning{Message: message})
+	}
+	return cloned
 }

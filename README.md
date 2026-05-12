@@ -20,23 +20,24 @@ A self-hosted AI coding harness with a unified operator CLI, headless agent runt
               +--------+-------+---------+--------+
                        |       |         |
                  +-----+--+ +--+---+ +---+----+
-                 |Provider | |Brain | | Code   |
-                 |Router   | |(MCP) | | Index  |
+                 |Provider | |Project| | Code   |
+                 |Router   | |Memory | | Index  |
                  +----+----+ +--+---+ +---+----+
                       |        |          |
               +-------+--------+----------+-------+
               |                                    |
         +-----+------+                    +--------+--------+
-        | SQLite/FTS5 |                    | LanceDB Vectors |
-        | (yard.db)   |                    | (semantic search)|
+        | Shunter     |                    | LanceDB Vectors |
+        | project     |                    | (semantic search)|
+        | memory      |                    |                 |
         +--------------+                    +-----------------+
 ```
 
 The **engine harness** runs individual agent sessions: web conversations started by `yard serve` and internal `tidmouth run` subprocesses spawned by chains. Autonomous operator work is represented as chains, including one-step chains for single-agent work. Each session gets tools, context assembly, conversation persistence, and provider routing.
 
-The **chain orchestrator** composes multi-step pipelines. `yard chain start` creates a chain, runs an orchestrator agent, spawns engine subprocesses for planning/coding/auditing/resolution steps, and records receipts plus event logs in the project brain and SQLite state.
+The **chain orchestrator** composes multi-step pipelines. `yard chain start` creates a chain, runs an orchestrator agent, spawns engine subprocesses for planning/coding/auditing/resolution steps, and records receipts plus event logs in project memory.
 
-Both paths share `internal/runtime/` for provider construction, database setup, brain backends, and context assembly. The `cmd/yard` package is mostly command wiring plus CLI rendering/control glue; reusable runtime behavior lives under `internal/`.
+Both paths share `internal/runtime/` for provider construction, memory setup, brain backends, and context assembly. The `cmd/yard` package is mostly command wiring plus CLI rendering/control glue; reusable runtime behavior lives under `internal/`.
 
 ## Command Reference
 
@@ -53,14 +54,20 @@ yard [--config yard.yaml]             Terminal operator console
  |-- chain
  |   |-- start                     Start a new chain execution
  |   |-- status                    Show chain status
+ |   |-- metrics                   Show chain dogfooding metrics
  |   |-- logs                      Show chain event log
  |   |-- receipt                   Show orchestrator or step receipt
+ |   |-- approvals                 List chain tool approvals
+ |   |-- approve                   Approve a pending tool approval
+ |   |-- deny                      Deny a pending tool approval
  |   |-- cancel                    Cancel a running chain
  |   |-- pause                     Pause a running chain
- |   +-- resume                    Resume a paused chain
+ |   +-- resume                    Resume a paused or approval-waiting chain
+ |-- eval
+ |   |-- list                      List deterministic evaluation suites
+ |   +-- run                       Run a deterministic evaluation suite
  |-- brain
- |   |-- index                     Rebuild brain metadata from vault
- |   +-- serve --vault <path>      Standalone brain MCP server (stdio)
+ |   +-- index                     Rebuild derived brain metadata
  |-- llm
  |   |-- status                    Local LLM service health
  |   |-- up                        Start local LLM services
@@ -75,7 +82,7 @@ yard [--config yard.yaml]             Terminal operator console
 
 A chain is a multi-agent pipeline. The orchestrator agent reads a task or spec, decomposes it into steps, and spawns engine subprocesses for each step, assigning roles like planner, coder, auditor, or resolver. Each step produces a receipt (structured markdown with frontmatter) stored in the project brain. The orchestrator tracks token budgets, step counts, and wall-clock limits across the entire chain.
 
-Chains support pause/resume semantics and can be cancelled mid-execution. The `yard chain status` command shows progress; `yard chain receipt` retrieves the structured output from any step.
+Chains support pause/resume semantics and can be cancelled mid-execution. The `yard chain status` command shows progress, `yard chain metrics` highlights dogfooding health signals, and `yard chain receipt` retrieves the structured output from any step.
 
 The shipped role set is intentionally themed around the Railway Series / Thomas universe. Commands that accept an agent role can use either the **config key** or the associated persona name, so `yard chain start --role coder` and `yard chain start --role thomas` select the same role.
 
@@ -99,9 +106,9 @@ These roles live under `agent_roles` in `yard.yaml`. `yard init` seeds all 13 ro
 
 ### Brain
 
-The brain is an Obsidian-compatible vault (`.brain/`) that serves as structured long-term project memory. Agents read and write documents through an MCP (Model Context Protocol) interface: specs, receipts, conventions, architectural decisions, logs, and notes. Normal runtime uses an in-process MCP client/server path.
+The brain is structured long-term project memory for specs, receipts, conventions, architectural decisions, logs, and notes. Shunter-backed project memory (`memory.backend: shunter`, `brain.backend: shunter`) is the base design: normal runtime reads and writes brain documents through Shunter.
 
-`yard brain index` rebuilds relational metadata in `.yard/yard.db` and semantic chunks in `.yard/lancedb/brain`. `yard brain serve --vault <path>` exposes a standalone MCP server over stdio for external tool integration.
+`yard brain index` rebuilds derived brain metadata and semantic chunks in `.yard/lancedb/brain` from Shunter documents. `.brain/` and `.yard/yard.db` are not part of the Shunter brain design for new or cleansed projects.
 
 ### Context Assembly
 
@@ -109,8 +116,8 @@ Every agent turn starts with context assembly: a RAG pipeline that builds a focu
 
 - **Code search**: semantic similarity over the codebase via LanceDB embeddings
 - **Graph relationships**: structural code intelligence from tree-sitter parsing (Go, Python, TypeScript)
-- **Brain retrieval**: hybrid search (SQLite FTS5 plus LanceDB vectors) over the project brain
-- **Conventions**: project-specific coding conventions extracted from the brain vault
+- **Brain retrieval**: hybrid keyword and semantic search over the configured project brain backend
+- **Conventions**: project-specific coding conventions read from the configured brain backend
 
 A budget manager allocates tokens across these sources based on priority and the model's context window. The assembled context is serialized and injected into the conversation, giving agents grounded knowledge about the codebase without manually specifying files.
 
@@ -118,7 +125,7 @@ A budget manager allocates tokens across these sources based on priority and the
 
 The provider router supports multiple LLM backends. `routing.default` selects the normal provider/model, and `routing.fallback` can be configured for retryable provider failures.
 
-- **Codex**: OpenAI Codex subscription integration with Yard-owned device-code OAuth auth. `yard init` currently seeds Codex as the default provider.
+- **Codex**: OpenAI Codex subscription integration with Yard-owned device-code OAuth auth. `yard init` currently seeds Codex as the default provider with `reasoning_effort: medium`; use `low`, `high`, or `xhigh` for unusually small or complex runs.
 - **Anthropic**: Claude models using `ANTHROPIC_API_KEY` or Claude OAuth credentials with token refresh.
 - **OpenAI-compatible**: APIs following the OpenAI chat-completions shape, including local services and third-party routers.
 
@@ -134,7 +141,7 @@ cmd/
 internal/
   runtime/        Shared runtime builders (engine + orchestrator construction)
   agent/          Agent loop, event system, turn execution
-  brain/          Brain vault, MCP client/server, indexer, parser
+  brain/          Brain indexer/parser and backend interfaces
   chain/          Chain store, step tracking, event log
   chainrun/       Chain start/resume runner used by `yard chain`
   codeintel/      Tree-sitter parsing, graph store, embedder, semantic search
@@ -201,7 +208,7 @@ yard doctor
 yard auth login codex
 ```
 
-`yard init` creates `yard.yaml`, `.yard/`, `.brain/`, LanceDB state roots, an initialized SQLite database, and `.gitignore` entries. It is safe to rerun and does not overwrite existing files.
+`yard init` creates `yard.yaml`, `.yard/` Shunter/runtime/LanceDB state roots, and `.gitignore` entries. It does not create `.brain/` or `.yard/yard.db` for new Shunter-mode projects. It is safe to rerun and does not overwrite existing files.
 
 ### Build retrieval indexes
 
@@ -241,7 +248,7 @@ make dev-frontend
 yard
 ```
 
-The TUI uses the shared operator runtime directly. It opens on a raw chat screen for talking to the configured provider/model without an agent role prompt, tools, or chain orchestration. It also shows readiness metadata, recent chains, chain details, chain and receipt filters, receipt content, live event following, pause/cancel controls, receipt handoff to `$PAGER` or `$EDITOR`, web-inspector target handoffs that do not start `yard serve`, and launch preview/start flows for one-step, manual-roster, and orchestrated chains.
+The TUI uses the shared operator runtime directly. It opens on a Codex-style command console: normal text sends raw chat to the configured provider/model without an agent role prompt, and slash commands run Yard operations inline. Useful commands include `/help`, `/new`, `/status`, `/model`, `/effort [low|medium|high|xhigh]`, `/chains`, `/chain <id>`, `/events <id>`, `/follow <id>`, `/receipt <id> [step]`, `/approvals <id>`, `/approve <id> <approval-id>`, `/deny <id> <approval-id>`, `/preview ...`, `/start ...`, `/pause <id>`, `/resume <id>`, `/cancel <id>`, and `/web <id>`. Command results, chain events, receipts, approval decisions, launch previews, and confirmations render back into the same transcript. Use PageUp/PageDown/Home/End to scroll the console transcript.
 
 ### Run a chain
 
@@ -257,9 +264,17 @@ yard chain start --watch=false --task "implement user authentication"
 # Reattach to an already-running chain
 yard chain logs --follow <chain-id>
 yard chain status
+yard chain metrics <chain-id>
 
 # Read the result
 yard chain receipt <chain-id>
+
+# Approval wait mode is opt-in. Approval-required tools still fail closed by
+# default, but this mode pauses the chain in waiting_approval.
+yard chain start --allow-approval-wait --task "perform a risky operation"
+yard chain approvals <chain-id>
+yard chain approve <chain-id> <approval-id> --reason "reviewed"
+yard chain resume <chain-id>
 ```
 
 ### Run a one-step chain
@@ -302,12 +317,13 @@ For `yard index` or `yard brain index` inside the container, make sure the mount
 |-----------|-----------|
 | Language | Go 1.25.5 |
 | CLI | Cobra |
-| Database | SQLite with FTS5 full-text search |
+| Project memory | Shunter |
+| Structured fallback stores | SQLite with FTS5 full-text search |
 | Vector store | LanceDB |
 | Code parsing | tree-sitter (Go, Python, TypeScript) |
 | TUI | Bubble Tea, Bubbles, Lip Gloss |
 | Web inspector | React, Vite, TypeScript, Tailwind CSS |
-| Brain interface | Model Context Protocol (MCP) |
+| Brain interface | Shunter project memory |
 | Container | Debian Trixie, multi-stage Docker build |
 | LLM providers | Anthropic, OpenAI-compatible, Codex |
 
@@ -319,8 +335,11 @@ Current repo state:
 - `tidmouth` remains only as the internal engine binary required by the current spawn contract.
 - Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
 - The active UI direction is terminal-first: bare `yard` now starts the daily-driver operator console, while `yard serve` remains the browser/API surface for rich inspection. This direction is specified in `docs/specs/20-operator-console-tui.md` and `docs/specs/21-web-inspector.md`.
-- Implemented TUI/operator work includes raw provider/model chat, readiness metadata, recent chain and detail views, chain and receipt filtering, receipt summaries/content, event following, pause/cancel controls, receipt opening through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
-- Remaining TUI-first work includes project tree file attachment and fuller browser inspector parity.
+- Implemented TUI/operator work includes a Codex-style slash-command console, `/new` session reset, `/effort` reasoning-effort switching for Codex providers, raw provider/model chat, readiness metadata, recent chain and detail output, receipt content, scrollable console history, event following, pause/resume/cancel controls, TUI approval list/approve/deny commands, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
+- Spec 23 approval work now surfaces approval-required tool results as `approval_required` chain events, derives durable approval state from the event log, records `approval_decision` events, supports `yard chain approvals|approve|deny`, TUI `/approvals|/approve|/deny`, and browser chain-detail approval controls, can opt into `waiting_approval` with `yard chain start --allow-approval-wait` or TUI `/start --allow-approval-wait`, and propagates decided approvals into resumed spawned agents so matching approved shell calls can run while denied calls return a denial tool result. Exact paused-turn replay of an approved tool call remains future work.
+- Spec 23 prompt metadata work now keeps all checked-in built-in role prompts and embedded prompt assets synced with frontmatter for role key, persona, expected configured tools, receipt schema, recommended max turns, and structured-finding expectations. `yard config` warns on tool/schema/max-turn drift, but the metadata remains validation/documentation only; runtime tool registration and limits still come from `yard.yaml`.
+- Spec 23 eval work now supports saved baselines and append-only JSONL history entries via `yard eval run <suite> --append-history <path>`.
+- Daily-driver final touches now include actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and browser inspector routes for chains, approvals, and metrics. Browser chain detail and `/api/chains/{id}/metrics` now expose the same dogfooding metrics summary used by `yard chain metrics`. The TUI intentionally does not grow a project file browser; code review stays in the operator's IDE.
 - The remaining active docs are the README, current specs, `NEXT_SESSION_HANDOFF.md`, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance.
 
 If you are resuming work cold, read in this order:
@@ -332,14 +351,15 @@ If you are resuming work cold, read in this order:
 6. `docs/specs/18-unified-yard-cli.md`
 7. `docs/specs/20-operator-console-tui.md`
 8. `docs/specs/21-web-inspector.md`
-9. `TUI_IMPLEMENTATION_PLAN.md`
+9. `docs/specs/23-genkit-patterns-for-yard.md`
+10. `TUI_IMPLEMENTATION_PLAN.md`
 
 First thing to address next session:
 - prefer current-truth docs (`README.md`, specs, handoff) over historical planning artifacts
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
 - keep TUI-first docs clear about target behavior versus already-implemented commands
-- choose the next implementation slice from project tree file attachment or browser inspector parity
+- use dogfooding runs and `yard chain metrics <chain-id>` to decide the next slice; likely candidates are exact paused-turn approval replay/resume semantics, richer receipt rendering, launch-history ergonomics, performance/ergonomics tuning for small chains, or deeper TUI/web surfacing of the same chain health report
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:
@@ -353,6 +373,8 @@ yard serve
 yard
 yard chain start --task "<real task>"
 yard chain status
+yard chain metrics <chain-id>
 yard chain logs <chain-id>
 yard chain receipt <chain-id>
+yard chain approvals <chain-id>
 ```

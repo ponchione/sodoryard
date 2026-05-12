@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS brain_documents;
 DROP TABLE IF EXISTS context_reports;
 DROP TABLE IF EXISTS sub_calls;
 DROP TABLE IF EXISTS tool_executions;
+DROP TABLE IF EXISTS trace_spans;
 DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS index_state;
 DROP TABLE IF EXISTS conversations;
@@ -264,6 +265,8 @@ CREATE TABLE IF NOT EXISTS launches (
     roster              TEXT,
     source_task         TEXT,
     source_specs        TEXT,
+    step_max_turns      INTEGER NOT NULL DEFAULT 0,
+    step_max_tokens     INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(project_id, id)
@@ -278,6 +281,8 @@ CREATE TABLE IF NOT EXISTS launch_presets (
     role                TEXT,
     allowed_roles       TEXT,
     roster              TEXT,
+    step_max_turns      INTEGER NOT NULL DEFAULT 0,
+    step_max_tokens     INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(project_id, id),
@@ -287,6 +292,60 @@ CREATE INDEX IF NOT EXISTS idx_launch_presets_project_updated ON launch_presets(
 `
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		return fmt.Errorf("ensure launch schema: %w", err)
+	}
+	for _, column := range []struct {
+		table string
+		name  string
+		ddl   string
+	}{
+		{table: "launches", name: "step_max_turns", ddl: `INTEGER NOT NULL DEFAULT 0`},
+		{table: "launches", name: "step_max_tokens", ddl: `INTEGER NOT NULL DEFAULT 0`},
+		{table: "launch_presets", name: "step_max_turns", ddl: `INTEGER NOT NULL DEFAULT 0`},
+		{table: "launch_presets", name: "step_max_tokens", ddl: `INTEGER NOT NULL DEFAULT 0`},
+	} {
+		exists, err := tableHasColumn(ctx, db, column.table, column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, column.table, column.name, column.ddl)); err != nil {
+			return fmt.Errorf("add %s.%s: %w", column.table, column.name, err)
+		}
+	}
+	return nil
+}
+
+func EnsureTraceSchema(ctx context.Context, db *sql.DB) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const ddl = `
+CREATE TABLE IF NOT EXISTS trace_spans (
+    id              TEXT PRIMARY KEY,
+    trace_id        TEXT NOT NULL,
+    parent_id       TEXT,
+    conversation_id TEXT,
+    chain_id        TEXT,
+    step_id         TEXT,
+    turn_number     INTEGER NOT NULL DEFAULT 0,
+    iteration       INTEGER NOT NULL DEFAULT 0,
+    name            TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    attributes_json TEXT NOT NULL DEFAULT '{}',
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_chain ON trace_spans(chain_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_conversation ON trace_spans(conversation_id, turn_number, iteration);
+`
+	if _, err := db.ExecContext(ctx, ddl); err != nil {
+		return fmt.Errorf("ensure trace schema: %w", err)
 	}
 	return nil
 }

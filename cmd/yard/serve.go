@@ -17,6 +17,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/agent"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/conversation"
+	"github.com/ponchione/sodoryard/internal/operator"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
 	"github.com/ponchione/sodoryard/internal/server"
 	"github.com/ponchione/sodoryard/internal/tool"
@@ -94,10 +95,12 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 	tool.RegisterSearchTools(registry, rt.SemanticSearcher)
 
 	executor := tool.NewExecutor(registry, tool.ExecutorConfig{
-		MaxOutputTokens: cfg.Agent.ToolOutputMaxTokens,
-		ProjectRoot:     cfg.ProjectRoot,
+		MaxOutputTokens:       cfg.Agent.ToolOutputMaxTokens,
+		ProjectRoot:           cfg.ProjectRoot,
+		ShellApprovalPatterns: cfg.Agent.ShellApprovalPatterns,
 	}, logger)
-	executor.SetRecorder(tool.NewToolExecutionRecorder(rt.Queries))
+	executor.SetRecorder(rt.ToolRecorder)
+	executor.SetTraceRecorder(rt.TraceRecorder)
 	adapter := tool.NewAgentLoopAdapter(executor)
 	titleGen := conversation.NewTitleGen(rt.ConversationManager, rt.ProviderRouter, cfg.Routing.Default.Model, logger)
 
@@ -109,6 +112,8 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		ToolDefinitions:     registry.ToolDefinitions(),
 		PromptBuilder:       agent.NewPromptBuilder(logger),
 		TitleGenerator:      titleGen,
+		CompressionEngine:   rt.CompressionEngine,
+		TraceRecorder:       rt.TraceRecorder,
 		Config:              rtpkg.BuildAgentLoopConfig(cfg, cfg.Agent.MaxIterationsPerTurn, ""),
 		Logger:              logger,
 	})
@@ -128,9 +133,28 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 	runtimeDefaults := server.NewRuntimeDefaults(cfg)
 	server.NewConversationHandler(srv, rt.ConversationManager, projectID, logger)
 	server.NewWebSocketHandler(srv, agentLoop, rt.ConversationManager, cfg, runtimeDefaults, logger)
-	server.NewProjectHandler(srv, cfg, logger)
+	server.NewProjectHandler(srv, cfg, logger, rt.MemoryBackend)
 	server.NewConfigHandler(srv, cfg, rt.ProviderRouter, runtimeDefaults, logger)
-	server.NewMetricsHandler(srv, rt.Queries, logger)
+	server.NewMetricsHandler(srv, rt.Queries, logger, rt.MemoryBackend)
+	operatorRuntime := &rtpkg.OrchestratorRuntime{
+		Config:              cfg,
+		Logger:              logger,
+		Database:            rt.Database,
+		Queries:             rt.Queries,
+		ProviderRouter:      rt.ProviderRouter,
+		BrainBackend:        rt.BrainBackend,
+		MemoryBackend:       rt.MemoryBackend,
+		ConversationManager: rt.ConversationManager,
+		ChainStore:          rt.ChainStore,
+		CompressionEngine:   rt.CompressionEngine,
+		Cleanup:             func() {},
+	}
+	operatorSvc, err := operator.NewForRuntime(operatorRuntime, operator.Options{ProcessID: os.Getpid})
+	if err != nil {
+		return fmt.Errorf("operator service: %w", err)
+	}
+	defer operatorSvc.Close()
+	server.NewChainInspectorHandler(srv, operatorSvc, logger)
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

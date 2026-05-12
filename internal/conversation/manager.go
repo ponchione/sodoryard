@@ -12,6 +12,7 @@ import (
 
 	"github.com/ponchione/sodoryard/internal/db"
 	sid "github.com/ponchione/sodoryard/internal/id"
+	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
 )
 
@@ -59,6 +60,24 @@ func WithProvider(provider string) CreateOption {
 	return func(o *CreateOptions) { o.Provider = &provider }
 }
 
+type ProjectMemoryStore interface {
+	CreateConversation(ctx context.Context, args projectmemory.CreateConversationArgs) error
+	DeleteConversation(ctx context.Context, args projectmemory.DeleteConversationArgs) error
+	SetConversationTitle(ctx context.Context, args projectmemory.SetConversationTitleArgs) error
+	SetRuntimeDefaults(ctx context.Context, args projectmemory.SetRuntimeDefaultsArgs) error
+	AppendUserMessage(ctx context.Context, args projectmemory.AppendUserMessageArgs) error
+	PersistIteration(ctx context.Context, args projectmemory.PersistIterationArgs) error
+	CancelIteration(ctx context.Context, args projectmemory.CancelIterationArgs) error
+	DiscardTurn(ctx context.Context, args projectmemory.DiscardTurnArgs) error
+	ReadConversation(ctx context.Context, id string) (projectmemory.Conversation, bool, error)
+	ListConversations(ctx context.Context, projectID string, limit, offset int) ([]projectmemory.Conversation, error)
+	CountConversations(ctx context.Context, projectID string) (int64, error)
+	ListMessages(ctx context.Context, conversationID string, includeCompressed bool) ([]projectmemory.Message, error)
+	GetMessagePage(ctx context.Context, conversationID string, limit, offset int) ([]projectmemory.Message, error)
+	NextTurnNumber(ctx context.Context, conversationID string) (int, error)
+	SearchConversations(ctx context.Context, projectID string, query string, maxResults int) ([]projectmemory.ConversationSearchHit, error)
+}
+
 // Manager provides the full conversation lifecycle: CRUD operations plus
 // the history management operations needed by the agent loop. It embeds
 // HistoryManager to satisfy the agent.ConversationManager interface while
@@ -71,6 +90,7 @@ type Manager struct {
 	queries *db.Queries
 	logger  *slog.Logger
 	newID   func() string // injectable for testing
+	memory  ProjectMemoryStore
 }
 
 // NewManager constructs a Manager backed by the given database. The seen
@@ -84,6 +104,21 @@ func NewManager(database *sql.DB, seen *SeenFiles, logger *slog.Logger) *Manager
 		queries:        db.New(database),
 		logger:         logger,
 		newID:          sid.New,
+	}
+}
+
+func NewProjectMemoryManager(memory ProjectMemoryStore, seen *SeenFiles, logger *slog.Logger) *Manager {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if seen == nil {
+		seen = NewSeenFiles()
+	}
+	return &Manager{
+		HistoryManager: &HistoryManager{memory: memory, seen: seen, now: time.Now},
+		logger:         logger,
+		newID:          sid.New,
+		memory:         memory,
 	}
 }
 
@@ -101,6 +136,27 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts ...CreateOp
 
 	id := m.newID()
 	now := m.now().UTC()
+	if m.memory != nil {
+		if err := m.memory.CreateConversation(ctx, projectmemory.CreateConversationArgs{
+			ID:          id,
+			ProjectID:   projectID,
+			Title:       stringPtrValue(options.Title),
+			Model:       stringPtrValue(options.Model),
+			Provider:    stringPtrValue(options.Provider),
+			CreatedAtUS: uint64(now.UnixMicro()),
+		}); err != nil {
+			return nil, fmt.Errorf("conversation manager: create: %w", err)
+		}
+		return &Conversation{
+			ID:        id,
+			ProjectID: projectID,
+			Title:     options.Title,
+			Model:     options.Model,
+			Provider:  options.Provider,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}, nil
+	}
 	timestamp := now.Format(time.RFC3339)
 
 	params := db.InsertConversationParams{
@@ -140,6 +196,16 @@ func (m *Manager) Get(ctx context.Context, conversationID string) (*Conversation
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if m.memory != nil {
+		row, found, err := m.memory.ReadConversation(ctx, conversationID)
+		if err != nil {
+			return nil, fmt.Errorf("conversation manager: get: %w", err)
+		}
+		if !found {
+			return nil, fmt.Errorf("conversation manager: get %q: %w", conversationID, sql.ErrNoRows)
+		}
+		return memoryConversationToConversation(row), nil
+	}
 
 	row, err := m.queries.GetConversation(ctx, conversationID)
 	if err != nil {
@@ -159,6 +225,21 @@ func (m *Manager) List(ctx context.Context, projectID string, limit, offset int)
 	}
 	if limit <= 0 {
 		limit = 50
+	}
+	if m.memory != nil {
+		rows, err := m.memory.ListConversations(ctx, projectID, limit, offset)
+		if err != nil {
+			return nil, fmt.Errorf("conversation manager: list: %w", err)
+		}
+		summaries := make([]ConversationSummary, 0, len(rows))
+		for _, row := range rows {
+			summaries = append(summaries, ConversationSummary{
+				ID:        row.ID,
+				Title:     stringPtrFromNonEmpty(row.Title),
+				UpdatedAt: unixMicroTime(row.UpdatedAtUS),
+			})
+		}
+		return summaries, nil
 	}
 
 	rows, err := m.queries.ListConversations(ctx, db.ListConversationsParams{
@@ -193,6 +274,12 @@ func (m *Manager) Delete(ctx context.Context, conversationID string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if m.memory != nil {
+		if err := m.memory.DeleteConversation(ctx, projectmemory.DeleteConversationArgs{ID: conversationID}); err != nil {
+			return fmt.Errorf("conversation manager: delete %q: %w", conversationID, err)
+		}
+		return nil
+	}
 
 	if err := m.queries.DeleteConversation(ctx, conversationID); err != nil {
 		return fmt.Errorf("conversation manager: delete %q: %w", conversationID, err)
@@ -206,7 +293,19 @@ func (m *Manager) SetTitle(ctx context.Context, conversationID, title string) er
 		ctx = context.Background()
 	}
 
-	timestamp := m.now().UTC().Format(time.RFC3339)
+	now := m.now().UTC()
+	if m.memory != nil {
+		if err := m.memory.SetConversationTitle(ctx, projectmemory.SetConversationTitleArgs{
+			ID:          conversationID,
+			Title:       title,
+			UpdatedAtUS: uint64(now.UnixMicro()),
+		}); err != nil {
+			return fmt.Errorf("conversation manager: set title: %w", err)
+		}
+		return nil
+	}
+
+	timestamp := now.Format(time.RFC3339)
 	if err := m.queries.SetConversationTitle(ctx, db.SetConversationTitleParams{
 		Title:     sql.NullString{String: title, Valid: true},
 		UpdatedAt: timestamp,
@@ -224,8 +323,21 @@ func (m *Manager) SetRuntimeDefaults(ctx context.Context, conversationID string,
 		ctx = context.Background()
 	}
 
+	now := m.now().UTC()
+	if m.memory != nil {
+		if err := m.memory.SetRuntimeDefaults(ctx, projectmemory.SetRuntimeDefaultsArgs{
+			ID:          conversationID,
+			Provider:    stringPtrValue(provider),
+			Model:       stringPtrValue(model),
+			UpdatedAtUS: uint64(now.UnixMicro()),
+		}); err != nil {
+			return fmt.Errorf("conversation manager: set runtime defaults: %w", err)
+		}
+		return nil
+	}
+
 	params := db.SetConversationRuntimeDefaultsParams{
-		UpdatedAt: m.now().UTC().Format(time.RFC3339),
+		UpdatedAt: now.Format(time.RFC3339),
 		ID:        conversationID,
 	}
 	if model != nil {
@@ -245,6 +357,9 @@ func (m *Manager) Count(ctx context.Context, projectID string) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if m.memory != nil {
+		return m.memory.CountConversations(ctx, projectID)
+	}
 	return m.queries.CountConversations(ctx, projectID)
 }
 
@@ -253,6 +368,13 @@ func (m *Manager) Count(ctx context.Context, projectID string) (int64, error) {
 func (m *Manager) NextTurnNumber(ctx context.Context, conversationID string) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if m.memory != nil {
+		next, err := m.memory.NextTurnNumber(ctx, conversationID)
+		if err != nil {
+			return 0, fmt.Errorf("conversation manager: next turn number: %w", err)
+		}
+		return next, nil
 	}
 	next, err := m.queries.NextTurnNumber(ctx, conversationID)
 	if err != nil {
@@ -282,6 +404,17 @@ type MessageView struct {
 func (m *Manager) GetMessages(ctx context.Context, conversationID string) ([]MessageView, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if m.memory != nil {
+		rows, err := m.memory.ListMessages(ctx, conversationID, true)
+		if err != nil {
+			return nil, fmt.Errorf("conversation manager: get messages: %w", err)
+		}
+		messages := make([]MessageView, 0, len(rows))
+		for _, row := range rows {
+			messages = append(messages, messageViewFromMemory(row))
+		}
+		return messages, nil
 	}
 
 	rows, err := m.queries.ListAllMessages(ctx, conversationID)
@@ -319,6 +452,17 @@ func (m *Manager) GetMessagePage(ctx context.Context, conversationID string, lim
 	}
 	if offset < 0 {
 		offset = 0
+	}
+	if m.memory != nil {
+		rows, err := m.memory.GetMessagePage(ctx, conversationID, limit, offset)
+		if err != nil {
+			return nil, fmt.Errorf("conversation manager: get message page: %w", err)
+		}
+		messages := make([]MessageView, 0, len(rows))
+		for _, row := range rows {
+			messages = append(messages, messageViewFromMemory(row))
+		}
+		return messages, nil
 	}
 
 	rows, err := m.queries.ListMessagePage(ctx, db.ListMessagePageParams{
@@ -400,6 +544,22 @@ var (
 func (m *Manager) Search(ctx context.Context, projectID string, query string) ([]SearchResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if m.memory != nil {
+		rows, err := m.memory.SearchConversations(ctx, projectID, query, 20)
+		if err != nil {
+			return nil, fmt.Errorf("conversation manager: search: %w", err)
+		}
+		results := make([]SearchResult, 0, len(rows))
+		for _, row := range rows {
+			results = append(results, SearchResult{
+				ID:        row.ID,
+				Title:     stringPtrFromNonEmpty(row.Title),
+				UpdatedAt: unixMicroTime(row.UpdatedAtUS).UTC().Format(time.RFC3339),
+				Snippet:   sanitizeSearchSnippet(row.Snippet),
+			})
+		}
+		return results, nil
 	}
 
 	params := db.SearchConversationsParams{ProjectID: projectID, Content: query}
@@ -624,4 +784,53 @@ func dbConversationToConversation(row db.Conversation) *Conversation {
 		c.UpdatedAt = parsed
 	}
 	return c
+}
+
+func memoryConversationToConversation(row projectmemory.Conversation) *Conversation {
+	return &Conversation{
+		ID:        row.ID,
+		ProjectID: row.ProjectID,
+		Title:     stringPtrFromNonEmpty(row.Title),
+		Model:     stringPtrFromNonEmpty(row.Model),
+		Provider:  stringPtrFromNonEmpty(row.Provider),
+		CreatedAt: unixMicroTime(row.CreatedAtUS),
+		UpdatedAt: unixMicroTime(row.UpdatedAtUS),
+	}
+}
+
+func messageViewFromMemory(row projectmemory.Message) MessageView {
+	return MessageView{
+		ID:           int64(row.Sequence) + 1,
+		Role:         row.Role,
+		Content:      stringPtrFromNonEmpty(row.Content),
+		ToolUseID:    stringPtrFromNonEmpty(row.ToolUseID),
+		ToolName:     stringPtrFromNonEmpty(row.ToolName),
+		TurnNumber:   int64(row.TurnNumber),
+		Iteration:    int64(row.Iteration),
+		Sequence:     float64(row.Sequence),
+		IsCompressed: row.Compressed,
+		IsSummary:    row.IsSummary,
+		CreatedAt:    unixMicroTime(row.CreatedAtUS).UTC().Format(time.RFC3339),
+	}
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func stringPtrFromNonEmpty(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
+}
+
+func unixMicroTime(value uint64) time.Time {
+	if value == 0 {
+		return time.Time{}
+	}
+	return time.UnixMicro(int64(value)).UTC()
 }

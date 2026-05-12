@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/ponchione/sodoryard/internal/brain"
 	"github.com/ponchione/sodoryard/internal/config"
@@ -45,7 +44,7 @@ type brainSearchInput struct {
 
 func (b *BrainSearch) Name() string { return "brain_search" }
 func (b *BrainSearch) Description() string {
-	return "Search the project brain (Obsidian vault) by keyword"
+	return "Search Shunter project brain documents by keyword"
 }
 func (b *BrainSearch) ToolPurity() Purity {
 	if b.config.LogBrainQueries {
@@ -57,7 +56,7 @@ func (b *BrainSearch) ToolPurity() Purity {
 func (b *BrainSearch) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"name": "brain_search",
-		"description": "Search the project brain (Obsidian knowledge vault) for documents and derived knowledge matches. Use this when the prompt refers to brain notes like 'notes/...md' or '.brain/notes/...md', or when search_text found nothing but the content may live in the brain. Prefer brain_search/brain_read over search_text/file_read for vault-relative note paths, never use search_text for .brain paths, and do not double-check a successful brain hit with repo search tools. Returns matching document paths, titles, and relevant snippets. Use this to find architectural decisions, debugging journals, conventions, and other project knowledge. Keyword mode stays lexical-only; semantic and auto modes use the landed runtime search path when available and may also include graph/backlink expansion from derived brain links.",
+		"description": "Search Shunter project brain documents and derived knowledge matches. Use this when the prompt refers to brain notes like 'notes/...md', or when search_text found nothing but the content may live in the brain. Prefer brain_search/brain_read over search_text/file_read for brain note paths, and do not double-check a successful brain hit with repo search tools. Returns matching document paths, titles, and relevant snippets. Use this to find architectural decisions, debugging journals, conventions, and other project knowledge. Keyword mode stays lexical-only; semantic and auto modes use the landed runtime search path when available and may also include graph/backlink expansion from derived brain links.",
 		"input_schema": {
 			"type": "object",
 			"properties": {
@@ -347,11 +346,5 @@ func (b *BrainSearch) appendQueryLog(ctx context.Context, query string, resultCo
 		return nil
 	}
 	summary := fmt.Sprintf("Returned %d %s via keyword search.", resultCount, pluralizeBrainSearchResults(resultCount))
-	return appendBrainLog(ctx, b.client, BrainLogEntry{
-		Timestamp: time.Now().UTC(),
-		Operation: "query",
-		Target:    strings.Join(strings.Fields(query), " "),
-		Summary:   summary,
-		Session:   sessionIDFromContext(ctx),
-	})
+	return appendBrainOperationLog(ctx, b.client, "query", strings.Join(strings.Fields(query), " "), summary)
 }

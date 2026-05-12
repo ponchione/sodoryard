@@ -1,0 +1,47 @@
+{
+  "name": "source-writer-conflict",
+  "chain": {
+    "id": "eval-flow-source-writer-conflict",
+    "status": "running",
+    "total_steps": 3,
+    "max_steps": 8,
+    "max_resolver_loops": 2,
+    "max_duration_secs": 600,
+    "token_budget": 100000
+  },
+  "steps": [
+    {
+      "id": "conflict-step-1",
+      "sequence_num": 1,
+      "role": "planner",
+      "status": "completed",
+      "verdict": "completed"
+    },
+    {
+      "id": "conflict-step-2",
+      "sequence_num": 2,
+      "role": "coder",
+      "status": "running",
+      "verdict": ""
+    },
+    {
+      "id": "conflict-step-3",
+      "sequence_num": 3,
+      "role": "resolver",
+      "status": "running",
+      "verdict": ""
+    }
+  ],
+  "events": [],
+  "expected_warning_codes": [
+    "resolver_without_open_findings"
+  ],
+  "expected_open_finding_ids": [],
+  "expected_closed_finding_ids": [],
+  "expected_addressed_finding_ids": [],
+  "expected_reopened_finding_ids": [],
+  "expected_repeated_resolver_ids": [],
+  "expected_source_writer_conflicts": [
+    "multiple source-writing steps running: step 2 coder, step 3 resolver"
+  ]
+}

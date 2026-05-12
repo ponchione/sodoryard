@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { Activity, BarChart3, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,6 +23,7 @@ function useActiveConversationId(): string | undefined {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const activeId = useActiveConversationId();
+  const location = useLocation();
   const navigate = useNavigate();
   const {
     conversations,
@@ -147,6 +148,32 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         <Separator />
 
+        <nav className="space-y-0.5 p-2 text-sm">
+          <NavLinkItem
+            to="/"
+            active={location.pathname === "/"}
+            icon={<MessageSquare size={16} aria-hidden="true" />}
+            label="Chat"
+            onClick={onClose}
+          />
+          <NavLinkItem
+            to="/chains"
+            active={location.pathname.startsWith("/chains")}
+            icon={<Activity size={16} aria-hidden="true" />}
+            label="Chains"
+            onClick={onClose}
+          />
+          <NavLinkItem
+            to="/metrics"
+            active={location.pathname.startsWith("/metrics")}
+            icon={<BarChart3 size={16} aria-hidden="true" />}
+            label="Metrics"
+            onClick={onClose}
+          />
+        </nav>
+
+        <Separator />
+
         <div className="p-2">
           <label htmlFor="conversation-search" className="sr-only">
             Search conversations
@@ -258,6 +285,33 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </div>
       </aside>
     </>
+  );
+}
+
+function NavLinkItem({
+  to,
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  to: string;
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Link
+      to={to}
+      onClick={onClick}
+      className={`flex items-center gap-2 px-2.5 py-1.5 font-medium ${
+        active ? "bg-muted text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {label}
+    </Link>
   );
 }
 

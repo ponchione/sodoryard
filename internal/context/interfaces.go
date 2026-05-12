@@ -67,6 +67,14 @@ type BrainSearcher interface {
 	Search(ctx stdctx.Context, request BrainSearchRequest) ([]BrainSearchResult, error)
 }
 
+// BrainDocumentReader reads project-brain documents by explicit path. It is
+// optional for retrieval: when present, task-mentioned brain paths such as
+// plans/... or receipts/... are loaded directly instead of being treated as
+// workspace files.
+type BrainDocumentReader interface {
+	ReadDocument(ctx stdctx.Context, path string) (string, error)
+}
+
 // Retriever executes the retrieval phase and returns the collected pre-budget
 // results.
 type Retriever interface {

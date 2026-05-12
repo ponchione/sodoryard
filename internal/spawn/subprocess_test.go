@@ -36,6 +36,28 @@ func TestRunCommandSuccessAndCapture(t *testing.T) {
 	}
 }
 
+func TestRunCommandMergesEnvOverridesWithParentEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell test")
+	}
+	t.Setenv("SODORYARD_PARENT_ENV_TEST", "parent")
+
+	var stdout bytes.Buffer
+	res := RunCommand(context.Background(), RunCommandInput{
+		Name:    "/bin/sh",
+		Args:    []string{"-c", "printf '%s:%s' \"$SODORYARD_PARENT_ENV_TEST\" \"$SODORYARD_CHILD_ENV_TEST\""},
+		Stdout:  &stdout,
+		Env:     []string{"SODORYARD_CHILD_ENV_TEST=child"},
+		Timeout: 5 * time.Second,
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	if got := stdout.String(); got != "parent:child" {
+		t.Fatalf("stdout = %q, want parent:child", got)
+	}
+}
+
 func TestRunCommandNonZeroExit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell test")
@@ -88,6 +110,33 @@ func TestRunCommandEmitsStdoutAndStderrLines(t *testing.T) {
 		t.Fatalf("stdout lines = %q, want %q", got, want)
 	}
 	if got, want := strings.Join(stderrLines, "|"), "warn1|warn2"; got != want {
+		t.Fatalf("stderr lines = %q, want %q", got, want)
+	}
+}
+
+func TestRunCommandFlushesFinalPartialStdoutAndStderrLines(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell test")
+	}
+	var stdoutLines, stderrLines []string
+	res := RunCommand(context.Background(), RunCommandInput{
+		Name:    "/bin/sh",
+		Args:    []string{"-c", "printf ok; printf warn >&2"},
+		Timeout: 5 * time.Second,
+		OnStdoutLine: func(line string) {
+			stdoutLines = append(stdoutLines, line)
+		},
+		OnStderrLine: func(line string) {
+			stderrLines = append(stderrLines, line)
+		},
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	if got, want := strings.Join(stdoutLines, "|"), "ok"; got != want {
+		t.Fatalf("stdout lines = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(stderrLines, "|"), "warn"; got != want {
 		t.Fatalf("stderr lines = %q, want %q", got, want)
 	}
 }

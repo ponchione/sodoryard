@@ -99,7 +99,7 @@ type Action =
   | { type: "turn_complete"; usage: TurnUsage }
   | { type: "turn_cancelled" }
   | { type: "error"; message: string }
-  | { type: "set_conversation_id"; conversationId: string }
+  | { type: "route_conversation_changed"; conversationId: string | null }
   | { type: "load_history"; messages: ChatMessage[] }
   | { type: "context_debug"; report: Record<string, unknown> };
 
@@ -331,9 +331,12 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         isStreaming: false,
       };
 
-    case "set_conversation_id":
+    case "route_conversation_changed":
+      if (state.conversationId === action.conversationId) {
+        return state;
+      }
       return {
-        ...state,
+        ...initialState,
         conversationId: action.conversationId,
       };
 
@@ -368,11 +371,8 @@ export function useConversation(conversationId?: string) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { status, eventQueue, eventTick, sendMessage: wsSend, cancel: wsCancel } = useWebSocket();
 
-  // Set conversation ID from route param.
   useEffect(() => {
-    if (conversationId) {
-      dispatch({ type: "set_conversation_id", conversationId });
-    }
+    dispatch({ type: "route_conversation_changed", conversationId: conversationId ?? null });
   }, [conversationId]);
 
   // Drain every queued WebSocket event in arrival order. `splice(0)` releases
@@ -498,10 +498,19 @@ export function useConversation(conversationId?: string) {
 
   const sendMessage = useCallback(
     (content: string) => {
+      if (!wsSend(content, state.conversationId ?? undefined)) {
+        dispatch({
+          type: "error",
+          message: status === "connecting"
+            ? "Still connecting. Try again when the connection is ready."
+            : "Disconnected. Reconnecting to the server.",
+        });
+        return false;
+      }
       dispatch({ type: "user_message", content });
-      wsSend(content, state.conversationId ?? undefined);
+      return true;
     },
-    [wsSend, state.conversationId],
+    [wsSend, state.conversationId, status],
   );
 
   const cancel = useCallback(() => {

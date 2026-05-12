@@ -4,20 +4,26 @@ import { Button } from "@/components/ui/button";
 export function ConversationComposer({
   input,
   isStreaming,
+  canSend,
   onInputChange,
   onSend,
   onCancel,
 }: {
   input: string;
   isStreaming: boolean;
+  canSend: boolean;
   onInputChange: (value: string) => void;
   onSend: () => void;
   onCancel: () => void;
 }) {
+  const sendDisabled = isStreaming || !canSend || !input.trim();
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      onSend();
+      if (!sendDisabled) {
+        onSend();
+      }
     }
   };
 
@@ -63,7 +69,7 @@ export function ConversationComposer({
         ) : (
           <Button
             onClick={onSend}
-            disabled={!input.trim()}
+            disabled={sendDisabled}
             data-augmented-ui="tl-clip br-clip border"
             className="border-0 bg-primary text-primary-foreground hover:bg-primary/80"
             style={{

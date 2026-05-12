@@ -58,3 +58,37 @@ func (l *AgentLoop) completeTextOnlyIteration(ctx stdctx.Context, turnExec *turn
 
 	return finalTurnResult(turnExec.turnCtx, result.TextContent, iteration, turnExec.totalUsage, turnDuration), nil
 }
+
+func (l *AgentLoop) completeFinalToolIteration(
+	ctx stdctx.Context,
+	turnExec *turnExecution,
+	iteration int,
+	result *streamResult,
+	assistantContentJSON string,
+	toolCalls []provider.ToolCall,
+	toolResults []provider.ToolResult,
+) (*TurnResult, error) {
+	if err := l.completeToolIteration(ctx, turnExec, iteration, assistantContentJSON, toolCalls, toolResults); err != nil {
+		return nil, err
+	}
+
+	l.updatePostTurnQuality(ctx, turnExec.req.ConversationID, turnExec.req.TurnNumber, turnExec.allToolCalls)
+	l.maybeGenerateTitle(turnExec.req.ConversationID, turnExec.req.TurnNumber)
+
+	turnDuration := l.now().Sub(turnExec.turnStart)
+	l.emit(TurnCompleteEvent{
+		TurnNumber:        turnExec.req.TurnNumber,
+		IterationCount:    iteration,
+		TotalInputTokens:  turnExec.totalUsage.InputTokens,
+		TotalOutputTokens: turnExec.totalUsage.OutputTokens,
+		Duration:          turnDuration,
+		Time:              l.now(),
+	})
+	l.emit(StatusEvent{State: StateIdle, Time: l.now()})
+
+	finalText := ""
+	if result != nil {
+		finalText = result.TextContent
+	}
+	return finalTurnResult(turnExec.turnCtx, finalText, iteration, turnExec.totalUsage, turnDuration), nil
+}

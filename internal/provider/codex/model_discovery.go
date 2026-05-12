@@ -13,12 +13,23 @@ import (
 
 func visibleModels() []provider.Model {
 	return []provider.Model{
-		{ID: "gpt-5.5", Name: "GPT-5.5", ContextWindow: 400000, SupportsTools: true, SupportsThinking: false},
-		{ID: "gpt-5.4", Name: "gpt-5.4", ContextWindow: 400000, SupportsTools: true, SupportsThinking: false},
-		{ID: "gpt-5.4-mini", Name: "GPT-5.4-Mini", ContextWindow: 400000, SupportsTools: true, SupportsThinking: false},
-		{ID: "gpt-5.3-codex", Name: "gpt-5.3-codex", ContextWindow: 400000, SupportsTools: true, SupportsThinking: false},
-		{ID: "gpt-5.3-codex-spark", Name: "gpt-5.3-codex-spark", ContextWindow: 400000, SupportsTools: true, SupportsThinking: false},
-		{ID: "gpt-5.2", Name: "gpt-5.2", ContextWindow: 400000, SupportsTools: true, SupportsThinking: false},
+		codexVisibleModel("gpt-5.5", "GPT-5.5"),
+		codexVisibleModel("gpt-5.4", "gpt-5.4"),
+		codexVisibleModel("gpt-5.4-mini", "GPT-5.4-Mini"),
+		codexVisibleModel("gpt-5.3-codex", "gpt-5.3-codex"),
+		codexVisibleModel("gpt-5.3-codex-spark", "gpt-5.3-codex-spark"),
+		codexVisibleModel("gpt-5.2", "gpt-5.2"),
+	}
+}
+
+func codexVisibleModel(id string, name string) provider.Model {
+	return provider.Model{
+		ID:                      id,
+		Name:                    name,
+		ContextWindow:           400000,
+		SupportsTools:           true,
+		SupportsReasoningEffort: true,
+		KnownQuirks:             []string{"runtime requests are currently pinned to gpt-5.5 by the Codex adapter"},
 	}
 }
 
@@ -153,11 +164,12 @@ func discoverVisibleModels(ctx context.Context, codexBinPath string) ([]provider
 			name = item.ID
 		}
 		models = append(models, provider.Model{
-			ID:               item.ID,
-			Name:             name,
-			ContextWindow:    400000,
-			SupportsTools:    true,
-			SupportsThinking: false,
+			ID:                      item.ID,
+			Name:                    name,
+			ContextWindow:           400000,
+			SupportsTools:           true,
+			SupportsReasoningEffort: true,
+			KnownQuirks:             []string{"runtime requests are currently pinned to gpt-5.5 by the Codex adapter"},
 		})
 	}
 	return models, nil

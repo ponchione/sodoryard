@@ -22,11 +22,15 @@ const (
 	localServicesModeManual     = "manual"
 	localServicesModeAuto       = "auto"
 	localServicesProviderDocker = "docker-compose"
-	defaultLocalServicesCompose = "./ops/llm/docker-compose.yml"
+	defaultLocalServicesCompose = "docker-compose.yml"
 	defaultLocalServicesProject = "./ops/llm"
 	defaultLocalServicesNetwork = "llm-net"
 	defaultLocalStartupTimeout  = 180
 	defaultLocalHealthInterval  = 2
+	memoryBackendShunter        = "shunter"
+	brainBackendShunter         = "shunter"
+	memoryRPCTransportUnix      = "unix"
+	defaultCodexReasoningEffort = "medium"
 )
 
 // Canonical on-disk names for the yard state directory and its contents.
@@ -40,6 +44,7 @@ const (
 )
 
 var allowedProviderTypes = []string{"anthropic", "codex", "openai-compatible"}
+var allowedCodexReasoningEfforts = []string{"low", "medium", "high", "xhigh"}
 
 type Config struct {
 	ProjectRoot string `yaml:"project_root"`
@@ -58,20 +63,32 @@ type Config struct {
 	Agent         AgentConfig                `yaml:"agent"`
 	AgentRoles    map[string]AgentRoleConfig `yaml:"agent_roles"`
 	Context       ContextConfig              `yaml:"context"`
+	Memory        MemoryConfig               `yaml:"memory"`
 	Brain         BrainConfig                `yaml:"brain"`
+	Trace         TraceConfig                `yaml:"trace"`
 	LocalServices LocalServicesConfig        `yaml:"local_services"`
 }
 
 type AgentRoleConfig struct {
-	SystemPrompt    string   `yaml:"system_prompt"`
-	Tools           []string `yaml:"tools"`
-	CustomTools     []string `yaml:"custom_tools"`
-	BrainWritePaths []string `yaml:"brain_write_paths"`
-	BrainDenyPaths  []string `yaml:"brain_deny_paths"`
-	MaxTurns        int      `yaml:"max_turns"`
-	MaxTokens       int      `yaml:"max_tokens"`
-	Timeout         Duration `yaml:"timeout"`
+	SystemPrompt    string        `yaml:"system_prompt"`
+	MutationClass   MutationClass `yaml:"mutation_class"`
+	Tools           []string      `yaml:"tools"`
+	CustomTools     []string      `yaml:"custom_tools"`
+	BrainWritePaths []string      `yaml:"brain_write_paths"`
+	BrainDenyPaths  []string      `yaml:"brain_deny_paths"`
+	MaxTurns        int           `yaml:"max_turns"`
+	MaxTokens       int           `yaml:"max_tokens"`
+	Timeout         Duration      `yaml:"timeout"`
 }
+
+type MutationClass string
+
+const (
+	MutationClassOrchestrator MutationClass = "orchestrator"
+	MutationClassSourceWrite  MutationClass = "source_write"
+	MutationClassBrainWrite   MutationClass = "brain_write"
+	MutationClassReadOnly     MutationClass = "read_only"
+)
 
 type Duration time.Duration
 
@@ -117,12 +134,22 @@ type RouteConfig struct {
 }
 
 type ProviderConfig struct {
-	Type          string `yaml:"type"`
-	BaseURL       string `yaml:"base_url"`
-	Model         string `yaml:"model"`
-	APIKey        string `yaml:"api_key"`
-	APIKeyEnv     string `yaml:"api_key_env"`
-	ContextLength int    `yaml:"context_length"`
+	Type                     string   `yaml:"type"`
+	BaseURL                  string   `yaml:"base_url"`
+	Model                    string   `yaml:"model"`
+	ReasoningEffort          string   `yaml:"reasoning_effort"`
+	APIKey                   string   `yaml:"api_key"`
+	APIKeyEnv                string   `yaml:"api_key_env"`
+	ContextLength            int      `yaml:"context_length"`
+	SupportsTools            *bool    `yaml:"supports_tools"`
+	SupportsThinking         *bool    `yaml:"supports_thinking"`
+	SupportsReasoningEffort  *bool    `yaml:"supports_reasoning_effort"`
+	SupportsStructuredOutput *bool    `yaml:"supports_structured_output"`
+	SupportsPromptCache      *bool    `yaml:"supports_prompt_cache"`
+	SupportsImages           *bool    `yaml:"supports_images"`
+	SupportsToolChoice       *bool    `yaml:"supports_tool_choice"`
+	MaxOutputTokens          int      `yaml:"max_output_tokens"`
+	KnownQuirks              []string `yaml:"known_quirks"`
 }
 
 type IndexConfig struct {
@@ -135,7 +162,7 @@ type IndexConfig struct {
 	MaxTotalFileSizeBytes int      `yaml:"max_total_file_size_bytes"`
 }
 
-var requiredIndexExcludePatterns = []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**"}
+var requiredIndexExcludePatterns = []string{"**/.git/**", "**/node_modules/**", "**/vendor/**"}
 
 // Embedding configures the local embedding service used for semantic search.
 type Embedding struct {
@@ -153,6 +180,7 @@ type AgentConfig struct {
 	ToolResultStoreRoot      string   `yaml:"tool_result_store_root"`
 	ShellTimeoutSeconds      int      `yaml:"shell_timeout_seconds"`
 	ShellDenylist            []string `yaml:"shell_denylist"`
+	ShellApprovalPatterns    []string `yaml:"shell_approval_patterns"`
 	ExtendedThinking         bool     `yaml:"extended_thinking"`
 	CacheSystemPrompt        bool     `yaml:"cache_system_prompt"`
 	CacheAssembledContext    bool     `yaml:"cache_assembled_context"`
@@ -185,7 +213,7 @@ type ContextConfig struct {
 
 type BrainConfig struct {
 	Enabled                 bool     `yaml:"enabled"`
-	VaultPath               string   `yaml:"vault_path"`
+	Backend                 string   `yaml:"backend"`
 	EmbeddingModel          string   `yaml:"embedding_model"`
 	ChunkAtHeadings         bool     `yaml:"chunk_at_headings"`
 	ReindexOnStartup        bool     `yaml:"reindex_on_startup"`
@@ -199,6 +227,29 @@ type BrainConfig struct {
 	LintOrphanAllowlist     []string `yaml:"lint_orphan_allowlist"`
 	BrainWritePaths         []string `yaml:"brain_write_paths"`
 	BrainDenyPaths          []string `yaml:"brain_deny_paths"`
+
+	MemoryBackend  string `yaml:"-"`
+	ShunterDataDir string `yaml:"-"`
+	DurableAck     bool   `yaml:"-"`
+	RPCTransport   string `yaml:"-"`
+	RPCPath        string `yaml:"-"`
+}
+
+type MemoryConfig struct {
+	Backend        string          `yaml:"backend"`
+	ShunterDataDir string          `yaml:"shunter_data_dir"`
+	DurableAck     bool            `yaml:"durable_ack"`
+	RPC            MemoryRPCConfig `yaml:"rpc"`
+}
+
+type MemoryRPCConfig struct {
+	Transport string `yaml:"transport"`
+	Path      string `yaml:"path"`
+}
+
+type TraceConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	SQLitePath string `yaml:"sqlite_path"`
 }
 
 type LocalServicesConfig struct {
@@ -265,9 +316,10 @@ func Default() *Config {
 		},
 		Providers: map[string]ProviderConfig{
 			"codex": {
-				Type:          "codex",
-				Model:         "gpt-5.5",
-				ContextLength: 400000,
+				Type:            "codex",
+				Model:           "gpt-5.5",
+				ReasoningEffort: defaultCodexReasoningEffort,
+				ContextLength:   400000,
 			},
 		},
 		Index: IndexConfig{
@@ -319,9 +371,18 @@ func Default() *Config {
 			EmitContextDebug:        true,
 			StoreAssemblyReports:    true,
 		},
+		Memory: MemoryConfig{
+			Backend:        memoryBackendShunter,
+			ShunterDataDir: ".yard/shunter/project-memory",
+			DurableAck:     true,
+			RPC: MemoryRPCConfig{
+				Transport: memoryRPCTransportUnix,
+				Path:      ".yard/run/memory.sock",
+			},
+		},
 		Brain: BrainConfig{
 			Enabled:                 true,
-			VaultPath:               ".brain",
+			Backend:                 brainBackendShunter,
 			EmbeddingModel:          "nomic-embed-code",
 			ChunkAtHeadings:         true,
 			ReindexOnStartup:        false,
@@ -333,6 +394,10 @@ func Default() *Config {
 			LogBrainOperations:      true,
 			LintStaleDays:           90,
 			LintOrphanAllowlist:     nil,
+		},
+		Trace: TraceConfig{
+			Enabled:    true,
+			SQLitePath: ".yard/trace.db",
 		},
 		LocalServices: LocalServicesConfig{
 			Enabled:                    true,
@@ -415,8 +480,6 @@ func (c *Config) ApplyEnvOverrides() {
 	}
 
 	if value, ok := os.LookupEnv("SODORYARD_LOG_LEVEL"); ok {
-		c.LogLevel = value
-	} else if value, ok := os.LookupEnv("SIRTOPHAM_LOG_LEVEL"); ok {
 		c.LogLevel = value
 	}
 
@@ -519,6 +582,14 @@ func (c *Config) DatabasePath() string {
 	return filepath.Join(c.StateDir(), StateDBName)
 }
 
+func (c *Config) TraceDBPath() string {
+	path := strings.TrimSpace(c.Trace.SQLitePath)
+	if path == "" {
+		path = ".yard/trace.db"
+	}
+	return projectRelativePath(c.ProjectRoot, path)
+}
+
 // CodeLanceDBPath returns the directory for the code vectorstore.
 func (c *Config) CodeLanceDBPath() string {
 	return filepath.Join(c.StateDir(), "lancedb", "code")
@@ -534,14 +605,22 @@ func (c *Config) GraphDBPath() string {
 	return filepath.Join(c.StateDir(), "graph.db")
 }
 
-// BrainVaultPath returns the resolved brain vault directory.
-// If the config vault_path is relative, it is resolved against ProjectRoot.
-func (c *Config) BrainVaultPath() string {
-	vp := c.Brain.VaultPath
-	if vp == "" {
-		vp = ".brain"
+// MemoryShunterDataDir returns the resolved Shunter project-memory directory.
+func (c *Config) MemoryShunterDataDir() string {
+	path := c.Memory.ShunterDataDir
+	if path == "" {
+		path = ".yard/shunter/project-memory"
 	}
-	return projectRelativePath(c.ProjectRoot, vp)
+	return projectRelativePath(c.ProjectRoot, path)
+}
+
+// MemoryRPCPath returns the resolved local memory RPC socket path.
+func (c *Config) MemoryRPCPath() string {
+	path := c.Memory.RPC.Path
+	if path == "" {
+		path = ".yard/run/memory.sock"
+	}
+	return projectRelativePath(c.ProjectRoot, path)
 }
 
 func (c *Config) ResolveAgentRoleSystemPromptPath(path string) string {
@@ -584,6 +663,7 @@ func (c *Config) normalize() {
 	if c.Providers == nil {
 		c.Providers = map[string]ProviderConfig{}
 	}
+	c.normalizeProviders()
 
 	if c.Server.Host == "" {
 		c.Server.Host = c.ServerHost
@@ -599,10 +679,60 @@ func (c *Config) normalize() {
 	}
 
 	c.Index.Exclude = appendMissingStrings(c.Index.Exclude, c.requiredIndexExcludePatterns()...)
+	c.normalizeMemory()
+	c.normalizeTrace()
 	c.normalizeLocalServices()
+	c.normalizeAgentRoles()
 
 	c.ServerHost = c.Server.Host
 	c.ServerPort = c.Server.Port
+}
+
+func (c *Config) normalizeAgentRoles() {
+	if c == nil || len(c.AgentRoles) == 0 {
+		return
+	}
+	for name, role := range c.AgentRoles {
+		role.MutationClass = normalizeRoleMutationClass(name, role)
+		c.AgentRoles[name] = role
+	}
+}
+
+func (c *Config) normalizeProviders() {
+	for name, provider := range c.Providers {
+		if strings.EqualFold(strings.TrimSpace(provider.Type), "codex") {
+			effort := strings.ToLower(strings.TrimSpace(provider.ReasoningEffort))
+			if effort == "" {
+				effort = defaultCodexReasoningEffort
+			}
+			provider.ReasoningEffort = effort
+			c.Providers[name] = provider
+		}
+	}
+}
+
+func (c *Config) normalizeMemory() {
+	if c.Memory.Backend == "" {
+		c.Memory.Backend = memoryBackendShunter
+	}
+	if c.Memory.ShunterDataDir == "" {
+		c.Memory.ShunterDataDir = ".yard/shunter/project-memory"
+	}
+	if c.Memory.RPC.Transport == "" {
+		c.Memory.RPC.Transport = memoryRPCTransportUnix
+	}
+	if c.Memory.RPC.Path == "" {
+		c.Memory.RPC.Path = ".yard/run/memory.sock"
+	}
+	if c.Brain.Backend == "" {
+		c.Brain.Backend = brainBackendShunter
+	}
+}
+
+func (c *Config) normalizeTrace() {
+	if strings.TrimSpace(c.Trace.SQLitePath) == "" {
+		c.Trace.SQLitePath = ".yard/trace.db"
+	}
 }
 
 func (c *Config) normalizeLocalServices() {
@@ -655,19 +785,19 @@ func (c *Config) resolveLocalServicePaths() error {
 	if !c.LocalServices.Enabled {
 		return nil
 	}
-	if strings.TrimSpace(c.LocalServices.ComposeFile) != "" {
-		resolved, err := resolveProjectRelativePath(c.ProjectRoot, c.LocalServices.ComposeFile)
-		if err != nil {
-			return fmt.Errorf("invalid field local_services.compose_file=%q: %w", c.LocalServices.ComposeFile, err)
-		}
-		c.LocalServices.ComposeFile = resolved
-	}
 	if strings.TrimSpace(c.LocalServices.ProjectDir) != "" {
 		resolved, err := resolveProjectRelativePath(c.ProjectRoot, c.LocalServices.ProjectDir)
 		if err != nil {
 			return fmt.Errorf("invalid field local_services.project_dir=%q: %w", c.LocalServices.ProjectDir, err)
 		}
 		c.LocalServices.ProjectDir = resolved
+	}
+	if strings.TrimSpace(c.LocalServices.ComposeFile) != "" {
+		resolved, err := resolveLocalServiceComposePath(c.ProjectRoot, c.LocalServices.ProjectDir, c.LocalServices.ComposeFile)
+		if err != nil {
+			return fmt.Errorf("invalid field local_services.compose_file=%q: %w", c.LocalServices.ComposeFile, err)
+		}
+		c.LocalServices.ComposeFile = resolved
 	}
 	return nil
 }
@@ -713,6 +843,42 @@ func resolveProjectRelativePath(projectRoot, path string) (string, error) {
 	return expandPath(projectRelativePath(projectRoot, path))
 }
 
+func resolveLocalServiceComposePath(projectRoot, projectDir, composeFile string) (string, error) {
+	if filepath.IsAbs(composeFile) || strings.HasPrefix(strings.TrimSpace(composeFile), "~") {
+		return expandPath(composeFile)
+	}
+
+	rootCandidate, err := resolveProjectRelativePath(projectRoot, composeFile)
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Stat(rootCandidate); statErr == nil && !info.IsDir() {
+		return rootCandidate, nil
+	}
+
+	if strings.TrimSpace(projectDir) == "" {
+		return rootCandidate, nil
+	}
+	resolvedProjectDir := projectDir
+	if !filepath.IsAbs(resolvedProjectDir) {
+		resolvedProjectDir, err = resolveProjectRelativePath(projectRoot, resolvedProjectDir)
+		if err != nil {
+			return "", err
+		}
+	}
+	dirCandidate, err := expandPath(filepath.Join(resolvedProjectDir, composeFile))
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Stat(dirCandidate); statErr == nil && !info.IsDir() {
+		return dirCandidate, nil
+	}
+	if filepath.Base(composeFile) == composeFile {
+		return dirCandidate, nil
+	}
+	return rootCandidate, nil
+}
+
 func (c *Config) validateLogLevel() error {
 	_, err := validateEnumValue("log_level", c.LogLevel, "debug, info, warn, or error", "debug", "info", "warn", "error")
 	return err
@@ -755,25 +921,61 @@ func (c *Config) validatePaths() error {
 	if err := c.resolveLocalServicePaths(); err != nil {
 		return err
 	}
+	if err := c.resolveMemoryPaths(); err != nil {
+		return err
+	}
+	c.syncBrainRuntimeMemoryFields()
 
 	if !c.Brain.Enabled {
 		return nil
 	}
-
-	vaultPath, err := resolveProjectRelativePath(c.ProjectRoot, c.Brain.VaultPath)
+	brainBackend, err := validateEnumValue("brain.backend", c.Brain.Backend, "shunter", brainBackendShunter)
 	if err != nil {
-		return fmt.Errorf("invalid field brain.vault_path=%q: %w", c.Brain.VaultPath, err)
+		return err
 	}
-	info, err = os.Stat(vaultPath)
-	if err != nil {
-		return fmt.Errorf("invalid field brain.vault_path=%q: %w", c.Brain.VaultPath, err)
+	c.Brain.Backend = brainBackend
+	if c.Memory.Backend != memoryBackendShunter {
+		return fmt.Errorf("invalid field brain.backend=%q (requires memory.backend: shunter)", c.Brain.Backend)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("invalid field brain.vault_path=%q (must be an existing directory)", c.Brain.VaultPath)
-	}
-	c.Brain.VaultPath = vaultPath
-
 	return nil
+}
+
+func (c *Config) resolveMemoryPaths() error {
+	memoryBackend, err := validateEnumValue("memory.backend", c.Memory.Backend, "shunter", memoryBackendShunter)
+	if err != nil {
+		return err
+	}
+	c.Memory.Backend = memoryBackend
+	rpcTransport, err := validateEnumValue("memory.rpc.transport", c.Memory.RPC.Transport, "unix", memoryRPCTransportUnix)
+	if err != nil {
+		return err
+	}
+	c.Memory.RPC.Transport = rpcTransport
+	if strings.TrimSpace(c.Memory.ShunterDataDir) == "" {
+		return errors.New("invalid field memory.shunter_data_dir=\"\" (must be set when memory.backend is shunter)")
+	}
+	dataDir, err := resolveProjectRelativePath(c.ProjectRoot, c.Memory.ShunterDataDir)
+	if err != nil {
+		return fmt.Errorf("invalid field memory.shunter_data_dir=%q: %w", c.Memory.ShunterDataDir, err)
+	}
+	c.Memory.ShunterDataDir = dataDir
+	if strings.TrimSpace(c.Memory.RPC.Path) == "" {
+		return errors.New("invalid field memory.rpc.path=\"\" (must be set when memory.backend is shunter)")
+	}
+	rpcPath, err := resolveProjectRelativePath(c.ProjectRoot, c.Memory.RPC.Path)
+	if err != nil {
+		return fmt.Errorf("invalid field memory.rpc.path=%q: %w", c.Memory.RPC.Path, err)
+	}
+	c.Memory.RPC.Path = rpcPath
+	return nil
+}
+
+func (c *Config) syncBrainRuntimeMemoryFields() {
+	c.Brain.MemoryBackend = c.Memory.Backend
+	c.Brain.ShunterDataDir = c.Memory.ShunterDataDir
+	c.Brain.DurableAck = c.Memory.DurableAck
+	c.Brain.RPCTransport = c.Memory.RPC.Transport
+	c.Brain.RPCPath = c.Memory.RPC.Path
 }
 
 func (c *Config) validateRouting() error {
@@ -802,6 +1004,11 @@ func (c *Config) validateProviders() error {
 	for name, provider := range c.Providers {
 		if _, err := validateEnumValue("providers."+name+".type", provider.Type, "anthropic, codex, or openai-compatible", allowedProviderTypes...); err != nil {
 			return fmt.Errorf("invalid field providers.%s.type=%q (expected anthropic, codex, or openai-compatible)", name, provider.Type)
+		}
+		if strings.EqualFold(strings.TrimSpace(provider.Type), "codex") {
+			if _, err := validateEnumValue("providers."+name+".reasoning_effort", provider.ReasoningEffort, "low, medium, high, or xhigh", allowedCodexReasoningEfforts...); err != nil {
+				return fmt.Errorf("invalid field providers.%s.reasoning_effort=%q (expected low, medium, high, or xhigh)", name, provider.ReasoningEffort)
+			}
 		}
 	}
 	return nil
@@ -919,6 +1126,9 @@ func (c *Config) validateAgentRoles() error {
 				return fmt.Errorf("invalid field agent_roles.%s.tools (unsupported tool group %q; expected %s)", name, group, toolgroup.Message())
 			}
 		}
+		if err := validateAgentRoleMutationClass(name, role); err != nil {
+			return err
+		}
 		if role.MaxTurns <= 0 && role.MaxTurns != 0 {
 			return fmt.Errorf("invalid field agent_roles.%s.max_turns=%d (must be > 0 when specified)", name, role.MaxTurns)
 		}
@@ -930,6 +1140,71 @@ func (c *Config) validateAgentRoles() error {
 		}
 	}
 	return nil
+}
+
+func validateAgentRoleMutationClass(name string, role AgentRoleConfig) error {
+	mutationClass := normalizeRoleMutationClass(name, role)
+	if !validMutationClass(mutationClass) {
+		return fmt.Errorf("invalid field agent_roles.%s.mutation_class=%q (expected orchestrator, source_write, brain_write, or read_only)", name, role.MutationClass)
+	}
+	disallowedGroups := map[string]struct{}{}
+	disallowedCustomTools := map[string]struct{}{}
+	disallowAllCustomTools := false
+	switch mutationClass {
+	case MutationClassOrchestrator:
+		for _, group := range []string{toolgroup.File, toolgroup.FileRead, toolgroup.Git, toolgroup.Shell, toolgroup.Search, toolgroup.Directory, toolgroup.Test, toolgroup.SQLC} {
+			disallowedGroups[group] = struct{}{}
+		}
+		for _, customTool := range role.CustomTools {
+			name := strings.TrimSpace(customTool)
+			if name == "" || name == "spawn_agent" || name == "chain_complete" {
+				continue
+			}
+			disallowedCustomTools[name] = struct{}{}
+		}
+	case MutationClassSourceWrite:
+		for _, name := range []string{"spawn_agent", "chain_complete"} {
+			disallowedCustomTools[name] = struct{}{}
+		}
+	case MutationClassBrainWrite:
+		for _, group := range []string{toolgroup.File, toolgroup.Shell, toolgroup.Test, toolgroup.SQLC} {
+			disallowedGroups[group] = struct{}{}
+		}
+		disallowAllCustomTools = true
+	case MutationClassReadOnly:
+		for _, group := range []string{toolgroup.File, toolgroup.Shell, toolgroup.Test, toolgroup.SQLC} {
+			disallowedGroups[group] = struct{}{}
+		}
+		disallowAllCustomTools = true
+	}
+	for _, group := range role.Tools {
+		normalized := strings.TrimSpace(group)
+		if _, disallowed := disallowedGroups[normalized]; disallowed {
+			return fmt.Errorf("invalid field agent_roles.%s.tools (tool group %q is not allowed for mutation_class %q)", name, group, mutationClass)
+		}
+	}
+	for _, customTool := range role.CustomTools {
+		normalized := strings.TrimSpace(customTool)
+		if normalized == "" {
+			continue
+		}
+		if disallowAllCustomTools {
+			return fmt.Errorf("invalid field agent_roles.%s.custom_tools (custom tool %q is not allowed for mutation_class %q)", name, customTool, mutationClass)
+		}
+		if _, disallowed := disallowedCustomTools[normalized]; disallowed {
+			return fmt.Errorf("invalid field agent_roles.%s.custom_tools (custom tool %q is not allowed for mutation_class %q)", name, customTool, mutationClass)
+		}
+	}
+	return nil
+}
+
+func validMutationClass(value MutationClass) bool {
+	switch value {
+	case MutationClassOrchestrator, MutationClassSourceWrite, MutationClassBrainWrite, MutationClassReadOnly:
+		return true
+	default:
+		return false
+	}
 }
 
 func expandPath(path string) (string, error) {

@@ -2,13 +2,16 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ponchione/sodoryard/internal/provider"
 	"github.com/ponchione/sodoryard/internal/provider/tracking"
+	tracepkg "github.com/ponchione/sodoryard/internal/trace"
 )
 
 // mockProvider implements provider.Provider with controllable behavior.
@@ -831,6 +834,55 @@ type mockSubCallStore struct {
 	calls []tracking.InsertSubCallParams
 }
 
+type mockTraceRecorder struct {
+	mu    sync.Mutex
+	spans []tracepkg.Span
+	ends  []tracepkg.SpanEnd
+}
+
+type routerProviderHookStub struct {
+	name      string
+	events    *[]string
+	beforeErr error
+	afterErr  error
+}
+
+func (h routerProviderHookStub) BeforeProviderCall(ctx context.Context, call provider.ProviderCall) (context.Context, error) {
+	*h.events = append(*h.events, "before:"+h.name+":"+call.Provider+":"+call.Operation)
+	return ctx, h.beforeErr
+}
+
+func (h routerProviderHookStub) AfterProviderCall(ctx context.Context, call provider.ProviderCall, _ provider.Usage, _ error) error {
+	*h.events = append(*h.events, "after:"+h.name+":"+call.Provider+":"+call.Operation)
+	return h.afterErr
+}
+
+func (r *mockTraceRecorder) StartSpan(_ context.Context, span tracepkg.Span) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans = append(r.spans, span)
+	return nil
+}
+
+func (r *mockTraceRecorder) EndSpan(_ context.Context, end tracepkg.SpanEnd) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ends = append(r.ends, end)
+	return nil
+}
+
+func (r *mockTraceRecorder) ListSpans(context.Context, tracepkg.Query) ([]tracepkg.Span, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tracepkg.Span(nil), r.spans...), nil
+}
+
+func (r *mockTraceRecorder) snapshot() ([]tracepkg.Span, []tracepkg.SpanEnd) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tracepkg.Span(nil), r.spans...), append([]tracepkg.SpanEnd(nil), r.ends...)
+}
+
 func (s *mockSubCallStore) InsertSubCall(_ context.Context, params tracking.InsertSubCallParams) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -876,6 +928,95 @@ func TestComplete_TracksSubCalls(t *testing.T) {
 	}
 	if calls[0].TokensIn != 100 {
 		t.Errorf("expected 100 input tokens, got %d", calls[0].TokensIn)
+	}
+}
+
+func TestComplete_RecordsProviderSpan(t *testing.T) {
+	traces := &mockTraceRecorder{}
+	r, _ := NewRouter(validConfig(), nil, nil)
+	r.SetTraceRecorder(traces)
+	mock := &mockProvider{
+		name:         "anthropic",
+		completeResp: &provider.Response{Model: "claude-sonnet-4-6", Usage: provider.Usage{InputTokens: 3, OutputTokens: 2}},
+	}
+	_ = r.RegisterProvider(mock)
+
+	_, err := r.Complete(context.Background(), &provider.Request{
+		Purpose:        "chat",
+		ConversationID: "conv-1",
+		TurnNumber:     4,
+		Iteration:      2,
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	spans, ends := traces.snapshot()
+	if len(spans) != 1 || len(ends) != 1 {
+		t.Fatalf("trace spans=%+v ends=%+v, want one completed span", spans, ends)
+	}
+	if spans[0].Kind != tracepkg.KindProvider || spans[0].ConversationID != "conv-1" || spans[0].TurnNumber != 4 || spans[0].Iteration != 2 {
+		t.Fatalf("span = %+v, want provider span with request metadata", spans[0])
+	}
+	if ends[0].Status != tracepkg.StatusOK || ends[0].DurationMs < 0 {
+		t.Fatalf("span end = %+v, want ok duration", ends[0])
+	}
+}
+
+func TestComplete_RunsProviderHooksInAroundOrder(t *testing.T) {
+	var events []string
+	r, _ := NewRouter(validConfig(), nil, nil)
+	r.SetProviderHooks(
+		routerProviderHookStub{name: "a", events: &events},
+		routerProviderHookStub{name: "b", events: &events},
+	)
+	mock := &mockProvider{
+		name:         "anthropic",
+		completeResp: &provider.Response{Model: "claude-sonnet-4-6"},
+	}
+	_ = r.RegisterProvider(mock)
+
+	if _, err := r.Complete(context.Background(), &provider.Request{Purpose: "chat"}); err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	want := []string{
+		"before:a:anthropic:complete",
+		"before:b:anthropic:complete",
+		"after:b:anthropic:complete",
+		"after:a:anthropic:complete",
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
+func TestComplete_ProviderHookBeforeErrorFailsClosed(t *testing.T) {
+	var events []string
+	blocked := errors.New("blocked by hook")
+	r, _ := NewRouter(validConfig(), nil, nil)
+	r.SetProviderHooks(
+		routerProviderHookStub{name: "outer", events: &events},
+		routerProviderHookStub{name: "policy", events: &events, beforeErr: blocked},
+	)
+	mock := &mockProvider{
+		name:         "anthropic",
+		completeResp: &provider.Response{Model: "claude-sonnet-4-6"},
+	}
+	_ = r.RegisterProvider(mock)
+
+	_, err := r.Complete(context.Background(), &provider.Request{Purpose: "chat"})
+	if !errors.Is(err, blocked) {
+		t.Fatalf("Complete err = %v, want blocked", err)
+	}
+	if mock.getCompleteCalls() != 0 {
+		t.Fatalf("provider was called despite before hook error")
+	}
+	want := []string{
+		"before:outer:anthropic:complete",
+		"before:policy:anthropic:complete",
+		"after:outer:anthropic:complete",
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %v, want %v", events, want)
 	}
 }
 

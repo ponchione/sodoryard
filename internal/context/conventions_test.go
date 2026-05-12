@@ -2,13 +2,14 @@ package context
 
 import (
 	stdctx "context"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ponchione/sodoryard/internal/brain"
 )
 
-func TestBrainConventionSourceLoadReturnsEmptyWhenDirectoryMissing(t *testing.T) {
-	source := NewBrainConventionSource(t.TempDir())
+func TestBrainBackendConventionSourceLoadReturnsEmptyWhenMissing(t *testing.T) {
+	source := NewBrainBackendConventionSource(fakeConventionBackend{})
 	text, err := source.Load(stdctx.Background())
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
@@ -18,12 +19,11 @@ func TestBrainConventionSourceLoadReturnsEmptyWhenDirectoryMissing(t *testing.T)
 	}
 }
 
-func TestBrainConventionSourceLoadExtractsBulletsAndParagraphSummaries(t *testing.T) {
-	vault := t.TempDir()
-	mustWriteConventionFile(t, vault, "conventions/testing-patterns.md", "---\ntags: [convention]\n---\n\n# Testing patterns\n\n- Prefer table-driven tests\n- Keep fixtures local to each test file\n")
-	mustWriteConventionFile(t, vault, "conventions/error-handling.md", "# Error handling\n\nAlways wrap errors with operation context and preserve the original cause.\n\n```go\nfmt.Errorf(\"load config: %w\", err)\n```\n")
-
-	source := NewBrainConventionSource(vault)
+func TestBrainBackendConventionSourceLoadExtractsBulletsAndParagraphSummaries(t *testing.T) {
+	source := NewBrainBackendConventionSource(fakeConventionBackend{
+		"conventions/testing-patterns.md": "---\ntags: [convention]\n---\n\n# Testing patterns\n\n- Prefer table-driven tests\n- Keep fixtures local to each test file\n",
+		"conventions/error-handling.md":   "# Error handling\n\nAlways wrap errors with operation context and preserve the original cause.\n\n```go\nfmt.Errorf(\"load config: %w\", err)\n```\n",
+	})
 	text, err := source.Load(stdctx.Background())
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
@@ -34,11 +34,11 @@ func TestBrainConventionSourceLoadExtractsBulletsAndParagraphSummaries(t *testin
 	}
 }
 
-func TestBrainConventionSourceLoadDeduplicatesAndRespectsLimit(t *testing.T) {
-	vault := t.TempDir()
-	mustWriteConventionFile(t, vault, "conventions/a.md", "- Same rule\n- Same rule\n- Rule A\n")
-	mustWriteConventionFile(t, vault, "conventions/b.md", "- Rule B\n")
-	source := NewBrainConventionSource(vault)
+func TestBrainBackendConventionSourceLoadDeduplicatesAndRespectsLimit(t *testing.T) {
+	source := NewBrainBackendConventionSource(fakeConventionBackend{
+		"conventions/a.md": "- Same rule\n- Same rule\n- Rule A\n",
+		"conventions/b.md": "- Rule B\n",
+	})
 	source.bulletLimit = 2
 
 	text, err := source.Load(stdctx.Background())
@@ -57,13 +57,26 @@ func TestExtractConventionBulletsFallsBackToFilenameWhenHeadingMissing(t *testin
 	}
 }
 
-func mustWriteConventionFile(t *testing.T, root, relPath, content string) {
-	t.Helper()
-	fullPath := filepath.Join(root, filepath.FromSlash(relPath))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%s): %v", fullPath, err)
+type fakeConventionBackend map[string]string
+
+func (f fakeConventionBackend) ReadDocument(_ stdctx.Context, path string) (string, error) {
+	return f[path], nil
+}
+
+func (f fakeConventionBackend) WriteDocument(stdctx.Context, string, string) error { return nil }
+func (f fakeConventionBackend) PatchDocument(stdctx.Context, string, string, string) error {
+	return nil
+}
+func (f fakeConventionBackend) SearchKeyword(stdctx.Context, string) ([]brain.SearchHit, error) {
+	return nil, nil
+}
+func (f fakeConventionBackend) ListDocuments(_ stdctx.Context, directory string) ([]string, error) {
+	var paths []string
+	prefix := strings.TrimSuffix(directory, "/") + "/"
+	for path := range f {
+		if strings.HasPrefix(path, prefix) {
+			paths = append(paths, path)
+		}
 	}
-	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s): %v", fullPath, err)
-	}
+	return paths, nil
 }

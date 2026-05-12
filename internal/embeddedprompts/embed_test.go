@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ponchione/sodoryard/internal/promptmeta"
 )
 
 func TestKeysIncludesAllBuiltInRoles(t *testing.T) {
@@ -83,11 +85,73 @@ func TestEmbeddedPromptsUseRuntimeToolNamesAndCleanMarkdown(t *testing.T) {
 		if !ok {
 			t.Fatalf("Get(%q) ok = false", role)
 		}
-		if !strings.HasPrefix(content, "# ") {
-			t.Fatalf("prompt %q starts with %q, want markdown heading", role, content[:min(len(content), 20)])
+		parsed := promptmeta.Parse(content)
+		body := strings.TrimSpace(parsed.Body)
+		if !strings.HasPrefix(body, "# ") {
+			t.Fatalf("prompt %q body starts with %q, want markdown heading", role, body[:min(len(body), 20)])
 		}
 		if strings.Contains(content, "spawn_engine") {
 			t.Fatalf("prompt %q references obsolete spawn_engine tool name", role)
 		}
 	}
+}
+
+func TestEmbeddedPromptsCarryRoleMetadata(t *testing.T) {
+	type wantMetadata struct {
+		persona                    string
+		expectedTools              []string
+		recommendedMaxTurns        int
+		requiresStructuredFindings bool
+	}
+	want := map[string]wantMetadata{
+		"orchestrator":        {persona: "Sir Topham Hatt", expectedTools: []string{"brain"}, recommendedMaxTurns: 50},
+		"planner":             {persona: "Gordon", expectedTools: []string{"brain", "search"}, recommendedMaxTurns: 30},
+		"epic-decomposer":     {persona: "Edward", expectedTools: []string{"brain"}, recommendedMaxTurns: 20},
+		"task-decomposer":     {persona: "Emily", expectedTools: []string{"brain"}, recommendedMaxTurns: 20},
+		"coder":               {persona: "Thomas", expectedTools: []string{"brain", "file", "git", "search", "shell"}, recommendedMaxTurns: 100},
+		"correctness-auditor": {persona: "Percy", expectedTools: []string{"brain", "file:read", "git"}, recommendedMaxTurns: 30, requiresStructuredFindings: true},
+		"quality-auditor":     {persona: "James", expectedTools: []string{"brain", "file:read", "git"}, recommendedMaxTurns: 30, requiresStructuredFindings: true},
+		"performance-auditor": {persona: "Spencer", expectedTools: []string{"brain", "file:read", "git"}, recommendedMaxTurns: 20, requiresStructuredFindings: true},
+		"security-auditor":    {persona: "Diesel", expectedTools: []string{"brain", "file:read", "git"}, recommendedMaxTurns: 20, requiresStructuredFindings: true},
+		"integration-auditor": {persona: "Toby", expectedTools: []string{"brain", "file:read", "git"}, recommendedMaxTurns: 20, requiresStructuredFindings: true},
+		"test-writer":         {persona: "Rosie", expectedTools: []string{"brain", "file", "git", "search", "shell"}, recommendedMaxTurns: 50},
+		"resolver":            {persona: "Victor", expectedTools: []string{"brain", "file", "git", "search", "shell"}, recommendedMaxTurns: 50},
+		"docs-arbiter":        {persona: "Harold", expectedTools: []string{"brain"}, recommendedMaxTurns: 20},
+	}
+
+	for role, expected := range want {
+		content, ok := Get(role)
+		if !ok {
+			t.Fatalf("Get(%q) ok = false", role)
+		}
+		parsed := promptmeta.Parse(content)
+		if !parsed.HasFrontmatter {
+			t.Fatalf("prompt %q has no metadata frontmatter", role)
+		}
+		if len(parsed.Warnings) > 0 {
+			t.Fatalf("prompt %q metadata warnings = %v", role, parsed.Warnings)
+		}
+		meta := parsed.Metadata
+		if meta.RoleKey != role || meta.Persona != expected.persona || meta.ReceiptSchema != promptmeta.ReceiptSchemaV1 {
+			t.Fatalf("prompt %q metadata = %+v, want role/persona/schema", role, meta)
+		}
+		if !equalStringSlices(meta.ExpectedTools, expected.expectedTools) {
+			t.Fatalf("prompt %q expected tools = %v, want %v", role, meta.ExpectedTools, expected.expectedTools)
+		}
+		if meta.RecommendedMaxTurns != expected.recommendedMaxTurns || meta.RequiresStructuredFindings != expected.requiresStructuredFindings {
+			t.Fatalf("prompt %q runtime hints = max_turns %d structured %t, want %d/%t", role, meta.RecommendedMaxTurns, meta.RequiresStructuredFindings, expected.recommendedMaxTurns, expected.requiresStructuredFindings)
+		}
+	}
+}
+
+func equalStringSlices(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

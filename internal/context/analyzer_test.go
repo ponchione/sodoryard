@@ -651,16 +651,16 @@ func TestRuleBasedAnalyzerIgnoresSentenceCapitalizationAsSymbolReference(t *test
 	}
 }
 
-func TestRuleBasedAnalyzerRejectsVaultRootedNotePathsAsExplicitFiles(t *testing.T) {
+func TestRuleBasedAnalyzerRejectsBrainDocumentPathsAsExplicitFiles(t *testing.T) {
 	analyzer := RuleBasedAnalyzer{}
 
 	needs := analyzer.AnalyzeTurn("Confirm the brain note notes/runtime/soak-token-1775392724511125308.md matches the search hit and compare with internal/server/websocket.go", nil)
 
 	if slices.Contains(needs.ExplicitFiles, "notes/runtime/soak-token-1775392724511125308.md") {
-		t.Fatalf("ExplicitFiles = %v, unexpected vault-rooted note path", needs.ExplicitFiles)
+		t.Fatalf("ExplicitFiles = %v, unexpected brain document path", needs.ExplicitFiles)
 	}
 	requireStringsContain(t, needs.ExplicitFiles, "internal/server/websocket.go")
-	requireSignal(t, needs.Signals, "file_ref_rejected", "notes/runtime/soak-token-1775392724511125308.md", "vault_rooted_note_path")
+	requireSignal(t, needs.Signals, "file_ref_rejected", "notes/runtime/soak-token-1775392724511125308.md", "brain_document_path")
 }
 
 func historyMessage(content string) db.Message {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ponchione/sodoryard/internal/chain"
@@ -12,12 +13,17 @@ import (
 
 type Operator interface {
 	RuntimeStatus(context.Context) (operator.RuntimeStatus, error)
+	SetReasoningEffort(context.Context, string) (operator.RuntimeStatus, error)
 	ListAgentRoles(context.Context) ([]operator.AgentRoleSummary, error)
 	ListChains(context.Context, int) ([]operator.ChainSummary, error)
 	GetChainDetail(context.Context, string) (operator.ChainDetail, error)
 	ListEventsSince(context.Context, string, int64) ([]chain.Event, error)
 	ReadReceipt(context.Context, string, string) (operator.ReceiptView, error)
+	ListApprovals(context.Context, string) ([]operator.ApprovalView, error)
+	ApproveChainApproval(context.Context, string, string, string) (operator.ApprovalDecisionResult, error)
+	DenyChainApproval(context.Context, string, string, string) (operator.ApprovalDecisionResult, error)
 	PauseChain(context.Context, string) (operator.ControlResult, error)
+	ResumeChain(context.Context, string) (operator.ControlResult, error)
 	CancelChain(context.Context, string) (operator.ControlResult, error)
 	ValidateLaunch(context.Context, operator.LaunchRequest) (operator.LaunchPreview, error)
 	SaveLaunchDraft(context.Context, operator.LaunchRequest) (operator.LaunchDraft, error)
@@ -81,6 +87,8 @@ func NewModel(svc Operator, opts Options) Model {
 		styles:          newStyles(),
 	}
 	model.chatComposer = newChatComposer(model.styles)
+	model.consoleViewport = viewport.New(maxInt(24, model.contentWidth()-2), model.consoleViewportHeight())
 	model.resizeChatComposer()
+	model.resizeConsoleViewport()
 	return model
 }

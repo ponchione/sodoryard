@@ -2,7 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ponchione/sodoryard/internal/chaininput"
 	"github.com/ponchione/sodoryard/internal/operator"
@@ -17,6 +20,8 @@ func (m Model) renderLaunch() string {
 	lines = append(lines, fmt.Sprintf("preset: %s", m.activeLaunchPresetName()))
 	lines = append(lines, m.renderLaunchField(launchFieldTask, "task", renderLaunchTask(m.launch.SourceTask, m.launchEdit && m.launchField == launchFieldTask)))
 	lines = append(lines, m.renderLaunchField(launchFieldSpecs, "specs", renderLaunchSpecs(m.launch.SpecsText, m.launchEdit && m.launchField == launchFieldSpecs)))
+	lines = append(lines, m.renderLaunchField(launchFieldStepMaxTurns, "turns", renderLaunchCap(m.launch.StepMaxTurns, m.launchEdit && m.launchField == launchFieldStepMaxTurns)))
+	lines = append(lines, m.renderLaunchField(launchFieldStepMaxTokens, "tokens", renderLaunchCap(m.launch.StepMaxTokens, m.launchEdit && m.launchField == launchFieldStepMaxTokens)))
 	lines = append(lines, m.renderLaunchField(launchFieldMode, "mode", string(m.launch.Mode)))
 	role := m.launchRoleDisplay()
 	if role == "" {
@@ -30,7 +35,7 @@ func (m Model) renderLaunch() string {
 		roleLabel = "allowed"
 	}
 	lines = append(lines, m.renderLaunchField(launchFieldRole, roleLabel, role))
-	lines = append(lines, "", "controls: b preset  B save preset  i edit task/specs  m mode  n add role  - remove role  ctrl+u clear roles  s save  L load  v preview  S start")
+	lines = append(lines, "", "controls: b preset  B save preset  i edit selected  m mode  n add role  - remove role  ctrl+u clear roles  s save  L load  v preview  S start")
 	lines = append(lines, "", m.styles.title.Render("Preview"))
 	if m.preview == nil {
 		lines = append(lines, m.styles.subtle.Render("No preview yet."))
@@ -40,11 +45,17 @@ func (m Model) renderLaunch() string {
 			fmt.Sprintf("mode: %s", m.preview.Mode),
 			fmt.Sprintf("role: %s", m.preview.Role),
 		)
+		if m.preview.Template.Label != "" {
+			lines = append(lines, fmt.Sprintf("template: %s", m.preview.Template.Label))
+		}
 		if len(m.preview.Roster) > 0 {
 			lines = append(lines, fmt.Sprintf("roster: %s", strings.Join(m.preview.Roster, " -> ")))
 		}
 		if len(m.preview.AllowedRoles) > 0 {
 			lines = append(lines, fmt.Sprintf("allowed: %s", strings.Join(m.preview.AllowedRoles, ", ")))
+		}
+		if m.preview.StepMaxTurns > 0 || m.preview.StepMaxTokens > 0 {
+			lines = append(lines, "step caps: "+renderLaunchStepCaps(m.preview.StepMaxTurns, m.preview.StepMaxTokens))
 		}
 		lines = append(lines, "", m.styles.title.Render("Compiled task"), trimOneLine(m.preview.CompiledTask, 120))
 		if len(m.preview.Warnings) > 0 {
@@ -91,6 +102,31 @@ func renderLaunchSpecs(specs string, editing bool) string {
 		return specs + " _"
 	}
 	return trimOneLine(specs, 96)
+}
+
+func renderLaunchCap(value int, editing bool) string {
+	if value <= 0 {
+		if editing {
+			return "unset _"
+		}
+		return "unset"
+	}
+	text := strconv.Itoa(value)
+	if editing {
+		return text + " _"
+	}
+	return text
+}
+
+func renderLaunchStepCaps(stepMaxTurns int, stepMaxTokens int) string {
+	parts := make([]string, 0, 2)
+	if stepMaxTurns > 0 {
+		parts = append(parts, fmt.Sprintf("turns=%d", stepMaxTurns))
+	}
+	if stepMaxTokens > 0 {
+		parts = append(parts, fmt.Sprintf("tokens=%d", stepMaxTokens))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m *Model) ensureLaunchDefaults() {
@@ -239,13 +275,17 @@ func (m *Model) moveLaunchField(delta int) {
 }
 
 func (m Model) launchFieldEditable() bool {
-	return m.launchField == launchFieldTask || m.launchField == launchFieldSpecs
+	return m.launchField == launchFieldTask || m.launchField == launchFieldSpecs || m.launchField == launchFieldStepMaxTurns || m.launchField == launchFieldStepMaxTokens
 }
 
 func (m Model) launchFieldLabel() string {
 	switch m.launchField {
 	case launchFieldSpecs:
 		return "specs"
+	case launchFieldStepMaxTurns:
+		return "step max turns"
+	case launchFieldStepMaxTokens:
+		return "step max tokens"
 	case launchFieldMode:
 		return "mode"
 	case launchFieldRole:
@@ -256,18 +296,67 @@ func (m Model) launchFieldLabel() string {
 }
 
 func (m Model) launchFieldText() string {
-	if m.launchField == launchFieldSpecs {
+	switch m.launchField {
+	case launchFieldSpecs:
 		return m.launch.SpecsText
+	case launchFieldStepMaxTurns:
+		return launchCapText(m.launch.StepMaxTurns)
+	case launchFieldStepMaxTokens:
+		return launchCapText(m.launch.StepMaxTokens)
+	default:
+		return m.launch.SourceTask
 	}
-	return m.launch.SourceTask
 }
 
-func (m *Model) setLaunchFieldText(value string) {
-	if m.launchField == launchFieldSpecs {
+func (m *Model) setLaunchFieldText(value string) error {
+	switch m.launchField {
+	case launchFieldSpecs:
 		m.launch.SpecsText = value
-		return
+	case launchFieldStepMaxTurns:
+		parsed, err := parseLaunchCapText(value, "step max turns")
+		if err != nil {
+			return err
+		}
+		m.launch.StepMaxTurns = parsed
+	case launchFieldStepMaxTokens:
+		parsed, err := parseLaunchCapText(value, "step max tokens")
+		if err != nil {
+			return err
+		}
+		m.launch.StepMaxTokens = parsed
+	default:
+		m.launch.SourceTask = value
 	}
-	m.launch.SourceTask = value
+	return nil
+}
+
+func (m Model) updateLaunchFieldText(value string) (Model, tea.Cmd) {
+	if err := m.setLaunchFieldText(value); err != nil {
+		m.err = err
+		return m, nil
+	}
+	m.clearLaunchPreview()
+	m.err = nil
+	return m, nil
+}
+
+func launchCapText(value int) string {
+	if value <= 0 {
+		return ""
+	}
+	return strconv.Itoa(value)
+}
+
+func parseLaunchCapText(value string, label string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", label)
+	}
+	return parsed, nil
 }
 
 func parseLaunchSpecs(value string) []string {
@@ -276,10 +365,12 @@ func parseLaunchSpecs(value string) []string {
 
 func (m Model) launchRequest() operator.LaunchRequest {
 	req := operator.LaunchRequest{
-		Mode:        m.launch.Mode,
-		Role:        m.launch.Role,
-		SourceTask:  m.launch.SourceTask,
-		SourceSpecs: parseLaunchSpecs(m.launch.SpecsText),
+		Mode:          m.launch.Mode,
+		Role:          m.launch.Role,
+		SourceTask:    m.launch.SourceTask,
+		SourceSpecs:   parseLaunchSpecs(m.launch.SpecsText),
+		StepMaxTurns:  m.launch.StepMaxTurns,
+		StepMaxTokens: m.launch.StepMaxTokens,
 	}
 	if m.launch.Mode == operator.LaunchModeConstrained {
 		req.AllowedRoles = append([]string(nil), m.launch.AllowedRoles...)
@@ -297,6 +388,8 @@ func (m *Model) applyLaunchRequest(req operator.LaunchRequest) {
 	m.launch.Roster = append([]string(nil), req.Roster...)
 	m.launch.SourceTask = req.SourceTask
 	m.launch.SpecsText = strings.Join(req.SourceSpecs, ", ")
+	m.launch.StepMaxTurns = req.StepMaxTurns
+	m.launch.StepMaxTokens = req.StepMaxTokens
 	m.ensureLaunchDefaults()
 	m.clearLaunchPreview()
 }
@@ -307,7 +400,7 @@ func (m *Model) clearLaunchPreview() {
 }
 
 func sameLaunchRequest(left operator.LaunchRequest, right operator.LaunchRequest) bool {
-	if left.Mode != right.Mode || left.Role != right.Role || left.SourceTask != right.SourceTask {
+	if left.Mode != right.Mode || left.Role != right.Role || left.SourceTask != right.SourceTask || left.StepMaxTurns != right.StepMaxTurns || left.StepMaxTokens != right.StepMaxTokens {
 		return false
 	}
 	if len(left.Roster) != len(right.Roster) {

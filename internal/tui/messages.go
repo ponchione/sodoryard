@@ -70,6 +70,14 @@ type chatTurnMsg struct {
 	Err    error
 }
 
+type consoleCommandMsg struct {
+	Entry         consoleEntry
+	Status        *operator.RuntimeStatus
+	Err           error
+	FollowChainID string
+	Refresh       bool
+}
+
 type tickMsg time.Time
 
 type followTickMsg time.Time

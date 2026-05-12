@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/ponchione/sodoryard/internal/chain"
@@ -151,6 +152,39 @@ func TestSendChatMessageDeletesCanceledNewConversation(t *testing.T) {
 	}
 	if _, err := svc.rt.ConversationManager.Get(context.Background(), mock.req.ConversationID); err == nil {
 		t.Fatal("canceled new chat conversation still exists")
+	}
+}
+
+func TestSendChatMessageDeletesNewConversationWhenUserMessagePersistFails(t *testing.T) {
+	ctx := context.Background()
+	db := newOperatorTestDB(t)
+	projectRoot := t.TempDir()
+	mock := &chatProviderMock{}
+	svc := openChatOperatorTestService(t, projectRoot, db, mock)
+
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER fail_raw_chat_user_message
+BEFORE INSERT ON messages
+WHEN NEW.role = 'user'
+BEGIN
+	SELECT RAISE(ABORT, 'forced user insert failure');
+END;`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	_, err := svc.SendChatMessage(ctx, ChatTurnRequest{Message: "will fail"})
+	if err == nil || !strings.Contains(err.Error(), "persist chat user message") {
+		t.Fatalf("SendChatMessage error = %v, want persist failure", err)
+	}
+	if mock.req != nil {
+		t.Fatalf("provider request = %+v, want provider not called", mock.req)
+	}
+
+	var conversationCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM conversations`).Scan(&conversationCount); err != nil {
+		t.Fatalf("count conversations: %v", err)
+	}
+	if conversationCount != 0 {
+		t.Fatalf("conversation count = %d, want failed new chat conversation deleted", conversationCount)
 	}
 }
 

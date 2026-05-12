@@ -35,11 +35,93 @@ type codexAuthFile struct {
 }
 
 type codexRefreshResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	Error        string `json:"error,omitempty"`
-	Description  string `json:"error_description,omitempty"`
-	Message      string `json:"message,omitempty"`
+	AccessToken  string          `json:"access_token"`
+	RefreshToken string          `json:"refresh_token,omitempty"`
+	Error        codexErrorValue `json:"error,omitempty"`
+	Description  string          `json:"error_description,omitempty"`
+	Message      string          `json:"message,omitempty"`
+}
+
+type codexErrorValue struct {
+	text string
+	code string
+}
+
+func (e *codexErrorValue) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		*e = codexErrorValue{}
+		return nil
+	}
+
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*e = codexErrorValue{text: strings.TrimSpace(text)}
+		return nil
+	}
+
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		e.text = raw
+		return nil
+	}
+
+	var parsed codexErrorValue
+	for _, key := range []string{"error", "message", "error_description", "description", "detail"} {
+		value, ok := object[key]
+		if !ok {
+			continue
+		}
+		if key == "error" {
+			var nested codexErrorValue
+			if err := json.Unmarshal(value, &nested); err == nil {
+				if parsed.text == "" {
+					parsed.text = nested.text
+				}
+				if parsed.code == "" {
+					parsed.code = nested.code
+				}
+				continue
+			}
+		}
+		if err := json.Unmarshal(value, &text); err == nil && strings.TrimSpace(text) != "" {
+			parsed.text = strings.TrimSpace(text)
+			break
+		}
+	}
+	for _, key := range []string{"code", "type"} {
+		value, ok := object[key]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(value, &text); err == nil && strings.TrimSpace(text) != "" {
+			parsed.code = strings.TrimSpace(text)
+			break
+		}
+	}
+	if parsed.text == "" {
+		if parsed.code != "" {
+			parsed.text = parsed.code
+		} else if encoded, err := json.Marshal(object); err == nil {
+			parsed.text = string(encoded)
+		} else {
+			parsed.text = raw
+		}
+	}
+	*e = parsed
+	return nil
+}
+
+func (e codexErrorValue) String() string {
+	if strings.TrimSpace(e.text) != "" {
+		return strings.TrimSpace(e.text)
+	}
+	return strings.TrimSpace(e.code)
+}
+
+func (e codexErrorValue) Is(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.EqualFold(strings.TrimSpace(e.text), value) || strings.EqualFold(strings.TrimSpace(e.code), value)
 }
 
 type codexDeviceCodeResponse struct {
@@ -484,7 +566,7 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	var payload codexRefreshResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
 		return provider.NewAuthProviderError("codex", provider.AuthRefreshFailed, resp.StatusCode, fmt.Sprintf("Codex credential refresh returned invalid JSON: %v", err), codexAuthRemediation(), err)
 	}
 
@@ -494,9 +576,11 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 			message = fmt.Sprintf("Codex token refresh failed: %s", payload.Description)
 		} else if payload.Message != "" {
 			message = fmt.Sprintf("Codex token refresh failed: %s", payload.Message)
+		} else if payload.Error.String() != "" {
+			message = fmt.Sprintf("Codex token refresh failed: %s", payload.Error.String())
 		}
 		kind := provider.AuthRefreshFailed
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || payload.Error == "invalid_grant" {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || payload.Error.Is("invalid_grant") {
 			kind = provider.AuthExpiredCredentials
 		}
 		return provider.NewAuthProviderError("codex", kind, resp.StatusCode, message, codexAuthRemediation(), nil)

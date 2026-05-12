@@ -8,7 +8,7 @@
 
 ## Overview
 
-The orchestrator is a Go binary that manages chain executions. A chain is an ordered sequence of agent invocations against a shared brain vault, where each agent runs inside the engine harness (Tidmouth) and communicates results through brain documents. The orchestrator is itself an LLM agent — it reads brain state, exercises judgment about what to do next, and dispatches engines via custom tools.
+The orchestrator is a Go binary that manages chain executions. A chain is an ordered sequence of agent invocations against shared Shunter project memory, where each agent runs inside the engine harness (Tidmouth) and communicates results through brain documents. The orchestrator is itself an LLM agent — it reads brain state, exercises judgment about what to do next, and dispatches engines via custom tools.
 
 The orchestrator does not write code, read files, run shell commands, or interact with the codebase directly. It reads the brain and spawns engines. That is its entire job.
 
@@ -24,9 +24,9 @@ This spec depends on:
 
 ### Chain
 
-A chain is a complete execution of work — from reading specs through decomposition, planning, implementation, auditing, and resolution. A chain has an ID, a source (which specs triggered it), a sequence of steps, and an overall status. Chains are tracked in SQLite.
+A chain is a complete execution of work — from reading specs through decomposition, planning, implementation, auditing, and resolution. A chain has an ID, a source (which specs triggered it), a sequence of steps, and an overall status. Chains are tracked in Shunter project memory.
 
-A chain may contain exactly one step. One-step chains are the canonical representation for autonomous single-agent work, replacing any separate public run model. They use the same SQLite records, event log, receipt conventions, pause/cancel semantics, metrics, and operator inspection surfaces as longer chains.
+A chain may contain exactly one step. One-step chains are the canonical representation for autonomous single-agent work, replacing any separate public run model. They use the same Shunter chain state, event log, receipt conventions, pause/cancel semantics, metrics, and operator inspection surfaces as longer chains.
 
 Chains can be orchestrator-managed, manually rostered, or one-step. Orchestrator-managed chains run the Sir Topham role to decide sequencing dynamically. Manually rostered and one-step chains skip the orchestrator agent and execute their declared steps directly through the same step runner.
 
@@ -39,7 +39,7 @@ A step is one agent invocation within a chain. Each step records: which engine r
 The orchestrator itself runs as a chain-step engine session. It uses the engine harness with a restricted tool set: brain access plus two custom tools (`spawn_agent` and `chain_complete`). Its system prompt instructs it to read the brain, decide what to do, and dispatch engines.
 
 This means the orchestrator binary does three things:
-1. Sets up chain state tracking (SQLite)
+1. Sets up chain state tracking through Shunter project memory
 2. Registers the custom tools (`spawn_agent`, `chain_complete`)
 3. Starts a chain-step engine session with the orchestrator role
 
@@ -61,7 +61,6 @@ yard chain start [flags]
 | `--task <string>` | Yes (or `--specs`) | Free-form task description (for chains that don't start from specs) |
 | `--role <name>` | No | Start a one-step chain for this role instead of an orchestrator-managed chain |
 | `--project <path>` | No (default: cwd) | Project root directory |
-| `--brain <path>` | No (default: config) | Brain vault path override |
 | `--chain-id <string>` | No (auto-generated) | Chain execution identifier |
 | `--max-steps <int>` | No (default: 100) | Maximum total agent invocations |
 | `--max-resolver-loops <int>` | No (default: 3) | Maximum fix-audit cycles per task |
@@ -138,7 +137,7 @@ The orchestrator agent's primary tool. Spawns a chain-step engine session and bl
 1. Validate role exists in config.
 2. Check chain safety limits (max steps, token budget, duration).
 3. If `reindex_before`: exec `tidmouth index --quiet`; when `brain.enabled` is true, also exec `yard brain index --quiet`; wait for both to complete before spawning the engine.
-4. Create a step record in SQLite (status: running).
+4. Create a step record in Shunter project memory (status: running).
 5. Exec `tidmouth run --role {role} --task {task} --chain-id {chain-id} --receipt-path receipts/{role}/{chain-id}-step-{NNN}.md` as subprocess.
 6. Wait for process exit.
 7. Read receipt from brain at the expected path.
@@ -188,7 +187,7 @@ Signals the orchestrator agent that the chain is finished.
 **Implementation:**
 
 1. Write chain completion receipt to brain at `receipts/orchestrator/{chain-id}.md`.
-2. Update chain record in SQLite (status: completed/partial/failed, `receipt_path` set to the completion receipt).
+2. Update the Shunter chain record (status: completed/partial/failed, `receipt_path` set to the completion receipt).
 3. Log final chain metrics.
 4. Signal the orchestrator's agent loop to stop (return a special tool result that the headless driver recognizes as a termination signal).
 
@@ -196,99 +195,13 @@ Signals the orchestrator agent that the chain is finished.
 
 ## Chain State Schema
 
-SQLite database at `.yard/yard.db`.
+Chain, step, and event state is stored in Shunter project memory. The canonical row families are:
 
-### chains table
+- `chains`: id, source specs/task, status, summary, timing, metrics, limits, and control state.
+- `steps`: id, chain id, sequence, role, task, task context, status, verdict, receipt path, metrics, exit code, and error.
+- `events`: id, chain id, step id, event type, creation time, and JSON payload.
 
-```sql
-CREATE TABLE IF NOT EXISTS chains (
-    id                  TEXT PRIMARY KEY,
-    launch_id           TEXT,           -- optional operator launch that created this chain
-    launch_mode         TEXT NOT NULL DEFAULT 'sir_topham_decides',
-                                        -- sir_topham_decides,
-                                        -- constrained_orchestration,
-                                        -- manual_roster, one_step_chain
-    source_specs        TEXT,           -- JSON array of spec paths
-    source_task         TEXT,           -- free-form task if not spec-driven
-    status              TEXT NOT NULL DEFAULT 'running',
-                                        -- running, pause_requested, paused,
-                                        -- cancel_requested, completed, partial,
-                                        -- failed, cancelled
-    summary             TEXT,
-    receipt_path        TEXT,           -- brain-relative chain-level receipt path
-    total_steps         INTEGER NOT NULL DEFAULT 0,
-    total_tokens        INTEGER NOT NULL DEFAULT 0,
-    total_duration_secs INTEGER NOT NULL DEFAULT 0,
-    resolver_loops      INTEGER NOT NULL DEFAULT 0,
-
-    -- Limits
-    max_steps           INTEGER NOT NULL DEFAULT 100,
-    max_resolver_loops  INTEGER NOT NULL DEFAULT 3,
-    max_duration_secs   INTEGER NOT NULL DEFAULT 14400,
-    token_budget        INTEGER NOT NULL DEFAULT 5000000,
-
-    -- Timing
-    started_at          TEXT NOT NULL,
-    completed_at        TEXT,
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_chains_launch ON chains(launch_id);
-CREATE INDEX IF NOT EXISTS idx_chains_launch_mode ON chains(launch_mode);
-```
-
-### steps table
-
-```sql
-CREATE TABLE IF NOT EXISTS steps (
-    id                  TEXT PRIMARY KEY,
-    chain_id            TEXT NOT NULL REFERENCES chains(id),
-    sequence_num        INTEGER NOT NULL,
-    role                TEXT NOT NULL,       -- normalized engine role config key (e.g., 'coder')
-    persona             TEXT,                -- display persona resolved at step start, when known
-    task                TEXT NOT NULL,       -- task given to the engine
-    task_context        TEXT,                -- optional resolver-loop grouping key
-    status              TEXT NOT NULL DEFAULT 'pending',
-                                             -- pending, running, completed, failed
-    verdict             TEXT,                -- from receipt frontmatter
-    receipt_path        TEXT,                -- brain-relative path to receipt
-    tokens_used         INTEGER DEFAULT 0,
-    turns_used          INTEGER DEFAULT 0,
-    duration_secs       INTEGER DEFAULT 0,
-    provider            TEXT,                -- provider resolved for this step, when known
-    model               TEXT,                -- model resolved for this step, when known
-    selection_reason    TEXT,                -- why this role was selected, when known
-    exit_code           INTEGER,
-    error_message       TEXT,
-
-    -- Timing
-    started_at          TEXT,
-    completed_at        TEXT,
-    created_at          TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_steps_chain ON steps(chain_id);
-CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status);
-```
-
-### events table
-
-```sql
-CREATE TABLE IF NOT EXISTS events (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    chain_id            TEXT NOT NULL REFERENCES chains(id),
-    step_id             TEXT REFERENCES steps(id),
-    event_type          TEXT NOT NULL,
-    event_data          TEXT,               -- JSON blob
-    created_at          TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_events_chain ON events(chain_id);
-CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
-```
-
-All chain, step, and event timestamps are application-written RFC3339 UTC strings, matching [[08-data-model]]. Role values persisted in chain/step state are normalized `yard.yaml.agent_roles` config keys; persona names and aliases are accepted only at operator/UI input boundaries.
+All timestamps are application-written UTC microsecond values. Role values persisted in chain/step state are normalized `yard.yaml.agent_roles` config keys; persona names and aliases are accepted only at operator/UI input boundaries.
 
 ### Event Types
 
@@ -319,7 +232,7 @@ yard chain start --specs specs/auth.md
     │
     ├─ Load project config (yard.yaml)
     ├─ Validate orchestrator role exists in config
-    ├─ Create chain record in SQLite
+    ├─ Create chain record in Shunter project memory
     ├─ Log chain_started event
     │
     ├─ Build orchestrator tool registry:
@@ -461,9 +374,9 @@ The prompt should NOT hardcode the chain flow as a rigid sequence. The orchestra
 
 `yard chain logs --follow <chain-id>` reattaches to the event stream for an existing chain and uses the same verbosity rules. `yard chain status` without a chain ID lists the latest chains; with a chain ID it prints chain and step status.
 
-### SQLite
+### Shunter Project Memory
 
-All state is in SQLite. The events table provides a complete audit trail. Operator surfaces read this state through shared internal services backed by `internal/chain.Store`; see [[20-operator-console-tui]] for the primary TUI contract and [[21-web-inspector]] for browser inspection routes.
+All canonical chain state is in Shunter project memory. The event stream provides a complete audit trail. Operator surfaces read this state through shared internal services backed by `internal/chain.Store`; see [[20-operator-console-tui]] for the primary TUI contract and [[21-web-inspector]] for browser inspection routes.
 
 ### Brain
 
@@ -483,9 +396,6 @@ orchestrator:
   max_duration: 4h
   token_budget: 5000000
 
-  # Database location
-  database: .yard/yard.db
-
   # Engine binary path (default: tidmouth in PATH)
   engine_binary: tidmouth
 
@@ -500,15 +410,15 @@ orchestrator:
 ### What Exists Today
 
 From the current runtime/orchestrator stack:
-- Brain vault client — used directly by orchestrator for receipt reading
+- Shunter brain backend — used directly by orchestrator for receipt reading
 - Config loading — extended for orchestrator config
-- SQLite patterns — adapted from conductor v1 (see extraction guide)
+- Shunter-backed chain, step, event, receipt, launch, and preset state
 
 ### What Needs Built
 
 1. **`cmd/yard/chain.go`** plus **`internal/runtime/orchestrator.go`** — CLI entry point and shared runtime construction for chain startup.
 
-2. **`internal/chain/`** — Chain state management. SQLite schema, step tracking, event logging, limit enforcement.
+2. **`internal/chain/`** — Chain state management. Shunter-backed step tracking, event logging, and limit enforcement.
 
 3. **`internal/spawn/`** — `spawn_agent` tool implementation. Subprocess execution, receipt reading, metric aggregation.
 
@@ -522,7 +432,7 @@ From the current runtime/orchestrator stack:
 
 The orchestrator binary depends on:
 - The engine binary (Tidmouth) being available in PATH or configured path
-- A brain vault existing at the configured path
+- Shunter project memory configured for the project or exposed through the parent memory endpoint
 - Project config (yard.yaml) with role definitions
 
 It does NOT import engine internals for agent loop execution — it starts its own headless engine session via the same subprocess mechanism it uses for all other engines. The orchestrator is just another engine with special tools.

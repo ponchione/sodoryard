@@ -106,27 +106,31 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 		StartedAt: startedAt,
 	}
 
-	database, err := deps.openDB(ctx, cfg.DatabasePath())
-	if err != nil {
-		return nil, fmt.Errorf("index: open database: %w", err)
-	}
-	defer database.Close()
+	var database *sql.DB
+	if cfg.Memory.Backend != "shunter" {
+		database, err = deps.openDB(ctx, cfg.DatabasePath())
+		if err != nil {
+			return nil, fmt.Errorf("index: open database: %w", err)
+		}
+		defer database.Close()
 
-	if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
-		return nil, fmt.Errorf("index: init database schema: %w", err)
+		if _, err := appdb.InitIfNeeded(ctx, database); err != nil {
+			return nil, fmt.Errorf("index: init database schema: %w", err)
+		}
+		if err := appdb.EnsureContextReportsIncludeTokenBudget(ctx, database); err != nil {
+			return nil, fmt.Errorf("index: upgrade context report token budget storage: %w", err)
+		}
+		if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+			return nil, err
+		}
 	}
-	if err := appdb.EnsureContextReportsIncludeTokenBudget(ctx, database); err != nil {
-		return nil, fmt.Errorf("index: upgrade context report token budget storage: %w", err)
-	}
-	if err := ensureProjectRecord(ctx, database, cfg); err != nil {
+
+	stateStore, err := newStateStore(ctx, database, cfg)
+	if err != nil {
 		return nil, err
 	}
-
-	projectState, err := loadProjectState(ctx, database, cfg.ProjectRoot)
-	if err != nil {
-		return nil, err
-	}
-	fileStates, err := loadFileStates(ctx, database, cfg.ProjectRoot)
+	defer stateStore.Close()
+	projectState, fileStates, err := stateStore.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +214,7 @@ func runWithDependencies(ctx context.Context, opts Options, deps dependencies) (
 	}
 
 	finishedAt := deps.now().UTC()
-	if err := persistState(ctx, database, cfg.ProjectRoot, currentRevision, finishedAt, indexedStates, deletedFiles); err != nil {
+	if err := stateStore.Persist(ctx, currentRevision, finishedAt, indexedStates, deletedFiles); err != nil {
 		return nil, err
 	}
 
@@ -230,7 +234,7 @@ func resolveConfig(opts Options) (*config.Config, error) {
 	return &cfg, nil
 }
 
-func persistState(ctx context.Context, db *sql.DB, projectID, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error {
+func persistSQLiteState(ctx context.Context, db *sql.DB, projectID, revision string, indexedAt time.Time, indexed []fileState, deletedFiles []string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("index: begin metadata transaction: %w", err)

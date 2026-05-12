@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -158,7 +159,7 @@ func TestReadStreamedResponsePersistsCompletedCodexReasoning(t *testing.T) {
 		``,
 	}, "\n")
 
-	blocks, _, _, err := readStreamedResponse(strings.NewReader(stream))
+	blocks, _, _, err := readStreamedResponse(context.Background(), strings.NewReader(stream))
 	if err != nil {
 		t.Fatalf("readStreamedResponse() error: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestReadStreamedResponseKeepsToolArgumentsByItemID(t *testing.T) {
 		``,
 	}, "\n")
 
-	blocks, _, stopReason, err := readStreamedResponse(strings.NewReader(stream))
+	blocks, _, stopReason, err := readStreamedResponse(context.Background(), strings.NewReader(stream))
 	if err != nil {
 		t.Fatalf("readStreamedResponse() error: %v", err)
 	}
@@ -230,7 +231,7 @@ func TestReadStreamedResponseAcceptsLargeCompletedCodexReasoning(t *testing.T) {
 		``,
 	}, "\n")
 
-	blocks, _, _, err := readStreamedResponse(strings.NewReader(stream))
+	blocks, _, _, err := readStreamedResponse(context.Background(), strings.NewReader(stream))
 	if err != nil {
 		t.Fatalf("readStreamedResponse() error: %v", err)
 	}
@@ -239,6 +240,16 @@ func TestReadStreamedResponseAcceptsLargeCompletedCodexReasoning(t *testing.T) {
 	}
 	if blocks[0].Type != "codex_reasoning" || blocks[0].EncryptedContent != encrypted {
 		t.Fatalf("large reasoning block was not preserved")
+	}
+}
+
+func TestReadStreamedResponseHonorsCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, _, err := readStreamedResponse(ctx, strings.NewReader("event: response.completed\ndata: {}\n\n"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("readStreamedResponse() error = %v, want context.Canceled", err)
 	}
 }
 

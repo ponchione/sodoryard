@@ -13,18 +13,21 @@ func TestEnsureGitignoreEntriesCreatesFileWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureGitignoreEntries: %v", err)
 	}
-	if len(added) != 2 {
-		t.Errorf("expected 2 entries added, got %d: %v", len(added), added)
+	if len(added) != 1 {
+		t.Errorf("expected 1 entry added, got %d: %v", len(added), added)
 	}
 
 	data, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	for _, want := range []string{".yard/", ".brain/"} {
+	for _, want := range []string{".yard/"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("expected .gitignore to contain %q, got:\n%s", want, data)
 		}
+	}
+	if strings.Contains(string(data), ".brain/") {
+		t.Errorf("expected .gitignore not to contain .brain/, got:\n%s", data)
 	}
 }
 
@@ -39,8 +42,8 @@ func TestEnsureGitignoreEntriesAppendsToExistingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureGitignoreEntries: %v", err)
 	}
-	if len(added) != 2 {
-		t.Errorf("expected 2 entries added, got %d", len(added))
+	if len(added) != 1 {
+		t.Errorf("expected 1 entry added, got %d", len(added))
 	}
 
 	data, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
@@ -51,8 +54,11 @@ func TestEnsureGitignoreEntriesAppendsToExistingFile(t *testing.T) {
 	if !strings.Contains(got, "node_modules/") || !strings.Contains(got, "dist/") {
 		t.Errorf("expected existing entries preserved, got:\n%s", got)
 	}
-	if !strings.Contains(got, ".yard/") || !strings.Contains(got, ".brain/") {
+	if !strings.Contains(got, ".yard/") {
 		t.Errorf("expected new entries appended, got:\n%s", got)
+	}
+	if strings.Contains(got, ".brain/") {
+		t.Errorf("expected .brain/ not to be appended, got:\n%s", got)
 	}
 }
 

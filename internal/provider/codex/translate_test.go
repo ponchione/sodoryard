@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ponchione/sodoryard/internal/provider"
@@ -161,8 +162,40 @@ func TestBuildResponsesRequest_ToolResultMessage(t *testing.T) {
 	if item.CallID != "tc_1" {
 		t.Errorf("expected CallID %q, got %q", "tc_1", item.CallID)
 	}
-	if item.Output != "package auth..." {
-		t.Errorf("expected Output %q, got %q", "package auth...", item.Output)
+	if item.Output == nil || *item.Output != "package auth..." {
+		t.Errorf("expected Output %q, got %#v", "package auth...", item.Output)
+	}
+}
+
+func TestBuildResponsesRequest_EmptyToolResultIncludesOutputField(t *testing.T) {
+	req := &provider.Request{
+		Messages: []provider.Message{
+			provider.NewToolResultMessage("tc_empty", "shell", ""),
+		},
+	}
+	rr := buildResponsesRequest("o3", req, false)
+
+	if len(rr.Input) != 1 {
+		t.Fatalf("expected 1 input item, got %d", len(rr.Input))
+	}
+	item := rr.Input[0]
+	if item.Type != "function_call_output" {
+		t.Fatalf("expected type %q, got %q", "function_call_output", item.Type)
+	}
+	if item.Output == nil || *item.Output != "" {
+		t.Fatalf("expected empty output pointer, got %#v", item.Output)
+	}
+
+	data, err := json.Marshal(rr)
+	if err != nil {
+		t.Fatalf("marshal responses request: %v", err)
+	}
+	if !json.Valid(data) {
+		t.Fatalf("marshaled request is invalid JSON: %s", string(data))
+	}
+	body := string(data)
+	if !strings.Contains(body, `"type":"function_call_output"`) || !strings.Contains(body, `"call_id":"tc_empty"`) || !strings.Contains(body, `"output":""`) {
+		t.Fatalf("marshaled request missing required empty output field: %s", string(data))
 	}
 }
 
@@ -201,7 +234,7 @@ func TestBuildResponsesRequest_ToolDefinitions(t *testing.T) {
 	}
 }
 
-func TestBuildResponsesRequest_ForcesGPT55AndXHighReasoning(t *testing.T) {
+func TestBuildResponsesRequest_ForcesGPT55AndDefaultReasoning(t *testing.T) {
 	req := &provider.Request{}
 	rr := buildResponsesRequest("o3", req, false)
 
@@ -211,14 +244,29 @@ func TestBuildResponsesRequest_ForcesGPT55AndXHighReasoning(t *testing.T) {
 	if rr.Reasoning == nil {
 		t.Fatal("expected reasoning config for forced gpt-5.5 model")
 	}
-	if rr.Reasoning.Effort != "xhigh" {
-		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
+	if rr.Reasoning.Effort != "medium" {
+		t.Errorf("expected effort %q, got %q", "medium", rr.Reasoning.Effort)
 	}
 	if rr.Reasoning.Summary != "auto" {
 		t.Errorf("expected summary %q, got %q", "auto", rr.Reasoning.Summary)
 	}
 	if len(rr.Include) != 1 || rr.Include[0] != "reasoning.encrypted_content" {
 		t.Fatalf("Include = %#v, want encrypted reasoning include", rr.Include)
+	}
+}
+
+func TestBuildResponsesRequest_UsesConfiguredReasoningEffort(t *testing.T) {
+	req := &provider.Request{}
+	rr := buildResponsesRequestWithReasoning("o3", req, false, "low")
+
+	if rr.Model != "gpt-5.5" {
+		t.Fatalf("expected model %q, got %q", "gpt-5.5", rr.Model)
+	}
+	if rr.Reasoning == nil {
+		t.Fatal("expected reasoning config")
+	}
+	if rr.Reasoning.Effort != "low" {
+		t.Errorf("expected effort %q, got %q", "low", rr.Reasoning.Effort)
 	}
 }
 
@@ -232,8 +280,8 @@ func TestBuildResponsesRequest_ForcesGPT55EvenWhenRequestedModelDiffers(t *testi
 	if rr.Reasoning == nil {
 		t.Fatal("expected reasoning config for forced gpt-5.5 model")
 	}
-	if rr.Reasoning.Effort != "xhigh" {
-		t.Errorf("expected effort %q, got %q", "xhigh", rr.Reasoning.Effort)
+	if rr.Reasoning.Effort != "medium" {
+		t.Errorf("expected effort %q, got %q", "medium", rr.Reasoning.Effort)
 	}
 }
 

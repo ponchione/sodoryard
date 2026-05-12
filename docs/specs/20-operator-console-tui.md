@@ -14,7 +14,7 @@ The operator console is the target daily-driver interface for Yard. This spec de
 yard
 ```
 
-The console is not a replacement for the `yard` CLI command tree. The CLI remains the scriptable, composable surface for init, index, auth, doctor, config, brain, llm, serve, and chain commands. The TUI is the keyboard-driven operational surface for the same local runtime: raw provider/model chat, project readiness, role selection, chain launch, chain control, live event following, receipt browsing, and quick navigation into files or richer browser views.
+The console is not a replacement for the `yard` CLI command tree. The CLI remains the scriptable, composable surface for init, index, auth, doctor, config, brain, llm, serve, and chain commands. The TUI is the keyboard-driven operational surface for the same local runtime: raw provider/model chat, project readiness, role selection, chain launch, chain control, live event following, receipt browsing, and operational metrics. It intentionally does not become a project file browser or code review surface; operators use their IDE for that.
 
 The browser app remains available through `yard serve`, but its target role is the web inspector described in [[21-web-inspector]]. The product split is:
 
@@ -26,9 +26,8 @@ All three surfaces should converge on shared internal runtime services. The TUI 
 
 Implementation status as of 2026-05-03:
 
-- Landed: bare `yard` starts the TUI, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, shared `internal/operator` reads and controls, dashboard readiness metadata, chain/detail views, chain and receipt filtering, receipt summaries/content, live event follow, pause/cancel, receipt open through `$PAGER`/`$EDITOR`, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
-- Remaining: project tree file attachment and fuller browser inspector parity.
-- Resume is currently a foreground command handoff: the TUI shows `yard chain resume <chain-id>` rather than continuing runner execution inside the TUI.
+- Landed: bare `yard` starts a Codex-style command console, raw chat calls the configured provider/model without one of the 13 role prompts or chain tools, `/new` resets the visible console session, `/effort` switches Codex reasoning effort for the active runtime, slash commands call shared `internal/operator` reads and controls, dashboard/readiness output, chain/detail output, receipt content, approval list/approve/deny controls, scrollable console history, live event follow, pause/resume/cancel, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for `one_step_chain`, `manual_roster`, `constrained_orchestration`, and `sir_topham_decides`.
+- Daily-driver final touches landed: actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and read-only browser inspector routes for chains and metrics.
 
 ---
 
@@ -67,7 +66,7 @@ The operator console should answer five questions quickly:
    Active chains, running steps, recent events, current operation status, and failures should be visible without opening a browser.
 
 3. **What work am I launching?**
-   The operator should be able to write or load a task, select source specs/docs/files, choose launch mode, choose roles, and preview the compiled work packet.
+   The operator should be able to write or load a task, reference source specs/docs by path, choose launch mode, choose roles, and preview the compiled work packet.
 
 4. **Which agents are going to run?**
    The operator should be able to choose one role, an ordered manual roster, constrained orchestration, or Sir Topham-managed orchestration.
@@ -82,6 +81,7 @@ The operator console should answer five questions quickly:
 - No attempt to duplicate every rich browser visualization.
 - No arbitrary shell console inside the TUI outside existing Yard operations and agent tool output.
 - No full code editor. Use `$EDITOR` for editing files and brain docs.
+- No project file browser or code review surface. The normal dogfood posture is an IDE side-by-side with the TUI.
 - No mobile or touch design.
 - No remote multi-user dashboard, tenancy, accounts, or hosted assumptions.
 - No separate runtime service, Knapford process, or container.
@@ -98,29 +98,49 @@ The app should degrade at narrower sizes by hiding secondary panes and showing a
 Default full-screen layout:
 
 ```text
-+ Yard: project / provider:model / auth / indexes / active chains ------------+
-| Nav        | Main workspace                                      | Detail   |
-| Dashboard  | Tables, forms, chain list, receipt list, etc.        | Logs,    |
-| Launch     |                                                       | preview, |
-| Chains     |                                                       | help     |
-| Receipts   |                                                       |          |
-| Agents     |                                                       |          |
-| Project    |                                                       |          |
-| Settings   |                                                       |          |
-+------------+-------------------------------------------------------+----------+
-| ? help  / search  enter open  tab focus  esc back  q quit                     |
++ Yard: project / provider:model / readiness / active chains -----------------+
+| Yard Console                                                                 |
+| > Raw provider/model chat, slash commands, command results, receipts, events |
+| > /status                                                                    |
+| yard: readiness, indexes, auth, next actions                                  |
+| > /follow chain-abc123                                                       |
+| yard: live chain events append here                                           |
+|                                                                              |
+| Message composer                                                             |
++------------------------------------------------------------------------------+
+| /help commands  /new clear  enter send/run  ctrl+c quit                      |
 +------------------------------------------------------------------------------+
 ```
 
 Navigation rules:
 
-- Left nav stays visible unless the terminal is too narrow.
+- The command console is the default daily-driver surface; the old pane renderers are implementation fallbacks, not the primary navigation model.
 - Top status bar is always visible.
-- Bottom key-hint bar reflects the focused pane.
+- Bottom key-hint bar reflects the console command model.
 - Long content scrolls inside panes, not through terminal scrollback.
 - Forms should show dirty/saving/error state near the field that needs attention.
 - Destructive actions require confirmation.
 - When an action has a CLI equivalent, the TUI can display that equivalent for learnability.
+
+Primary slash commands:
+
+| Command | Behavior |
+|---|---|
+| `/new` | Clear the visible console session, reset raw chat state, and stop event follow without changing project state. |
+| `/status` | Show readiness, auth, indexes, local services, warnings, and next commands. |
+| `/model` | Show configured provider, model, reasoning effort, and auth state. |
+| `/effort [low\|medium\|high\|xhigh]` | Show or set Codex reasoning effort for subsequent TUI runtime calls. |
+| `/chains [filter]` | List recent chains inline. |
+| `/chain <id>` | Show chain health, budget use, steps, receipts, and recent events. |
+| `/events <id> [limit]` | Show recent chain events. |
+| `/follow <id>` / `/unfollow` | Append live chain events to the console or stop following. |
+| `/receipt <id> [step]` | Read a chain or step receipt inline. |
+| `/approvals <id>` | List pending and decided tool approvals. |
+| `/approve <id> <approval-id>` / `/deny <id> <approval-id>` | Record an approval decision; optional `--reason` adds an operator note. |
+| `/preview ...` | Validate launch flags and show the compiled work packet. |
+| `/start ...` | Start a chain and follow it. `--allow-approval-wait` opts into `waiting_approval` instead of fail-closed approval behavior. |
+| `/pause <id>` / `/resume <id>` / `/cancel <id>` | Control chain state; cancel requires confirmation. |
+| `/web <id>` | Show the `yard serve` handoff target. |
 
 ---
 
@@ -174,7 +194,6 @@ Fields:
 - task text
 - source spec paths from the brain/docs tree
 - supporting brain docs
-- explicit project files
 - constraints
 - operator notes
 - launch mode
@@ -187,7 +206,7 @@ MVP behavior:
 - The current launch draft lives in memory until saved. `s` saves the current draft and `L` loads the saved draft.
 - Manual roster and constrained orchestration role lists can be adjusted in place. `n` appends the next role, `-` removes the last entry, and `ctrl+u` clears the active role list.
 - Starting compiles a deterministic work packet and calls the same internal chain start path used by `yard chain start`.
-- Persistent current drafts and custom presets are stored in `.yard/yard.db` through `internal/operator`. Broader launch history remains future work.
+- Persistent current drafts and custom presets are stored in Shunter project memory through `internal/operator`. Broader launch history remains future work.
 
 ### Chains
 
@@ -252,19 +271,6 @@ Actions:
 - start one-step launch with selected role
 - open prompt file in `$EDITOR` when it is file-backed
 
-### Project
-
-Purpose: lightweight project observability and file attachment.
-
-Shows:
-
-- project tree
-- file preview for text files
-- index freshness
-- explicit-file attachment action for current launch
-
-This is not an editor. Editing happens in `$EDITOR`.
-
 ### Settings
 
 Purpose: inspect and validate runtime configuration.
@@ -276,7 +282,7 @@ Shows:
 - auth diagnostics
 - local service settings
 - index roots
-- brain vault path
+- Shunter project-memory location and brain backend
 - command equivalents for common checks
 
 Most config editing can remain file/editor-based. The TUI should validate and explain, not become a full settings editor in the first pass.
@@ -368,7 +374,7 @@ Useful web handoffs:
 - receipt rendered as markdown
 - side-by-side diff
 - metrics charts
-- project file browser
+- provider/project settings metadata
 
 If `yard serve` is not running, an open-in-web action may either:
 
@@ -397,9 +403,10 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 
 - Follow chain events.
 - Pause/resume/cancel active chains.
+- List, approve, and deny pending tool approvals.
 - Show step status and latest event.
 - Open receipts/files in `$EDITOR` or `$PAGER`.
-- Status: mostly landed. Follow, pause, cancel, step/event display, and receipt open are present; in-TUI resume and project-file open remain deferred.
+- Status: landed. Follow, pause, resume, cancel, approval list/approve/deny, step/event display, and receipt open are present.
 
 ### Phase C - Launch Wizard
 
@@ -414,11 +421,11 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 
 - Built-in presets.
 - Search/filter across chains and receipts.
-- Project tree file attachment.
+- Runtime readiness polish.
 - Role roster actions.
 - Open-in-web handoffs.
 - Focused rendering tests for key screens.
-- Status: chain/receipt filtering, built-in/custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and notice-only web-inspector target handoffs are landed. Project tree file attachment and fuller browser inspector parity remain.
+- Status: chain/receipt filtering, built-in/custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and notice-only web-inspector target handoffs are landed. Runtime readiness polish and fuller browser inspector chain/metrics parity remain.
 
 ---
 
@@ -430,10 +437,11 @@ Implemented first pass: the TUI shows the `yard serve` command and target web-in
 4. The chains screen lists active and recent terminal chains.
 5. The operator can follow a running chain and see new events without restarting the app.
 6. The operator can pause/resume/cancel a chain when the chain runner supports those controls.
-7. The operator can read receipts and open them in `$EDITOR` or `$PAGER`.
-8. The launch wizard can start at least a one-step chain through the same internal path as `yard chain start --role`.
-9. The TUI works without shelling out to Cobra commands for core Yard operations.
-10. The web UI remains optional for richer inspection and is not required for normal chain operation.
+7. The operator can list, approve, or deny pending tool approvals from the console.
+8. The operator can read receipts and open them in `$EDITOR` or `$PAGER`.
+9. The launch wizard can start at least a one-step chain through the same internal path as `yard chain start --role`.
+10. The TUI works without shelling out to Cobra commands for core Yard operations.
+11. The web UI remains optional for richer inspection and is not required for normal chain operation.
 
 ---
 

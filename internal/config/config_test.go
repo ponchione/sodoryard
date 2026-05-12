@@ -25,16 +25,8 @@ func withWorkingDir(t *testing.T, dir string) {
 	})
 }
 
-func ensureDir(t *testing.T, dir string) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) returned error: %v", dir, err)
-	}
-}
-
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 	withWorkingDir(t, projectRoot)
 	missing := filepath.Join(projectRoot, "does-not-exist.yaml")
 
@@ -64,8 +56,8 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Routing.Default.Model != "gpt-5.5" {
 		t.Fatalf("Routing.Default.Model = %q, want gpt-5.5", cfg.Routing.Default.Model)
 	}
-	if provider := cfg.Providers["codex"]; provider.Type != "codex" || provider.Model != "gpt-5.5" || provider.ContextLength != 400000 {
-		t.Fatalf("Providers[codex] = %#v, want codex/gpt-5.5/400000", provider)
+	if provider := cfg.Providers["codex"]; provider.Type != "codex" || provider.Model != "gpt-5.5" || provider.ReasoningEffort != "medium" || provider.ContextLength != 400000 {
+		t.Fatalf("Providers[codex] = %#v, want codex/gpt-5.5/medium/400000", provider)
 	}
 	if cfg.Agent.ShellTimeoutSeconds != 120 {
 		t.Fatalf("Agent.ShellTimeoutSeconds = %d, want 120", cfg.Agent.ShellTimeoutSeconds)
@@ -91,12 +83,42 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Brain.LintStaleDays != 90 {
 		t.Fatalf("Brain.LintStaleDays = %d, want 90", cfg.Brain.LintStaleDays)
 	}
+	if cfg.Memory.Backend != "shunter" {
+		t.Fatalf("Memory.Backend = %q, want shunter", cfg.Memory.Backend)
+	}
+	if cfg.Brain.Backend != "shunter" {
+		t.Fatalf("Brain.Backend = %q, want shunter", cfg.Brain.Backend)
+	}
+}
+
+func TestLoadBackendlessConfigDefaultsToShunter(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"brain:\n" +
+		"  enabled: true\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Memory.Backend != "shunter" {
+		t.Fatalf("Memory.Backend = %q, want shunter", cfg.Memory.Backend)
+	}
+	if cfg.Brain.Backend != "shunter" {
+		t.Fatalf("Brain.Backend = %q, want shunter", cfg.Brain.Backend)
+	}
+	if want := filepath.Join(projectRoot, ".yard", "shunter", "project-memory"); cfg.Memory.ShunterDataDir != want {
+		t.Fatalf("Memory.ShunterDataDir = %q, want %q", cfg.Memory.ShunterDataDir, want)
+	}
 }
 
 func TestLoadTracksExplicitProviderNames(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"providers:\n" +
 		"  codex:\n" +
@@ -122,7 +144,7 @@ func TestLoadTracksExplicitProviderNames(t *testing.T) {
 
 func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 	projectRoot := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"log_level: debug\n" +
 		"server:\n" +
@@ -130,6 +152,8 @@ func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 		"  allow_external: true\n" +
 		"agent:\n" +
 		"  shell_timeout_seconds: 60\n" +
+		"  shell_approval_patterns:\n" +
+		"    - git clean -fdx\n" +
 		"  tool_result_store_root: \"" + filepath.Join(projectRoot, ".artifacts", "tool-results") + "\"\n" +
 		"brain:\n" +
 		"  enabled: false\n"
@@ -155,6 +179,9 @@ func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 	if cfg.Agent.ShellTimeoutSeconds != 60 {
 		t.Fatalf("Agent.ShellTimeoutSeconds = %d, want 60", cfg.Agent.ShellTimeoutSeconds)
 	}
+	if !slices.Equal(cfg.Agent.ShellApprovalPatterns, []string{"git clean -fdx"}) {
+		t.Fatalf("Agent.ShellApprovalPatterns = %#v, want git clean -fdx", cfg.Agent.ShellApprovalPatterns)
+	}
 	wantToolResultStoreRoot := filepath.Join(projectRoot, ".artifacts", "tool-results")
 	if got := cfg.Agent.ToolResultStoreRoot; got != wantToolResultStoreRoot {
 		t.Fatalf("Agent.ToolResultStoreRoot = %q, want %q", got, wantToolResultStoreRoot)
@@ -178,8 +205,7 @@ func TestLoadPartialYAMLOverridesSpecifiedFields(t *testing.T) {
 
 func TestLoadAllowsConfiguredFallback(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"routing:\n" +
 		"  default:\n" +
@@ -214,8 +240,7 @@ func TestLoadAllowsConfiguredFallback(t *testing.T) {
 
 func TestLoadAppendsRequiredIndexExcludesWhenCustomListOmitsThem(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"index:\n" +
 		"  include:\n" +
@@ -232,7 +257,7 @@ func TestLoadAppendsRequiredIndexExcludesWhenCustomListOmitsThem(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	wantPatterns := []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"}
+	wantPatterns := []string{"**/.git/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"}
 	for _, pattern := range wantPatterns {
 		if !slices.Contains(cfg.Index.Exclude, pattern) {
 			t.Fatalf("Index.Exclude = %#v, want to contain %q", cfg.Index.Exclude, pattern)
@@ -242,8 +267,13 @@ func TestLoadAppendsRequiredIndexExcludesWhenCustomListOmitsThem(t *testing.T) {
 
 func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 	withWorkingDir(t, projectRoot)
+	if err := os.MkdirAll(filepath.Join(projectRoot, "ops", "llm"), 0o755); err != nil {
+		t.Fatalf("MkdirAll ops/llm returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile compose returned error: %v", err)
+	}
 	missing := filepath.Join(projectRoot, "does-not-exist.yaml")
 
 	cfg, err := Load(missing)
@@ -256,6 +286,9 @@ func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	}
 	if cfg.LocalServices.Mode != "manual" {
 		t.Fatalf("LocalServices.Mode = %q, want manual", cfg.LocalServices.Mode)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"); cfg.LocalServices.ComposeFile != want {
+		t.Fatalf("LocalServices.ComposeFile = %q, want %q", cfg.LocalServices.ComposeFile, want)
 	}
 	if got := cfg.LocalServices.Services["qwen-coder"].BaseURL; got != "http://localhost:12434" {
 		t.Fatalf("LocalServices.Services[qwen-coder].BaseURL = %q, want http://localhost:12434", got)
@@ -280,10 +313,150 @@ func TestLoadProvidesEmbeddingDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadResolvesLocalServiceComposeFileRelativeToProjectDir(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, "ops", "llm"), 0o755); err != nil {
+		t.Fatalf("MkdirAll ops/llm returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile compose returned error: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"local_services:\n" +
+		"  enabled: true\n" +
+		"  compose_file: docker-compose.yml\n" +
+		"  project_dir: ./ops/llm\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile config returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"); cfg.LocalServices.ComposeFile != want {
+		t.Fatalf("LocalServices.ComposeFile = %q, want %q", cfg.LocalServices.ComposeFile, want)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm"); cfg.LocalServices.ProjectDir != want {
+		t.Fatalf("LocalServices.ProjectDir = %q, want %q", cfg.LocalServices.ProjectDir, want)
+	}
+}
+
+func TestLoadKeepsProjectRelativeLocalServiceComposeFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, "ops", "llm"), 0o755); err != nil {
+		t.Fatalf("MkdirAll ops/llm returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile compose returned error: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"local_services:\n" +
+		"  enabled: true\n" +
+		"  compose_file: ./ops/llm/docker-compose.yml\n" +
+		"  project_dir: ./ops/llm\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile config returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if want := filepath.Join(projectRoot, "ops", "llm", "docker-compose.yml"); cfg.LocalServices.ComposeFile != want {
+		t.Fatalf("LocalServices.ComposeFile = %q, want %q", cfg.LocalServices.ComposeFile, want)
+	}
+}
+
+func TestLoadShunterMemoryResolvesPathsAndDoesNotRequireVault(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"memory:\n" +
+		"  backend: shunter\n" +
+		"  shunter_data_dir: .yard/shunter/project-memory\n" +
+		"  durable_ack: true\n" +
+		"  rpc:\n" +
+		"    transport: unix\n" +
+		"    path: .yard/run/memory.sock\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  backend: shunter\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.Memory.Backend != "shunter" {
+		t.Fatalf("Memory.Backend = %q, want shunter", cfg.Memory.Backend)
+	}
+	if cfg.Brain.Backend != "shunter" {
+		t.Fatalf("Brain.Backend = %q, want shunter", cfg.Brain.Backend)
+	}
+	if want := filepath.Join(projectRoot, ".yard", "shunter", "project-memory"); cfg.Memory.ShunterDataDir != want {
+		t.Fatalf("Memory.ShunterDataDir = %q, want %q", cfg.Memory.ShunterDataDir, want)
+	}
+	if want := filepath.Join(projectRoot, ".yard", "run", "memory.sock"); cfg.Memory.RPC.Path != want {
+		t.Fatalf("Memory.RPC.Path = %q, want %q", cfg.Memory.RPC.Path, want)
+	}
+	if cfg.Brain.ShunterDataDir != cfg.Memory.ShunterDataDir {
+		t.Fatalf("Brain.ShunterDataDir = %q, want %q", cfg.Brain.ShunterDataDir, cfg.Memory.ShunterDataDir)
+	}
+}
+
+func TestLoadRejectsLegacyMemoryBackend(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"memory:\n" +
+		"  backend: legacy\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  backend: shunter\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load succeeded, want validation error")
+	}
+	if !strings.Contains(err.Error(), "memory.backend") {
+		t.Fatalf("Load error = %v, want memory.backend validation", err)
+	}
+}
+
+func TestLoadRejectsVaultBrainBackend(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
+	content := "project_root: \"" + projectRoot + "\"\n" +
+		"memory:\n" +
+		"  backend: shunter\n" +
+		"brain:\n" +
+		"  enabled: true\n" +
+		"  backend: vault\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load succeeded, want validation error")
+	}
+	if !strings.Contains(err.Error(), "brain.backend") {
+		t.Fatalf("Load error = %v, want brain.backend validation", err)
+	}
+}
+
 func TestLoadAppliesPartialEmbeddingOverrides(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"embedding:\n" +
 		"  model: custom-embed\n" +
@@ -317,7 +490,6 @@ func TestLoadAppliesPartialEmbeddingOverrides(t *testing.T) {
 
 func TestLoadRejectsInvalidEmbeddingConfig(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 
 	tests := []struct {
 		name       string
@@ -343,7 +515,7 @@ func TestLoadRejectsInvalidEmbeddingConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+			configPath := filepath.Join(t.TempDir(), "yard.yaml")
 			if err := os.WriteFile(configPath, []byte(tt.yaml), 0o644); err != nil {
 				t.Fatalf("WriteFile returned error: %v", err)
 			}
@@ -369,44 +541,49 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 	}{
 		{
 			name:       "bad port",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nserver:\n  port: 70000\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nserver:\n  port: 70000\n",
 			wantSubstr: "server.port=70000",
 		},
 		{
 			name:       "unknown provider type",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nproviders:\n  anthropic:\n    type: mystery\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nproviders:\n  anthropic:\n    type: mystery\n",
 			wantSubstr: "providers.anthropic.type=\"mystery\"",
 		},
 		{
+			name:       "invalid codex reasoning effort",
+			yaml:       "project_root: \"" + projectRoot + "\"\nproviders:\n  codex:\n    type: codex\n    reasoning_effort: extreme\n",
+			wantSubstr: "providers.codex.reasoning_effort=\"extreme\"",
+		},
+		{
 			name:       "fallback provider without model",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    provider: openrouter\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    provider: openrouter\n",
 			wantSubstr: "routing.fallback.model",
 		},
 		{
 			name:       "fallback model without provider",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    model: anthropic/claude-sonnet-4\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    model: anthropic/claude-sonnet-4\n",
 			wantSubstr: "routing.fallback.provider",
 		},
 		{
 			name:       "fallback provider must be configured",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    provider: missing\n    model: foo\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nrouting:\n  default:\n    provider: codex\n    model: gpt-5.5\n  fallback:\n    provider: missing\n    model: foo\n",
 			wantSubstr: "routing.fallback.provider",
 		},
 		{
 			name:       "negative token budget",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\ncontext:\n  max_assembled_tokens: -1\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\ncontext:\n  max_assembled_tokens: -1\n",
 			wantSubstr: "context.max_assembled_tokens=-1",
 		},
 		{
 			name:       "negative history_summarize_after_turns",
-			yaml:       "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\nagent:\n  history_summarize_after_turns: -5\n",
+			yaml:       "project_root: \"" + projectRoot + "\"\nagent:\n  history_summarize_after_turns: -5\n",
 			wantSubstr: "agent.history_summarize_after_turns=-5",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+			configPath := filepath.Join(t.TempDir(), "yard.yaml")
 			if err := os.WriteFile(configPath, []byte(tt.yaml), 0o644); err != nil {
 				t.Fatalf("WriteFile returned error: %v", err)
 			}
@@ -472,7 +649,7 @@ func TestNormalizeKeepsUniversalRequiredExcludes(t *testing.T) {
 
 	cfg.normalize()
 
-	for _, want := range []string{"**/.git/**", "**/.brain/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"} {
+	for _, want := range []string{"**/.git/**", "**/node_modules/**", "**/vendor/**", "**/.yard/**"} {
 		if !slices.Contains(cfg.Index.Exclude, want) {
 			t.Fatalf("Index.Exclude = %#v, want %q", cfg.Index.Exclude, want)
 		}
@@ -481,11 +658,9 @@ func TestNormalizeKeepsUniversalRequiredExcludes(t *testing.T) {
 
 func TestLoadAppliesEnvironmentVariableOverrides(t *testing.T) {
 	projectRoot := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
 		"log_level: info\n" +
-		"brain:\n" +
-		"  vault_path: \"" + projectRoot + "\"\n" +
 		"providers:\n" +
 		"  anthropic:\n" +
 		"    type: anthropic\n" +
@@ -500,7 +675,6 @@ func TestLoadAppliesEnvironmentVariableOverrides(t *testing.T) {
 	}
 
 	t.Setenv("SODORYARD_LOG_LEVEL", "error")
-	t.Setenv("SIRTOPHAM_LOG_LEVEL", "debug")
 	t.Setenv("ANTHROPIC_API_KEY", "env-anthropic")
 	t.Setenv("OPENROUTER_API_KEY", "env-openrouter")
 
@@ -517,25 +691,6 @@ func TestLoadAppliesEnvironmentVariableOverrides(t *testing.T) {
 	}
 	if got := cfg.Providers["openrouter"].APIKey; got != "env-openrouter" {
 		t.Fatalf("openrouter API key = %q, want env-openrouter", got)
-	}
-}
-
-func TestLoadSupportsLegacyLogLevelEnvironmentVariable(t *testing.T) {
-	projectRoot := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "yard.yaml")
-	content := "project_root: \"" + projectRoot + "\"\nbrain:\n  vault_path: \"" + projectRoot + "\"\n"
-	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-
-	t.Setenv("SIRTOPHAM_LOG_LEVEL", "warn")
-
-	cfg, err := Load(configPath)
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
-	}
-	if cfg.LogLevel != "warn" {
-		t.Fatalf("LogLevel = %q, want warn", cfg.LogLevel)
 	}
 }
 
@@ -556,11 +711,8 @@ func TestApplyEnvOverridesDoesNotCreateUnconfiguredAPIKeyProviders(t *testing.T)
 
 func TestLoadParsesAgentRolesAndBrainWritePolicies(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
-		"brain:\n" +
-		"  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 		"agent_roles:\n" +
 		"  reviewer:\n" +
 		"    system_prompt: prompts/reviewer.md\n" +
@@ -598,6 +750,9 @@ func TestLoadParsesAgentRolesAndBrainWritePolicies(t *testing.T) {
 	if !slices.Equal(role.CustomTools, []string{"external.reviewer"}) {
 		t.Fatalf("role.CustomTools = %#v, want [external.reviewer]", role.CustomTools)
 	}
+	if role.MutationClass != MutationClassSourceWrite {
+		t.Fatalf("role.MutationClass = %q, want source_write", role.MutationClass)
+	}
 	if !slices.Equal(role.BrainWritePaths, []string{"receipts/**"}) {
 		t.Fatalf("role.BrainWritePaths = %#v, want [receipts/**]", role.BrainWritePaths)
 	}
@@ -614,11 +769,8 @@ func TestLoadParsesAgentRolesAndBrainWritePolicies(t *testing.T) {
 
 func TestLoadAcceptsFileReadAgentRoleToolGroup(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
-		"brain:\n" +
-		"  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 		"agent_roles:\n" +
 		"  auditor:\n" +
 		"    system_prompt: prompts/auditor.md\n" +
@@ -643,15 +795,15 @@ func TestLoadAcceptsFileReadAgentRoleToolGroup(t *testing.T) {
 	if !slices.Equal(role.Tools, []string{"brain", "file:read", "git"}) {
 		t.Fatalf("role.Tools = %#v, want [brain file:read git]", role.Tools)
 	}
+	if role.MutationClass != MutationClassBrainWrite {
+		t.Fatalf("role.MutationClass = %q, want brain_write", role.MutationClass)
+	}
 }
 
 func TestLoadAcceptsUtilityAgentRoleToolGroups(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
-		"brain:\n" +
-		"  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 		"agent_roles:\n" +
 		"  utility:\n" +
 		"    system_prompt: prompts/utility.md\n" +
@@ -676,15 +828,15 @@ func TestLoadAcceptsUtilityAgentRoleToolGroups(t *testing.T) {
 	if !slices.Equal(role.Tools, []string{"directory", "test", "sqlc"}) {
 		t.Fatalf("role.Tools = %#v, want [directory test sqlc]", role.Tools)
 	}
+	if role.MutationClass != MutationClassSourceWrite {
+		t.Fatalf("role.MutationClass = %q, want source_write", role.MutationClass)
+	}
 }
 
 func TestLoadParsesReadOnlyFileRoleAndCustomTools(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
-	configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
-		"brain:\n" +
-		"  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 		"agent_roles:\n" +
 		"  correctness-auditor:\n" +
 		"    system_prompt: agents/correctness-auditor.md\n" +
@@ -726,6 +878,9 @@ func TestLoadParsesReadOnlyFileRoleAndCustomTools(t *testing.T) {
 	if !slices.Equal(auditorRole.BrainDenyPaths, []string{"plans/**"}) {
 		t.Fatalf("auditorRole.BrainDenyPaths = %#v, want [plans/**]", auditorRole.BrainDenyPaths)
 	}
+	if auditorRole.MutationClass != MutationClassReadOnly {
+		t.Fatalf("auditorRole.MutationClass = %q, want read_only", auditorRole.MutationClass)
+	}
 
 	orchestratorRole, ok := cfg.AgentRoles["orchestrator"]
 	if !ok {
@@ -734,11 +889,13 @@ func TestLoadParsesReadOnlyFileRoleAndCustomTools(t *testing.T) {
 	if !slices.Equal(orchestratorRole.CustomTools, []string{"spawn_agent", "chain_complete"}) {
 		t.Fatalf("orchestratorRole.CustomTools = %#v, want [spawn_agent chain_complete]", orchestratorRole.CustomTools)
 	}
+	if orchestratorRole.MutationClass != MutationClassOrchestrator {
+		t.Fatalf("orchestratorRole.MutationClass = %q, want orchestrator", orchestratorRole.MutationClass)
+	}
 }
 
 func TestLoadRejectsInvalidAgentRoles(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 
 	tests := []struct {
 		name       string
@@ -748,43 +905,62 @@ func TestLoadRejectsInvalidAgentRoles(t *testing.T) {
 		{
 			name: "empty system prompt",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: \"\"\n",
 			wantSubstr: "agent_roles.reviewer.system_prompt",
 		},
 		{
 			name: "invalid tool group",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    tools:\n      - browser\n",
 			wantSubstr: "unsupported tool group \"browser\"; expected brain, file, file:read, git, shell, search, directory, test, or sqlc",
 		},
 		{
 			name: "negative max turns",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    max_turns: -1\n",
 			wantSubstr: "agent_roles.reviewer.max_turns=-1",
 		},
 		{
 			name: "negative max tokens",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    max_tokens: -1\n",
 			wantSubstr: "agent_roles.reviewer.max_tokens=-1",
 		},
 		{
 			name: "negative timeout",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    timeout: -1s\n",
 			wantSubstr: "agent_roles.reviewer.timeout=-1s",
+		},
+		{
+			name: "invalid mutation class",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    mutation_class: maybe\n",
+			wantSubstr: "agent_roles.reviewer.mutation_class=\"maybe\"",
+		},
+		{
+			name: "read only role with file write tools",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    mutation_class: read_only\n    tools:\n      - file\n",
+			wantSubstr: "tool group \"file\" is not allowed for mutation_class \"read_only\"",
+		},
+		{
+			name: "read only role with shell tools",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  reviewer:\n    system_prompt: prompts/reviewer.md\n    mutation_class: read_only\n    tools:\n      - shell\n",
+			wantSubstr: "tool group \"shell\" is not allowed for mutation_class \"read_only\"",
+		},
+		{
+			name: "source writing role cannot dispatch chains",
+			yaml: "project_root: \"" + projectRoot + "\"\n" +
+				"agent_roles:\n  coder:\n    system_prompt: builtin:coder\n    mutation_class: source_write\n    custom_tools:\n      - spawn_agent\n",
+			wantSubstr: "custom tool \"spawn_agent\" is not allowed for mutation_class \"source_write\"",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+			configPath := filepath.Join(t.TempDir(), "yard.yaml")
 			if err := os.WriteFile(configPath, []byte(tt.yaml), 0o644); err != nil {
 				t.Fatalf("WriteFile returned error: %v", err)
 			}
@@ -802,10 +978,8 @@ func TestLoadRejectsInvalidAgentRoles(t *testing.T) {
 
 func TestLoadParsesAgentRoleTimeout(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 	configPath := filepath.Join(t.TempDir(), "yard.yaml")
 	content := "project_root: \"" + projectRoot + "\"\n" +
-		"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 		"agent_roles:\n" +
 		"  coder:\n" +
 		"    system_prompt: builtin:coder\n" +
@@ -880,7 +1054,7 @@ func TestResolveAgentRoleReportsAmbiguousPersonaAlias(t *testing.T) {
 }
 
 func TestResolveAgentRoleSystemPromptPathUsesProjectRoot(t *testing.T) {
-	projectRoot := filepath.Join(string(filepath.Separator), "tmp", "sirtopham-project")
+	projectRoot := filepath.Join(string(filepath.Separator), "tmp", "sodoryard-project")
 	cfg := &Config{ProjectRoot: projectRoot}
 
 	if got := cfg.ResolveAgentRoleSystemPromptPath("prompts/reviewer.md"); got != filepath.Join(projectRoot, "prompts", "reviewer.md") {
@@ -893,7 +1067,6 @@ func TestResolveAgentRoleSystemPromptPathUsesProjectRoot(t *testing.T) {
 
 func TestLoadAllowsBuiltInPromptDefaultsAndSelectors(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 
 	tests := []struct {
 		name string
@@ -902,20 +1075,18 @@ func TestLoadAllowsBuiltInPromptDefaultsAndSelectors(t *testing.T) {
 		{
 			name: "empty builtin role prompt uses default",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  coder:\n    system_prompt: \"\"\n",
 		},
 		{
 			name: "explicit builtin selector",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: builtin:coder\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+			configPath := filepath.Join(t.TempDir(), "yard.yaml")
 			if err := os.WriteFile(configPath, []byte(tt.yaml), 0o644); err != nil {
 				t.Fatalf("WriteFile returned error: %v", err)
 			}
@@ -929,7 +1100,6 @@ func TestLoadAllowsBuiltInPromptDefaultsAndSelectors(t *testing.T) {
 
 func TestLoadRejectsUnknownBuiltInSelectorsAndEmptyUnknownRolePrompt(t *testing.T) {
 	projectRoot := t.TempDir()
-	ensureDir(t, filepath.Join(projectRoot, ".brain"))
 
 	tests := []struct {
 		name       string
@@ -939,14 +1109,12 @@ func TestLoadRejectsUnknownBuiltInSelectorsAndEmptyUnknownRolePrompt(t *testing.
 		{
 			name: "empty unknown role prompt",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: \"\"\n",
 			wantSubstr: "agent_roles.reviewer.system_prompt",
 		},
 		{
 			name: "unknown builtin selector",
 			yaml: "project_root: \"" + projectRoot + "\"\n" +
-				"brain:\n  vault_path: \"" + filepath.Join(projectRoot, ".brain") + "\"\n" +
 				"agent_roles:\n  reviewer:\n    system_prompt: builtin:not-a-role\n",
 			wantSubstr: "unknown built-in role system prompt",
 		},
@@ -954,7 +1122,7 @@ func TestLoadRejectsUnknownBuiltInSelectorsAndEmptyUnknownRolePrompt(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "sirtopham.yaml")
+			configPath := filepath.Join(t.TempDir(), "yard.yaml")
 			if err := os.WriteFile(configPath, []byte(tt.yaml), 0o644); err != nil {
 				t.Fatalf("WriteFile returned error: %v", err)
 			}

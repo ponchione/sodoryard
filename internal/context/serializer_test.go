@@ -44,7 +44,7 @@ func TestMarkdownSerializerGroupsChunksAnnotatesSeenFilesAndIsDeterministic(t *t
 		SelectedBrainHits: []BrainHit{{
 			DocumentPath: "notes/auth.md",
 			Title:        "Auth decisions",
-			Snippet:      "Use the vault note for durable auth rationale.",
+			Snippet:      "Use the brain note for durable auth rationale.",
 			MatchScore:   0.83,
 			MatchMode:    "keyword",
 		}},

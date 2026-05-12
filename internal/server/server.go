@@ -19,7 +19,7 @@ type Config struct {
 	FrontendFS fs.FS // nil if no embedded frontend available
 }
 
-// Server is the HTTP server for the sirtopham web interface.
+// Server is the HTTP server for the sodoryard web interface.
 type Server struct {
 	httpServer *http.Server
 	mux        *http.ServeMux

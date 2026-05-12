@@ -25,10 +25,26 @@ func (shellRunner) Run(ctx context.Context, name string, args []string, dir stri
 	return strings.TrimSpace(string(stdout)), "", err
 }
 
-func probeDocker(ctx context.Context, runner CommandRunner) (dockerAvailable, daemonAvailable bool, problem string) {
+func commandRunnerOrDefault(runner CommandRunner) CommandRunner {
 	if runner == nil {
-		runner = shellRunner{}
+		return shellRunner{}
 	}
+	return runner
+}
+
+func dockerCommandError(prefix string, stderr string, err error, transform func(string) string) error {
+	stderr = strings.TrimSpace(stderr)
+	if stderr != "" {
+		if transform != nil {
+			stderr = transform(stderr)
+		}
+		return fmt.Errorf("%s: %s", prefix, stderr)
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
+}
+
+func probeDocker(ctx context.Context, runner CommandRunner) (dockerAvailable, daemonAvailable bool, problem string) {
+	runner = commandRunnerOrDefault(runner)
 	if _, _, err := runner.Run(ctx, "docker", []string{"version", "--format", "{{.Client.Version}}"}, ""); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return false, false, "docker executable not found"
@@ -36,33 +52,21 @@ func probeDocker(ctx context.Context, runner CommandRunner) (dockerAvailable, da
 		return false, false, fmt.Sprintf("docker unavailable: %v", err)
 	}
 	if _, stderr, err := runner.Run(ctx, "docker", []string{"info"}, ""); err != nil {
-		if strings.TrimSpace(stderr) != "" {
-			return true, false, fmt.Sprintf("docker daemon unavailable: %s", strings.TrimSpace(stderr))
-		}
-		return true, false, fmt.Sprintf("docker daemon unavailable: %v", err)
+		return true, false, dockerCommandError("docker daemon unavailable", stderr, err, nil).Error()
 	}
 	return true, true, ""
 }
 
 func probeCompose(ctx context.Context, runner CommandRunner) (bool, string) {
-	if runner == nil {
-		runner = shellRunner{}
-	}
-	_, stderr, err := runner.Run(ctx, "docker", []string{"compose", "version"}, "")
+	_, stderr, err := commandRunnerOrDefault(runner).Run(ctx, "docker", []string{"compose", "version"}, "")
 	if err != nil {
-		if strings.TrimSpace(stderr) != "" {
-			return false, fmt.Sprintf("docker compose unavailable: %s", strings.TrimSpace(stderr))
-		}
-		return false, fmt.Sprintf("docker compose unavailable: %v", err)
+		return false, dockerCommandError("docker compose unavailable", stderr, err, nil).Error()
 	}
 	return true, ""
 }
 
 func networkExists(ctx context.Context, runner CommandRunner, network string) bool {
-	if runner == nil {
-		runner = shellRunner{}
-	}
-	_, _, err := runner.Run(ctx, "docker", []string{"network", "inspect", network}, "")
+	_, _, err := commandRunnerOrDefault(runner).Run(ctx, "docker", []string{"network", "inspect", network}, "")
 	return err == nil
 }
 
@@ -70,12 +74,9 @@ func ensureNetwork(ctx context.Context, runner CommandRunner, network string) er
 	if networkExists(ctx, runner, network) {
 		return nil
 	}
-	_, stderr, err := runner.Run(ctx, "docker", []string{"network", "create", network}, "")
+	_, stderr, err := commandRunnerOrDefault(runner).Run(ctx, "docker", []string{"network", "create", network}, "")
 	if err != nil {
-		if strings.TrimSpace(stderr) != "" {
-			return fmt.Errorf("create docker network %s: %s", network, strings.TrimSpace(stderr))
-		}
-		return fmt.Errorf("create docker network %s: %w", network, err)
+		return dockerCommandError(fmt.Sprintf("create docker network %s", network), stderr, err, nil)
 	}
 	return nil
 }
@@ -83,12 +84,9 @@ func ensureNetwork(ctx context.Context, runner CommandRunner, network string) er
 func composeUp(ctx context.Context, runner CommandRunner, projectDir, composeFile string, services []string) error {
 	args := []string{"compose", "-f", composeFile, "up", "-d"}
 	args = append(args, services...)
-	_, stderr, err := runner.Run(ctx, "docker", args, projectDir)
+	_, stderr, err := commandRunnerOrDefault(runner).Run(ctx, "docker", args, projectDir)
 	if err != nil {
-		if strings.TrimSpace(stderr) != "" {
-			return fmt.Errorf("docker compose up failed: %s", normalizeComposeUpError(strings.TrimSpace(stderr)))
-		}
-		return fmt.Errorf("docker compose up failed: %w", err)
+		return dockerCommandError("docker compose up failed", stderr, err, normalizeComposeUpError)
 	}
 	return nil
 }
@@ -103,12 +101,9 @@ func normalizeComposeUpError(stderr string) string {
 }
 
 func composeDown(ctx context.Context, runner CommandRunner, projectDir, composeFile string) error {
-	_, stderr, err := runner.Run(ctx, "docker", []string{"compose", "-f", composeFile, "down"}, projectDir)
+	_, stderr, err := commandRunnerOrDefault(runner).Run(ctx, "docker", []string{"compose", "-f", composeFile, "down"}, projectDir)
 	if err != nil {
-		if strings.TrimSpace(stderr) != "" {
-			return fmt.Errorf("docker compose down failed: %s", strings.TrimSpace(stderr))
-		}
-		return fmt.Errorf("docker compose down failed: %w", err)
+		return dockerCommandError("docker compose down failed", stderr, err, nil)
 	}
 	return nil
 }
@@ -116,12 +111,9 @@ func composeDown(ctx context.Context, runner CommandRunner, projectDir, composeF
 func composeLogs(ctx context.Context, runner CommandRunner, projectDir, composeFile string, tail int, services []string) (string, error) {
 	args := []string{"compose", "-f", composeFile, "logs", "--tail", fmt.Sprintf("%d", tail)}
 	args = append(args, services...)
-	stdout, stderr, err := runner.Run(ctx, "docker", args, projectDir)
+	stdout, stderr, err := commandRunnerOrDefault(runner).Run(ctx, "docker", args, projectDir)
 	if err != nil {
-		if strings.TrimSpace(stderr) != "" {
-			return "", fmt.Errorf("docker compose logs failed: %s", strings.TrimSpace(stderr))
-		}
-		return "", fmt.Errorf("docker compose logs failed: %w", err)
+		return "", dockerCommandError("docker compose logs failed", stderr, err, nil)
 	}
 	return stdout, nil
 }

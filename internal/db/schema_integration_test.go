@@ -27,7 +27,7 @@ func TestInitCreatesTablesAndRoundTrips(t *testing.T) {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
 	mustExec(t, db, `INSERT INTO projects(id, name, root_path, language, last_indexed_commit, last_indexed_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, projectID, "sirtopham", "/tmp/sirtopham", "go", "abc123", createdAt, createdAt, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, projectID, "sodoryard", "/tmp/sodoryard", "go", "abc123", createdAt, createdAt, createdAt)
 	mustExec(t, db, `INSERT INTO conversations(id, project_id, title, model, provider, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`, conversationID, projectID, "Layer 0", "claude-sonnet-4-6", "anthropic", createdAt, createdAt)
 
@@ -356,9 +356,96 @@ func TestEnsureLaunchSchemaCreatesTables(t *testing.T) {
 			t.Fatalf("table %s count = %d, want 1", table, count)
 		}
 	}
+	for _, table := range []string{"launches", "launch_presets"} {
+		for _, column := range []string{"step_max_turns", "step_max_tokens"} {
+			exists, err := tableHasColumn(ctx, db, table, column)
+			if err != nil {
+				t.Fatalf("tableHasColumn %s.%s returned error: %v", table, column, err)
+			}
+			if !exists {
+				t.Fatalf("%s.%s missing after EnsureLaunchSchema", table, column)
+			}
+		}
+	}
 
 	if err := EnsureLaunchSchema(ctx, db); err != nil {
 		t.Fatalf("EnsureLaunchSchema second call returned error: %v", err)
+	}
+}
+
+func TestEnsureLaunchSchemaAddsStepCapsToOlderLaunchTables(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+
+	if _, err := InitIfNeeded(ctx, db); err != nil {
+		t.Fatalf("InitIfNeeded returned error: %v", err)
+	}
+	mustExec(t, db, `DROP TABLE launches`)
+	mustExec(t, db, `CREATE TABLE launches (
+		id TEXT NOT NULL,
+		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		status TEXT NOT NULL DEFAULT 'draft',
+		mode TEXT NOT NULL,
+		role TEXT,
+		allowed_roles TEXT,
+		roster TEXT,
+		source_task TEXT,
+		source_specs TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY(project_id, id)
+	)`)
+	mustExec(t, db, `DROP TABLE launch_presets`)
+	mustExec(t, db, `CREATE TABLE launch_presets (
+		id TEXT NOT NULL,
+		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		mode TEXT NOT NULL,
+		role TEXT,
+		allowed_roles TEXT,
+		roster TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY(project_id, id),
+		UNIQUE(project_id, name)
+	)`)
+
+	if err := EnsureLaunchSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureLaunchSchema returned error: %v", err)
+	}
+	for _, table := range []string{"launches", "launch_presets"} {
+		for _, column := range []string{"step_max_turns", "step_max_tokens"} {
+			exists, err := tableHasColumn(ctx, db, table, column)
+			if err != nil {
+				t.Fatalf("tableHasColumn %s.%s returned error: %v", table, column, err)
+			}
+			if !exists {
+				t.Fatalf("%s.%s missing after upgrade", table, column)
+			}
+		}
+	}
+}
+
+func TestEnsureTraceSchemaCreatesTable(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+
+	if _, err := InitIfNeeded(ctx, db); err != nil {
+		t.Fatalf("InitIfNeeded returned error: %v", err)
+	}
+	if err := EnsureTraceSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureTraceSchema returned error: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='trace_spans'`).Scan(&count); err != nil {
+		t.Fatalf("query sqlite_master returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("trace_spans count = %d, want 1", count)
+	}
+	if err := EnsureTraceSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureTraceSchema second call returned error: %v", err)
 	}
 }
 
