@@ -1,0 +1,1868 @@
+{
+  "contract_version": 1,
+  "module": {
+    "name": "yard_project_memory",
+    "version": "0.12.0",
+    "metadata": {
+      "owner": "sodoryard",
+      "schema_version": "12"
+    }
+  },
+  "schema": {
+    "version": 12,
+    "tables": [
+      {
+        "name": "project_state",
+        "columns": [
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "schema_version",
+            "type": "uint32"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "project_id"
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "documents",
+        "columns": [
+          {
+            "name": "path",
+            "type": "string"
+          },
+          {
+            "name": "kind",
+            "type": "string"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "content_hash",
+            "type": "string"
+          },
+          {
+            "name": "content_size",
+            "type": "uint64"
+          },
+          {
+            "name": "chunk_count",
+            "type": "uint32"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "deleted",
+            "type": "bool"
+          },
+          {
+            "name": "tags_json",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "path"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "documents_kind",
+            "columns": [
+              "kind"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "documents_updated",
+            "columns": [
+              "updated_at_us"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "document_chunks",
+        "columns": [
+          {
+            "name": "chunk_id",
+            "type": "string"
+          },
+          {
+            "name": "path",
+            "type": "string"
+          },
+          {
+            "name": "chunk_index",
+            "type": "uint32"
+          },
+          {
+            "name": "body",
+            "type": "string"
+          },
+          {
+            "name": "body_hash",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "chunk_id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "document_chunks_path",
+            "columns": [
+              "path"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "document_revisions",
+        "columns": [
+          {
+            "name": "revision_id",
+            "type": "string"
+          },
+          {
+            "name": "path",
+            "type": "string"
+          },
+          {
+            "name": "revision",
+            "type": "uint32"
+          },
+          {
+            "name": "content_hash",
+            "type": "string"
+          },
+          {
+            "name": "operation_id",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "summary",
+            "type": "string"
+          },
+          {
+            "name": "actor",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "revision_id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "document_revisions_path",
+            "columns": [
+              "path"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "memory_operations",
+        "columns": [
+          {
+            "name": "operation_id",
+            "type": "string"
+          },
+          {
+            "name": "operation_type",
+            "type": "string"
+          },
+          {
+            "name": "path",
+            "type": "string"
+          },
+          {
+            "name": "actor",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "before_hash",
+            "type": "string"
+          },
+          {
+            "name": "after_hash",
+            "type": "string"
+          },
+          {
+            "name": "payload_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "operation_id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "memory_operations_path",
+            "columns": [
+              "path"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "brain_index_state",
+        "columns": [
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "last_indexed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "dirty",
+            "type": "bool"
+          },
+          {
+            "name": "dirty_since_us",
+            "type": "uint64"
+          },
+          {
+            "name": "dirty_reason",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "project_id"
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "code_index_state",
+        "columns": [
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "last_indexed_commit",
+            "type": "string"
+          },
+          {
+            "name": "last_indexed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "dirty",
+            "type": "bool"
+          },
+          {
+            "name": "dirty_reason",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "project_id"
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "code_file_index_state",
+        "columns": [
+          {
+            "name": "file_id",
+            "type": "string"
+          },
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "file_path",
+            "type": "string"
+          },
+          {
+            "name": "file_hash",
+            "type": "string"
+          },
+          {
+            "name": "chunk_count",
+            "type": "uint32"
+          },
+          {
+            "name": "last_indexed_at_us",
+            "type": "uint64"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "file_id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "code_file_index_state_project",
+            "columns": [
+              "project_id"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "conversations",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "provider",
+            "type": "string"
+          },
+          {
+            "name": "model",
+            "type": "string"
+          },
+          {
+            "name": "settings_json",
+            "type": "string"
+          },
+          {
+            "name": "deleted",
+            "type": "bool"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "conversations_project",
+            "columns": [
+              "project_id"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "messages",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "conversation_id",
+            "type": "string"
+          },
+          {
+            "name": "turn_number",
+            "type": "uint32"
+          },
+          {
+            "name": "iteration",
+            "type": "uint32"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64"
+          },
+          {
+            "name": "role",
+            "type": "string"
+          },
+          {
+            "name": "content",
+            "type": "string"
+          },
+          {
+            "name": "tool_use_id",
+            "type": "string"
+          },
+          {
+            "name": "tool_name",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "visible",
+            "type": "bool"
+          },
+          {
+            "name": "compressed",
+            "type": "bool"
+          },
+          {
+            "name": "is_summary",
+            "type": "bool"
+          },
+          {
+            "name": "summary_of_json",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "messages_conversation",
+            "columns": [
+              "conversation_id"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "sub_calls",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "conversation_id",
+            "type": "string"
+          },
+          {
+            "name": "message_id",
+            "type": "string"
+          },
+          {
+            "name": "turn_number",
+            "type": "uint32"
+          },
+          {
+            "name": "iteration",
+            "type": "uint32"
+          },
+          {
+            "name": "provider",
+            "type": "string"
+          },
+          {
+            "name": "model",
+            "type": "string"
+          },
+          {
+            "name": "purpose",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "started_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "completed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "tokens_in",
+            "type": "uint64"
+          },
+          {
+            "name": "tokens_out",
+            "type": "uint64"
+          },
+          {
+            "name": "cache_read_tokens",
+            "type": "uint64"
+          },
+          {
+            "name": "cache_creation_tokens",
+            "type": "uint64"
+          },
+          {
+            "name": "latency_ms",
+            "type": "uint64"
+          },
+          {
+            "name": "error",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "sub_calls_conversation",
+            "columns": [
+              "conversation_id"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "sub_calls_created",
+            "columns": [
+              "completed_at_us"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "sub_calls_purpose",
+            "columns": [
+              "purpose"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "tool_executions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "conversation_id",
+            "type": "string"
+          },
+          {
+            "name": "turn_number",
+            "type": "uint32"
+          },
+          {
+            "name": "iteration",
+            "type": "uint32"
+          },
+          {
+            "name": "tool_use_id",
+            "type": "string"
+          },
+          {
+            "name": "tool_name",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "started_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "completed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "duration_ms",
+            "type": "uint64"
+          },
+          {
+            "name": "input_json",
+            "type": "string"
+          },
+          {
+            "name": "output_size",
+            "type": "uint64"
+          },
+          {
+            "name": "normalized_size",
+            "type": "uint64"
+          },
+          {
+            "name": "error",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "tool_executions_conversation",
+            "columns": [
+              "conversation_id"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "tool_executions_tool_name",
+            "columns": [
+              "tool_name"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "context_reports",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "conversation_id",
+            "type": "string"
+          },
+          {
+            "name": "turn_number",
+            "type": "uint32"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "request_json",
+            "type": "string"
+          },
+          {
+            "name": "report_json",
+            "type": "string"
+          },
+          {
+            "name": "quality_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "context_reports_conversation",
+            "columns": [
+              "conversation_id"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "chains",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "source_specs_json",
+            "type": "string"
+          },
+          {
+            "name": "source_task",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "summary",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "started_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "completed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "metrics_json",
+            "type": "string"
+          },
+          {
+            "name": "limits_json",
+            "type": "string"
+          },
+          {
+            "name": "control_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "chains_status",
+            "columns": [
+              "status"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "steps",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "chain_id",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": "uint32"
+          },
+          {
+            "name": "role",
+            "type": "string"
+          },
+          {
+            "name": "task",
+            "type": "string"
+          },
+          {
+            "name": "task_context",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "verdict",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "started_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "completed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "receipt_path",
+            "type": "string"
+          },
+          {
+            "name": "tokens_used",
+            "type": "uint64"
+          },
+          {
+            "name": "turns_used",
+            "type": "uint64"
+          },
+          {
+            "name": "duration_secs",
+            "type": "uint64"
+          },
+          {
+            "name": "exit_code",
+            "type": "int64"
+          },
+          {
+            "name": "has_exit_code",
+            "type": "bool"
+          },
+          {
+            "name": "error",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "steps_chain",
+            "columns": [
+              "chain_id"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "steps_status",
+            "columns": [
+              "status"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "chain_id",
+            "type": "string"
+          },
+          {
+            "name": "step_id",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64"
+          },
+          {
+            "name": "event_type",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "payload_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "events_chain",
+            "columns": [
+              "chain_id"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "events_type",
+            "columns": [
+              "event_type"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "launches",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "launch_id",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "mode",
+            "type": "string"
+          },
+          {
+            "name": "role",
+            "type": "string"
+          },
+          {
+            "name": "allowed_roles_json",
+            "type": "string"
+          },
+          {
+            "name": "roster_json",
+            "type": "string"
+          },
+          {
+            "name": "source_task",
+            "type": "string"
+          },
+          {
+            "name": "source_specs_json",
+            "type": "string"
+          },
+          {
+            "name": "step_max_turns",
+            "type": "uint64"
+          },
+          {
+            "name": "step_max_tokens",
+            "type": "uint64"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "launches_project",
+            "columns": [
+              "project_id"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "launches_status",
+            "columns": [
+              "status"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "launch_presets",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "project_id",
+            "type": "string"
+          },
+          {
+            "name": "preset_id",
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "mode",
+            "type": "string"
+          },
+          {
+            "name": "role",
+            "type": "string"
+          },
+          {
+            "name": "allowed_roles_json",
+            "type": "string"
+          },
+          {
+            "name": "roster_json",
+            "type": "string"
+          },
+          {
+            "name": "step_max_turns",
+            "type": "uint64"
+          },
+          {
+            "name": "step_max_tokens",
+            "type": "uint64"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "launch_presets_project",
+            "columns": [
+              "project_id"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "document_links",
+        "columns": [
+          {
+            "name": "link_id",
+            "type": "string"
+          },
+          {
+            "name": "source_path",
+            "type": "string"
+          },
+          {
+            "name": "target_path",
+            "type": "string"
+          },
+          {
+            "name": "link_text",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "link_id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "document_links_source",
+            "columns": [
+              "source_path"
+            ],
+            "unique": false,
+            "primary": false
+          },
+          {
+            "name": "document_links_target",
+            "columns": [
+              "target_path"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "brain_index_chunks",
+        "columns": [
+          {
+            "name": "chunk_id",
+            "type": "string"
+          },
+          {
+            "name": "document_path",
+            "type": "string"
+          },
+          {
+            "name": "document_hash",
+            "type": "string"
+          },
+          {
+            "name": "chunk_hash",
+            "type": "string"
+          },
+          {
+            "name": "indexed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "embedding_model",
+            "type": "string"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "chunk_id"
+            ],
+            "unique": true,
+            "primary": true
+          },
+          {
+            "name": "brain_index_chunks_document",
+            "columns": [
+              "document_path"
+            ],
+            "unique": false,
+            "primary": false
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "project_locks",
+        "columns": [
+          {
+            "name": "lock_name",
+            "type": "string"
+          },
+          {
+            "name": "owner_chain_id",
+            "type": "string"
+          },
+          {
+            "name": "owner_step_id",
+            "type": "string"
+          },
+          {
+            "name": "owner_role",
+            "type": "string"
+          },
+          {
+            "name": "acquired_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "heartbeat_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "expires_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "metadata_json",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "lock_name"
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "sys_clients",
+        "columns": [
+          {
+            "name": "connection_id",
+            "type": "bytes"
+          },
+          {
+            "name": "identity",
+            "type": "bytes"
+          },
+          {
+            "name": "connected_at",
+            "type": "int64"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "connection_id"
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "name": "sys_scheduled",
+        "columns": [
+          {
+            "name": "schedule_id",
+            "type": "uint64"
+          },
+          {
+            "name": "reducer_name",
+            "type": "string"
+          },
+          {
+            "name": "args",
+            "type": "bytes"
+          },
+          {
+            "name": "next_run_at_ns",
+            "type": "int64"
+          },
+          {
+            "name": "repeat_ns",
+            "type": "int64"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "pk",
+            "columns": [
+              "schedule_id"
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      }
+    ],
+    "reducers": [
+      {
+        "name": "write_document",
+        "lifecycle": false
+      },
+      {
+        "name": "patch_document",
+        "lifecycle": false
+      },
+      {
+        "name": "delete_document",
+        "lifecycle": false
+      },
+      {
+        "name": "import_documents_batch",
+        "lifecycle": false
+      },
+      {
+        "name": "record_memory_operation",
+        "lifecycle": false
+      },
+      {
+        "name": "mark_brain_index_dirty",
+        "lifecycle": false
+      },
+      {
+        "name": "mark_brain_index_clean",
+        "lifecycle": false
+      },
+      {
+        "name": "mark_code_index_dirty",
+        "lifecycle": false
+      },
+      {
+        "name": "mark_code_index_clean",
+        "lifecycle": false
+      },
+      {
+        "name": "upsert_brain_index_chunk",
+        "lifecycle": false
+      },
+      {
+        "name": "remove_brain_index_chunk",
+        "lifecycle": false
+      },
+      {
+        "name": "create_conversation",
+        "lifecycle": false
+      },
+      {
+        "name": "delete_conversation",
+        "lifecycle": false
+      },
+      {
+        "name": "set_conversation_title",
+        "lifecycle": false
+      },
+      {
+        "name": "set_runtime_defaults",
+        "lifecycle": false
+      },
+      {
+        "name": "append_user_message",
+        "lifecycle": false
+      },
+      {
+        "name": "persist_iteration",
+        "lifecycle": false
+      },
+      {
+        "name": "compress_messages",
+        "lifecycle": false
+      },
+      {
+        "name": "cancel_iteration",
+        "lifecycle": false
+      },
+      {
+        "name": "discard_turn",
+        "lifecycle": false
+      },
+      {
+        "name": "record_sub_call",
+        "lifecycle": false
+      },
+      {
+        "name": "record_tool_execution",
+        "lifecycle": false
+      },
+      {
+        "name": "store_context_report",
+        "lifecycle": false
+      },
+      {
+        "name": "update_context_report_quality",
+        "lifecycle": false
+      },
+      {
+        "name": "start_chain",
+        "lifecycle": false
+      },
+      {
+        "name": "create_chain",
+        "lifecycle": false
+      },
+      {
+        "name": "start_step",
+        "lifecycle": false
+      },
+      {
+        "name": "step_running",
+        "lifecycle": false
+      },
+      {
+        "name": "mark_step_running",
+        "lifecycle": false
+      },
+      {
+        "name": "complete_step",
+        "lifecycle": false
+      },
+      {
+        "name": "fail_step",
+        "lifecycle": false
+      },
+      {
+        "name": "complete_step_with_receipt",
+        "lifecycle": false
+      },
+      {
+        "name": "complete_chain",
+        "lifecycle": false
+      },
+      {
+        "name": "update_chain_metrics",
+        "lifecycle": false
+      },
+      {
+        "name": "set_chain_status",
+        "lifecycle": false
+      },
+      {
+        "name": "request_chain_control",
+        "lifecycle": false
+      },
+      {
+        "name": "log_chain_event",
+        "lifecycle": false
+      },
+      {
+        "name": "append_chain_event",
+        "lifecycle": false
+      },
+      {
+        "name": "save_launch",
+        "lifecycle": false
+      },
+      {
+        "name": "upsert_launch",
+        "lifecycle": false
+      },
+      {
+        "name": "delete_launch",
+        "lifecycle": false
+      },
+      {
+        "name": "save_launch_preset",
+        "lifecycle": false
+      },
+      {
+        "name": "upsert_launch_preset",
+        "lifecycle": false
+      },
+      {
+        "name": "upsert_code_index_file",
+        "lifecycle": false
+      },
+      {
+        "name": "remove_code_index_file",
+        "lifecycle": false
+      },
+      {
+        "name": "acquire_project_lock",
+        "lifecycle": false
+      },
+      {
+        "name": "release_project_lock",
+        "lifecycle": false
+      },
+      {
+        "name": "heartbeat_project_lock",
+        "lifecycle": false
+      },
+      {
+        "name": "force_release_project_lock",
+        "lifecycle": false
+      }
+    ]
+  },
+  "queries": [
+    {
+      "name": "recent_chains",
+      "sql": "SELECT * FROM chains ORDER BY updated_at_us DESC, id ASC LIMIT 50",
+      "row_schema": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "source_specs_json",
+            "type": "string"
+          },
+          {
+            "name": "source_task",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "summary",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "started_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "completed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "metrics_json",
+            "type": "string"
+          },
+          {
+            "name": "limits_json",
+            "type": "string"
+          },
+          {
+            "name": "control_json",
+            "type": "string"
+          }
+        ]
+      },
+      "result_shape": {
+        "kind": "table",
+        "table": "chains"
+      }
+    }
+  ],
+  "views": [
+    {
+      "name": "live_recent_chains",
+      "sql": "SELECT * FROM chains ORDER BY updated_at_us DESC, id ASC LIMIT 50",
+      "row_schema": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "source_specs_json",
+            "type": "string"
+          },
+          {
+            "name": "source_task",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "summary",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "updated_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "started_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "completed_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "metrics_json",
+            "type": "string"
+          },
+          {
+            "name": "limits_json",
+            "type": "string"
+          },
+          {
+            "name": "control_json",
+            "type": "string"
+          }
+        ]
+      },
+      "result_shape": {
+        "kind": "table",
+        "table": "chains"
+      }
+    }
+  ],
+  "visibility_filters": [],
+  "permissions": {
+    "reducers": [],
+    "queries": [],
+    "views": []
+  },
+  "read_model": {
+    "declarations": [
+      {
+        "surface": "query",
+        "name": "recent_chains",
+        "tables": [
+          "chains"
+        ],
+        "tags": [
+          "chains",
+          "operator-ui"
+        ]
+      },
+      {
+        "surface": "view",
+        "name": "live_recent_chains",
+        "tables": [
+          "chains"
+        ],
+        "tags": [
+          "chains",
+          "operator-ui"
+        ]
+      }
+    ]
+  },
+  "migrations": {
+    "module": {
+      "module_version": "",
+      "schema_version": 0,
+      "contract_version": 0,
+      "previous_version": "",
+      "compatibility": "",
+      "classifications": [],
+      "notes": ""
+    },
+    "declarations": []
+  },
+  "codegen": {
+    "contract_format": "shunter.module_contract",
+    "contract_version": 1,
+    "default_snapshot_filename": "shunter.contract.json"
+  }
+}

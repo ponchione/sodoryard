@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
+import { useProjectMemoryChains } from "@/hooks/use-project-memory-chains";
 import { chainStatusClass } from "@/lib/chain-status";
 import { formatModelCapabilitySummary, formatTokenLimit } from "@/lib/model-capabilities";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
@@ -16,10 +17,17 @@ function taskLabel(chain: ChainSummary): string {
   return chain.source_task || chain.source_specs.join(", ") || "No task recorded";
 }
 
+function formatProjectMemoryStatus(status: string, rowCount: number | null): string {
+  if (status === "connected" && rowCount !== null) return `connected / ${rowCount} live rows`;
+  if (status === "idle") return "idle";
+  return status;
+}
+
 export function ChainsPage() {
   const [query, setQuery] = useState("");
   const { data: chains, loading, error, refresh } = useApiResource<ChainSummary[]>("/api/chains?limit=100", []);
   const { data: status } = useApiResource<RuntimeStatus | null>("/api/runtime/status", null);
+  const projectMemory = useProjectMemoryChains({ onChanged: refresh });
   const normalizedQuery = query.trim().toLowerCase();
   const visibleChains = useMemo(() => {
     if (!normalizedQuery) return chains;
@@ -54,6 +62,12 @@ export function ChainsPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 capabilities: {formatModelCapabilitySummary(status.model_capabilities)}
               </p>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              project memory: {formatProjectMemoryStatus(projectMemory.status, projectMemory.rowCount)}
+            </p>
+            {projectMemory.error && (
+              <p className="mt-1 text-xs text-warning">project memory: {projectMemory.error}</p>
             )}
           </div>
           <div className="flex gap-2">

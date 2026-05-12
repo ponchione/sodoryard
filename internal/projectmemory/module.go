@@ -7,7 +7,10 @@ import (
 
 const ModuleName = "yard_project_memory"
 
-const schemaVersion = 12
+const (
+	ModuleVersion = "0.12.0"
+	schemaVersion = 12
+)
 
 const (
 	tableProjectState schema.TableID = iota
@@ -143,7 +146,13 @@ const (
 )
 
 func NewModule() *shunter.Module {
-	mod := shunter.NewModule(ModuleName).SchemaVersion(schemaVersion)
+	mod := shunter.NewModule(ModuleName).
+		Version(ModuleVersion).
+		SchemaVersion(schemaVersion).
+		Metadata(map[string]string{
+			"owner":          "sodoryard",
+			"schema_version": "12",
+		})
 	declareProjectState(mod)
 	declareDocuments(mod)
 	declareDocumentChunks(mod)
@@ -165,6 +174,7 @@ func NewModule() *shunter.Module {
 	declareDocumentLinks(mod)
 	declareBrainIndexChunks(mod)
 	declareProjectLocks(mod)
+	declareRecentChainsReadSurface(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -215,6 +225,24 @@ func NewModule() *shunter.Module {
 	mod.Reducer("heartbeat_project_lock", heartbeatProjectLockReducer)
 	mod.Reducer("force_release_project_lock", forceReleaseProjectLockReducer)
 	return mod
+}
+
+func declareRecentChainsReadSurface(mod *shunter.Module) {
+	const recentChainsSQL = "SELECT * FROM chains ORDER BY updated_at_us DESC, id ASC LIMIT 50"
+	readModel := shunter.ReadModelMetadata{
+		Tables: []string{"chains"},
+		Tags:   []string{"chains", "operator-ui"},
+	}
+	mod.Query(shunter.QueryDeclaration{
+		Name:      "recent_chains",
+		SQL:       recentChainsSQL,
+		ReadModel: readModel,
+	})
+	mod.View(shunter.ViewDeclaration{
+		Name:      "live_recent_chains",
+		SQL:       recentChainsSQL,
+		ReadModel: readModel,
+	})
 }
 
 func declareProjectState(mod *shunter.Module) {

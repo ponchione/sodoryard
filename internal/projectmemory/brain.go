@@ -3,6 +3,7 @@ package projectmemory
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -32,6 +33,24 @@ func (b *BrainBackend) Close() error {
 		return nil
 	}
 	return b.runtime.Close()
+}
+
+func (b *BrainBackend) ExportContractJSON() ([]byte, error) {
+	if b == nil || b.runtime == nil {
+		return nil, fmt.Errorf("project memory backend is not open")
+	}
+	return b.runtime.ExportContractJSON()
+}
+
+func (b *BrainBackend) HTTPHandler() http.Handler {
+	if b == nil || b.runtime == nil {
+		return http.NotFoundHandler()
+	}
+	return b.runtime.HTTPHandler()
+}
+
+func (b *BrainBackend) ProtocolEnabled() bool {
+	return b != nil && b.runtime != nil && b.runtime.ProtocolEnabled()
 }
 
 func (b *BrainBackend) ReadDocument(ctx context.Context, path string) (string, error) {

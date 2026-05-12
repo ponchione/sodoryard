@@ -228,8 +228,9 @@ func BuildBrainBackend(ctx context.Context, cfg appconfig.BrainConfig, logger *s
 			return client, func() { _ = client.Close() }, nil
 		}
 		backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
-			DataDir:    cfg.ShunterDataDir,
-			DurableAck: cfg.DurableAck,
+			DataDir:        cfg.ShunterDataDir,
+			DurableAck:     cfg.DurableAck,
+			EnableProtocol: true,
 		})
 		if err != nil {
 			return nil, func() {}, err
@@ -257,8 +258,9 @@ func BuildConversationManager(ctx context.Context, cfg *appconfig.Config, databa
 		return conversation.NewProjectMemoryManager(client, nil, logger), func() { _ = client.Close() }, nil
 	}
 	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
-		DataDir:    cfg.Memory.ShunterDataDir,
-		DurableAck: cfg.Memory.DurableAck,
+		DataDir:        cfg.Memory.ShunterDataDir,
+		DurableAck:     cfg.Memory.DurableAck,
+		EnableProtocol: true,
 	})
 	if err != nil {
 		return nil, func() {}, err
@@ -292,8 +294,9 @@ func BuildProjectMemoryStore(ctx context.Context, cfg *appconfig.Config, existin
 		return client, func() { _ = client.Close() }, nil
 	}
 	backend, err := projectmemory.OpenBrainBackend(ctx, projectmemory.Config{
-		DataDir:    cfg.Memory.ShunterDataDir,
-		DurableAck: cfg.Memory.DurableAck,
+		DataDir:        cfg.Memory.ShunterDataDir,
+		DurableAck:     cfg.Memory.DurableAck,
+		EnableProtocol: true,
 	})
 	if err != nil {
 		return nil, func() {}, err

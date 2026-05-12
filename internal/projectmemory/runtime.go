@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -13,8 +14,9 @@ import (
 )
 
 type Config struct {
-	DataDir    string
-	DurableAck bool
+	DataDir        string
+	DurableAck     bool
+	EnableProtocol bool
 }
 
 type Runtime struct {
@@ -77,7 +79,7 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	rt, err := shunter.Build(NewModule(), shunter.Config{DataDir: cfg.DataDir})
+	rt, err := shunter.Build(NewModule(), shunter.Config{DataDir: cfg.DataDir, EnableProtocol: cfg.EnableProtocol})
 	if err != nil {
 		releaseDataDirLock(lockFile)
 		return nil, fmt.Errorf("build project memory runtime: %w", err)
@@ -104,6 +106,27 @@ func (r *Runtime) Close() error {
 	}
 	r.lockFile = nil
 	return err
+}
+
+func (r *Runtime) ExportContractJSON() ([]byte, error) {
+	if r == nil || r.rt == nil {
+		return nil, fmt.Errorf("project memory runtime is not open")
+	}
+	return r.rt.ExportContractJSON()
+}
+
+func (r *Runtime) HTTPHandler() http.Handler {
+	if r == nil || r.rt == nil {
+		return http.NotFoundHandler()
+	}
+	return r.rt.HTTPHandler()
+}
+
+func (r *Runtime) ProtocolEnabled() bool {
+	if r == nil || r.rt == nil {
+		return false
+	}
+	return r.rt.Config().EnableProtocol
 }
 
 func acquireDataDirLock(dataDir string) (*os.File, error) {
