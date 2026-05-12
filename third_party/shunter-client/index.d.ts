@@ -112,20 +112,20 @@ export interface SubscriptionHandleReturnOptions {
   returnHandle?: boolean;
 }
 
-export type ViewSubscriber = (
+export type ViewSubscriber = <Row = unknown>(
   sql: string,
-  options?: DeclaredViewSubscriptionOptions,
+  options?: DeclaredViewSubscriptionOptions<Row>,
 ) => Promise<SubscriptionUnsubscribe>;
 
-export type DeclaredViewSubscriber<Name extends string = string> = (
+export type DeclaredViewSubscriber<Name extends string = string> = <Row = unknown>(
   name: Name,
-  options?: DeclaredViewSubscriptionOptions,
+  options?: DeclaredViewSubscriptionOptions<Row>,
 ) => Promise<SubscriptionUnsubscribe>;
 
-export type DeclaredViewHandleSubscriber<Name extends string = string> = (
+export type DeclaredViewHandleSubscriber<Name extends string = string> = <Row = unknown>(
   name: Name,
-  options?: DeclaredViewSubscriptionOptions & SubscriptionHandleReturnOptions,
-) => Promise<SubscriptionHandle>;
+  options?: DeclaredViewSubscriptionOptions<Row> & SubscriptionHandleReturnOptions,
+) => Promise<SubscriptionHandle<Row>>;
 
 export interface DeclaredViewSubscriptionOptions<Row = unknown> {
   decodeRow?: TableRowDecoder<Row>;

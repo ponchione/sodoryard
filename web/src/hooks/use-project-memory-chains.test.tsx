@@ -22,6 +22,16 @@ type MockDeclaredQueryResult = {
   }>;
 };
 
+type MockProjectMemoryEventRow = {
+  id: string;
+  chainId: string;
+  stepId: string;
+  sequence: bigint;
+  eventType: string;
+  createdAtUs: bigint;
+  payloadJson: string;
+};
+
 type MockSubscriptionOptions = {
   onInitialRows?: (rows: readonly unknown[]) => void;
   onUpdate?: (update: { inserts: readonly unknown[]; deletes: readonly unknown[] }) => void;
@@ -30,7 +40,9 @@ type MockSubscriptionOptions = {
 const mocks = vi.hoisted(() => ({
   createProjectMemoryClientMock: vi.fn(),
   disposeMock: vi.fn(),
+  queryRecentChainEventsDecodedMock: vi.fn(),
   queryRecentChainsDecodedMock: vi.fn(),
+  subscribeLiveRecentChainEventsMock: vi.fn(),
   subscribeLiveRecentChainsMock: vi.fn(),
   unsubscribeMock: vi.fn(),
   verifyProjectMemoryRuntimeContractMock: vi.fn(),
@@ -38,14 +50,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/project-memory/client", () => ({
   createProjectMemoryClient: mocks.createProjectMemoryClientMock,
+  queryRecentChainEventsDecoded: mocks.queryRecentChainEventsDecodedMock,
   queryRecentChainsDecoded: mocks.queryRecentChainsDecodedMock,
+  subscribeLiveRecentChainEvents: mocks.subscribeLiveRecentChainEventsMock,
   subscribeLiveRecentChains: mocks.subscribeLiveRecentChainsMock,
   verifyProjectMemoryRuntimeContract: mocks.verifyProjectMemoryRuntimeContractMock,
 }));
 
 import { useProjectMemoryChains } from "./use-project-memory-chains";
 
-let subscriptionOptions: MockSubscriptionOptions | undefined;
+let chainSubscriptionOptions: MockSubscriptionOptions | undefined;
+let eventSubscriptionOptions: MockSubscriptionOptions | undefined;
 
 function chainRows(count: number): MockDeclaredQueryResult {
   return {
@@ -53,6 +68,30 @@ function chainRows(count: number): MockDeclaredQueryResult {
       {
         tableName: "chains",
         rows: Array.from({ length: count }, (_, index) => ({ id: `chain-${index + 1}` })),
+      },
+    ],
+  };
+}
+
+function eventRow(overrides: Partial<MockProjectMemoryEventRow> = {}): MockProjectMemoryEventRow {
+  return {
+    id: "event-1",
+    chainId: "chain-1",
+    stepId: "step-1",
+    sequence: 1n,
+    eventType: "step_started",
+    createdAtUs: 1_700_000_000_000_000n,
+    payloadJson: "{\"role\":\"coder\"}",
+    ...overrides,
+  };
+}
+
+function eventRows(rows: MockProjectMemoryEventRow[]): MockDeclaredQueryResult {
+  return {
+    tables: [
+      {
+        tableName: "events",
+        rows,
       },
     ],
   };
@@ -87,20 +126,32 @@ function installClient(connectError?: Error) {
 
 describe("useProjectMemoryChains", () => {
   beforeEach(() => {
-    subscriptionOptions = undefined;
+    chainSubscriptionOptions = undefined;
+    eventSubscriptionOptions = undefined;
     mocks.createProjectMemoryClientMock.mockReset();
     mocks.disposeMock.mockReset().mockResolvedValue(undefined);
+    mocks.queryRecentChainEventsDecodedMock.mockReset().mockResolvedValue(eventRows([
+      eventRow({ id: "event-1", sequence: 1n, createdAtUs: 1_700_000_000_000_000n }),
+      eventRow({ id: "event-2", sequence: 2n, eventType: "step_completed", createdAtUs: 1_700_000_100_000_000n }),
+    ]));
     mocks.queryRecentChainsDecodedMock.mockReset().mockResolvedValue(chainRows(2));
     mocks.subscribeLiveRecentChainsMock.mockReset().mockImplementation((
       _subscribeDeclaredView: unknown,
       options: MockSubscriptionOptions,
     ) => {
-      subscriptionOptions = options;
+      chainSubscriptionOptions = options;
+      return Promise.resolve(mocks.unsubscribeMock);
+    });
+    mocks.subscribeLiveRecentChainEventsMock.mockReset().mockImplementation((
+      _subscribeDeclaredView: unknown,
+      options: MockSubscriptionOptions,
+    ) => {
+      eventSubscriptionOptions = options;
       return Promise.resolve(mocks.unsubscribeMock);
     });
     mocks.unsubscribeMock.mockReset().mockResolvedValue(undefined);
     mocks.verifyProjectMemoryRuntimeContractMock.mockReset().mockResolvedValue({
-      module: { name: "yard_project_memory", version: "0.12.0" },
+      module: { name: "yard_project_memory", version: "0.13.0" },
     });
   });
 
@@ -109,40 +160,76 @@ describe("useProjectMemoryChains", () => {
 
     expect(result.current.status).toBe("idle");
     expect(result.current.rowCount).toBeNull();
+    expect(result.current.eventCount).toBeNull();
+    expect(result.current.recentEvents).toEqual([]);
     expect(result.current.error).toBeNull();
     expect(mocks.createProjectMemoryClientMock).not.toHaveBeenCalled();
+    expect(mocks.queryRecentChainEventsDecodedMock).not.toHaveBeenCalled();
     expect(mocks.verifyProjectMemoryRuntimeContractMock).not.toHaveBeenCalled();
   });
 
-  it("loads the recent-chain snapshot and invalidates REST on live updates", async () => {
+  it("loads snapshots, exposes recent events, and invalidates REST on live updates", async () => {
     installClient();
     const onChanged = vi.fn();
     const { result, unmount } = renderHook(() => useProjectMemoryChains({ onChanged }));
 
     await waitFor(() => expect(result.current.status).toBe("connected"));
     await waitFor(() => expect(result.current.rowCount).toBe(2));
+    await waitFor(() => expect(result.current.eventCount).toBe(2));
 
     expect(mocks.verifyProjectMemoryRuntimeContractMock).toHaveBeenCalledTimes(1);
     expect(mocks.createProjectMemoryClientMock).toHaveBeenCalledTimes(1);
     expect(mocks.queryRecentChainsDecodedMock).toHaveBeenCalledTimes(1);
+    expect(mocks.queryRecentChainEventsDecodedMock).toHaveBeenCalledTimes(1);
     expect(mocks.subscribeLiveRecentChainsMock).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribeLiveRecentChainEventsMock).toHaveBeenCalledTimes(1);
+    expect(result.current.recentEvents.map((event) => event.id)).toEqual(["event-2", "event-1"]);
+    expect(result.current.recentEvents[0]).toMatchObject({
+      chainId: "chain-1",
+      eventType: "step_completed",
+      payloadJson: "{\"role\":\"coder\"}",
+      sequence: "2",
+    });
 
     act(() => {
-      subscriptionOptions?.onUpdate?.({ inserts: [{ id: "chain-3" }], deletes: [] });
+      chainSubscriptionOptions?.onUpdate?.({ inserts: [{ id: "chain-3" }], deletes: [] });
     });
 
     expect(result.current.rowCount).toBe(3);
     expect(onChanged).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      eventSubscriptionOptions?.onUpdate?.({
+        inserts: [eventRow({
+          id: "event-3",
+          sequence: 3n,
+          eventType: "approval_required",
+          createdAtUs: 1_700_000_200_000_000n,
+          payloadJson: "{\"tool\":\"shell\"}",
+        })],
+        deletes: [],
+      });
+    });
+
+    expect(result.current.eventCount).toBe(3);
+    expect(result.current.recentEvents[0]).toMatchObject({
+      id: "event-3",
+      eventType: "approval_required",
+      sequence: "3",
+    });
+    expect(onChanged).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       await result.current.refresh();
     });
 
     expect(mocks.queryRecentChainsDecodedMock).toHaveBeenCalledTimes(2);
+    expect(mocks.queryRecentChainEventsDecodedMock).toHaveBeenCalledTimes(2);
     expect(result.current.rowCount).toBe(2);
+    expect(result.current.eventCount).toBe(2);
 
     unmount();
-    expect(mocks.unsubscribeMock).toHaveBeenCalledTimes(1);
+    expect(mocks.unsubscribeMock).toHaveBeenCalledTimes(2);
     expect(mocks.disposeMock).toHaveBeenCalledTimes(1);
   });
 
@@ -155,6 +242,7 @@ describe("useProjectMemoryChains", () => {
 
     expect(result.current.error).toBe("project memory socket unavailable");
     expect(mocks.subscribeLiveRecentChainsMock).not.toHaveBeenCalled();
+    expect(mocks.subscribeLiveRecentChainEventsMock).not.toHaveBeenCalled();
   });
 
   it("reports contract mismatches before opening the socket", async () => {
@@ -167,5 +255,6 @@ describe("useProjectMemoryChains", () => {
 
     expect(result.current.error).toBe("project memory contract mismatch");
     expect(mocks.createProjectMemoryClientMock).not.toHaveBeenCalled();
+    expect(mocks.queryRecentChainEventsDecodedMock).not.toHaveBeenCalled();
   });
 });

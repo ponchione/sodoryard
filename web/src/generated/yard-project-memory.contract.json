@@ -2,7 +2,7 @@
   "contract_version": 1,
   "module": {
     "name": "yard_project_memory",
-    "version": "0.12.0",
+    "version": "0.13.0",
     "metadata": {
       "owner": "sodoryard",
       "schema_version": "12"
@@ -1752,6 +1752,46 @@
         "kind": "table",
         "table": "chains"
       }
+    },
+    {
+      "name": "recent_chain_events",
+      "sql": "SELECT * FROM events ORDER BY created_at_us DESC, sequence DESC LIMIT 25",
+      "row_schema": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "chain_id",
+            "type": "string"
+          },
+          {
+            "name": "step_id",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64"
+          },
+          {
+            "name": "event_type",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "payload_json",
+            "type": "string"
+          }
+        ]
+      },
+      "result_shape": {
+        "kind": "table",
+        "table": "events"
+      }
     }
   ],
   "views": [
@@ -1814,6 +1854,46 @@
         "kind": "table",
         "table": "chains"
       }
+    },
+    {
+      "name": "live_recent_chain_events",
+      "sql": "SELECT * FROM events ORDER BY created_at_us DESC, sequence DESC LIMIT 25",
+      "row_schema": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "chain_id",
+            "type": "string"
+          },
+          {
+            "name": "step_id",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64"
+          },
+          {
+            "name": "event_type",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "payload_json",
+            "type": "string"
+          }
+        ]
+      },
+      "result_shape": {
+        "kind": "table",
+        "table": "events"
+      }
     }
   ],
   "visibility_filters": [],
@@ -1836,6 +1916,18 @@
         ]
       },
       {
+        "surface": "query",
+        "name": "recent_chain_events",
+        "tables": [
+          "events"
+        ],
+        "tags": [
+          "chains",
+          "events",
+          "operator-ui"
+        ]
+      },
+      {
         "surface": "view",
         "name": "live_recent_chains",
         "tables": [
@@ -1843,6 +1935,18 @@
         ],
         "tags": [
           "chains",
+          "operator-ui"
+        ]
+      },
+      {
+        "surface": "view",
+        "name": "live_recent_chain_events",
+        "tables": [
+          "events"
+        ],
+        "tags": [
+          "chains",
+          "events",
           "operator-ui"
         ]
       }

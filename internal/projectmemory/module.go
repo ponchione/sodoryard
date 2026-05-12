@@ -8,7 +8,7 @@ import (
 const ModuleName = "yard_project_memory"
 
 const (
-	ModuleVersion = "0.12.0"
+	ModuleVersion = "0.13.0"
 	schemaVersion = 12
 )
 
@@ -174,7 +174,7 @@ func NewModule() *shunter.Module {
 	declareDocumentLinks(mod)
 	declareBrainIndexChunks(mod)
 	declareProjectLocks(mod)
-	declareRecentChainsReadSurface(mod)
+	declareOperatorUIReadSurfaces(mod)
 	mod.Reducer("write_document", writeDocumentReducer)
 	mod.Reducer("patch_document", patchDocumentReducer)
 	mod.Reducer("delete_document", deleteDocumentReducer)
@@ -227,21 +227,37 @@ func NewModule() *shunter.Module {
 	return mod
 }
 
-func declareRecentChainsReadSurface(mod *shunter.Module) {
+func declareOperatorUIReadSurfaces(mod *shunter.Module) {
 	const recentChainsSQL = "SELECT * FROM chains ORDER BY updated_at_us DESC, id ASC LIMIT 50"
-	readModel := shunter.ReadModelMetadata{
+	recentChainsReadModel := shunter.ReadModelMetadata{
 		Tables: []string{"chains"},
 		Tags:   []string{"chains", "operator-ui"},
 	}
 	mod.Query(shunter.QueryDeclaration{
 		Name:      "recent_chains",
 		SQL:       recentChainsSQL,
-		ReadModel: readModel,
+		ReadModel: recentChainsReadModel,
 	})
 	mod.View(shunter.ViewDeclaration{
 		Name:      "live_recent_chains",
 		SQL:       recentChainsSQL,
-		ReadModel: readModel,
+		ReadModel: recentChainsReadModel,
+	})
+
+	const recentChainEventsSQL = "SELECT * FROM events ORDER BY created_at_us DESC, sequence DESC LIMIT 25"
+	recentChainEventsReadModel := shunter.ReadModelMetadata{
+		Tables: []string{"events"},
+		Tags:   []string{"chains", "events", "operator-ui"},
+	}
+	mod.Query(shunter.QueryDeclaration{
+		Name:      "recent_chain_events",
+		SQL:       recentChainEventsSQL,
+		ReadModel: recentChainEventsReadModel,
+	})
+	mod.View(shunter.ViewDeclaration{
+		Name:      "live_recent_chain_events",
+		SQL:       recentChainEventsSQL,
+		ReadModel: recentChainEventsReadModel,
 	})
 }
 

@@ -14,21 +14,27 @@ import {
 } from "@/generated/yard-project-memory";
 
 export {
+  queryRecentChainEventsDecoded,
   queryRecentChainsDecoded,
+  subscribeLiveRecentChainEvents,
+  subscribeLiveRecentChainEventsHandle,
   subscribeLiveRecentChains,
   subscribeLiveRecentChainsHandle,
 } from "@/generated/yard-project-memory";
 
 export type {
   ChainsRow,
+  LiveRecentChainEventsViewRow,
   LiveRecentChainsViewRow,
+  RecentChainEventsQueryRow,
+  RecentChainEventsQueryRows,
   RecentChainsQueryRow,
   RecentChainsQueryRows,
 } from "@/generated/yard-project-memory";
 
 export const projectMemoryContract = shunterContract;
 export const projectMemoryModuleName = "yard_project_memory";
-export const projectMemoryModuleVersion = "0.12.0";
+export const projectMemoryModuleVersion = "0.13.0";
 
 export interface ProjectMemoryClientOptions {
   url?: string;

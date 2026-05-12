@@ -17,10 +17,22 @@ function taskLabel(chain: ChainSummary): string {
   return chain.source_task || chain.source_specs.join(", ") || "No task recorded";
 }
 
-function formatProjectMemoryStatus(status: string, rowCount: number | null): string {
-  if (status === "connected" && rowCount !== null) return `connected / ${rowCount} live rows`;
+function formatProjectMemoryStatus(status: string, rowCount: number | null, eventCount: number | null): string {
+  if (status === "connected") {
+    const parts = ["connected"];
+    if (rowCount !== null) parts.push(`${rowCount} chain rows`);
+    if (eventCount !== null) parts.push(`${eventCount} event rows`);
+    return parts.join(" / ");
+  }
   if (status === "idle") return "idle";
   return status;
+}
+
+function eventPayloadPreview(payloadJson: string): string {
+  const text = payloadJson.trim();
+  if (!text || text === "{}") return "no payload";
+  if (text.length <= 140) return text;
+  return `${text.slice(0, 137)}...`;
 }
 
 export function ChainsPage() {
@@ -64,7 +76,11 @@ export function ChainsPage() {
               </p>
             )}
             <p className="mt-1 text-xs text-muted-foreground">
-              project memory: {formatProjectMemoryStatus(projectMemory.status, projectMemory.rowCount)}
+              project memory: {formatProjectMemoryStatus(
+                projectMemory.status,
+                projectMemory.rowCount,
+                projectMemory.eventCount,
+              )}
             </p>
             {projectMemory.error && (
               <p className="mt-1 text-xs text-warning">project memory: {projectMemory.error}</p>
@@ -96,6 +112,50 @@ export function ChainsPage() {
                 <p key={warning.message}>{warning.message}</p>
               ))}
             </div>
+          </section>
+        )}
+
+        {projectMemory.status === "connected" && (
+          <section className="border border-border">
+            <div className="flex items-center justify-between border-b border-border bg-muted px-3 py-2">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Recent Project Memory Events
+              </h2>
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Shunter SDK
+              </span>
+            </div>
+            {projectMemory.recentEvents.length === 0 ? (
+              <p className="px-3 py-3 text-xs text-muted-foreground">No recent project memory events.</p>
+            ) : (
+              <div className="divide-y divide-border/70">
+                {projectMemory.recentEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="grid gap-2 px-3 py-2 text-xs md:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-medium text-foreground">{event.eventType}</span>
+                        <Link to={`/chains/${event.chainId}`} className="font-mono text-primary hover:underline">
+                          {event.chainId}
+                        </Link>
+                        {event.stepId && (
+                          <span className="font-mono text-muted-foreground">{event.stepId}</span>
+                        )}
+                      </div>
+                      <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                        {eventPayloadPreview(event.payloadJson)}
+                      </div>
+                    </div>
+                    <div className="text-muted-foreground md:text-right">
+                      <div>{formatDate(event.createdAt)}</div>
+                      <div className="mt-1 font-mono text-[11px]">seq {event.sequence}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
