@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -875,6 +877,9 @@ func renderApprovalLine(approval operator.ApprovalView) string {
 	if approval.StepID != "" {
 		parts = append(parts, "step="+approval.StepID)
 	}
+	if input := compactApprovalToolInput(approval.ToolInput); input != "" {
+		parts = append(parts, "input="+strconv.Quote(input))
+	}
 	if approval.Reason != "" {
 		parts = append(parts, "reason="+strconv.Quote(trimOneLine(approval.Reason, 96)))
 	}
@@ -885,6 +890,18 @@ func renderApprovalLine(approval operator.ApprovalView) string {
 		parts = append(parts, "decided_by="+approval.DecidedBy)
 	}
 	return strings.Join(parts, " ")
+}
+
+func compactApprovalToolInput(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return ""
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, raw); err == nil {
+		trimmed = compacted.String()
+	}
+	return trimOneLine(trimmed, 160)
 }
 
 func renderApprovalDecisionResult(result operator.ApprovalDecisionResult) string {

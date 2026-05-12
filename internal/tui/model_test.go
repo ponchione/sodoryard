@@ -716,6 +716,7 @@ func TestSlashApprovalsListsAndDecides(t *testing.T) {
 		ID:        "approval-1",
 		ChainID:   "chain-1",
 		ToolName:  "shell",
+		ToolInput: []byte(`{"cmd":"rtk","cwd":"/tmp"}`),
 		RiskLevel: "high",
 		Status:    chain.ApprovalStatusPending,
 		Reason:    "matched policy",
@@ -731,7 +732,7 @@ func TestSlashApprovalsListsAndDecides(t *testing.T) {
 	updated, _ = got.Update(cmd())
 	got = updated.(Model)
 	view := got.View()
-	for _, want := range []string{"APPROVALS chain-1", "approval-1 status=pending tool=shell risk=high reason=\"matched policy\""} {
+	for _, want := range []string{"APPROVALS chain-1", "approval-1 status=pending tool=shell risk=high", "input=\"{\\\"cmd\\\":\\\"rtk\\\",\\\"cwd\\\":\\\"/tmp\\\"}\" reason=\"matched policy\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("/approvals view missing %q:\n%s", want, view)
 		}

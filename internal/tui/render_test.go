@@ -249,6 +249,7 @@ func TestChainRenderShowsApprovals(t *testing.T) {
 		Approvals: []operator.ApprovalView{{
 			ID:        "approval-1",
 			ToolName:  "shell",
+			ToolInput: []byte(`{"cmd":"rtk","cwd":"/tmp"}`),
 			Status:    chain.ApprovalStatusPending,
 			RiskLevel: "high",
 			Reason:    "matched policy",
@@ -260,7 +261,7 @@ func TestChainRenderShowsApprovals(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"status: waiting_approval", "controls: F follow  w web  R resume  X cancel", "Approvals", "approval-1 status=pending tool=shell risk=high reason=\"matched policy\""} {
+	for _, want := range []string{"status: waiting_approval", "controls: F follow  w web  R resume  X cancel", "Approvals", "approval-1 status=pending tool=shell risk=high", "input=\"{\\\"cmd\\\":\\\"rtk\\\",\\\"cwd\\\":\\\"/tmp\\\"}\" reason=\"matched policy\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chain approval view missing %q:\n%s", want, view)
 		}
