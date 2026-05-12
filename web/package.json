@@ -14,7 +14,7 @@
     "@base-ui/react": "^1.3.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@shunter/client": "file:../../shunter/typescript/client",
+    "@shunter/client": "file:../third_party/shunter-client",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react-syntax-highlighter": "^15.5.13",
     "augmented-ui": "^2.0.0",
