@@ -6,11 +6,13 @@ import {
   queryRecentChainsDecoded,
   subscribeLiveRecentChains,
   type ProjectMemoryClient,
+  verifyProjectMemoryRuntimeContract,
 } from "@/lib/project-memory/client";
 
 export interface UseProjectMemoryChainsOptions {
   enabled?: boolean;
   onChanged?: () => void | Promise<void>;
+  verifyContract?: boolean;
 }
 
 export interface UseProjectMemoryChainsReturn {
@@ -34,6 +36,7 @@ export function useProjectMemoryChains(
 ): UseProjectMemoryChainsReturn {
   const enabled = options.enabled ?? true;
   const onChanged = options.onChanged;
+  const verifyContract = options.verifyContract ?? true;
   const onChangedRef = useRef(onChanged);
   const clientRef = useRef<ProjectMemoryClient | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("idle");
@@ -65,18 +68,24 @@ export function useProjectMemoryChains(
     }
 
     let cancelled = false;
+    let client: ProjectMemoryClient | undefined;
     let unsubscribe: SubscriptionUnsubscribe | undefined;
-    const client = createProjectMemoryClient({
-      onStateChange: ({ current }) => {
-        if (!cancelled) setStatus(current.status);
-      },
-    });
-    clientRef.current = client;
-    setStatus(client.state.status);
+    setStatus("connecting");
     setError(null);
 
     const start = async () => {
       try {
+        if (verifyContract) {
+          await verifyProjectMemoryRuntimeContract();
+          if (cancelled) return;
+        }
+        client = createProjectMemoryClient({
+          onStateChange: ({ current }) => {
+            if (!cancelled) setStatus(current.status);
+          },
+        });
+        clientRef.current = client;
+        setStatus(client.state.status);
         await client.connect();
         if (cancelled) return;
         const snapshotRowCount = await loadSnapshotRowCount(client);
@@ -110,9 +119,9 @@ export function useProjectMemoryChains(
       cancelled = true;
       if (clientRef.current === client) clientRef.current = null;
       void unsubscribe?.();
-      void client.dispose();
+      void client?.dispose();
     };
-  }, [enabled, loadSnapshotRowCount]);
+  }, [enabled, loadSnapshotRowCount, verifyContract]);
 
   return { status, error, rowCount, refresh };
 }

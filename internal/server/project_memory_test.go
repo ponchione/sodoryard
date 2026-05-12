@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/server"
+	"nhooyr.io/websocket"
 )
 
 func TestProjectMemoryContractEndpoint(t *testing.T) {
@@ -56,7 +59,7 @@ func TestProjectMemoryContractEndpoint(t *testing.T) {
 	}
 }
 
-func TestProjectMemorySubscribeRouteIsMountedSeparately(t *testing.T) {
+func TestProjectMemorySubscribeRouteAcceptsShunterWebSocket(t *testing.T) {
 	backend, err := projectmemory.OpenBrainBackend(context.Background(), projectmemory.Config{
 		DataDir:        t.TempDir(),
 		EnableProtocol: true,
@@ -70,12 +73,22 @@ func TestProjectMemorySubscribeRouteIsMountedSeparately(t *testing.T) {
 	server.NewProjectMemoryHandler(srv, backend, newTestLogger())
 	_, base := startServer(t, srv)
 
-	resp, err := http.Get(base + "/api/project-memory/subscribe")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(base, "http") + "/api/project-memory/subscribe"
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{"v1.bsatn.shunter"},
+	})
 	if err != nil {
-		t.Fatalf("subscribe request failed: %v", err)
+		if resp != nil {
+			t.Fatalf("subscribe websocket dial failed with status %d: %v", resp.StatusCode, err)
+		}
+		t.Fatalf("subscribe websocket dial failed: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		t.Fatal("subscribe route returned 404; project memory protocol was not mounted")
+	defer conn.Close(websocket.StatusNormalClosure, "test complete")
+
+	if got := conn.Subprotocol(); got != "v1.bsatn.shunter" {
+		t.Fatalf("subprotocol = %q, want v1.bsatn.shunter", got)
 	}
 }

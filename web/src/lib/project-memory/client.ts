@@ -27,6 +27,8 @@ export type {
 } from "@/generated/yard-project-memory";
 
 export const projectMemoryContract = shunterContract;
+export const projectMemoryModuleName = "yard_project_memory";
+export const projectMemoryModuleVersion = "0.12.0";
 
 export interface ProjectMemoryClientOptions {
   url?: string;
@@ -37,11 +39,45 @@ export interface ProjectMemoryClientOptions {
 
 export type ProjectMemoryClient = ShunterClient<typeof shunterProtocol>;
 
+export interface ProjectMemoryRuntimeContract {
+  module?: {
+    name?: string;
+    version?: string;
+  };
+}
+
 export function assertProjectMemoryContractCompatible() {
   return assertGeneratedContractCompatible(shunterContract, {
-    moduleName: "yard_project_memory",
-    moduleVersion: "0.12.0",
+    moduleName: projectMemoryModuleName,
+    moduleVersion: projectMemoryModuleVersion,
   });
+}
+
+export async function fetchProjectMemoryRuntimeContract(fetcher: typeof fetch = fetch): Promise<ProjectMemoryRuntimeContract> {
+  const response = await fetcher("/api/project-memory/contract", {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Project memory contract request failed: ${response.status} ${response.statusText}`);
+  }
+  return response.json() as Promise<ProjectMemoryRuntimeContract>;
+}
+
+export function assertProjectMemoryRuntimeContractCompatible(
+  contract: ProjectMemoryRuntimeContract,
+): ProjectMemoryRuntimeContract {
+  const moduleName = contract.module?.name;
+  const moduleVersion = contract.module?.version;
+  if (moduleName !== projectMemoryModuleName || moduleVersion !== projectMemoryModuleVersion) {
+    throw new Error(
+      `Project memory contract mismatch: expected ${projectMemoryModuleName} ${projectMemoryModuleVersion}, got ${moduleName ?? "unknown"} ${moduleVersion ?? "unknown"}`,
+    );
+  }
+  return contract;
+}
+
+export async function verifyProjectMemoryRuntimeContract(fetcher?: typeof fetch): Promise<ProjectMemoryRuntimeContract> {
+  return assertProjectMemoryRuntimeContractCompatible(await fetchProjectMemoryRuntimeContract(fetcher));
 }
 
 export function createProjectMemoryClient(options: ProjectMemoryClientOptions = {}): ProjectMemoryClient {

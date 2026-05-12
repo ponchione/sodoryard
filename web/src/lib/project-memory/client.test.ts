@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   assertProjectMemoryContractCompatible,
+  assertProjectMemoryRuntimeContractCompatible,
+  fetchProjectMemoryRuntimeContract,
   projectMemoryContract,
   projectMemorySubscribeURL,
+  verifyProjectMemoryRuntimeContract,
 } from "./client";
 
 describe("project memory Shunter client", () => {
@@ -20,5 +23,35 @@ describe("project memory Shunter client", () => {
     expect(projectMemoryContract.moduleName).toBe("yard_project_memory");
     expect(projectMemoryContract.moduleVersion).toBe("0.12.0");
     expect(() => assertProjectMemoryContractCompatible()).not.toThrow();
+  });
+
+  it("fetches and verifies the backend contract metadata", async () => {
+    const fetcher: typeof fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe("/api/project-memory/contract");
+      expect(init?.headers).toEqual({ Accept: "application/json" });
+      return Promise.resolve(new Response(JSON.stringify({
+        module: { name: "yard_project_memory", version: "0.12.0" },
+      })));
+    });
+
+    await expect(verifyProjectMemoryRuntimeContract(fetcher)).resolves.toMatchObject({
+      module: { name: "yard_project_memory", version: "0.12.0" },
+    });
+  });
+
+  it("rejects stale backend contract metadata", () => {
+    expect(() => assertProjectMemoryRuntimeContractCompatible({
+      module: { name: "yard_project_memory", version: "0.11.0" },
+    })).toThrow(/contract mismatch/);
+  });
+
+  it("reports failed backend contract fetches", async () => {
+    const fetcher: typeof fetch = vi.fn(() => (
+      Promise.resolve(new Response("missing", { status: 503, statusText: "Service Unavailable" }))
+    ));
+
+    await expect(fetchProjectMemoryRuntimeContract(fetcher)).rejects.toThrow(
+      "Project memory contract request failed: 503 Service Unavailable",
+    );
   });
 });
