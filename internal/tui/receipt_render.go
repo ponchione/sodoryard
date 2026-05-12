@@ -124,6 +124,12 @@ func (m Model) receiptItemMeta(item receiptItem) string {
 		if step.TokensUsed > 0 {
 			parts = append(parts, fmt.Sprintf("%dtok", step.TokensUsed))
 		}
+		if step.TurnsUsed > 0 {
+			parts = append(parts, fmt.Sprintf("%dturns", step.TurnsUsed))
+		}
+		if step.DurationSecs > 0 {
+			parts = append(parts, fmt.Sprintf("%ds", step.DurationSecs))
+		}
 		return strings.Join(parts, " ")
 	}
 	return ""

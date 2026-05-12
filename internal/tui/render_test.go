@@ -330,6 +330,24 @@ func TestReceiptRenderIncludesContent(t *testing.T) {
 	}
 }
 
+func TestReceiptRenderShowsStepUsageMetadata(t *testing.T) {
+	fake := newFakeOperator()
+	detail := fake.details["chain-1"]
+	detail.Steps = []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "accepted", ReceiptPath: "receipts/coder/chain-1-step-001.md", TokensUsed: 42, TurnsUsed: 2, DurationSecs: 7}}
+	fake.details["chain-1"] = detail
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenReceipts
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"completed accepted 42tok 2turns 7s", "receipts/coder/chain-1-step-001.md"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("receipt usage view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestReceiptRenderParsesFrontmatter(t *testing.T) {
 	fake := newFakeOperator()
 	fake.receipts["chain-1:"] = operator.ReceiptView{
