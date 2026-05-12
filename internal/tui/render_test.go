@@ -343,6 +343,17 @@ timestamp: 2026-05-01T12:00:00Z
 turns_used: 3
 tokens_used: 99
 duration_seconds: 7
+changed_files:
+  - internal/example.go
+findings:
+  - id: FIND-correctness-001
+    status: open
+    severity: high
+    file: internal/example.go
+    line: 42
+    summary: nil panic
+followups:
+  - run rtk make test
 ---
 
 # Summary
@@ -356,9 +367,28 @@ duration_seconds: 7
 	got := updated.(Model)
 
 	view := got.View()
-	for _, want := range []string{"Metadata", "agent: coder  verdict: completed  step: 1", "turns: 3  tokens: 99  duration: 7s", "Body", "Summary", "- Changed code."} {
+	for _, want := range []string{
+		"Metadata",
+		"agent: coder  verdict: completed  step: 1",
+		"turns: 3  tokens: 99  duration: 7s",
+		"warnings: missing schema_version",
+		"changed files: internal/example.go",
+		"followups: run rtk make test",
+		"findings: 1",
+		"FIND-correctness-001 status=open severity=high",
+		"Body",
+		"Summary",
+		"- Changed code.",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("receipt parsed view missing %q:\n%s", want, view)
+		}
+	}
+	receipt := fake.receipts["chain-1:"]
+	content := renderReceiptViewportContent(newStyles(), &receipt, 160)
+	for _, want := range []string{"file=internal/example.go:42", "summary=\"nil panic\""} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("receipt parsed content missing %q:\n%s", want, content)
 		}
 	}
 }
