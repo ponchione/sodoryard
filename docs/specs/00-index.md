@@ -2,7 +2,7 @@
 
 **Project:** sodoryard
 **Version:** current
-**Last Updated:** 2026-05-01
+**Last Updated:** 2026-05-12
 
 ---
 
@@ -31,6 +31,7 @@
 | 19  | [[19-tool-result-details]]           | ✅ Draft | Structured tool-result metadata for UI and analytics, content unchanged |
 | 20  | [[20-operator-console-tui]]          | ✅ Draft | Terminal-first operator console, launch, chain control, and receipts    |
 | 21  | [[21-web-inspector]]                 | ✅ Draft | Browser inspector for transcripts, context, tools, diffs, and metrics   |
+| 22  | [[22-electron-desktop-app]]          | ✅ Draft | Electron desktop GUI for operator console and rich inspection workflows  |
 
 ## Status Legend
 
@@ -41,19 +42,21 @@
 ## Next Actions
 
 1. Keep the specs aligned with the live `yard` / `tidmouth` / container/runtime contract.
-2. Treat the TUI operator console as the active daily-driver UI target, specified in [[20-operator-console-tui]].
-3. Treat the browser app as the rich inspector specified in [[21-web-inspector]], not as a second command center.
-4. Remove stale planning residue when a slice is fully landed.
-5. Prefer `NEXT_SESSION_HANDOFF.md` plus the current README over old implementation plans when resuming work.
-6. Treat these specs as current-truth architecture docs, not historical migration notes.
+2. Treat [[22-electron-desktop-app]] as the proposed GUI direction while the current implemented UI remains TUI plus web inspector.
+3. Treat the TUI operator console as the current implemented daily-driver UI target, specified in [[20-operator-console-tui]], until desktop parity is reached.
+4. Treat the browser app as the rich inspector specified in [[21-web-inspector]], not as a second command center.
+5. Remove stale planning residue when a slice is fully landed.
+6. Prefer `NEXT_SESSION_HANDOFF.md` plus the current README over old implementation plans when resuming work.
+7. Treat these specs as current-truth architecture docs, not historical migration notes.
 
 ## Architecture Diagram (Layers)
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Layer 6: Operator Interfaces               │  [[20-operator-console-tui]]
-│  TUI + CLI + Web Inspector                  │  [[21-web-inspector]]
-│  WebSocket + REST for browser inspection    │  [[07-web-interface-and-streaming]]
+│  Layer 6: Operator Interfaces               │  [[22-electron-desktop-app]]
+│  Desktop + TUI + CLI + Web Inspector        │  [[20-operator-console-tui]]
+│                                             │  [[21-web-inspector]]
+│  WebSocket + REST for desktop/browser UI    │  [[07-web-interface-and-streaming]]
 ├─────────────────────────────────────────────┤
 │  Layer 5: Agent Loop                        │  [[05-agent-loop]]
 │  Turn orchestration, tool dispatch          │
