@@ -191,6 +191,103 @@ func renderGuardrailDetails(details operator.ChainGuardrailDetails) []string {
 	return lines
 }
 
+func renderChainMetrics(report operator.ChainMetricsReport) []string {
+	if chainMetricsEmpty(report) {
+		return nil
+	}
+	lines := []string{"", "Metrics"}
+	if report.LaunchMode != "" || report.HasStepMaxTurns || report.HasStepMaxTokens {
+		lines = append(lines, fmt.Sprintf("- launch mode=%s step_caps turns=%s tokens=%s",
+			valueOrNone(report.LaunchMode),
+			renderStepCap(report.StepMaxTurns, report.HasStepMaxTurns),
+			renderStepCap(report.StepMaxTokens, report.HasStepMaxTokens),
+		))
+	}
+	lines = append(lines,
+		fmt.Sprintf("- steps %s rows=%d completed=%d running=%d pending=%d failed=%d",
+			budgetPart("recorded", report.TotalSteps, report.MaxSteps, ""),
+			report.StepRows,
+			report.CompletedSteps,
+			report.RunningSteps,
+			report.PendingSteps,
+			report.FailedSteps,
+		),
+		fmt.Sprintf("- usage %s step_tokens=%d turns=%d %s step_duration=%ds %s",
+			budgetPart("tokens", report.TotalTokens, report.TokenBudget, ""),
+			report.StepTokenTotal,
+			report.StepTurnTotal,
+			budgetPart("duration", report.TotalDurationSecs, report.MaxDurationSecs, "s"),
+			report.StepDurationSecs,
+			budgetPart("resolver", report.ResolverLoops, report.MaxResolverLoops, ""),
+		),
+		fmt.Sprintf("- events total=%d output=%d changed_files=%d guardrail=%d receipt_warnings=%d findings=%d lifecycle=%d step_failed=%d",
+			report.EventTotal,
+			report.OutputEvents,
+			report.ChangedFileEvents,
+			report.StepGuardrailFactEvents,
+			report.ReceiptWarningEvents,
+			report.ReceiptFindingEvents,
+			report.FindingLifecycleFactEvents,
+			report.StepFailedEvents,
+		),
+		fmt.Sprintf("- processes started=%d exited=%d reindex=%d/%d safety_limits=%d source_writer_blocks=%d locks=%d/%d release_failed=%d heartbeat_failed=%d",
+			report.ProcessStartedEvents,
+			report.ProcessExitedEvents,
+			report.ReindexStartedEvents,
+			report.ReindexDoneEvents,
+			report.SafetyLimitEvents,
+			report.SourceWriterBlocks,
+			report.SourceWriterLockAcquires,
+			report.SourceWriterLockReleases,
+			report.SourceWriterLockReleaseFailures,
+			report.SourceWriterLockHeartbeatFailures,
+		),
+	)
+	if report.OpenFindingCount > 0 || report.ClosedFindingCount > 0 || report.AddressedFindingCount > 0 || len(report.OpenFindingIDs) > 0 || len(report.AddressedFindingIDs) > 0 {
+		lines = append(lines, fmt.Sprintf("- findings open=%d closed=%d addressed=%d open_ids=%s addressed_ids=%s repeated_resolver=%s",
+			report.OpenFindingCount,
+			report.ClosedFindingCount,
+			report.AddressedFindingCount,
+			joinOrNone(report.OpenFindingIDs),
+			joinOrNone(report.AddressedFindingIDs),
+			joinOrNone(report.RepeatedResolverFindingIDs),
+		))
+	}
+	if len(report.Warnings) > 0 {
+		lines = append(lines, fmt.Sprintf("- warnings=%d", len(report.Warnings)))
+	}
+	return lines
+}
+
+func chainMetricsEmpty(report operator.ChainMetricsReport) bool {
+	return report.ChainID == "" &&
+		report.Health == "" &&
+		report.Status == "" &&
+		report.LaunchMode == "" &&
+		report.TotalSteps == 0 &&
+		report.StepRows == 0 &&
+		report.TotalTokens == 0 &&
+		report.StepTokenTotal == 0 &&
+		report.StepTurnTotal == 0 &&
+		report.TotalDurationSecs == 0 &&
+		report.StepDurationSecs == 0 &&
+		report.EventTotal == 0 &&
+		report.ProcessStartedEvents == 0 &&
+		report.ProcessExitedEvents == 0 &&
+		len(report.Warnings) == 0 &&
+		len(report.Steps) == 0
+}
+
+func renderStepCap(value int, present bool) string {
+	if !present {
+		return "unrecorded"
+	}
+	if value <= 0 {
+		return "unset"
+	}
+	return fmt.Sprintf("%d", value)
+}
+
 func guardrailDetailsEmpty(details operator.ChainGuardrailDetails) bool {
 	return len(details.OpenFindingIDs) == 0 &&
 		len(details.ClosedFindingIDs) == 0 &&

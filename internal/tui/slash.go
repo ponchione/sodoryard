@@ -69,6 +69,13 @@ func (m Model) handleSlashInput(input string) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		return m, m.consoleChainDetailCmd(chainID)
+	case "metrics":
+		chainID := firstArgOrSelectedChain(cmd.Args, m.selectedVisibleChainID())
+		if chainID == "" {
+			return m.consoleCommandError("chain id is required")
+		}
+		m.loading = true
+		return m, m.consoleChainMetricsCmd(chainID)
 	case "events", "logs":
 		chainID := firstArgOrSelectedChain(cmd.Args, m.selectedVisibleChainID())
 		if chainID == "" {
@@ -186,6 +193,25 @@ func (m Model) consoleChainDetailCmd(chainID string) tea.Cmd {
 			return consoleCommandMsg{Err: err}
 		}
 		return consoleCommandMsg{Entry: consoleEntry{Kind: consoleEntryCommand, Title: "CHAIN " + chainID, Body: m.renderConsoleChainDetail(detail)}, Refresh: true}
+	}
+}
+
+func (m Model) consoleChainMetricsCmd(chainID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.svc == nil {
+			return consoleCommandMsg{Err: fmt.Errorf("operator service is not configured")}
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+		defer cancel()
+		detail, err := m.svc.GetChainDetail(ctx, chainID)
+		if err != nil {
+			return consoleCommandMsg{Err: err}
+		}
+		body := strings.Join(renderChainMetrics(detail.Metrics), "\n")
+		if strings.TrimSpace(body) == "" {
+			body = "No metrics recorded."
+		}
+		return consoleCommandMsg{Entry: consoleEntry{Kind: consoleEntryCommand, Title: "METRICS " + chainID, Body: body}, Refresh: true}
 	}
 }
 
@@ -611,6 +637,7 @@ func slashHelpText() string {
 		"/effort [low|medium|high|xhigh]  show or set Codex reasoning effort",
 		"/chains [filter]             list recent chains",
 		"/chain <chain-id>            show chain detail",
+		"/metrics <chain-id>          show dogfooding metrics",
 		"/events <chain-id> [limit]   show recent events",
 		"/follow <chain-id>           append live events here",
 		"/unfollow                    stop live event follow",
@@ -761,6 +788,7 @@ func (m Model) renderConsoleChainDetail(detail operator.ChainDetail) string {
 		lines = append(lines, "specs: "+strings.Join(detail.Chain.SourceSpecs, ", "))
 	}
 	lines = append(lines, renderChainWarnings(detail.Warnings, 8)...)
+	lines = append(lines, renderChainMetrics(detail.Metrics)...)
 	if len(detail.Approvals) > 0 {
 		lines = append(lines, "", "Approvals:")
 		for _, approval := range detail.Approvals {

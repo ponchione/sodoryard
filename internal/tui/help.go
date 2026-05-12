@@ -37,6 +37,7 @@ func (m Model) renderHelp() string {
 		"P             pause selected chain",
 		"R             resume selected paused chain",
 		"X             cancel selected chain with confirmation",
+		"/metrics      show dogfooding metrics for selected or named chain",
 		"/approvals    list approval controls for selected or named chain",
 		"w             show web inspector target without starting yard serve",
 		"o             open selected receipt in PAGER",

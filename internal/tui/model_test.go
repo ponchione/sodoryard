@@ -567,6 +567,49 @@ func TestSlashStatusRendersConsoleEntry(t *testing.T) {
 	}
 }
 
+func TestSlashMetricsRendersConsoleEntry(t *testing.T) {
+	fake := newFakeOperator()
+	detail := fake.details["chain-1"]
+	detail.Metrics = operator.ChainMetricsReport{
+		ChainID:              "chain-1",
+		Status:               "completed",
+		Health:               "attention",
+		TotalSteps:           1,
+		StepRows:             1,
+		MaxSteps:             2,
+		CompletedSteps:       1,
+		TotalTokens:          42,
+		StepTokenTotal:       40,
+		StepTurnTotal:        2,
+		TokenBudget:          100,
+		TotalDurationSecs:    6,
+		StepDurationSecs:     5,
+		MaxDurationSecs:      30,
+		EventTotal:           4,
+		OutputEvents:         1,
+		ProcessStartedEvents: 1,
+		ProcessExitedEvents:  1,
+	}
+	fake.details["chain-1"] = detail
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	got, cmd := runConsoleInput(t, got, "/metrics chain-1")
+	if cmd == nil {
+		t.Fatal("/metrics returned nil command")
+	}
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{"METRICS chain-1", "Metrics", "steps recorded 1/2 (50%)", "usage tokens 42/100 (42%) step_tokens=40 turns=2", "events total=4 output=1", "processes started=1 exited=1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("/metrics view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestSlashNewClearsConsoleSessionAndFollow(t *testing.T) {
 	model := NewModel(newFakeOperator(), Options{RefreshInterval: -1})
 	updated, _ := model.Update(model.refreshCmd()())

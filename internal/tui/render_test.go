@@ -142,7 +142,7 @@ func TestHelpRenderIncludesLaunchCapFields(t *testing.T) {
 	model.screen = screenHelp
 
 	view := model.View()
-	for _, want := range []string{"edit selected launch field", "turns/tokens", "set per-step caps"} {
+	for _, want := range []string{"edit selected launch field", "turns/tokens", "set per-step caps", "/metrics"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q:\n%s", want, view)
 		}
@@ -167,6 +167,77 @@ func TestChainRenderShowsHealthBudgetsAndCurrentStep(t *testing.T) {
 	for _, want := range []string{"health: attention", "budgets: steps 1/2 (50%)", "tokens 85/100 (85%)", "current: #1 coder completed verdict=completed", "turns=3", "duration=9s"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("chain polish view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChainRenderShowsDogfoodMetrics(t *testing.T) {
+	fake := newFakeOperator()
+	fake.details["chain-1"] = operator.ChainDetail{
+		Chain: chain.Chain{ID: "chain-1", Status: "completed", SourceTask: "first task", TotalSteps: 1, TotalTokens: 90, TotalDurationSecs: 9, MaxSteps: 2, TokenBudget: 100, MaxDurationSecs: 20, ResolverLoops: 1, MaxResolverLoops: 2},
+		Steps: []chain.Step{{SequenceNum: 1, Role: "coder", Status: "completed", Verdict: "completed", ReceiptPath: "receipts/coder/chain-1-step-001.md", TokensUsed: 85, TurnsUsed: 3, DurationSecs: 9}},
+		Metrics: operator.ChainMetricsReport{
+			ChainID:                 "chain-1",
+			Status:                  "completed",
+			Health:                  "attention",
+			LaunchMode:              "one_step_chain",
+			StepMaxTurns:            4,
+			StepMaxTokens:           12000,
+			HasStepMaxTurns:         true,
+			HasStepMaxTokens:        true,
+			TotalSteps:              1,
+			StepRows:                1,
+			MaxSteps:                2,
+			CompletedSteps:          1,
+			TotalTokens:             90,
+			StepTokenTotal:          85,
+			StepTurnTotal:           3,
+			TokenBudget:             100,
+			TotalDurationSecs:       9,
+			StepDurationSecs:        9,
+			MaxDurationSecs:         20,
+			ResolverLoops:           1,
+			MaxResolverLoops:        2,
+			EventTotal:              7,
+			OutputEvents:            2,
+			ChangedFileEvents:       1,
+			StepGuardrailFactEvents: 1,
+			ReceiptWarningEvents:    1,
+			ReceiptFindingEvents:    1,
+			ProcessStartedEvents:    1,
+			ProcessExitedEvents:     1,
+			ReindexStartedEvents:    1,
+			ReindexDoneEvents:       1,
+			SafetyLimitEvents:       1,
+			OpenFindingCount:        1,
+			AddressedFindingCount:   1,
+			OpenFindingIDs:          []string{"FIND-correctness-001"},
+			AddressedFindingIDs:     []string{"FIND-correctness-001"},
+			Warnings:                []operator.RuntimeWarning{{Message: "token usage near budget"}},
+		},
+	}
+	model := NewModel(fake, Options{RefreshInterval: -1})
+	model.screen = screenChains
+	updated, _ := model.Update(model.refreshCmd()())
+	got := updated.(Model)
+
+	view := got.View()
+	for _, want := range []string{
+		"Metrics",
+		"launch mode=one_step_chain step_caps turns=4 tokens=12000",
+		"steps recorded 1/2 (50%) rows=1 completed=1 running=0 pending=0",
+		"failed=0",
+		"usage tokens 90/100 (90%) step_tokens=85 turns=3 duration 9s/20s (45%)",
+		"step_duration=9s resolver 1/2 (50%)",
+		"events total=7 output=2 changed_files=1 guardrail=1 receipt_warnings=1",
+		"findings=1 lifecycle=0 step_failed=0",
+		"processes started=1 exited=1 reindex=1/1 safety_limits=1",
+		"findings open=1 closed=0 addressed=1 open_ids=FIND-correctness-001",
+		"addressed_ids=FIND-correctness-001",
+		"warnings=1",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("chain metrics view missing %q:\n%s", want, view)
 		}
 	}
 }
