@@ -17,6 +17,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/localservices"
 	"github.com/ponchione/sodoryard/internal/modelcap"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/provider"
@@ -30,10 +31,18 @@ var ErrProcessNotRunning = errors.New("operator process not running")
 
 type ChainStarter func(context.Context, *appconfig.Config, chainrun.Options, chainrun.Deps) (*chainrun.Result, error)
 
+type LocalServicesManager interface {
+	Status(ctx context.Context, cfg *appconfig.Config) (localservices.StackStatus, error)
+	EnsureUp(ctx context.Context, cfg *appconfig.Config) (localservices.StackStatus, error)
+	Down(ctx context.Context, cfg *appconfig.Config) error
+	Logs(ctx context.Context, cfg *appconfig.Config, tail int) (string, error)
+}
+
 type Options struct {
 	ConfigPath      string
 	BuildRuntime    func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error)
 	ChainStarter    ChainStarter
+	LocalServices   LocalServicesManager
 	ProcessSignaler func(pid int) error
 	ProcessID       func() int
 	ReadOnly        bool
@@ -45,6 +54,7 @@ type Service struct {
 	rt                   *rtpkg.OrchestratorRuntime
 	buildRuntime         func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error)
 	chainStarter         ChainStarter
+	localServices        LocalServicesManager
 	processSignaler      func(pid int) error
 	processID            func() int
 	startupWarnings      []RuntimeWarning
@@ -93,11 +103,16 @@ func Open(ctx context.Context, opts Options) (*Service, error) {
 	if processID == nil {
 		processID = os.Getpid
 	}
+	localServicesManager := opts.LocalServices
+	if localServicesManager == nil {
+		localServicesManager = localservices.NewManager(nil)
+	}
 	return &Service{
 		cfg:                  cfg,
 		rt:                   rt,
 		buildRuntime:         buildRuntime,
 		chainStarter:         starter,
+		localServices:        localServicesManager,
 		processSignaler:      signaler,
 		processID:            processID,
 		startupWarnings:      cloneRuntimeWarnings(opts.StartupWarnings),
@@ -126,6 +141,10 @@ func NewForRuntime(rt *rtpkg.OrchestratorRuntime, opts Options) (*Service, error
 	if processID == nil {
 		processID = os.Getpid
 	}
+	localServicesManager := opts.LocalServices
+	if localServicesManager == nil {
+		localServicesManager = localservices.NewManager(nil)
+	}
 	buildRuntime := opts.BuildRuntime
 	if buildRuntime == nil {
 		buildRuntime = rtpkg.BuildOrchestratorRuntime
@@ -135,6 +154,7 @@ func NewForRuntime(rt *rtpkg.OrchestratorRuntime, opts Options) (*Service, error
 		rt:                   rt,
 		buildRuntime:         buildRuntime,
 		chainStarter:         starter,
+		localServices:        localServicesManager,
 		processSignaler:      signaler,
 		processID:            processID,
 		startupWarnings:      cloneRuntimeWarnings(opts.StartupWarnings),

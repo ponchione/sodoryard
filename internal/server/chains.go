@@ -21,6 +21,10 @@ type ChainInspectorHandler struct {
 func NewChainInspectorHandler(s *Server, svc *operator.Service, logger *slog.Logger) *ChainInspectorHandler {
 	h := &ChainInspectorHandler{svc: svc, logger: logger}
 	s.HandleFunc("GET /api/runtime/status", h.handleRuntimeStatus)
+	s.HandleFunc("GET /api/runtime/local-services", h.handleLocalServicesStatus)
+	s.HandleFunc("POST /api/runtime/local-services/up", h.handleLocalServicesUp)
+	s.HandleFunc("POST /api/runtime/local-services/down", h.handleLocalServicesDown)
+	s.HandleFunc("GET /api/runtime/local-services/logs", h.handleLocalServicesLogs)
 	s.HandleFunc("GET /api/roles", h.handleRoles)
 	s.HandleFunc("GET /api/launch/draft", h.handleGetLaunchDraft)
 	s.HandleFunc("PUT /api/launch/draft", h.handlePutLaunchDraft)

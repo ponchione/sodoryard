@@ -18,6 +18,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/chainrun"
 	"github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
+	"github.com/ponchione/sodoryard/internal/localservices"
 	"github.com/ponchione/sodoryard/internal/operator"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	rtpkg "github.com/ponchione/sodoryard/internal/runtime"
@@ -27,6 +28,41 @@ import (
 
 type chainTestBrain struct {
 	docs map[string]string
+}
+
+type fakeLocalServicesManager struct {
+	status      localservices.StackStatus
+	upStatus    localservices.StackStatus
+	logs        string
+	statusCalls int
+	upCalls     int
+	downCalls   int
+	logCalls    int
+	lastLogTail int
+}
+
+func (f *fakeLocalServicesManager) Status(context.Context, *config.Config) (localservices.StackStatus, error) {
+	f.statusCalls++
+	return f.status, nil
+}
+
+func (f *fakeLocalServicesManager) EnsureUp(context.Context, *config.Config) (localservices.StackStatus, error) {
+	f.upCalls++
+	if f.upStatus.Mode != "" {
+		return f.upStatus, nil
+	}
+	return f.status, nil
+}
+
+func (f *fakeLocalServicesManager) Down(context.Context, *config.Config) error {
+	f.downCalls++
+	return nil
+}
+
+func (f *fakeLocalServicesManager) Logs(_ context.Context, _ *config.Config, tail int) (string, error) {
+	f.logCalls++
+	f.lastLogTail = tail
+	return f.logs, nil
 }
 
 func (b *chainTestBrain) ReadDocument(_ context.Context, path string) (string, error) {
@@ -616,6 +652,120 @@ func TestLaunchOperatorEndpoints(t *testing.T) {
 	postJSON(t, base+"/api/chains/launch-http-chain/cancel", `{}`, &control)
 	if control.PreviousStatus != "running" || control.Status != "cancel_requested" || control.Message != "cancel requested" {
 		t.Fatalf("cancel control = %+v, want cancel requested", control)
+	}
+}
+
+func TestRuntimeLocalServicesEndpoints(t *testing.T) {
+	db := newChainInspectorTestDB(t)
+	store := chain.NewStore(db)
+	cfg := &config.Config{
+		ProjectRoot: t.TempDir(),
+		LocalServices: config.LocalServicesConfig{
+			Enabled:     true,
+			Mode:        "auto",
+			ComposeFile: "/tmp/docker-compose.yml",
+			ProjectDir:  "/tmp",
+		},
+	}
+	manager := &fakeLocalServicesManager{
+		status: localservices.StackStatus{
+			Mode:              "auto",
+			ComposeFile:       "/tmp/docker-compose.yml",
+			ProjectDir:        "/tmp",
+			DockerAvailable:   true,
+			DaemonAvailable:   true,
+			ComposeAvailable:  true,
+			ComposeFileExists: true,
+			NetworkStatus:     map[string]bool{"llm-net": true},
+			Services: []localservices.ServiceStatus{{
+				Name:        "qwen-coder",
+				Healthy:     false,
+				Reachable:   true,
+				ModelsReady: false,
+				Required:    true,
+			}},
+			RequiredServices: []string{"qwen-coder"},
+			Problems:         []string{"required service qwen-coder unhealthy"},
+			Remediation:      []string{"inspect stack logs: yard llm logs"},
+		},
+		upStatus: localservices.StackStatus{
+			Mode:              "auto",
+			ComposeFile:       "/tmp/docker-compose.yml",
+			ProjectDir:        "/tmp",
+			DockerAvailable:   true,
+			DaemonAvailable:   true,
+			ComposeAvailable:  true,
+			ComposeFileExists: true,
+			NetworkStatus:     map[string]bool{"llm-net": true},
+			Services: []localservices.ServiceStatus{{
+				Name:        "qwen-coder",
+				Healthy:     true,
+				Reachable:   true,
+				ModelsReady: true,
+				Required:    true,
+			}},
+		},
+		logs: "line one\nline two\n",
+	}
+	opSvc, err := operator.NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:       cfg,
+		Database:     db,
+		ChainStore:   store,
+		BrainBackend: &chainTestBrain{docs: map[string]string{}},
+		Cleanup:      func() {},
+	}, operator.Options{LocalServices: manager})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(opSvc.Close)
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewChainInspectorHandler(srv, opSvc, newTestLogger())
+	_, base := startServer(t, srv)
+
+	var status localservices.StackStatus
+	getJSON(t, base+"/api/runtime/local-services", &status)
+	if status.Mode != "auto" || len(status.Services) != 1 || status.Services[0].Name != "qwen-coder" || len(status.Problems) != 1 {
+		t.Fatalf("local services status = %+v, want fake unhealthy qwen-coder status", status)
+	}
+	if manager.statusCalls != 1 {
+		t.Fatalf("status calls = %d, want 1", manager.statusCalls)
+	}
+
+	var up struct {
+		Message string                    `json:"message"`
+		Status  localservices.StackStatus `json:"status"`
+	}
+	postJSON(t, base+"/api/runtime/local-services/up", `{}`, &up)
+	if up.Message != "local services ready" || len(up.Status.Services) != 1 || !up.Status.Services[0].Healthy {
+		t.Fatalf("local services up = %+v, want ready healthy qwen-coder status", up)
+	}
+	if manager.upCalls != 1 {
+		t.Fatalf("up calls = %d, want 1", manager.upCalls)
+	}
+
+	var down struct {
+		Message string                    `json:"message"`
+		Status  localservices.StackStatus `json:"status"`
+	}
+	postJSON(t, base+"/api/runtime/local-services/down", `{}`, &down)
+	if down.Message != "local services stopped" || down.Status.Mode != "auto" {
+		t.Fatalf("local services down = %+v, want stopped response with status", down)
+	}
+	if manager.downCalls != 1 || manager.statusCalls != 2 {
+		t.Fatalf("down/status calls = %d/%d, want 1/2", manager.downCalls, manager.statusCalls)
+	}
+
+	var logs struct {
+		Tail int    `json:"tail"`
+		Logs string `json:"logs"`
+	}
+	getJSON(t, base+"/api/runtime/local-services/logs?tail=40", &logs)
+	if logs.Tail != 40 || logs.Logs != "line one\nline two" {
+		t.Fatalf("local services logs = %+v, want trimmed fake logs", logs)
+	}
+	if manager.logCalls != 1 || manager.lastLogTail != 40 {
+		t.Fatalf("log calls/tail = %d/%d, want 1/40", manager.logCalls, manager.lastLogTail)
 	}
 }
 

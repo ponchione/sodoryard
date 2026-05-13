@@ -63,6 +63,7 @@ func TestDesktopCapabilitiesEndpointReportsProjectMemoryProtocol(t *testing.T) {
 	}
 	for _, capability := range []string{
 		"runtime_status",
+		"runtime_local_services",
 		"conversation_chat",
 		"project_memory_protocol",
 		"project_memory_subscriptions",

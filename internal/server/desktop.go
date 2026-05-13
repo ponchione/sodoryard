@@ -75,6 +75,7 @@ func (h *DesktopHandler) handleCapabilities(w http.ResponseWriter, r *http.Reque
 func (h *DesktopHandler) capabilities() []string {
 	capabilities := []string{
 		"runtime_status",
+		"runtime_local_services",
 		"conversation_chat",
 		"chains_read",
 		"chains_control",
