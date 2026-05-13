@@ -1,7 +1,7 @@
 # 24 - Electron Desktop App
 
 **Status:** Proposed active direction
-**Last Updated:** 2026-05-12
+**Last Updated:** 2026-05-13
 **Owner:** Mitchell
 
 ---
@@ -37,7 +37,7 @@ Electron is the pragmatic choice because Yard already has:
 - embedded frontend production assets through `webfs/dist`
 - shared operator service methods in `internal/operator`
 - Shunter-backed project memory under `.yard/shunter/project-memory`
-- Shunter v1.0.0 TypeScript client/runtime and generated binding support
+- Shunter v1.1.0 TypeScript client/runtime, protocol v2, generated binding support, and parameterized declared reads
 
 The desktop app should reuse the React renderer rather than rewriting the UI in another toolkit. The Go backend remains authoritative for runtime state, persistence, chain execution, provider auth, context assembly, brain access, indexing, and tool execution.
 
@@ -65,12 +65,13 @@ An embedded library/runtime integration can be considered later, but the first i
 
 ### Shunter TypeScript SDK Impact
 
-Shunter v1.0.0 changes the frontend plan. Yard no longer needs to invent a custom WebSocket stream for every Shunter-backed state table before the desktop app can feel live. Shunter now ships:
+Shunter v1.1.0 changes the frontend plan. Yard no longer needs to invent a custom WebSocket stream for every Shunter-backed state table before the desktop app can feel live. Shunter now ships:
 
 - `@shunter/client` as a TypeScript runtime package
-- `createShunterClient(...)` for Shunter WebSocket lifecycle, token propagation, reconnect, reducer calls, declared queries, table subscriptions, and managed subscription handles
+- `createShunterClient(...)` for Shunter WebSocket lifecycle, token propagation, reconnect, reducer calls, declared queries, declared views, table subscriptions, and managed subscription handles
 - generated TypeScript bindings that import shared runtime types from `@shunter/client`
-- generated table row interfaces, table-name-to-row maps, schema-aware BSATN row decoders, reducer helper surfaces, declared-query helpers, declared-view helpers, and table subscription helpers
+- generated table row interfaces, table-name-to-row maps, schema-aware BSATN row decoders, reducer helper surfaces, declared-query helpers, declared-view helpers, table subscription helpers, contract metadata, runtime import overrides, and typed declared-read parameter helpers
+- protocol v2 for BSATN-encoded declared query/view parameters, while no-parameter reads remain compatible with protocol v1
 
 Yard should use that SDK for project-memory reads and live updates where the data already lives in the Shunter module. The desktop contract should split into two planes:
 
@@ -85,6 +86,7 @@ Initial desktop usage should be read-oriented:
 
 - generate a Yard project-memory TypeScript binding from `internal/projectmemory.NewModule()`
 - use Shunter subscriptions for live state updates and cache invalidation
+- use Shunter declared query/view parameters for selected-project or selected-chain reads instead of constructing raw SQL strings in the renderer
 - keep launch start, pause/resume/cancel, index rebuilds, provider auth, settings mutation, file reads, and editor/reveal validation behind Yard backend APIs
 - avoid renderer-initiated reducer calls unless a later slice explicitly marks a reducer as desktop-safe and documents the UX and authorization semantics
 
@@ -98,7 +100,54 @@ web/src/lib/project-memory/
   selectors.ts
 ```
 
-The build should fail if the generated binding is stale relative to the exported Shunter contract. The desktop capabilities endpoint should report the project-memory module name, schema/contract version, Shunter runtime version, and whether the Shunter protocol endpoint is available.
+The build should fail if the generated binding is stale relative to the exported Shunter contract. The desktop capabilities endpoint should report the project-memory module name, schema/contract version, Shunter runtime version, negotiated protocol support, and whether the Shunter protocol endpoint is available.
+
+### Shunter v1.1.0 Baseline
+
+Spec 24 implementation should start by moving Yard's Shunter dependency set to the stable `v1.1.0` tag, not by depending on a sibling checkout at branch head. If the Shunter source tree has already moved on to `v1.1.1-dev` or later development commits, desktop work should still pin to the latest stable tag until a newer tag is intentionally adopted.
+
+Required Yard-side updates before desktop UI work depends on Shunter state:
+
+1. Bump `github.com/ponchione/shunter` from `v1.0.1` to `v1.1.0`.
+2. Replace `third_party/shunter-client` with the built TypeScript client package from the Shunter `v1.1.0` tag, preserving the package name `@shunter/client`.
+3. Run `npm install` in `web/` so `web/package-lock.json` records the vendored client package version `1.1.0`.
+4. Regenerate `web/src/generated/yard-project-memory.ts` and the adjacent contract artifact with Shunter `v1.1.0` codegen.
+5. Confirm generated `shunterProtocol` defaults to `v2.bsatn.shunter` and still lists `v1.bsatn.shunter` for no-parameter compatibility.
+6. Add parameterized declared reads to `internal/projectmemory.NewModule()` for chain-scoped desktop data, starting with selected-chain events.
+
+The immediate declared-read surface needed to replace the current raw SQL helper is:
+
+```go
+mod.Query(shunter.QueryDeclaration{
+    Name: "chain_events",
+    SQL:  "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500",
+    ReadModel: shunter.ReadModelMetadata{
+        Tables: []string{"events"},
+        Tags:   []string{"chains", "events", "operator-ui", "desktop"},
+    },
+}, shunter.WithQueryParameters(shunter.ProductSchema{
+    Columns: []shunter.ProductColumn{
+        {Name: "chain_id", Type: "string"},
+    },
+}))
+
+mod.View(shunter.ViewDeclaration{
+    Name: "live_chain_events",
+    SQL:  "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500",
+    ReadModel: shunter.ReadModelMetadata{
+        Tables: []string{"events"},
+        Tags:   []string{"chains", "events", "operator-ui", "desktop"},
+    },
+}, shunter.WithViewParameters(shunter.ProductSchema{
+    Columns: []shunter.ProductColumn{
+        {Name: "chain_id", Type: "string"},
+    },
+}))
+```
+
+The generated binding should then expose typed helpers shaped like `queryChainEventsDecoded(client.runDeclaredQuery, { chainId })` and `subscribeLiveChainEvents(client.subscribeDeclaredView, { chainId }, options)`. Once those helpers exist, remove the renderer-side `chainEventsSQL(...)` raw SQL construction from `web/src/lib/project-memory/client.ts`.
+
+Follow-on declared reads should be added only when a desktop view needs them. Likely next candidates are `chain_steps`, `chain_receipt_documents`, `conversation_messages`, `context_reports_by_conversation`, and `tool_executions_by_conversation`. Keep each read narrow, named, permissionable, and generated.
 
 ### Shunter SDK Packaging Decision
 
@@ -107,12 +156,12 @@ The intended long-term dependency shape is a normal npm package whose version ma
 ```json
 {
   "dependencies": {
-    "@shunter/client": "1.0.0"
+    "@shunter/client": "1.1.0"
   }
 }
 ```
 
-As of Shunter v1.0.0, npm publishing is not ready. The SDK is still checked into the Shunter source tree under `typescript/client`, its `package.json` is still marked `private`, and generated bindings still import from `@shunter/client`.
+As of Shunter v1.1.0, public npm publishing is still not part of the v1 contract. The SDK is checked into the Shunter source tree under `typescript/client`, its `package.json` is marked `private`, and generated bindings still import from `@shunter/client`.
 
 Yard's least-churn temporary path is:
 
@@ -143,13 +192,13 @@ third_party/shunter-client/
 
 The vendored SDK must be copied from the pinned Shunter tag, not from an operator's Go module cache path. If the source-TS package export causes Vite or TypeScript trouble after installation from `file:`, add a small local build step for the vendored package rather than changing generated binding imports across the app.
 
-Expected upstream Shunter improvements:
+Shunter v1.1.0 already provides the pieces Yard was waiting on for a workable desktop contract:
 
-- publish `@shunter/client` to npm with versions aligned to Shunter tags
-- add a codegen option for the runtime import specifier, defaulting to `@shunter/client`
-- export generated contract metadata from TypeScript bindings alongside `shunterProtocol`
+- typed declared query/view parameters across Go declarations, runtime calls, protocol v2, TypeScript runtime, and generated helpers
+- codegen runtime import override, defaulting to `@shunter/client`
+- generated contract metadata from TypeScript bindings alongside `shunterProtocol`
 
-Until generated contract metadata exists upstream, Yard's codegen wrapper should write enough adjacent metadata for desktop compatibility checks: contract format/version, module name/version, Shunter runtime version, generated binding hash, and generated-from Shunter tag.
+The remaining packaging gap is public npm distribution. Until Shunter publishes `@shunter/client`, Yard should keep vendoring or packing the private local package from the pinned Shunter tag. Yard may still write adjacent metadata for `generated_binding_hash`, generated-from Shunter tag, and build provenance, but basic contract format/version, module name/version, and protocol metadata should come from generated `shunterContract` and `shunterProtocol`.
 
 Reconnect and resubscribe are useful, but desktop views should treat reconnect as a cache boundary. After reconnect, rehydrate from replayed initial rows or explicitly re-fetch REST snapshots; do not assume continuous deltas across the disconnected interval.
 
@@ -507,7 +556,9 @@ Target payload:
     "module": "yard_project_memory",
     "schema_version": 12,
     "contract_version": 1,
-    "shunter_version": "v1.0.0",
+    "shunter_version": "v1.1.0",
+    "default_subprotocol": "v2.bsatn.shunter",
+    "supported_subprotocols": ["v2.bsatn.shunter", "v1.bsatn.shunter"],
     "subscribe_url": "ws://127.0.0.1:49152/api/project-memory/subscribe",
     "generated_binding_hash": "sha256:..."
   }
@@ -1230,17 +1281,18 @@ GET    /api/project-memory/contract
 POST   /api/project-memory/token
 ```
 
-`/api/project-memory/subscribe` is the Shunter v1 protocol endpoint mounted from `Runtime.HTTPHandler()` under the prefix, so the SDK sees the normal `/subscribe` path after prefix stripping. `/api/project-memory/contract` returns the exported `yard_project_memory` module contract plus hash/version metadata. `/api/project-memory/token` mints a short-lived token for the current desktop session.
+`/api/project-memory/subscribe` is the Shunter protocol endpoint mounted from `Runtime.HTTPHandler()` under the prefix, so the SDK sees the normal `/subscribe` path after prefix stripping. Desktop builds must use Shunter v1.1.0 or newer so generated clients can negotiate `v2.bsatn.shunter` for parameterized declared reads while retaining `v1.bsatn.shunter` compatibility for no-parameter reads. `/api/project-memory/contract` returns the exported `yard_project_memory` module contract plus hash/version metadata. `/api/project-memory/token` mints a short-lived token for the current desktop session.
 
 Renderer setup:
 
 ```typescript
 import { createShunterClient } from "@shunter/client";
-import { shunterProtocol } from "../generated/yard-project-memory";
+import { shunterContract, shunterProtocol } from "../generated/yard-project-memory";
 
 const client = createShunterClient({
   url: platform.projectMemory.subscribeUrl,
   protocol: shunterProtocol,
+  contract: shunterContract,
   token: platform.projectMemory.token,
   reconnect: { enabled: true, resubscribe: true },
 });
@@ -1388,12 +1440,12 @@ Existing conversation WebSocket remains:
 WS /api/ws
 ```
 
-Desktop also needs chain/event updates. With Shunter v1.0.0, the preferred path is:
+Desktop also needs chain/event updates. With Shunter v1.1.0, the preferred path is:
 
 - use the generated project-memory binding for chain, step, event, launch, conversation, message, tool execution, subcall, and context-report table row types
 - subscribe to Shunter tables/views for live row deltas
 - use REST snapshots for initial projected summaries and after reconnect
-- add declared Shunter queries/views later when the renderer needs narrow, server-owned projections instead of whole-table subscriptions
+- add parameterized declared Shunter queries/views when the renderer needs narrow, server-owned projections instead of whole-table subscriptions; selected-chain event reads should use `chain_events` and `live_chain_events` rather than renderer-built raw SQL
 
 A custom Yard chain WebSocket should only be added if Shunter table/view subscriptions cannot express a required UI behavior. Fallback options:
 
@@ -1519,7 +1571,7 @@ Fetch behavior:
 Project-memory data flow:
 
 1. Load capabilities and project-memory contract metadata through REST.
-2. Compare runtime contract metadata with the generated binding metadata.
+2. Compare runtime contract metadata with the generated `shunterContract` metadata and generated binding hash.
 3. Connect `@shunter/client` to the mounted `/api/project-memory/subscribe` endpoint.
 4. Hydrate views from REST snapshots or Shunter initial rows.
 5. Apply Shunter row deltas to local query caches.
@@ -1617,7 +1669,7 @@ Prefer conservative dependencies:
 | Electron shell | `electron` |
 | packaging | `electron-builder` or Electron Forge |
 | main/preload TypeScript build | `tsup`, `vite`, or `esbuild` |
-| Shunter TypeScript runtime | temporary `file:../third_party/shunter-client` dependency resolving as `@shunter/client`; later `@shunter/client@1.0.0+` from npm |
+| Shunter TypeScript runtime | temporary `file:../third_party/shunter-client` dependency resolving as `@shunter/client` from pinned Shunter `v1.1.0`; later `@shunter/client@1.1.0+` from npm if public publishing becomes part of the Shunter contract |
 | Shunter project-memory binding | generated from `internal/projectmemory.NewModule()` via Shunter contract/codegen |
 | e2e | Playwright Electron support |
 | IPC validation | handwritten narrow schemas or a small schema library |
@@ -1688,7 +1740,7 @@ Smoke test should verify:
 Acceptance:
 
 - New spec defines product boundary, architecture, backend contract, and phased implementation.
-- Spec accounts for Shunter v1.0.0 TypeScript SDK, temporary local `@shunter/client` packaging, and generated project-memory bindings.
+- Spec accounts for Shunter v1.1.0 TypeScript SDK, protocol v2 parameterized declared reads, temporary local `@shunter/client` packaging, and generated project-memory bindings.
 - Existing docs can still explain current behavior.
 
 ### Phase 1: Desktop Shell MVP
@@ -1729,9 +1781,11 @@ Expose missing operator APIs through `internal/server` using `internal/operator`
 
 Scope:
 
+- Shunter Go module bumped to `v1.1.0`
 - Shunter project-memory protocol mount and token endpoint
-- vendored `@shunter/client` package copied from the pinned Shunter release
+- vendored `@shunter/client` package copied from the pinned Shunter `v1.1.0` release
 - generated Yard project-memory TypeScript binding and stale-check command
+- parameterized declared query/view surfaces for selected-chain events
 - runtime status endpoint
 - roles endpoint
 - launch draft/preset endpoints
@@ -1746,25 +1800,30 @@ Acceptance:
 - Every TUI operator service method needed by desktop has an HTTP equivalent.
 - Shunter-backed state needed by the UI has either a generated binding subscription path or a REST snapshot path.
 - `web/package.json` resolves `@shunter/client` through the vendored package until npm publishing is available.
-- A verification check fails when the vendored SDK does not match the pinned Shunter release.
+- A verification check fails when the vendored SDK does not match pinned Shunter `v1.1.0`.
 - Contract/codegen tests fail when `yard_project_memory` generated TypeScript is stale.
+- Generated Shunter protocol metadata advertises `v2.bsatn.shunter`, and the project-memory SDK smoke covers at least one parameterized declared query or view.
+- Chain detail no longer builds raw SQL strings for Shunter event reads after `chain_events` and `live_chain_events` generated helpers exist.
 - API tests cover launch preview/start, chain reads, receipts, and controls.
 - Existing browser routes keep working.
 
 Suggested implementation order:
 
-1. Add `/api/desktop/capabilities`.
-2. Mount Shunter project-memory `/subscribe`, expose `/api/project-memory/contract`, and add `/api/project-memory/token`.
-3. Vendor `typescript/client` from the pinned Shunter release and wire `web/package.json` to it as `@shunter/client`.
-4. Add generated TypeScript binding and stale-check automation.
-5. Add generated binding metadata or adjacent metadata until Shunter emits it directly.
-6. Add `/api/runtime/status` from `internal/operator.RuntimeStatus`.
-7. Add roles and launch draft/preset endpoints.
-8. Add launch preview/start endpoints.
-9. Add chain list/detail/events/receipts endpoints for computed or fallback snapshots.
-10. Add pause/resume/cancel endpoints.
-11. Use Shunter subscriptions for chain event liveness unless a custom Yard stream proves necessary.
-12. Add focused API and contract/codegen tests.
+1. Bump the Go Shunter dependency to `v1.1.0`.
+2. Vendor `typescript/client` from the pinned Shunter `v1.1.0` release and wire `web/package.json` to it as `@shunter/client`.
+3. Add `chain_events` and `live_chain_events` parameterized declared reads to `internal/projectmemory.NewModule()`.
+4. Regenerate Yard project-memory TypeScript bindings and stale-check automation.
+5. Update the project-memory SDK wrapper to use generated parameterized helpers and delete the manual `chainEventsSQL(...)` helper.
+6. Add adjacent generated provenance metadata only for values not already emitted by Shunter, such as generated binding hash and generated-from tag.
+7. Add `/api/desktop/capabilities`.
+8. Mount Shunter project-memory `/subscribe`, expose `/api/project-memory/contract`, and add `/api/project-memory/token`.
+9. Add `/api/runtime/status` from `internal/operator.RuntimeStatus`.
+10. Add roles and launch draft/preset endpoints.
+11. Add launch preview/start endpoints.
+12. Add chain list/detail/events/receipts endpoints for computed or fallback snapshots.
+13. Add pause/resume/cancel endpoints.
+14. Use Shunter subscriptions for chain event liveness unless a custom Yard stream proves necessary.
+15. Add focused API, SDK smoke, and contract/codegen tests.
 
 ### Phase 3: Desktop Operator UI
 
@@ -1973,8 +2032,9 @@ Validation:
 2. `make build` passes after backend/API work.
 3. Vendored Shunter client verification passes after Shunter dependency changes.
 4. Project-memory contract/codegen stale checks pass after Shunter module changes.
-5. `npm run build` passes for renderer changes.
-6. Desktop package smoke test passes on the initial target platform.
+5. `make projectmemory-sdk-smoke` covers generated Shunter `v1.1.0` helpers, including at least one parameterized declared read over the mounted runtime.
+6. `npm run build` passes for renderer changes.
+7. Desktop package smoke test passes on the initial target platform.
 
 ---
 
@@ -1991,7 +2051,7 @@ Validation:
 9. What is the right compatibility promise for the TUI once desktop reaches launch/control parity?
 10. Should browser `yard serve` gain the same operator routes as desktop immediately, or should some routes be hidden behind capabilities until the product boundary is settled?
 11. Should the renderer ever call a whitelisted subset of Shunter reducers directly, or should all mutations stay behind Yard REST commands permanently?
-12. Which project-memory declared queries/views should be added first so the desktop can subscribe to narrow projections instead of whole tables?
+12. After `chain_events` and `live_chain_events`, which project-memory declared queries/views should be added next so desktop can keep moving from broad table subscriptions to narrow generated projections?
 
 ---
 
@@ -2004,4 +2064,4 @@ Validation:
 - [[08-data-model]] - shared project persistence and operator state
 - [[15-chain-orchestrator]] - chain execution, control, event, and receipt model
 - [[19-tool-result-details]] - structured tool metadata for desktop inspectors
-- Shunter v1.0.0 `@shunter/client` and TypeScript codegen - generated project-memory bindings and live subscription runtime
+- Shunter v1.1.0 `@shunter/client` and TypeScript codegen - generated project-memory bindings, protocol v2 parameterized declared reads, and live subscription runtime
