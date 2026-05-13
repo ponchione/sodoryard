@@ -53,6 +53,13 @@ func (b *BrainBackend) ProtocolEnabled() bool {
 	return b != nil && b.runtime != nil && b.runtime.ProtocolEnabled()
 }
 
+func (b *BrainBackend) MintProtocolToken() (ProtocolToken, error) {
+	if b == nil || b.runtime == nil {
+		return ProtocolToken{}, fmt.Errorf("project memory backend is not open")
+	}
+	return b.runtime.MintProtocolToken()
+}
+
 func (b *BrainBackend) ReadDocument(ctx context.Context, path string) (string, error) {
 	_, content, err := b.runtime.ReadDocument(ctx, path)
 	return content, err

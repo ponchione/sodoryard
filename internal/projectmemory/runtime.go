@@ -2,6 +2,7 @@ package projectmemory
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,20 +10,36 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/ponchione/shunter"
+	"github.com/ponchione/shunter/auth"
+)
+
+const (
+	defaultProtocolTokenTTL = 5 * time.Minute
+	protocolTokenIssuer     = "sodoryard-project-memory"
+	protocolTokenAudience   = "yard-project-memory"
 )
 
 type Config struct {
-	DataDir        string
-	DurableAck     bool
-	EnableProtocol bool
+	DataDir          string
+	DurableAck       bool
+	EnableProtocol   bool
+	ProtocolTokenTTL time.Duration
 }
 
 type Runtime struct {
-	rt         *shunter.Runtime
-	durableAck bool
-	lockFile   *os.File
+	rt                *shunter.Runtime
+	durableAck        bool
+	lockFile          *os.File
+	protocolTokenMint *auth.MintConfig
+}
+
+type ProtocolToken struct {
+	Token     string
+	Identity  string
+	ExpiresAt time.Time
 }
 
 type SubCallRecorder interface {
@@ -75,11 +92,39 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("project memory shunter data dir is required")
 	}
+	if cfg.ProtocolTokenTTL < 0 {
+		return nil, fmt.Errorf("project memory protocol token ttl must not be negative")
+	}
 	lockFile, err := acquireDataDirLock(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
-	rt, err := shunter.Build(NewModule(), shunter.Config{DataDir: cfg.DataDir, EnableProtocol: cfg.EnableProtocol})
+	shunterCfg := shunter.Config{DataDir: cfg.DataDir, EnableProtocol: cfg.EnableProtocol}
+	var tokenMint *auth.MintConfig
+	if cfg.EnableProtocol {
+		protocolTokenTTL := cfg.ProtocolTokenTTL
+		if protocolTokenTTL == 0 {
+			protocolTokenTTL = defaultProtocolTokenTTL
+		}
+		signingKey := make([]byte, 32)
+		if _, err := rand.Read(signingKey); err != nil {
+			releaseDataDirLock(lockFile)
+			return nil, fmt.Errorf("generate project memory protocol auth signing key: %w", err)
+		}
+		shunterCfg.AuthSigningKey = append([]byte(nil), signingKey...)
+		shunterCfg.AuthIssuers = []string{protocolTokenIssuer}
+		shunterCfg.AuthAudiences = []string{protocolTokenAudience}
+		shunterCfg.AnonymousTokenIssuer = protocolTokenIssuer
+		shunterCfg.AnonymousTokenAudience = protocolTokenAudience
+		shunterCfg.AnonymousTokenTTL = protocolTokenTTL
+		tokenMint = &auth.MintConfig{
+			Issuer:     protocolTokenIssuer,
+			Audience:   protocolTokenAudience,
+			SigningKey: append([]byte(nil), signingKey...),
+			Expiry:     protocolTokenTTL,
+		}
+	}
+	rt, err := shunter.Build(NewModule(), shunterCfg)
 	if err != nil {
 		releaseDataDirLock(lockFile)
 		return nil, fmt.Errorf("build project memory runtime: %w", err)
@@ -89,7 +134,7 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		releaseDataDirLock(lockFile)
 		return nil, fmt.Errorf("start project memory runtime: %w", err)
 	}
-	return &Runtime{rt: rt, durableAck: cfg.DurableAck, lockFile: lockFile}, nil
+	return &Runtime{rt: rt, durableAck: cfg.DurableAck, lockFile: lockFile, protocolTokenMint: tokenMint}, nil
 }
 
 func (r *Runtime) Close() error {
@@ -127,6 +172,28 @@ func (r *Runtime) ProtocolEnabled() bool {
 		return false
 	}
 	return r.rt.Config().EnableProtocol
+}
+
+func (r *Runtime) MintProtocolToken() (ProtocolToken, error) {
+	if r == nil || r.rt == nil {
+		return ProtocolToken{}, fmt.Errorf("project memory runtime is not open")
+	}
+	if !r.ProtocolEnabled() || r.protocolTokenMint == nil {
+		return ProtocolToken{}, fmt.Errorf("project memory protocol is not enabled")
+	}
+	now := time.Now().UTC()
+	token, identity, err := auth.MintAnonymousToken(r.protocolTokenMint)
+	if err != nil {
+		return ProtocolToken{}, fmt.Errorf("mint project memory protocol token: %w", err)
+	}
+	out := ProtocolToken{
+		Token:    token,
+		Identity: identity.Hex(),
+	}
+	if r.protocolTokenMint.Expiry > 0 {
+		out.ExpiresAt = now.Add(r.protocolTokenMint.Expiry)
+	}
+	return out, nil
 }
 
 func acquireDataDirLock(dataDir string) (*os.File, error) {

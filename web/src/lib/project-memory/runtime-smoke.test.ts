@@ -30,6 +30,15 @@ function subscribeURL(base: string): string {
   return url.toString();
 }
 
+async function projectMemoryToken(base: string): Promise<string> {
+  const response = await fetch(new URL("/api/project-memory/token", base), { method: "POST" });
+  expect(response.ok).toBe(true);
+  const body = await response.json() as { token?: string; token_type?: string };
+  expect(body.token_type).toBe("bearer");
+  expect(body.token).toBeTruthy();
+  return body.token ?? "";
+}
+
 describeSmoke("Project Memory Shunter SDK runtime smoke", () => {
   let client: ProjectMemoryClient | null = null;
 
@@ -41,6 +50,7 @@ describeSmoke("Project Memory Shunter SDK runtime smoke", () => {
 
     client = createProjectMemoryClient({
       url: subscribeURL(baseURL),
+      token: await projectMemoryToken(baseURL),
       reconnect: false,
     });
     await client.connect();

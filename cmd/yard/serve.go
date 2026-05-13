@@ -135,6 +135,10 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 	server.NewWebSocketHandler(srv, agentLoop, rt.ConversationManager, cfg, runtimeDefaults, logger)
 	server.NewProjectHandler(srv, cfg, logger, rt.MemoryBackend)
 	server.NewProjectMemoryHandler(srv, rt.MemoryBackend, logger)
+	server.NewDesktopHandler(srv, cfg, rt.MemoryBackend, server.DesktopOptions{
+		YardVersion: version,
+		ConfigPath:  configPath,
+	})
 	server.NewConfigHandler(srv, cfg, rt.ProviderRouter, runtimeDefaults, logger)
 	server.NewMetricsHandler(srv, rt.Queries, logger, rt.MemoryBackend)
 	operatorRuntime := &rtpkg.OrchestratorRuntime{
