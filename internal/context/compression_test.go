@@ -48,15 +48,18 @@ func (s *compressionProviderStub) Name() string {
 }
 
 func TestCompressionTriggerChecks(t *testing.T) {
-	cfg := config.ContextConfig{CompressionThreshold: 0.5}
+	cfg := config.ContextConfig{CompressionThresholdTokens: 100000}
 
 	if !NeedsCompressionPreflight(500000, 200000, cfg) {
 		t.Fatal("NeedsCompressionPreflight = false, want true")
 	}
+	if !NeedsCompressionPreflight(400000, 200000, cfg) {
+		t.Fatal("NeedsCompressionPreflight at threshold = false, want true")
+	}
 	if NeedsCompressionPreflight(1000, 200000, cfg) {
 		t.Fatal("NeedsCompressionPreflight = true, want false")
 	}
-	if !NeedsCompressionPostResponse(100001, 200000, cfg) {
+	if !NeedsCompressionPostResponse(100000, 200000, cfg) {
 		t.Fatal("NeedsCompressionPostResponse = false, want true")
 	}
 	if NeedsCompressionPostResponse(99999, 200000, cfg) {

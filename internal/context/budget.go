@@ -110,14 +110,10 @@ func computeAssembledBudget(modelContextLimit int, historyTokenCount int, cfg co
 }
 
 func shouldCompressHistory(modelContextLimit int, historyTokenCount int, cfg config.ContextConfig) bool {
-	if modelContextLimit <= 0 {
+	if modelContextLimit <= 0 || historyTokenCount <= 0 {
 		return false
 	}
-	threshold := cfg.CompressionThreshold
-	if threshold == 0 {
-		threshold = 0.5
-	}
-	return float64(historyTokenCount) > float64(modelContextLimit)*threshold
+	return historyTokenCount >= compressionThresholdTokens(cfg)
 }
 
 func filterEligibleRAG(hits []RAGHit, threshold float64) ([]RAGHit, []RAGHit) {

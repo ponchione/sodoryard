@@ -113,7 +113,7 @@ context:
   # structural_hop_depth: 1              # Call graph expansion depth
   # structural_hop_budget: 10            # Max chunks from graph expansion
   # momentum_lookback_turns: 2           # Prior turns to scan for momentum
-  # compression_threshold: 0.50          # Compress when history exceeds 50% of window
+  # compression_threshold: 400000        # Compress when history reaches this many tokens
   # compression_head_preserve: 3         # Messages to protect at start
   # compression_tail_preserve: 4         # Messages to protect at end
   # compression_model: local             # Model for summarization

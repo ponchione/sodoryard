@@ -138,7 +138,7 @@ That target starts a temporary Project Memory runtime, mounts `/api/project-memo
 
 The SDK currently powers the chain list's live Project Memory row counts, REST invalidation, and recent Project Memory event panel. Chain detail now uses SDK-decoded Project Memory `events` rows for event/timeline updates and falls back to REST event polling only if the SDK connection fails. Chain summaries, the chain detail REST snapshot, steps, approvals, approval mutations, receipts, guardrails, and metrics still use Yard's REST APIs.
 
-Shunter follow-up: declared queries/views do not yet accept dynamic arguments. Chain detail therefore uses the general Shunter raw SQL query/view path for the selected chain id while still decoding rows with the generated `events` decoder. Once Shunter supports parameterized declared reads, this should move to a declared chain-events helper.
+Shunter follow-up: declared queries/views do not yet accept dynamic arguments. Chain detail therefore uses the general Shunter raw SQL query/view path for the selected chain id while still decoding rows with the generated `events` decoder. The Shunter agent is currently implementing general-purpose runtime/SDK/codegen features intended to accommodate what Sodoryard needs here, including parameterized declared reads. Once those features land, this should move to a declared chain-events helper.
 
 ### Context Assembly
 

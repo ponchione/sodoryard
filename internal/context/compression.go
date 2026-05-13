@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	defaultCompressionHeadPreserve = 3
-	defaultCompressionTailPreserve = 4
-	defaultCompressionModel        = "local"
-	defaultCompressionMaxTokens    = 1024
-	compressionSummaryPrefix       = "[CONTEXT COMPACTION]"
+	defaultCompressionHeadPreserve    = 3
+	defaultCompressionTailPreserve    = 4
+	defaultCompressionThresholdTokens = 400000
+	defaultCompressionModel           = "local"
+	defaultCompressionMaxTokens       = 1024
+	compressionSummaryPrefix          = "[CONTEXT COMPACTION]"
 )
 
 // CompressionResult reports what changed after a persisted-history compression pass.
@@ -841,7 +842,7 @@ func exceedsCompressionThreshold(tokenCount int, modelContextLimit int, cfg conf
 	if tokenCount <= 0 || modelContextLimit <= 0 {
 		return false
 	}
-	return float64(tokenCount) > float64(modelContextLimit)*compressionThreshold(cfg)
+	return tokenCount >= compressionThresholdTokens(cfg)
 }
 
 // approximateTokensFromChars estimates token count from a character count using
@@ -854,11 +855,11 @@ func approximateTokensFromChars(totalChars int) int {
 	return (totalChars + 3) / 4
 }
 
-func compressionThreshold(cfg config.ContextConfig) float64 {
-	if cfg.CompressionThreshold > 0 {
-		return cfg.CompressionThreshold
+func compressionThresholdTokens(cfg config.ContextConfig) int {
+	if cfg.CompressionThresholdTokens > 0 {
+		return cfg.CompressionThresholdTokens
 	}
-	return 0.5
+	return defaultCompressionThresholdTokens
 }
 
 func compressionHeadPreserve(cfg config.ContextConfig) int {

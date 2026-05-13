@@ -65,8 +65,8 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.Index.AutoReindex {
 		t.Fatal("Index.AutoReindex = true, want false")
 	}
-	if cfg.Context.CompressionThreshold != 0.50 {
-		t.Fatalf("Context.CompressionThreshold = %v, want 0.50", cfg.Context.CompressionThreshold)
+	if cfg.Context.CompressionThresholdTokens != 400000 {
+		t.Fatalf("Context.CompressionThresholdTokens = %v, want 400000", cfg.Context.CompressionThresholdTokens)
 	}
 	if !cfg.Brain.Enabled {
 		t.Fatal("Brain.Enabled = false, want true")

@@ -467,7 +467,7 @@ func TestRunTurnPreflightCompressionTriggered(t *testing.T) {
 		Config: AgentLoopConfig{
 			// Set a very low compression threshold so preflight triggers.
 			ContextConfig: config.ContextConfig{
-				CompressionThreshold: 0.001, // 0.1% — any content triggers it
+				CompressionThresholdTokens: 1,
 			},
 		},
 	})
@@ -552,7 +552,7 @@ func TestRunTurnPreflightCompressionNotTriggeredWithoutEngine(t *testing.T) {
 		// No CompressionEngine set.
 		Config: AgentLoopConfig{
 			ContextConfig: config.ContextConfig{
-				CompressionThreshold: 0.001,
+				CompressionThresholdTokens: 1,
 			},
 		},
 	})
@@ -616,7 +616,7 @@ func TestRunTurnPostResponseCompressionTriggered(t *testing.T) {
 		CompressionEngine: compression,
 		Config: AgentLoopConfig{
 			ContextConfig: config.ContextConfig{
-				CompressionThreshold: 0.5, // 50% of model context
+				CompressionThresholdTokens: 50000,
 			},
 		},
 	})
@@ -626,7 +626,7 @@ func TestRunTurnPostResponseCompressionTriggered(t *testing.T) {
 		ConversationID:    "conv-postresponse",
 		TurnNumber:        1,
 		Message:           "test",
-		ModelContextLimit: 100000, // 50% = 50000, response has 90000 > threshold
+		ModelContextLimit: 100000, // response has 90000 > 50000 threshold
 	})
 	if err != nil {
 		t.Fatalf("RunTurn error: %v", err)
@@ -975,7 +975,7 @@ func TestRunTurnPreflightCompressionFailureContinuesGracefully(t *testing.T) {
 		CompressionEngine: compression,
 		Config: AgentLoopConfig{
 			ContextConfig: config.ContextConfig{
-				CompressionThreshold: 0.001,
+				CompressionThresholdTokens: 1,
 			},
 		},
 	})

@@ -118,7 +118,7 @@ The alternative — one row per content block (every text block, thinking block,
 
 ## Compression Model
 
-When conversation history exceeds the compression threshold (50% of context window, per [[06-context-assembly]]), older messages are compressed. The schema handles this with flags, not deletion.
+When conversation history reaches the configured compression token threshold, older messages are compressed. The schema handles this with flags, not deletion.
 
 ### How It Works
 

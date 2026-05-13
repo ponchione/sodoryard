@@ -11,8 +11,8 @@ func TestPriorityBudgetManagerComputesBudgetTotal(t *testing.T) {
 	manager := PriorityBudgetManager{}
 
 	result, err := manager.Fit(&RetrievalResults{}, 200000, 50000, config.ContextConfig{
-		MaxAssembledTokens:   30000,
-		CompressionThreshold: 0.5,
+		MaxAssembledTokens:         30000,
+		CompressionThresholdTokens: 100000,
 	})
 	if err != nil {
 		t.Fatalf("Fit returned error: %v", err)
@@ -107,9 +107,9 @@ func TestPriorityBudgetManagerMarksBelowThresholdAndCompressionNeeded(t *testing
 	result, err := manager.Fit(&RetrievalResults{
 		RAGHits: []RAGHit{belowThreshold},
 	}, 100000, 60000, config.ContextConfig{
-		MaxAssembledTokens:   30000,
-		RelevanceThreshold:   0.35,
-		CompressionThreshold: 0.5,
+		MaxAssembledTokens:         30000,
+		RelevanceThreshold:         0.35,
+		CompressionThresholdTokens: 50000,
 	})
 	if err != nil {
 		t.Fatalf("Fit returned error: %v", err)

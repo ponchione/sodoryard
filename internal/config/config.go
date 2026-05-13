@@ -194,21 +194,21 @@ type AgentConfig struct {
 }
 
 type ContextConfig struct {
-	MaxAssembledTokens      int     `yaml:"max_assembled_tokens"`
-	MaxChunks               int     `yaml:"max_chunks"`
-	MaxExplicitFiles        int     `yaml:"max_explicit_files"`
-	ConventionBudgetTokens  int     `yaml:"convention_budget_tokens"`
-	GitContextBudgetTokens  int     `yaml:"git_context_budget_tokens"`
-	RelevanceThreshold      float64 `yaml:"relevance_threshold"`
-	StructuralHopDepth      int     `yaml:"structural_hop_depth"`
-	StructuralHopBudget     int     `yaml:"structural_hop_budget"`
-	MomentumLookbackTurns   int     `yaml:"momentum_lookback_turns"`
-	CompressionThreshold    float64 `yaml:"compression_threshold"`
-	CompressionHeadPreserve int     `yaml:"compression_head_preserve"`
-	CompressionTailPreserve int     `yaml:"compression_tail_preserve"`
-	CompressionModel        string  `yaml:"compression_model"`
-	EmitContextDebug        bool    `yaml:"emit_context_debug"`
-	StoreAssemblyReports    bool    `yaml:"store_assembly_reports"`
+	MaxAssembledTokens         int     `yaml:"max_assembled_tokens"`
+	MaxChunks                  int     `yaml:"max_chunks"`
+	MaxExplicitFiles           int     `yaml:"max_explicit_files"`
+	ConventionBudgetTokens     int     `yaml:"convention_budget_tokens"`
+	GitContextBudgetTokens     int     `yaml:"git_context_budget_tokens"`
+	RelevanceThreshold         float64 `yaml:"relevance_threshold"`
+	StructuralHopDepth         int     `yaml:"structural_hop_depth"`
+	StructuralHopBudget        int     `yaml:"structural_hop_budget"`
+	MomentumLookbackTurns      int     `yaml:"momentum_lookback_turns"`
+	CompressionThresholdTokens int     `yaml:"compression_threshold"`
+	CompressionHeadPreserve    int     `yaml:"compression_head_preserve"`
+	CompressionTailPreserve    int     `yaml:"compression_tail_preserve"`
+	CompressionModel           string  `yaml:"compression_model"`
+	EmitContextDebug           bool    `yaml:"emit_context_debug"`
+	StoreAssemblyReports       bool    `yaml:"store_assembly_reports"`
 }
 
 type BrainConfig struct {
@@ -355,21 +355,21 @@ func Default() *Config {
 			HistorySummarizeAfterTurns: 10,
 		},
 		Context: ContextConfig{
-			MaxAssembledTokens:      30000,
-			MaxChunks:               25,
-			MaxExplicitFiles:        5,
-			ConventionBudgetTokens:  3000,
-			GitContextBudgetTokens:  2000,
-			RelevanceThreshold:      0.35,
-			StructuralHopDepth:      1,
-			StructuralHopBudget:     10,
-			MomentumLookbackTurns:   2,
-			CompressionThreshold:    0.50,
-			CompressionHeadPreserve: 3,
-			CompressionTailPreserve: 4,
-			CompressionModel:        "local",
-			EmitContextDebug:        true,
-			StoreAssemblyReports:    true,
+			MaxAssembledTokens:         30000,
+			MaxChunks:                  25,
+			MaxExplicitFiles:           5,
+			ConventionBudgetTokens:     3000,
+			GitContextBudgetTokens:     2000,
+			RelevanceThreshold:         0.35,
+			StructuralHopDepth:         1,
+			StructuralHopBudget:        10,
+			MomentumLookbackTurns:      2,
+			CompressionThresholdTokens: 400000,
+			CompressionHeadPreserve:    3,
+			CompressionTailPreserve:    4,
+			CompressionModel:           "local",
+			EmitContextDebug:           true,
+			StoreAssemblyReports:       true,
 		},
 		Memory: MemoryConfig{
 			Backend:        memoryBackendShunter,
@@ -1079,6 +1079,7 @@ func (c *Config) validateNumericFields() error {
 		"context.structural_hop_depth":        c.Context.StructuralHopDepth,
 		"context.structural_hop_budget":       c.Context.StructuralHopBudget,
 		"context.momentum_lookback_turns":     c.Context.MomentumLookbackTurns,
+		"context.compression_threshold":       c.Context.CompressionThresholdTokens,
 		"context.compression_head_preserve":   c.Context.CompressionHeadPreserve,
 		"context.compression_tail_preserve":   c.Context.CompressionTailPreserve,
 		"brain.max_brain_tokens":              c.Brain.MaxBrainTokens,
@@ -1093,7 +1094,6 @@ func (c *Config) validateNumericFields() error {
 
 	for field, value := range map[string]float64{
 		"context.relevance_threshold":     c.Context.RelevanceThreshold,
-		"context.compression_threshold":   c.Context.CompressionThreshold,
 		"brain.brain_relevance_threshold": c.Brain.BrainRelevanceThreshold,
 	} {
 		if value < 0 || value > 1 {

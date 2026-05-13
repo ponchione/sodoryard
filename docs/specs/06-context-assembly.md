@@ -340,7 +340,7 @@ If the budget runs out mid-priority-3, that's fine — the agent has `search_sem
 
 ### History Compression Trigger
 
-The budget manager monitors conversation history growth. When history exceeds **50%** of the total context window, it signals the agent loop that compression is needed. The budget manager does not perform compression — it sets a flag that the agent loop checks. See the Compression section for details.
+The budget manager monitors conversation history growth. When history reaches the configured absolute token threshold, it signals the agent loop that compression is needed. The budget manager does not perform compression — it sets a flag that the agent loop checks. See the Compression section for details.
 
 ---
 
@@ -470,7 +470,7 @@ Two-phase checking, matching Hermes:
 
 ### Threshold
 
-Default: **50% of the model's context window.** For a 200k context model, compression triggers at 100k prompt tokens. Configurable.
+Default: **400,000 tokens.** Compression uses an absolute token threshold rather than a percentage of the model context window.
 
 ### Algorithm: Head-Tail Preservation
 
@@ -639,7 +639,7 @@ context:
   momentum_lookback_turns: 2          # How many prior turns to scan for momentum
 
   # History management
-  compression_threshold: 0.50         # Compress when history exceeds 50% of context window
+  compression_threshold: 400000       # Compress when history reaches this many tokens
   compression_head_preserve: 3        # Messages to protect at the start
   compression_tail_preserve: 4        # Messages to protect at the end
   compression_model: "local"          # Model for summarization (local Docker container)
@@ -697,7 +697,7 @@ Parameters most likely to need adjustment, in order of impact:
 
 **4. momentum_lookback_turns (2).** If context amnesia is a problem (the agent loses track of what it was working on), increase to 3. If momentum is injecting stale context from old turns, decrease to 1.
 
-**5. compression_threshold (0.50).** If compression fires too often and loses important context, increase. If conversations hit context limits before compression fires, decrease.
+**5. compression_threshold (400000).** If compression fires too often and loses important context, increase. If conversations hit context limits before compression fires, decrease.
 
 ---
 
