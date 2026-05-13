@@ -128,7 +128,17 @@ make projectmemory-bindings-check
 
 Generated bindings import `@shunter/client`. Until the Shunter TypeScript SDK is published as a normal npm package, Yard resolves that package from the vendored copy in `third_party/shunter-client` via `web/package.json`. This avoids requiring a sibling `../../shunter` checkout for `npm install` or frontend builds. To update the vendored SDK, replace the files under `third_party/shunter-client` from the pinned Shunter release while preserving the package name `@shunter/client`, then run `npm install` in `web/` to refresh the lockfile.
 
-The SDK currently powers the chain list's live Project Memory row counts, REST invalidation, and recent Project Memory event panel. Chain summaries, chain detail, approvals, mutations, receipts, and metrics still use Yard's REST APIs.
+Run the real SDK/runtime smoke with:
+
+```bash
+make projectmemory-sdk-smoke
+```
+
+That target starts a temporary Project Memory runtime, mounts `/api/project-memory/contract` and `/api/project-memory/subscribe`, and runs the generated TypeScript helpers through the vendored `@shunter/client`. It verifies the module name/version and decodes the `recent_chains` and `recent_chain_events` declared queries against the mounted runtime.
+
+The SDK currently powers the chain list's live Project Memory row counts, REST invalidation, and recent Project Memory event panel. Chain detail now uses SDK-decoded Project Memory `events` rows for event/timeline updates and falls back to REST event polling only if the SDK connection fails. Chain summaries, the chain detail REST snapshot, steps, approvals, approval mutations, receipts, guardrails, and metrics still use Yard's REST APIs.
+
+Shunter follow-up: declared queries/views do not yet accept dynamic arguments. Chain detail therefore uses the general Shunter raw SQL query/view path for the selected chain id while still decoding rows with the generated `events` decoder. Once Shunter supports parameterized declared reads, this should move to a declared chain-events helper.
 
 ### Context Assembly
 

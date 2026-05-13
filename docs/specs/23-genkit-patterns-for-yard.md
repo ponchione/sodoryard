@@ -1371,6 +1371,8 @@ Implemented on 2026-05-09:
 - newly replayed events are duplicate-suppressed and merged into both recent events and the ordered timeline
 - browser tests cover after-cursor polling and timeline/recent-event replay from persisted chain events
 
+2026-05-12 update: browser chain detail now prefers SDK-decoded Shunter Project Memory `events` rows for timeline/recent-event updates. The REST after-cursor endpoint remains the fallback when the Project Memory SDK connection fails.
+
 Not implemented in this slice:
 
 - WebSocket replay from a cursor
