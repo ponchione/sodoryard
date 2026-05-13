@@ -4,10 +4,13 @@ import * as shunterClient from "@shunter/client";
 import {
   assertProjectMemoryContractCompatible,
   assertProjectMemoryRuntimeContractCompatible,
+  chainEventsSQL,
   fetchProjectMemoryRuntimeContract,
   projectMemoryContract,
   projectMemorySubscribeURL,
+  queryChainEventsDecoded,
   queryRecentChainEventsDecoded,
+  subscribeChainEvents,
   subscribeLiveRecentChainEvents,
   verifyProjectMemoryRuntimeContract,
 } from "./client";
@@ -36,6 +39,15 @@ describe("project memory Shunter client", () => {
   it("exports the recent chain events SDK helpers", () => {
     expect(queryRecentChainEventsDecoded).toBeTypeOf("function");
     expect(subscribeLiveRecentChainEvents).toBeTypeOf("function");
+    expect(queryChainEventsDecoded).toBeTypeOf("function");
+    expect(subscribeChainEvents).toBeTypeOf("function");
+  });
+
+  it("builds a bounded chain event SQL view with escaped chain ids", () => {
+    expect(chainEventsSQL("chain-'quoted'", 5)).toBe(
+      "SELECT * FROM events WHERE chain_id = 'chain-''quoted''' ORDER BY sequence DESC LIMIT 5",
+    );
+    expect(chainEventsSQL("chain-1", 5000)).toContain("LIMIT 1000");
   });
 
   it("fetches and verifies the backend contract metadata", async () => {

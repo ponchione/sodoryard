@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
 import type {
@@ -291,8 +292,21 @@ export function ChainDetailPage() {
     }
   }
 
+  const projectMemoryEvents = useProjectMemoryChainEvents(id, {
+    enabled: Boolean(detail),
+    onApprovalChanged: reloadDetail,
+  });
+
   useEffect(() => {
-    if (!detail || !shouldPollChainEvents(detail.chain.status)) return undefined;
+    if (projectMemoryEvents.events.length === 0) return;
+    lastEventIDRef.current = Math.max(lastEventIDRef.current, maxChainEventID(projectMemoryEvents.events));
+    setDetail((current) => (current ? mergeChainEvents(current, projectMemoryEvents.events) : current));
+  }, [projectMemoryEvents.events]);
+
+  useEffect(() => {
+    if (!detail || projectMemoryEvents.status !== "failed" || !shouldPollChainEvents(detail.chain.status)) {
+      return undefined;
+    }
     let cancelled = false;
     const pollEvents = async () => {
       try {
@@ -315,7 +329,7 @@ export function ChainDetailPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [detail, id, reloadDetail]);
+  }, [detail, id, projectMemoryEvents.status, reloadDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -362,6 +376,12 @@ export function ChainDetailPage() {
           {detail && (
             <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>
               {detail.chain.status} / {detail.health || "unknown"}
+            </p>
+          )}
+          {projectMemoryEvents.error && (
+            <p className="mt-1 text-xs text-warning">
+              project memory events: {projectMemoryEvents.error}; REST snapshot retained
+              {detail && shouldPollChainEvents(detail.chain.status) ? " with REST event polling fallback" : ""}
             </p>
           )}
         </div>

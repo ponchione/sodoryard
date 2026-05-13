@@ -1,11 +1,13 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { UseProjectMemoryChainEventsReturn } from "@/hooks/use-project-memory-chain-events";
 import type { ChainDetail } from "@/types/chains";
 
-const { apiGet, apiPost } = vi.hoisted(() => ({
+const { apiGet, apiPost, useProjectMemoryChainEventsMock } = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  useProjectMemoryChainEventsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -13,6 +15,10 @@ vi.mock("@/lib/api", () => ({
     get: apiGet,
     post: apiPost,
   },
+}));
+
+vi.mock("@/hooks/use-project-memory-chain-events", () => ({
+  useProjectMemoryChainEvents: useProjectMemoryChainEventsMock,
 }));
 
 import { ChainDetailPage } from "./chain-detail";
@@ -105,13 +111,27 @@ function chainMetrics(overrides: Partial<NonNullable<ChainDetail["metrics"]>> = 
   };
 }
 
+function projectMemoryEventsState(
+  overrides: Partial<UseProjectMemoryChainEventsReturn> = {},
+): UseProjectMemoryChainEventsReturn {
+  return {
+    status: "idle",
+    error: null,
+    events: [],
+    refresh: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("ChainDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
     apiPost.mockReset();
+    useProjectMemoryChainEventsMock.mockReset().mockReturnValue(projectMemoryEventsState());
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
   });
 
@@ -391,7 +411,112 @@ describe("ChainDetailPage", () => {
     expect(await screen.findByText("coder receipt body")).toBeInTheDocument();
   });
 
-  it("replays new persisted events after the last seen event cursor", async () => {
+  it("merges SDK-decoded project memory events into the timeline without REST event polling", async () => {
+    const detail: ChainDetail = {
+      health: "ok",
+      warnings: [],
+      chain: {
+        id: "chain-2",
+        source_specs: [],
+        source_task: "watch events",
+        status: "running",
+        summary: "",
+        total_steps: 1,
+        total_tokens: 0,
+        total_duration_secs: 0,
+        resolver_loops: 0,
+        started_at: "2026-05-01T12:00:00Z",
+        updated_at: "2026-05-01T12:00:00Z",
+      },
+      steps: [
+        {
+          id: "step-2",
+          chain_id: "chain-2",
+          sequence_num: 1,
+          role: "coder",
+          task: "code",
+          status: "running",
+          verdict: "",
+          receipt_path: "",
+          tokens_used: 0,
+          turns_used: 0,
+          duration_secs: 0,
+        },
+      ],
+      receipts: [],
+      approvals: [],
+      recent_events: [
+        {
+          id: 1,
+          chain_id: "chain-2",
+          step_id: "step-2",
+          event_type: "step_started",
+          event_data: "{\"role\":\"coder\"}",
+          created_at: "2026-05-01T12:00:05Z",
+        },
+      ],
+      timeline: [
+        {
+          id: "event:1",
+          source: "event",
+          kind: "event",
+          name: "step_started",
+          event_type: "step_started",
+          started_at: "2026-05-01T12:00:05Z",
+          step_id: "step-2",
+          event_data: "{\"role\":\"coder\"}",
+        },
+      ],
+      guardrails: emptyGuardrails(),
+    };
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/chains/chain-2") return Promise.resolve(detail);
+      return Promise.resolve([]);
+    });
+    useProjectMemoryChainEventsMock.mockImplementation((_chainID: string, options: { enabled?: boolean }) => (
+      options.enabled
+        ? projectMemoryEventsState({
+          status: "connected",
+          events: [
+            {
+              id: 1,
+              chain_id: "chain-2",
+              step_id: "step-2",
+              event_type: "step_started",
+              event_data: "{\"role\":\"coder\"}",
+              created_at: "2026-05-01T12:00:05Z",
+            },
+            {
+              id: 2,
+              chain_id: "chain-2",
+              step_id: "step-2",
+              event_type: "step_completed",
+              event_data: "{\"verdict\":\"completed\"}",
+              created_at: "2026-05-01T12:00:10Z",
+            },
+          ],
+        })
+        : projectMemoryEventsState()
+    ));
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-2"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-2");
+    await waitFor(() => expect(screen.getAllByText("step_completed")).toHaveLength(2));
+    expect(screen.getAllByText("{\"verdict\":\"completed\"}")).toHaveLength(2);
+    expect(apiGet).not.toHaveBeenCalledWith("/api/chains/chain-2/events?after_id=1");
+  });
+
+  it("falls back to REST event polling when the Project Memory SDK fails", async () => {
     vi.useFakeTimers();
     const detail: ChainDetail = {
       health: "ok",
@@ -466,6 +591,14 @@ describe("ChainDetailPage", () => {
       }
       return Promise.resolve([]);
     });
+    useProjectMemoryChainEventsMock.mockImplementation((_chainID: string, options: { enabled?: boolean }) => (
+      options.enabled
+        ? projectMemoryEventsState({
+          status: "failed",
+          error: "project memory socket unavailable",
+        })
+        : projectMemoryEventsState()
+    ));
 
     render(
       <MemoryRouter initialEntries={["/chains/chain-2"]}>
@@ -477,8 +610,9 @@ describe("ChainDetailPage", () => {
 
     await act(async () => {
       await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-2");
+    expect(screen.getByText(/project memory events: project memory socket unavailable/)).toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
       await Promise.resolve();

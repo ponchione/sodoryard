@@ -1,19 +1,28 @@
 import {
   assertGeneratedContractCompatible,
   createShunterClient,
+  decodeDeclaredQueryResult,
   type ConnectionStateListener,
+  type DecodedDeclaredQueryResult,
   type ReconnectOptions,
   type ShunterClient,
   type TokenSource,
 } from "@shunter/client";
 
 import {
+  decodeEventsRow,
   shunterContract,
   shunterProtocol,
+  type DeclaredViewSubscriptionOptions,
+  type EventsRow,
+  type QueryRunner,
   type ShunterSubprotocol,
+  type SubscriptionUnsubscribe,
+  type ViewSubscriber,
 } from "@/generated/yard-project-memory";
 
 export {
+  decodeEventsRow,
   queryRecentChainEventsDecoded,
   queryRecentChainsDecoded,
   subscribeLiveRecentChainEvents,
@@ -24,6 +33,7 @@ export {
 
 export type {
   ChainsRow,
+  EventsRow,
   LiveRecentChainEventsViewRow,
   LiveRecentChainsViewRow,
   RecentChainEventsQueryRow,
@@ -44,6 +54,12 @@ export interface ProjectMemoryClientOptions {
 }
 
 export type ProjectMemoryClient = ShunterClient<typeof shunterProtocol>;
+
+export type ChainEventsQueryRows = {
+  "events": EventsRow;
+};
+
+export type ChainEventsQueryResult = DecodedDeclaredQueryResult<"chain_events", ChainEventsQueryRows>;
 
 export interface ProjectMemoryRuntimeContract {
   module?: {
@@ -102,6 +118,41 @@ export function projectMemorySubscribeURL(origin = window.location.origin): stri
   const url = new URL("/api/project-memory/subscribe", origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
+}
+
+export function projectMemorySQLString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+export function chainEventsSQL(chainID: string, limit = 500): string {
+  const requestedLimit = Number.isFinite(limit) ? Math.trunc(limit) : 500;
+  const normalizedLimit = Math.max(1, Math.min(requestedLimit, 1_000));
+  return [
+    "SELECT * FROM events",
+    `WHERE chain_id = ${projectMemorySQLString(chainID)}`,
+    "ORDER BY sequence DESC",
+    `LIMIT ${normalizedLimit}`,
+  ].join(" ");
+}
+
+export async function queryChainEventsDecoded(
+  runQuery: QueryRunner,
+  chainID: string,
+  limit?: number,
+): Promise<ChainEventsQueryResult> {
+  return decodeDeclaredQueryResult("chain_events", await runQuery(chainEventsSQL(chainID, limit)), {
+    tableDecoders: { events: decodeEventsRow },
+  });
+}
+
+export function subscribeChainEvents(
+  subscribeView: ViewSubscriber,
+  chainID: string,
+  options: DeclaredViewSubscriptionOptions<EventsRow> = {},
+  limit?: number,
+): Promise<SubscriptionUnsubscribe> {
+  const subscribeOptions = options.decodeRow === undefined ? { ...options, decodeRow: decodeEventsRow } : options;
+  return subscribeView(chainEventsSQL(chainID, limit), subscribeOptions);
 }
 
 export type ProjectMemorySubprotocol = ShunterSubprotocol;
