@@ -4,13 +4,12 @@ import * as shunterClient from "@shunter/client";
 import {
   assertProjectMemoryContractCompatible,
   assertProjectMemoryRuntimeContractCompatible,
-  chainEventsSQL,
   fetchProjectMemoryRuntimeContract,
   projectMemoryContract,
   projectMemorySubscribeURL,
   queryChainEventsDecoded,
   queryRecentChainEventsDecoded,
-  subscribeChainEvents,
+  subscribeLiveChainEvents,
   subscribeLiveRecentChainEvents,
   verifyProjectMemoryRuntimeContract,
 } from "./client";
@@ -28,6 +27,8 @@ describe("project memory Shunter client", () => {
   it("asserts the checked-in generated contract metadata", () => {
     expect(projectMemoryContract.moduleName).toBe("yard_project_memory");
     expect(projectMemoryContract.moduleVersion).toBe("0.13.0");
+    expect(projectMemoryContract.protocol.defaultSubprotocol).toBe("v2.bsatn.shunter");
+    expect(projectMemoryContract.protocol.supportedSubprotocols).toContain("v1.bsatn.shunter");
     expect(() => assertProjectMemoryContractCompatible()).not.toThrow();
   });
 
@@ -40,14 +41,7 @@ describe("project memory Shunter client", () => {
     expect(queryRecentChainEventsDecoded).toBeTypeOf("function");
     expect(subscribeLiveRecentChainEvents).toBeTypeOf("function");
     expect(queryChainEventsDecoded).toBeTypeOf("function");
-    expect(subscribeChainEvents).toBeTypeOf("function");
-  });
-
-  it("builds a bounded chain event SQL view with escaped chain ids", () => {
-    expect(chainEventsSQL("chain-'quoted'", 5)).toBe(
-      "SELECT * FROM events WHERE chain_id = 'chain-''quoted''' ORDER BY sequence DESC LIMIT 5",
-    );
-    expect(chainEventsSQL("chain-1", 5000)).toContain("LIMIT 1000");
+    expect(subscribeLiveChainEvents).toBeTypeOf("function");
   });
 
   it("fetches and verifies the backend contract metadata", async () => {

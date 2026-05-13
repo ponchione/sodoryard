@@ -1792,6 +1792,54 @@
         "kind": "table",
         "table": "events"
       }
+    },
+    {
+      "name": "chain_events",
+      "sql": "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500",
+      "parameters": {
+        "columns": [
+          {
+            "name": "chain_id",
+            "type": "string"
+          }
+        ]
+      },
+      "row_schema": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "chain_id",
+            "type": "string"
+          },
+          {
+            "name": "step_id",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64"
+          },
+          {
+            "name": "event_type",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "payload_json",
+            "type": "string"
+          }
+        ]
+      },
+      "result_shape": {
+        "kind": "table",
+        "table": "events"
+      }
     }
   ],
   "views": [
@@ -1894,6 +1942,54 @@
         "kind": "table",
         "table": "events"
       }
+    },
+    {
+      "name": "live_chain_events",
+      "sql": "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500",
+      "parameters": {
+        "columns": [
+          {
+            "name": "chain_id",
+            "type": "string"
+          }
+        ]
+      },
+      "row_schema": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "chain_id",
+            "type": "string"
+          },
+          {
+            "name": "step_id",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64"
+          },
+          {
+            "name": "event_type",
+            "type": "string"
+          },
+          {
+            "name": "created_at_us",
+            "type": "uint64"
+          },
+          {
+            "name": "payload_json",
+            "type": "string"
+          }
+        ]
+      },
+      "result_shape": {
+        "kind": "table",
+        "table": "events"
+      }
     }
   ],
   "visibility_filters": [],
@@ -1928,6 +2024,19 @@
         ]
       },
       {
+        "surface": "query",
+        "name": "chain_events",
+        "tables": [
+          "events"
+        ],
+        "tags": [
+          "chains",
+          "events",
+          "operator-ui",
+          "desktop"
+        ]
+      },
+      {
         "surface": "view",
         "name": "live_recent_chains",
         "tables": [
@@ -1948,6 +2057,19 @@
           "chains",
           "events",
           "operator-ui"
+        ]
+      },
+      {
+        "surface": "view",
+        "name": "live_chain_events",
+        "tables": [
+          "events"
+        ],
+        "tags": [
+          "chains",
+          "events",
+          "operator-ui",
+          "desktop"
         ]
       }
     ]

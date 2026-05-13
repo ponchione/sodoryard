@@ -4,7 +4,7 @@ import type { ConnectionStatus, SubscriptionUnsubscribe } from "@shunter/client"
 import {
   createProjectMemoryClient,
   queryChainEventsDecoded,
-  subscribeChainEvents,
+  subscribeLiveChainEvents,
   type EventsRow,
   type ProjectMemoryClient,
   verifyProjectMemoryRuntimeContract,
@@ -59,15 +59,26 @@ function sortChainEvents(events: ChainEvent[]): ChainEvent[] {
   });
 }
 
+function normalizeEventLimit(limit: number | undefined): number {
+  const requestedLimit = Number.isFinite(limit) ? Math.trunc(limit ?? 500) : 500;
+  return Math.max(1, Math.min(requestedLimit, 500));
+}
+
+function limitChainEvents(events: ChainEvent[], limit: number): ChainEvent[] {
+  const sorted = sortChainEvents(events);
+  return sorted.length > limit ? sorted.slice(-limit) : sorted;
+}
+
 function mergeChainEventRows(
   current: ChainEvent[],
   inserts: readonly EventsRow[],
   deletes: readonly EventsRow[],
+  limit: number,
 ): ChainEvent[] {
   const byID = new Map(current.map((event) => [event.id, event]));
   for (const row of deletes) byID.delete(Number(row.sequence));
   for (const row of inserts) byID.set(Number(row.sequence), mapChainEvent(row));
-  return sortChainEvents(Array.from(byID.values()));
+  return limitChainEvents(Array.from(byID.values()), limit);
 }
 
 function hasApprovalEvent(rows: readonly EventsRow[]): boolean {
@@ -79,7 +90,7 @@ export function useProjectMemoryChainEvents(
   options: UseProjectMemoryChainEventsOptions = {},
 ): UseProjectMemoryChainEventsReturn {
   const enabled = (options.enabled ?? true) && chainID.trim() !== "";
-  const limit = options.limit ?? 500;
+  const limit = normalizeEventLimit(options.limit);
   const onApprovalChanged = options.onApprovalChanged;
   const onChanged = options.onChanged;
   const verifyContract = options.verifyContract ?? true;
@@ -96,9 +107,9 @@ export function useProjectMemoryChainEvents(
   }, [onApprovalChanged, onChanged]);
 
   const loadSnapshot = useCallback(async (client: ProjectMemoryClient): Promise<ProjectMemoryChainEventsSnapshot> => {
-    const result = await queryChainEventsDecoded(client.runQuery, chainID, limit);
+    const result = await queryChainEventsDecoded(client.runDeclaredQuery, { chainId: chainID });
     const eventsTable = result.tables.find((table) => table.tableName === "events");
-    return { events: sortChainEvents((eventsTable?.rows ?? []).map(mapChainEvent)) };
+    return { events: limitChainEvents((eventsTable?.rows ?? []).map(mapChainEvent), limit) };
   }, [chainID, limit]);
 
   const refresh = useCallback(async () => {
@@ -146,19 +157,19 @@ export function useProjectMemoryChainEvents(
         const snapshot = await loadSnapshot(client);
         if (cancelled) return;
         setEvents(snapshot.events);
-        const unsubscribe = await subscribeChainEvents(client.subscribeView, chainID, {
+        const unsubscribe = await subscribeLiveChainEvents(client.subscribeDeclaredView, { chainId: chainID }, {
           onInitialRows: (rows) => {
-            if (!cancelled) setEvents(sortChainEvents(rows.map(mapChainEvent)));
+            if (!cancelled) setEvents(limitChainEvents(rows.map(mapChainEvent), limit));
           },
           onUpdate: (update) => {
             if (cancelled) return;
-            setEvents((current) => mergeChainEventRows(current, update.inserts, update.deletes));
+            setEvents((current) => mergeChainEventRows(current, update.inserts, update.deletes, limit));
             void onChangedRef.current?.();
             if (hasApprovalEvent(update.inserts) || hasApprovalEvent(update.deletes)) {
               void onApprovalChangedRef.current?.();
             }
           },
-        }, limit);
+        });
         if (cancelled) {
           void unsubscribe();
           return;

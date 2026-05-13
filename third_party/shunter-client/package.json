@@ -1,15 +1,31 @@
 {
   "name": "@shunter/client",
-  "version": "1.0.1-sodoryard.0",
+  "version": "1.1.0",
+  "description": "Private local Shunter v1 TypeScript client runtime.",
   "private": true,
   "type": "module",
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "import": "./index.js"
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
-  "license": "UNLICENSED"
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm exec --yes --package typescript -- tsc -p tsconfig.build.json",
+    "pack:dry-run": "npm pack --dry-run",
+    "smoke:package": "node test/package-smoke.mjs",
+    "test": "npm run typecheck && npm exec --yes --package typescript -- tsc -p tsconfig.runtime-test.json && node test/runtime-behavior.test.mjs",
+    "typecheck": "npm exec --yes --package typescript -- tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
 }

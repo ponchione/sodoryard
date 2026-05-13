@@ -259,6 +259,27 @@ func declareOperatorUIReadSurfaces(mod *shunter.Module) {
 		SQL:       recentChainEventsSQL,
 		ReadModel: recentChainEventsReadModel,
 	})
+
+	const chainEventsSQL = "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500"
+	chainEventsReadModel := shunter.ReadModelMetadata{
+		Tables: []string{"events"},
+		Tags:   []string{"chains", "events", "operator-ui", "desktop"},
+	}
+	chainEventsParameters := shunter.ProductSchema{
+		Columns: []shunter.ProductColumn{
+			{Name: "chain_id", Type: "string"},
+		},
+	}
+	mod.Query(shunter.QueryDeclaration{
+		Name:      "chain_events",
+		SQL:       chainEventsSQL,
+		ReadModel: chainEventsReadModel,
+	}, shunter.WithQueryParameters(chainEventsParameters))
+	mod.View(shunter.ViewDeclaration{
+		Name:      "live_chain_events",
+		SQL:       chainEventsSQL,
+		ReadModel: chainEventsReadModel,
+	}, shunter.WithViewParameters(chainEventsParameters))
 }
 
 func declareProjectState(mod *shunter.Module) {

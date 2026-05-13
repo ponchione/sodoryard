@@ -3,6 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   createProjectMemoryClient,
+  projectMemoryContract,
+  queryChainEventsDecoded,
   queryRecentChainEventsDecoded,
   queryRecentChainsDecoded,
   verifyProjectMemoryRuntimeContract,
@@ -35,6 +37,7 @@ describeSmoke("Project Memory Shunter SDK runtime smoke", () => {
     const contract = await verifyProjectMemoryRuntimeContract(absoluteFetch(baseURL));
     expect(contract.module?.name).toBe("yard_project_memory");
     expect(contract.module?.version).toBe("0.13.0");
+    expect(projectMemoryContract.protocol.defaultSubprotocol).toBe("v2.bsatn.shunter");
 
     client = createProjectMemoryClient({
       url: subscribeURL(baseURL),
@@ -61,5 +64,16 @@ describeSmoke("Project Memory Shunter SDK runtime smoke", () => {
     expect(chainRows.some((row) => row.id === chainID)).toBe(true);
     expect(eventRows.some((row) => row.chainId === chainID && row.eventType === "step_started")).toBe(true);
     expect(eventRows.some((row) => row.chainId === chainID && row.eventType === "approval_required")).toBe(true);
+  });
+
+  it("runs a generated parameterized declared query helper against the mounted runtime", async () => {
+    if (!client) throw new Error("project memory client was not connected");
+
+    const eventsResult = await queryChainEventsDecoded(client.runDeclaredQuery, { chainId: chainID });
+    const eventRows = eventsResult.tables.find((table) => table.tableName === "events")?.rows ?? [];
+
+    expect(eventRows.every((row) => row.chainId === chainID)).toBe(true);
+    expect(eventRows.some((row) => row.eventType === "step_started")).toBe(true);
+    expect(eventRows.some((row) => row.eventType === "approval_required")).toBe(true);
   });
 });

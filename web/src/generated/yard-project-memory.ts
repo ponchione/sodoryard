@@ -6,6 +6,7 @@ import type {
   BsatnColumn as ShunterBsatnColumn,
   DecodedDeclaredQueryResult as ShunterDecodedDeclaredQueryResult,
   DeclaredQueryDecodeOptions as ShunterDeclaredQueryDecodeOptions,
+  DeclaredQueryOptions as ShunterDeclaredQueryOptions,
   DeclaredQueryRunner as ShunterDeclaredQueryRunner,
   DeclaredViewHandleSubscriber as ShunterDeclaredViewHandleSubscriber,
   DeclaredViewSubscriber as ShunterDeclaredViewSubscriber,
@@ -33,13 +34,14 @@ import {
   callReducerWithResult as shunterCallReducerWithResult,
   decodeBsatnProduct as shunterDecodeBsatnProduct,
   decodeDeclaredQueryResult as shunterDecodeDeclaredQueryResult,
+  encodeBsatnProduct as shunterEncodeBsatnProduct,
 } from "@shunter/client";
 
 export const shunterProtocol = {
   minSupportedVersion: 1,
-  currentVersion: 1,
-  defaultSubprotocol: "v1.bsatn.shunter",
-  supportedSubprotocols: ["v1.bsatn.shunter"],
+  currentVersion: 2,
+  defaultSubprotocol: "v2.bsatn.shunter",
+  supportedSubprotocols: ["v2.bsatn.shunter", "v1.bsatn.shunter"],
 } as const satisfies ShunterProtocolMetadata;
 
 export type ShunterSubprotocol = (typeof shunterProtocol.supportedSubprotocols)[number];
@@ -60,12 +62,15 @@ export type ReducerCallResultOptions = ShunterReducerCallResultRequestOptions<Ui
 export type QueryRunner = ShunterQueryRunner<Uint8Array>;
 export type ViewSubscriber = ShunterViewSubscriber;
 export type DeclaredQueryRunner = ShunterDeclaredQueryRunner<ExecutableQueryName, Uint8Array>;
+export type DeclaredQueryOptions = ShunterDeclaredQueryOptions;
+export type DeclaredQueryRunOptions = Omit<DeclaredQueryOptions, "params">;
 export type RawDeclaredQueryResult<Name extends ExecutableQueryName = ExecutableQueryName> = ShunterRawDeclaredQueryResult<Name>;
 export type DeclaredQueryDecodeOptions<RowsByName extends object = TableRows> = ShunterDeclaredQueryDecodeOptions<RowsByName>;
+export type DeclaredQueryDecodedRunOptions<RowsByName extends object = TableRows> = DeclaredQueryRunOptions & DeclaredQueryDecodeOptions<RowsByName>;
 export type DecodedDeclaredQueryResult<Name extends ExecutableQueryName = ExecutableQueryName, RowsByName extends object = TableRows> = ShunterDecodedDeclaredQueryResult<Name, RowsByName>;
 export type DeclaredViewSubscriber = ShunterDeclaredViewSubscriber<ExecutableViewName>;
 export type DeclaredViewHandleSubscriber = ShunterDeclaredViewHandleSubscriber<ExecutableViewName>;
-export type DeclaredViewSubscriptionOptions<Row = unknown> = ShunterDeclaredViewSubscriptionOptions<Row>;
+export type DeclaredViewSubscriptionOptions<Row = unknown> = Omit<ShunterDeclaredViewSubscriptionOptions<Row>, "params">;
 export type SubscriptionUnsubscribe = ShunterSubscriptionUnsubscribe;
 export type SubscriptionHandle<Row = unknown> = ShunterSubscriptionHandle<Row>;
 export type SubscriptionHandleReturnOptions = ShunterSubscriptionHandleReturnOptions;
@@ -1640,6 +1645,7 @@ export type LifecycleReducerName = (typeof lifecycleReducers)[keyof typeof lifec
 export const queries = {
   recentChains: "recent_chains",
   recentChainEvents: "recent_chain_events",
+  chainEvents: "chain_events",
 } as const;
 
 export type QueryName = (typeof queries)[keyof typeof queries];
@@ -1647,6 +1653,7 @@ export type QueryName = (typeof queries)[keyof typeof queries];
 export const querySQL = {
   recentChains: "SELECT * FROM chains ORDER BY updated_at_us DESC, id ASC LIMIT 50",
   recentChainEvents: "SELECT * FROM events ORDER BY created_at_us DESC, sequence DESC LIMIT 25",
+  chainEvents: "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500",
 } as const;
 
 export type ExecutableQueryName = (typeof queries)[keyof typeof querySQL];
@@ -1772,9 +1779,87 @@ export async function queryRecentChainEventsDecoded(runDeclaredQuery: DeclaredQu
   return queryRecentChainEventsResult(await runDeclaredQuery("recent_chain_events"), options);
 }
 
+export interface ChainEventsParams {
+  chainId: string;
+}
+
+const chainEventsParamColumns = [
+  { name: "chain_id", kind: "string" },
+] as const satisfies readonly ShunterBsatnColumn[];
+
+export function encodeChainEventsParams(value: ChainEventsParams): Uint8Array {
+  return shunterEncodeBsatnProduct([
+    value.chainId,
+  ], chainEventsParamColumns);
+}
+
+export interface ChainEventsQueryRow {
+  id: string;
+  chainId: string;
+  stepId: string;
+  sequence: bigint;
+  eventType: string;
+  createdAtUs: bigint;
+  payloadJson: string;
+}
+
+const chainEventsQueryColumns = [
+  { name: "id", kind: "string" },
+  { name: "chain_id", kind: "string" },
+  { name: "step_id", kind: "string" },
+  { name: "sequence", kind: "uint64" },
+  { name: "event_type", kind: "string" },
+  { name: "created_at_us", kind: "uint64" },
+  { name: "payload_json", kind: "string" },
+] as const satisfies readonly ShunterBsatnColumn[];
+
+export function decodeChainEventsQueryRow(row: Uint8Array): ChainEventsQueryRow {
+  return shunterDecodeBsatnProduct(row, chainEventsQueryColumns, (values) => ({
+    id: values[0] as string,
+    chainId: values[1] as string,
+    stepId: values[2] as string,
+    sequence: values[3] as bigint,
+    eventType: values[4] as string,
+    createdAtUs: values[5] as bigint,
+    payloadJson: values[6] as string,
+  }));
+}
+
+export type ChainEventsQueryRows = {
+  "events": ChainEventsQueryRow;
+};
+
+export const chainEventsQueryRowDecoders = {
+  "events": decodeChainEventsQueryRow,
+} as const satisfies TableRowDecoders<ChainEventsQueryRows>;
+
+export function queryChainEvents(runDeclaredQuery: DeclaredQueryRunner, params: ChainEventsParams, options: DeclaredQueryRunOptions = {}): Promise<Uint8Array> {
+  return runDeclaredQuery("chain_events", { ...options, params: encodeChainEventsParams(params) });
+}
+
+export function queryChainEventsResult(data: unknown, options: DeclaredQueryDecodeOptions<ChainEventsQueryRows> = {}): DecodedDeclaredQueryResult<typeof queries.chainEvents, ChainEventsQueryRows> {
+  const decodeOptions: DeclaredQueryDecodeOptions<ChainEventsQueryRows> = options.tableDecoders === undefined && options.decodeRow === undefined ? { ...options, tableDecoders: chainEventsQueryRowDecoders } : options;
+  return shunterDecodeDeclaredQueryResult("chain_events", data, decodeOptions);
+}
+
+export async function queryChainEventsDecoded(runDeclaredQuery: DeclaredQueryRunner, params: ChainEventsParams, options: DeclaredQueryDecodedRunOptions<ChainEventsQueryRows> = {}): Promise<DecodedDeclaredQueryResult<typeof queries.chainEvents, ChainEventsQueryRows>> {
+  const queryOptions: DeclaredQueryOptions = {
+    requestId: options.requestId,
+    messageId: options.messageId,
+    signal: options.signal,
+    params: encodeChainEventsParams(params),
+  };
+  const decodeOptions: DeclaredQueryDecodeOptions<ChainEventsQueryRows> = {
+    tableDecoders: options.tableDecoders,
+    decodeRow: options.decodeRow,
+  };
+  return queryChainEventsResult(await runDeclaredQuery("chain_events", queryOptions), decodeOptions);
+}
+
 export const views = {
   liveRecentChains: "live_recent_chains",
   liveRecentChainEvents: "live_recent_chain_events",
+  liveChainEvents: "live_chain_events",
 } as const;
 
 export type ViewName = (typeof views)[keyof typeof views];
@@ -1782,6 +1867,7 @@ export type ViewName = (typeof views)[keyof typeof views];
 export const viewSQL = {
   liveRecentChains: "SELECT * FROM chains ORDER BY updated_at_us DESC, id ASC LIMIT 50",
   liveRecentChainEvents: "SELECT * FROM events ORDER BY created_at_us DESC, sequence DESC LIMIT 25",
+  liveChainEvents: "SELECT * FROM events WHERE chain_id = :chain_id ORDER BY sequence DESC LIMIT 500",
 } as const;
 
 export type ExecutableViewName = (typeof views)[keyof typeof viewSQL];
@@ -1885,6 +1971,62 @@ export function subscribeLiveRecentChainEventsHandle(subscribeDeclaredView: Decl
   return subscribeDeclaredView("live_recent_chain_events", subscribeOptions);
 }
 
+export interface LiveChainEventsParams {
+  chainId: string;
+}
+
+const liveChainEventsParamColumns = [
+  { name: "chain_id", kind: "string" },
+] as const satisfies readonly ShunterBsatnColumn[];
+
+export function encodeLiveChainEventsParams(value: LiveChainEventsParams): Uint8Array {
+  return shunterEncodeBsatnProduct([
+    value.chainId,
+  ], liveChainEventsParamColumns);
+}
+
+export interface LiveChainEventsViewRow {
+  id: string;
+  chainId: string;
+  stepId: string;
+  sequence: bigint;
+  eventType: string;
+  createdAtUs: bigint;
+  payloadJson: string;
+}
+
+const liveChainEventsViewColumns = [
+  { name: "id", kind: "string" },
+  { name: "chain_id", kind: "string" },
+  { name: "step_id", kind: "string" },
+  { name: "sequence", kind: "uint64" },
+  { name: "event_type", kind: "string" },
+  { name: "created_at_us", kind: "uint64" },
+  { name: "payload_json", kind: "string" },
+] as const satisfies readonly ShunterBsatnColumn[];
+
+export function decodeLiveChainEventsViewRow(row: Uint8Array): LiveChainEventsViewRow {
+  return shunterDecodeBsatnProduct(row, liveChainEventsViewColumns, (values) => ({
+    id: values[0] as string,
+    chainId: values[1] as string,
+    stepId: values[2] as string,
+    sequence: values[3] as bigint,
+    eventType: values[4] as string,
+    createdAtUs: values[5] as bigint,
+    payloadJson: values[6] as string,
+  }));
+}
+
+export function subscribeLiveChainEvents(subscribeDeclaredView: DeclaredViewSubscriber, params: LiveChainEventsParams, options: DeclaredViewSubscriptionOptions<LiveChainEventsViewRow> = {}): Promise<SubscriptionUnsubscribe> {
+  const subscribeOptions: DeclaredViewSubscriptionOptions<LiveChainEventsViewRow> = options.decodeRow === undefined ? { ...options, decodeRow: decodeLiveChainEventsViewRow } : options;
+  return subscribeDeclaredView("live_chain_events", { ...subscribeOptions, params: encodeLiveChainEventsParams(params) });
+}
+
+export function subscribeLiveChainEventsHandle(subscribeDeclaredView: DeclaredViewHandleSubscriber, params: LiveChainEventsParams, options: DeclaredViewSubscriptionOptions<LiveChainEventsViewRow> & SubscriptionHandleReturnOptions): Promise<SubscriptionHandle<LiveChainEventsViewRow>> {
+  const subscribeOptions: DeclaredViewSubscriptionOptions<LiveChainEventsViewRow> & SubscriptionHandleReturnOptions = options.decodeRow === undefined ? { ...options, decodeRow: decodeLiveChainEventsViewRow } : options;
+  return subscribeDeclaredView("live_chain_events", { ...subscribeOptions, params: encodeLiveChainEventsParams(params) });
+}
+
 export const permissions = {
   reducers: {
   },
@@ -1898,10 +2040,12 @@ export const readModels = {
   queries: {
     recentChains: { tables: ["chains"], tags: ["chains", "operator-ui"] },
     recentChainEvents: { tables: ["events"], tags: ["chains", "events", "operator-ui"] },
+    chainEvents: { tables: ["events"], tags: ["chains", "events", "operator-ui", "desktop"] },
   },
   views: {
     liveRecentChains: { tables: ["chains"], tags: ["chains", "operator-ui"] },
     liveRecentChainEvents: { tables: ["events"], tags: ["chains", "events", "operator-ui"] },
+    liveChainEvents: { tables: ["events"], tags: ["chains", "events", "operator-ui", "desktop"] },
   },
 } as const;
 
