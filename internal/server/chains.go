@@ -21,15 +21,26 @@ type ChainInspectorHandler struct {
 func NewChainInspectorHandler(s *Server, svc *operator.Service, logger *slog.Logger) *ChainInspectorHandler {
 	h := &ChainInspectorHandler{svc: svc, logger: logger}
 	s.HandleFunc("GET /api/runtime/status", h.handleRuntimeStatus)
+	s.HandleFunc("GET /api/roles", h.handleRoles)
+	s.HandleFunc("GET /api/launch/draft", h.handleGetLaunchDraft)
+	s.HandleFunc("PUT /api/launch/draft", h.handlePutLaunchDraft)
+	s.HandleFunc("GET /api/launch/presets", h.handleListLaunchPresets)
+	s.HandleFunc("POST /api/launch/presets", h.handleSaveLaunchPreset)
+	s.HandleFunc("POST /api/launch/preview", h.handleLaunchPreview)
+	s.HandleFunc("POST /api/launch/start", h.handleLaunchStart)
 	s.HandleFunc("GET /api/chains", h.handleListChains)
 	s.HandleFunc("GET /api/chains/templates", h.handleTemplates)
 	s.HandleFunc("GET /api/chains/{id}", h.handleGetChain)
 	s.HandleFunc("GET /api/chains/{id}/metrics", h.handleGetChainMetrics)
+	s.HandleFunc("POST /api/chains/{id}/pause", h.handlePauseChain)
+	s.HandleFunc("POST /api/chains/{id}/resume", h.handleResumeChain)
+	s.HandleFunc("POST /api/chains/{id}/cancel", h.handleCancelChain)
 	s.HandleFunc("POST /api/chains/{id}/approvals/{approval_id}/approve", h.handleApproveChainApproval)
 	s.HandleFunc("POST /api/chains/{id}/approvals/{approval_id}/deny", h.handleDenyChainApproval)
 	s.HandleFunc("GET /api/chains/{id}/timeline", h.handleTimeline)
 	s.HandleFunc("GET /api/chains/{id}/events", h.handleEvents)
 	s.HandleFunc("GET /api/chains/{id}/receipts", h.handleReceiptList)
+	s.HandleFunc("GET /api/chains/{id}/receipts/{step}", h.handleReceiptByStep)
 	s.HandleFunc("GET /api/chains/{id}/receipt", h.handleReceipt)
 	return h
 }
@@ -181,12 +192,17 @@ func (h *ChainInspectorHandler) handleEvents(w http.ResponseWriter, r *http.Requ
 
 func parseChainEventAfterID(r *http.Request) (int64, error) {
 	raw := strings.TrimSpace(r.URL.Query().Get("after_id"))
+	param := "after_id"
+	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("after"))
+		param = "after"
+	}
 	if raw == "" {
 		return 0, nil
 	}
 	afterID, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || afterID < 0 {
-		return 0, fmt.Errorf("after_id must be a non-negative integer")
+		return 0, fmt.Errorf("%s must be a non-negative integer", param)
 	}
 	return afterID, nil
 }
@@ -236,6 +252,26 @@ func (h *ChainInspectorHandler) handleReceipt(w http.ResponseWriter, r *http.Req
 		return
 	}
 	step := strings.TrimSpace(r.URL.Query().Get("step"))
+	receipt, err := h.svc.ReadReceipt(r.Context(), chainID, step)
+	if err != nil {
+		h.logger.Warn("read chain receipt", "chain_id", chainID, "step", step, "error", err)
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, receiptViewResponseFromOperator(receipt))
+}
+
+func (h *ChainInspectorHandler) handleReceiptByStep(w http.ResponseWriter, r *http.Request) {
+	chainID := strings.TrimSpace(r.PathValue("id"))
+	if chainID == "" {
+		writeError(w, http.StatusBadRequest, "chain id is required")
+		return
+	}
+	step := strings.TrimSpace(r.PathValue("step"))
+	if step == "" {
+		writeError(w, http.StatusBadRequest, "receipt step is required")
+		return
+	}
 	receipt, err := h.svc.ReadReceipt(r.Context(), chainID, step)
 	if err != nil {
 		h.logger.Warn("read chain receipt", "chain_id", chainID, "step", step, "error", err)

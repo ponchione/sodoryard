@@ -15,6 +15,7 @@ import (
 	"github.com/ponchione/sodoryard/internal/brain"
 	brainindexstate "github.com/ponchione/sodoryard/internal/brain/indexstate"
 	"github.com/ponchione/sodoryard/internal/chain"
+	"github.com/ponchione/sodoryard/internal/chainrun"
 	"github.com/ponchione/sodoryard/internal/config"
 	appdb "github.com/ponchione/sodoryard/internal/db"
 	"github.com/ponchione/sodoryard/internal/operator"
@@ -391,6 +392,11 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	if len(eventsAfter) != 1 || eventsAfter[0].ID != events[2].ID {
 		t.Fatalf("events after cursor = %+v, want only approval event %+v", eventsAfter, events[2])
 	}
+	eventsAfter = nil
+	getJSON(t, fmt.Sprintf("%s/api/chains/%s/events?after=%d", base, chainID, events[1].ID), &eventsAfter)
+	if len(eventsAfter) != 1 || eventsAfter[0].ID != events[2].ID {
+		t.Fatalf("events after alias = %+v, want only approval event %+v", eventsAfter, events[2])
+	}
 
 	var receipt struct {
 		Path    string `json:"path"`
@@ -399,6 +405,14 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	getJSON(t, base+"/api/chains/"+chainID+"/receipt?step=1", &receipt)
 	if receipt.Path != receiptPath || receipt.Content != "receipt content" {
 		t.Fatalf("receipt = %+v, want content", receipt)
+	}
+	receipt = struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}{}
+	getJSON(t, base+"/api/chains/"+chainID+"/receipts/1", &receipt)
+	if receipt.Path != receiptPath || receipt.Content != "receipt content" {
+		t.Fatalf("receipt step alias = %+v, want content", receipt)
 	}
 
 	var decision struct {
@@ -425,6 +439,183 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	getJSON(t, base+"/api/chains/"+chainID, &decidedDetail)
 	if len(decidedDetail.Approvals) != 1 || decidedDetail.Approvals[0].ID != "approval-web-1" || decidedDetail.Approvals[0].Status != chain.ApprovalStatusApproved || decidedDetail.Approvals[0].DecisionReason != "reviewed in browser" {
 		t.Fatalf("decided detail approvals = %+v, want approved approval", decidedDetail.Approvals)
+	}
+}
+
+func TestLaunchOperatorEndpoints(t *testing.T) {
+	ctx := context.Background()
+	db := newChainInspectorTestDB(t)
+	store := chain.NewStore(db)
+	projectRoot := t.TempDir()
+	cfg := &config.Config{
+		ProjectRoot: projectRoot,
+		Routing: config.RoutingConfig{
+			Default: config.RouteConfig{Provider: "codex", Model: "test-model"},
+		},
+		Providers: map[string]config.ProviderConfig{
+			"codex": {Type: "codex", Model: "test-model"},
+		},
+		AgentRoles: map[string]config.AgentRoleConfig{
+			"coder":        {SystemPrompt: "prompts/coder.md"},
+			"orchestrator": {SystemPrompt: "prompts/orchestrator.md"},
+		},
+	}
+	var gotStart chainrun.Options
+	opSvc, err := operator.NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:       cfg,
+		Database:     db,
+		ChainStore:   store,
+		BrainBackend: &chainTestBrain{docs: map[string]string{}},
+		Cleanup:      func() {},
+	}, operator.Options{
+		ChainStarter: func(ctx context.Context, cfg *config.Config, opts chainrun.Options, deps chainrun.Deps) (*chainrun.Result, error) {
+			gotStart = opts
+			chainID := opts.ChainID
+			if chainID == "" {
+				chainID = "launch-http-chain"
+				if _, err := store.StartChain(context.Background(), chain.ChainSpec{ChainID: chainID, SourceTask: opts.SourceTask, SourceSpecs: opts.SourceSpecs}); err != nil {
+					return nil, err
+				}
+			} else if err := store.SetChainStatus(context.Background(), chainID, "running"); err != nil {
+				return nil, err
+			}
+			if opts.OnChainID != nil {
+				opts.OnChainID(chainID)
+			}
+			return &chainrun.Result{ChainID: chainID, Status: "running"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(opSvc.Close)
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewChainInspectorHandler(srv, opSvc, newTestLogger())
+	_, base := startServer(t, srv)
+
+	var roles []struct {
+		Name string `json:"name"`
+	}
+	getJSON(t, base+"/api/roles", &roles)
+	if len(roles) != 2 || roles[0].Name != "coder" || roles[1].Name != "orchestrator" {
+		t.Fatalf("roles = %+v, want sorted coder/orchestrator", roles)
+	}
+
+	var emptyDraft struct {
+		Found bool `json:"found"`
+	}
+	getJSON(t, base+"/api/launch/draft", &emptyDraft)
+	if emptyDraft.Found {
+		t.Fatalf("empty draft found = true, want false")
+	}
+
+	var draft struct {
+		ID      string `json:"id"`
+		Request struct {
+			Mode         string `json:"mode"`
+			Role         string `json:"role"`
+			SourceTask   string `json:"source_task"`
+			StepMaxTurns int    `json:"step_max_turns"`
+		} `json:"request"`
+	}
+	putJSON(t, base+"/api/launch/draft", `{"template_id":"one_step","role":"coder","task":"draft task","step_max_turns":2}`, &draft)
+	if draft.ID != "current" || draft.Request.Mode != string(operator.LaunchModeOneStep) || draft.Request.Role != "coder" || draft.Request.SourceTask != "draft task" || draft.Request.StepMaxTurns != 2 {
+		t.Fatalf("draft = %+v, want saved current one-step draft", draft)
+	}
+
+	var loadedDraft struct {
+		Found bool `json:"found"`
+		Draft struct {
+			ID      string `json:"id"`
+			Request struct {
+				SourceTask string `json:"source_task"`
+			} `json:"request"`
+		} `json:"draft"`
+	}
+	getJSON(t, base+"/api/launch/draft", &loadedDraft)
+	if !loadedDraft.Found || loadedDraft.Draft.ID != "current" || loadedDraft.Draft.Request.SourceTask != "draft task" {
+		t.Fatalf("loaded draft = %+v, want saved draft", loadedDraft)
+	}
+
+	var preset struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Request struct {
+			Mode          string   `json:"mode"`
+			Roster        []string `json:"roster"`
+			StepMaxTokens int      `json:"step_max_tokens"`
+		} `json:"request"`
+	}
+	postJSON(t, base+"/api/launch/presets", `{"name":"audit pair","request":{"mode":"manual_roster","roster":["coder","orchestrator"],"step_max_tokens":4000}}`, &preset)
+	if preset.ID != "custom:audit pair" || preset.Name != "audit pair" || preset.Request.Mode != string(operator.LaunchModeManualRoster) || len(preset.Request.Roster) != 2 || preset.Request.StepMaxTokens != 4000 {
+		t.Fatalf("preset = %+v, want saved manual roster preset", preset)
+	}
+
+	var presets []struct {
+		Name string `json:"name"`
+	}
+	getJSON(t, base+"/api/launch/presets", &presets)
+	if len(presets) != 1 || presets[0].Name != "audit pair" {
+		t.Fatalf("presets = %+v, want audit pair", presets)
+	}
+
+	var preview struct {
+		Mode               string   `json:"mode"`
+		Role               string   `json:"role"`
+		AllowedRoles       []string `json:"allowed_roles"`
+		Summary            string   `json:"summary"`
+		CompiledTask       string   `json:"compiled_task"`
+		WorkPacketMarkdown string   `json:"work_packet_markdown"`
+		Template           struct {
+			ID string `json:"id"`
+		} `json:"template"`
+	}
+	postJSON(t, base+"/api/launch/preview", `{"mode":"constrained_orchestration","allowed_roles":[" coder ","coder"],"source_task":"ship constrained"}`, &preview)
+	if preview.Mode != string(operator.LaunchModeConstrained) || preview.Role != "orchestrator" || len(preview.AllowedRoles) != 1 || preview.AllowedRoles[0] != "coder" || preview.Template.ID != "constrained_orchestration" {
+		t.Fatalf("preview = %+v, want normalized constrained launch preview", preview)
+	}
+	if !strings.Contains(preview.CompiledTask, "Allowed roles: coder") || preview.WorkPacketMarkdown != preview.CompiledTask {
+		t.Fatalf("preview packet = %+v, want compiled task exposed under both names", preview)
+	}
+
+	var started struct {
+		ChainID string `json:"chain_id"`
+		Status  string `json:"status"`
+		Preview struct {
+			Role              string `json:"role"`
+			StepMaxTurns      int    `json:"step_max_turns"`
+			AllowApprovalWait bool   `json:"allow_approval_wait"`
+		} `json:"preview"`
+	}
+	postJSON(t, base+"/api/launch/start", `{"mode":"one_step_chain","role":"coder","source_task":"ship it","max_duration":"10m","step_max_turns":3,"allow_approval_wait":true}`, &started)
+	if started.ChainID != "launch-http-chain" || started.Status != "running" || started.Preview.Role != "coder" || started.Preview.StepMaxTurns != 3 || !started.Preview.AllowApprovalWait {
+		t.Fatalf("started = %+v, want running launch-http-chain one-step launch", started)
+	}
+	if gotStart.Mode != chainrun.ModeOneStep || gotStart.Role != "coder" || gotStart.SourceTask != "ship it" || gotStart.MaxDuration != 10*time.Minute || gotStart.StepMaxTurns != 3 || !gotStart.AllowApprovalWait {
+		t.Fatalf("start opts = %+v, want decoded one-step launch options", gotStart)
+	}
+
+	var control struct {
+		ChainID        string `json:"chain_id"`
+		PreviousStatus string `json:"previous_status"`
+		Status         string `json:"status"`
+		Message        string `json:"message"`
+	}
+	postJSON(t, base+"/api/chains/launch-http-chain/pause", `{}`, &control)
+	if control.ChainID != "launch-http-chain" || control.PreviousStatus != "running" || control.Status != "pause_requested" || control.Message != "pause requested" {
+		t.Fatalf("pause control = %+v, want pause requested", control)
+	}
+	if err := store.SetChainStatus(ctx, "launch-http-chain", "paused"); err != nil {
+		t.Fatalf("SetChainStatus paused returned error: %v", err)
+	}
+	postJSON(t, base+"/api/chains/launch-http-chain/resume", `{}`, &control)
+	if control.PreviousStatus != "paused" || control.Status != "running" || control.Message != "resumed" {
+		t.Fatalf("resume control = %+v, want resumed", control)
+	}
+	postJSON(t, base+"/api/chains/launch-http-chain/cancel", `{}`, &control)
+	if control.PreviousStatus != "running" || control.Status != "cancel_requested" || control.Message != "cancel requested" {
+		t.Fatalf("cancel control = %+v, want cancel requested", control)
 	}
 }
 
@@ -540,6 +731,27 @@ func postJSON(t *testing.T, url string, body string, v any) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST %s status = %d, want 200", url, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		t.Fatalf("decode %s: %v", url, err)
+	}
+}
+
+func putJSON(t *testing.T, url string, body string, v any) {
+	t.Helper()
+	client := http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("PUT %s request failed: %v", url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("PUT %s failed: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT %s status = %d, want 200", url, resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode %s: %v", url, err)
