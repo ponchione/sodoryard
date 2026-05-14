@@ -1,6 +1,6 @@
 # 24 - Electron Desktop App
 
-**Status:** Proposed active direction
+**Status:** Electron MVP stop point reached; future parity work deferred
 **Last Updated:** 2026-05-14
 **Owner:** Mitchell
 
@@ -1735,18 +1735,19 @@ Smoke test should verify:
 Implementation progress as of 2026-05-14:
 
 - Shunter v1.1.0 is pinned, the local `@shunter/client` package is vendored, generated project-memory bindings include protocol v2 metadata, and selected-chain events are exposed through generated `chain_events` / `live_chain_events` helpers.
-- Backend desktop API groundwork is partially complete: capabilities, project-memory contract/token/protocol endpoints, runtime status, local-service controls, launch draft/preset/preview/start endpoints, chain snapshots/events/receipts/control endpoints, approvals, metrics, and roles are available through HTTP.
-- The Electron shell MVP has started in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
+- Backend desktop API groundwork required by the MVP is implemented: capabilities, project-memory contract/token/protocol endpoints, runtime status, local-service controls, launch draft/preset/preview/start endpoints, chain snapshots/events/receipts/control endpoints, approvals, metrics, and roles are available through HTTP.
+- The Electron shell MVP lives in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
 - `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
 - The first desktop product route is `/dashboard`, which Electron opens by default. It combines runtime readiness, recent chains, recent conversations, and Shunter Project Memory activity using existing REST and SDK paths.
-- Dashboard readiness actions have started: it shows detailed local-service health from `/api/runtime/local-services` and can call local-service start, stop, and logs endpoints.
+- Dashboard readiness actions show detailed local-service health from `/api/runtime/local-services` and can call local-service start, stop, and logs endpoints.
 - The chain monitor route at `/chains` lists recent chains active-first with Shunter Project Memory event activity, text/status/role filtering, last-event, duration, and receipt indicators.
 - The launch workbench route is implemented at `/launch`. It loads roles, templates, the current draft, and custom presets, assembles launch requests, calls `/api/launch/preview`, starts chains through `/api/launch/start`, and routes to the started chain detail.
 - Chain detail includes desktop pause/resume/cancel controls with exact chain-id confirmation before cancellation, links timeline entries with conversation/turn metadata to a desktop context-report route, filters recent events by severity/type, links step receipt paths to receipt detail routes, opens or reveals guardrail changed-file manifests through backend validation, and renders receipt previews with frontmatter, follow-up sections, and backend-validated changed-file open/reveal actions. Receipts have a desktop detail route for frontmatter, body, chain event review with linked event anchors, receipt path copy, follow-up sections, backend-validated source-spec and changed-file open/reveal actions, and step links back to chain detail anchors.
-- Launch attachments have started: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, and include accepted paths in launch `source_specs`.
+- Launch attachments are implemented for the MVP: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, include accepted paths in launch `source_specs`, and receive handoffs from `/project`.
 - The project browser route is implemented at `/project`. It loads the backend-safe project tree, filters files, previews file contents through `/api/project/file`, validates selected launch attachments through `/api/project/validate-paths`, can add project-relative files selected from an Electron native file dialog, opens or reveals backend-validated files through native desktop actions, and hands attachments to `/launch` through `source_spec` query parameters.
 - The settings route now shows project status, desktop app/backend version and launch-mode metadata, backend-validated runtime routing controls for the default provider/model, read-only fallback and agent settings, provider model metadata, provider credential status/remediation with backend refresh for refresh-token providers plus source/store details, and diagnostics export through `/api/diagnostics/export`.
-- Remaining desktop work starts with any remaining chain/receipt polish, then should stop if the MVP no longer has a valuable narrow gap.
+- The 2026-05-14 MVP/polish stop point is reached. Do not keep inventing small polish slices unless they fix a concrete bug or regression in the implemented desktop workflows.
+- Installers/AppImage, native notifications, deep links, launch history or duplicate launch packets, standalone metrics workspace expansion, command palette/menu depth, tool/diff inspector expansion, and broad desktop parity remain future-phase work.
 
 ### Phase 0: Spec And Alignment
 
