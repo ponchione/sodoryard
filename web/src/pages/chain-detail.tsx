@@ -801,8 +801,8 @@ export function ChainDetailPage() {
               </section>
             )}
 
-            <section id="guardrail-details" className="space-y-2">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <section id="guardrail-details" aria-labelledby="guardrail-details-heading" className="space-y-2">
+              <h2 id="guardrail-details-heading" className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                 Guardrail Details
               </h2>
               <div className="grid gap-3 border border-border p-3 text-xs lg:grid-cols-3">
@@ -926,13 +926,57 @@ export function ChainDetailPage() {
               {detail.guardrails.changed_files.length > 0 && (
                 <div className="border border-border p-3 text-xs">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Changed Files</div>
+                  {fileActionError && <p className="mt-2 text-warning">{fileActionError}</p>}
                   <div className="mt-2 space-y-1">
                     {detail.guardrails.changed_files.map((manifest) => (
-                      <p key={`${manifest.step_id}:${manifest.sequence_num}`} className="font-mono text-muted-foreground">
-                        step {manifest.sequence_num} {manifest.role}:{" "}
-                        {manifest.paths.length > 0 ? manifest.paths.join(", ") : "none"}
-                        {manifest.error ? ` (${manifest.error})` : ""}
-                      </p>
+                      <div key={`${manifest.step_id}:${manifest.sequence_num}`} className="space-y-1 border-t border-border/70 pt-2">
+                        <p className="font-mono text-muted-foreground">
+                          step {manifest.sequence_num} {manifest.role}
+                          {manifest.error ? ` (${manifest.error})` : ""}
+                        </p>
+                        {manifest.paths.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {manifest.paths.map((path) => (
+                              <span
+                                key={path}
+                                className="inline-flex max-w-full flex-wrap items-center gap-2 border border-border/70 px-2 py-1 font-mono text-muted-foreground"
+                              >
+                                <span className="break-all">{path}</span>
+                                {hasFileActions && (
+                                  <span className="inline-flex gap-1">
+                                    {platform.openProjectPath && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void openProjectPath(path)}
+                                        disabled={fileActionPath !== null}
+                                        aria-label={`Open guardrail changed file ${path}`}
+                                        className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-widest hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        <ExternalLink size={11} aria-hidden="true" />
+                                        {fileActionPath === `open:${path}` ? "Opening" : "Open"}
+                                      </button>
+                                    )}
+                                    {platform.revealProjectPath && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void revealProjectPath(path)}
+                                        disabled={fileActionPath !== null}
+                                        aria-label={`Reveal guardrail changed file ${path}`}
+                                        className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-widest hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        <FolderOpen size={11} aria-hidden="true" />
+                                        {fileActionPath === `reveal:${path}` ? "Revealing" : "Reveal"}
+                                      </button>
+                                    )}
+                                  </span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="font-mono text-muted-foreground">none</p>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

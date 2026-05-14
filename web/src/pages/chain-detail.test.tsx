@@ -468,6 +468,29 @@ describe("ChainDetailPage", () => {
       "/context/conv-1/1?chain_id=chain-1&step_id=step-1",
     );
     expect(screen.getByRole("link", { name: "Guardrails" })).toHaveAttribute("href", "#guardrail-details");
+    const guardrailDetails = screen.getByRole("region", { name: "Guardrail Details" });
+    fireEvent.click(within(guardrailDetails).getByRole("button", { name: "Open guardrail changed file internal/example.go" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "open_editor",
+        paths: ["internal/example.go"],
+      });
+      expect(openProjectPath).toHaveBeenCalledWith("internal/example.go");
+    });
+    apiPost.mockClear();
+    openProjectPath.mockClear();
+
+    fireEvent.click(within(guardrailDetails).getByRole("button", { name: "Reveal guardrail changed file internal/example.go" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "reveal",
+        paths: ["internal/example.go"],
+      });
+      expect(revealProjectPath).toHaveBeenCalledWith("internal/example.go");
+    });
+    apiPost.mockClear();
+    revealProjectPath.mockClear();
+
     expect(screen.getAllByText("receipt_validation_warning").length).toBeGreaterThan(0);
     expect(screen.getByText("warning")).toBeInTheDocument();
     expect(screen.getByText("Trace details")).toBeInTheDocument();
