@@ -209,7 +209,10 @@ export interface ProviderStatus {
   name: string;
   type: string;
   status: string;
+  healthy?: boolean;
+  last_error?: string;
   models: ProviderModel[];
+  auth?: ProviderAuthStatus;
 }
 
 export interface ProviderModel {
@@ -219,6 +222,22 @@ export interface ProviderModel {
   context_window: number;
   supports_tools: boolean;
   supports_thinking: boolean;
+}
+
+export interface ProviderAuthStatus {
+  provider: string;
+  mode?: string;
+  source?: string;
+  store_path?: string;
+  source_path?: string;
+  active_provider?: string;
+  version?: number;
+  last_refresh?: string;
+  expires_at?: string;
+  has_access_token: boolean;
+  has_refresh_token: boolean;
+  detail?: string;
+  remediation?: string;
 }
 
 // ── GET /api/config ──────────────────────────────────────────────────
@@ -241,6 +260,10 @@ export interface AppConfig {
     name: string;
     type: string;
     models?: string[];
+    status?: string;
+    healthy?: boolean;
+    last_error?: string;
+    auth?: ProviderAuthStatus;
   }>;
 }
 
