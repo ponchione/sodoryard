@@ -31,4 +31,10 @@ Validation:
 ```bash
 make desktop-test
 make desktop-build
+make desktop-package
 ```
+
+`make desktop-package` creates a local unpacked package at
+`desktop/out/Yard-linux-x64/` on Linux. The `yard-desktop` launcher sets the
+sidecar binary path and library path before starting Electron in packaged mode.
+This is not an installer or AppImage yet.

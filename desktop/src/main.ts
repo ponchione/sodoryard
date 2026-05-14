@@ -21,6 +21,7 @@ let quitting = false;
 
 async function main() {
   await app.whenReady();
+  const packagedMode = process.env.YARD_DESKTOP_PACKAGED === "1";
   userDataDir = app.getPath("userData");
   desktopState = readDesktopState(userDataDir);
   registerIPCHandlers();
@@ -31,6 +32,7 @@ async function main() {
     runtime = await startBackendRuntime({
       appVersion: app.getVersion(),
       appPath: app.getAppPath(),
+      devMode: !packagedMode,
       projectDir: process.env.YARD_PROJECT_DIR || desktopState.recentProjectRoot,
       configPath: process.env.YARD_CONFIG,
     });

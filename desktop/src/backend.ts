@@ -15,6 +15,7 @@ export interface BackendOptions {
   appPath: string;
   projectDir?: string;
   configPath?: string;
+  devMode?: boolean;
 }
 
 export interface BackendRuntime {
@@ -33,7 +34,8 @@ export async function startBackendRuntime(options: BackendOptions): Promise<Back
     process.env.YARD_BACKEND_URL || `http://127.0.0.1:${backendPort()}`,
   );
   const rendererURL = process.env.YARD_RENDERER_URL || defaultRendererURL;
-  const rendererBaseUrl = await selectRendererBaseURL(rendererURL, directBaseUrl);
+  const devMode = options.devMode ?? true;
+  const rendererBaseUrl = await selectRendererBaseURL(rendererURL, directBaseUrl, devMode);
   const explicitBackend = Boolean(process.env.YARD_BACKEND_URL);
   let child: ChildProcess | undefined;
   let mode: BackendLaunchMode = "attached";
@@ -42,7 +44,11 @@ export async function startBackendRuntime(options: BackendOptions): Promise<Back
     if (explicitBackend) {
       throw new Error(`Yard backend is not reachable at ${directBaseUrl}`);
     }
-    child = spawnBackend(options.appPath, directBaseUrl, options.projectDir, options.configPath);
+    child = spawnBackend(options.appPath, directBaseUrl, {
+      configPath: options.configPath,
+      devMode,
+      projectDir: options.projectDir,
+    });
     mode = "managed";
     await waitForHealth(directBaseUrl, 45_000);
   }
@@ -65,7 +71,8 @@ export function stopBackendRuntime(runtime: BackendRuntime | undefined) {
   runtime.process.kill("SIGTERM");
 }
 
-async function selectRendererBaseURL(rendererURL: string, directBaseUrl: string): Promise<string> {
+async function selectRendererBaseURL(rendererURL: string, directBaseUrl: string, devMode: boolean): Promise<string> {
+  if (!devMode) return directBaseUrl;
   if (process.env.YARD_RENDERER_URL) {
     await waitForHTTP(rendererURL, 45_000);
     return normalizeBaseURL(rendererURL);
@@ -79,13 +86,16 @@ async function selectRendererBaseURL(rendererURL: string, directBaseUrl: string)
 function spawnBackend(
   appPath: string,
   directBaseUrl: string,
-  projectDirOverride?: string,
-  configPathOverride?: string,
+  options: {
+    configPath?: string;
+    devMode: boolean;
+    projectDir?: string;
+  },
 ): ChildProcess {
   const yardBinary = resolveYardBinary(appPath);
   const url = new URL(directBaseUrl);
-  const args = yardArgs(url, configPathOverride);
-  const projectDir = projectDirOverride || process.env.YARD_PROJECT_DIR || resolveRepoRoot(appPath);
+  const args = yardArgs(url, options);
+  const projectDir = options.projectDir || process.env.YARD_PROJECT_DIR || resolveRepoRoot(appPath);
   const child = spawn(yardBinary, args, {
     cwd: projectDir,
     env: { ...process.env, NO_COLOR: "1" },
@@ -96,11 +106,14 @@ function spawnBackend(
   return child;
 }
 
-function yardArgs(url: URL, configPathOverride?: string): string[] {
+function yardArgs(url: URL, options: { configPath?: string; devMode: boolean }): string[] {
   const args: string[] = [];
-  const configPath = configPathOverride || process.env.YARD_CONFIG;
+  const configPath = options.configPath || process.env.YARD_CONFIG;
   if (configPath) args.push("--config", configPath);
-  args.push("serve", "--dev", "--host", url.hostname, "--port", String(Number(url.port) || defaultBackendPort));
+  args.push("serve");
+  if (options.devMode) args.push("--dev");
+  args.push("--no-open-browser");
+  args.push("--host", url.hostname, "--port", String(Number(url.port) || defaultBackendPort));
   return args;
 }
 

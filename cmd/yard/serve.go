@@ -30,13 +30,14 @@ func newYardServeCmd(configPath *string) *cobra.Command {
 		hostOverride  string
 		devMode       bool
 		allowExternal bool
+		noOpenBrowser bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web UI and API server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runYardServe(cmd, *configPath, portOverride, hostOverride, devMode, allowExternal)
+			return runYardServe(cmd, *configPath, portOverride, hostOverride, devMode, allowExternal, noOpenBrowser)
 		},
 	}
 
@@ -44,11 +45,12 @@ func newYardServeCmd(configPath *string) *cobra.Command {
 	cmd.Flags().StringVar(&hostOverride, "host", "", "Override server host")
 	cmd.Flags().BoolVar(&devMode, "dev", false, "Enable development mode")
 	cmd.Flags().BoolVar(&allowExternal, "allow-external", false, "Allow listening on a non-loopback host")
+	cmd.Flags().BoolVar(&noOpenBrowser, "no-open-browser", false, "Disable opening the browser after startup")
 
 	return cmd
 }
 
-func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostOverride string, devMode bool, allowExternal bool) error {
+func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostOverride string, devMode bool, allowExternal bool, noOpenBrowser bool) error {
 	cfg, err := appconfig.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -64,6 +66,9 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 	}
 	if allowExternal {
 		cfg.Server.AllowExternal = true
+	}
+	if noOpenBrowser {
+		cfg.Server.OpenBrowser = false
 	}
 	if err := validateYardServeBind(cfg.Server.Host, cfg.Server.AllowExternal); err != nil {
 		return err

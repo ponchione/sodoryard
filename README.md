@@ -286,6 +286,17 @@ Useful overrides include `YARD_BACKEND_URL` to attach to an existing backend,
 `YARD_RENDERER_URL` for a non-default Vite URL, `YARD_BINARY` for the sidecar
 binary, and `YARD_PROJECT_DIR` for the backend working directory.
 
+Build a local unpacked desktop package with:
+
+```bash
+make desktop-package
+# => desktop/out/Yard-linux-x64/yard-desktop
+```
+
+The unpacked package is a local development artifact. It includes Electron, the
+`yard` sidecar, embedded web assets, and LanceDB libraries; installer/AppImage
+packaging remains future work.
+
 ### Run the terminal operator console
 
 ```bash
@@ -385,7 +396,7 @@ Current repo state:
 - Spec 23 eval work now supports saved baselines and append-only JSONL history entries via `yard eval run <suite> --append-history <path>`.
 - Daily-driver final touches now include actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and browser inspector routes for chains, approvals, and metrics. Browser chain detail and `/api/chains/{id}/metrics` now expose the same dogfooding metrics summary used by `yard chain metrics`. The TUI intentionally does not grow a project file browser; code review stays in the operator's IDE.
 - Spec 24 backend-enabling work is partially implemented: the server exposes desktop capabilities, runtime status, local-service controls, launch draft/preset/preview/start APIs, chain snapshots/events/receipts/control APIs, project-memory contract/token endpoints, and Shunter protocol mounting. The generated project-memory binding includes parameterized `chain_events` and `live_chain_events`, and the web chain detail uses those generated helpers instead of renderer-built raw SQL.
-- Spec 24 desktop shell work has started under `desktop/`. `make desktop-dev` builds `bin/yard`, starts the Vite renderer, opens Electron, starts or attaches to a local backend, shows startup/failure states, persists recent project/window state, and passes backend/project-memory metadata through a minimal preload bridge. Product-specific desktop routes are still future work.
+- Spec 24 desktop shell work has started under `desktop/`. `make desktop-dev` builds `bin/yard`, starts the Vite renderer, opens Electron, starts or attaches to a local backend, shows startup/failure states, persists recent project/window state, and passes backend/project-memory metadata through a minimal preload bridge. `make desktop-package` now creates a local unpacked package under `desktop/out/` with Electron, the `yard` sidecar, embedded web assets, and LanceDB libraries. Product-specific desktop routes are still future work.
 - The remaining active docs are the README, current specs, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance. If a future `NEXT_SESSION_HANDOFF.md` exists in a checkout, prefer it over historical planning artifacts.
 
 If you are resuming work cold, read in this order:
@@ -405,7 +416,7 @@ First thing to address next session:
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
 - keep TUI-first docs clear about target behavior versus already-implemented commands
-- for spec 24, continue from the desktop shell MVP: harden `make desktop-dev` startup, add packaged-mode build/package targets, then begin desktop product UI routes only after the shell and platform adapter are stable
+- for spec 24, continue from the desktop shell MVP: begin desktop product UI routes only after the shell and platform adapter are stable; likely next routes are runtime dashboard, launch workbench preview, and chain monitor/detail
 - use dogfooding runs and `yard chain metrics <chain-id>` to decide non-desktop slices; likely candidates are exact paused-turn approval replay/resume semantics, richer receipt rendering, launch-history ergonomics, performance/ergonomics tuning for small chains, or deeper TUI/web surfacing of the same chain health report
 - rerun `make test` and `make build` after each narrow slice
 
@@ -416,6 +427,7 @@ make build
 make desktop-dev
 make desktop-build
 make desktop-test
+make desktop-package
 make install-user-bin
 yard index
 yard brain index

@@ -1656,7 +1656,7 @@ Suggested behavior:
 |---|---|
 | `make desktop-dev` | runs Go backend and Vite/Electron dev loop |
 | `make desktop-build` | builds Go sidecar, React renderer, Electron bundles |
-| `make desktop-package` | creates distributable package for current platform |
+| `make desktop-package` | creates a local unpacked package for current platform under `desktop/out/` |
 
 The existing `make build` should not be changed to require Electron packaging unless explicitly decided later. Node/Electron packaging can be heavier than normal Go builds.
 
@@ -1736,7 +1736,8 @@ Implementation progress as of 2026-05-14:
 - Shunter v1.1.0 is pinned, the local `@shunter/client` package is vendored, generated project-memory bindings include protocol v2 metadata, and selected-chain events are exposed through generated `chain_events` / `live_chain_events` helpers.
 - Backend desktop API groundwork is partially complete: capabilities, project-memory contract/token/protocol endpoints, runtime status, local-service controls, launch draft/preset/preview/start endpoints, chain snapshots/events/receipts/control endpoints, approvals, metrics, and roles are available through HTTP.
 - The Electron shell MVP has started in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
-- Remaining desktop work starts with packaging/distribution targets and then adding product-specific desktop routes for launch, chain monitoring, receipt review, project attachments, readiness, and settings.
+- `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
+- Remaining desktop work starts with product-specific desktop routes for launch, chain monitoring, receipt review, project attachments, readiness, and settings.
 
 ### Phase 0: Spec And Alignment
 
