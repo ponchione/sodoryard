@@ -28,6 +28,14 @@ function formatDuration(seconds: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
+function lastEventLabel(chain: ChainSummary): string {
+  return chain.last_event_type || "none";
+}
+
+function lastEventTimeLabel(chain: ChainSummary): string {
+  return chain.last_event_at ? formatDate(chain.last_event_at) : "";
+}
+
 function activeFirstRank(status: string): number {
   return chainStatusGroup(status) === "active" ? 0 : 1;
 }
@@ -87,6 +95,7 @@ export function ChainsPage() {
           chain.source_task,
           ...chain.source_specs,
           ...(chain.roles ?? []),
+          chain.last_event_type ?? "",
           chain.current_step?.role ?? "",
           chain.current_step?.status ?? "",
           chain.current_step?.verdict ?? "",
@@ -262,6 +271,7 @@ export function ChainsPage() {
                 <th className="px-3 py-2 font-medium">Tokens</th>
                 <th className="px-3 py-2 font-medium">Duration</th>
                 <th className="px-3 py-2 font-medium">Receipts</th>
+                <th className="px-3 py-2 font-medium">Last Event</th>
                 <th className="px-3 py-2 font-medium">Updated</th>
               </tr>
             </thead>
@@ -285,6 +295,12 @@ export function ChainsPage() {
                     {formatDuration(chain.total_duration_secs)}
                   </td>
                   <td className="px-3 py-2 tabular-nums text-muted-foreground">{chain.receipt_count}</td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    <span className="block font-mono text-[11px] text-foreground">{lastEventLabel(chain)}</span>
+                    {chain.last_event_at && (
+                      <span className="block text-[10px]">{lastEventTimeLabel(chain)}</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">{formatDate(chain.updated_at)}</td>
                 </tr>
               ))}

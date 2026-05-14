@@ -554,6 +554,9 @@ func TestListChainsAndDetail(t *testing.T) {
 	if summary.TotalDurationSecs != 17 || summary.ReceiptCount != 1 {
 		t.Fatalf("summary indicators = duration %d receipts %d, want 17/1", summary.TotalDurationSecs, summary.ReceiptCount)
 	}
+	if summary.LastEventType != string(chain.EventApprovalRequired) || summary.LastEventAt == nil {
+		t.Fatalf("summary last event = %q/%v, want approval_required timestamp", summary.LastEventType, summary.LastEventAt)
+	}
 	if summary.CurrentStep == nil || summary.CurrentStep.SequenceNum != 2 || summary.CurrentStep.Role != "coder" || summary.CurrentStep.Status != "running" {
 		t.Fatalf("CurrentStep = %+v, want running coder step 2", summary.CurrentStep)
 	}

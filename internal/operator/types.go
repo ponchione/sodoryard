@@ -90,6 +90,8 @@ type ChainSummary struct {
 	TotalTokens       int
 	TotalDurationSecs int
 	ReceiptCount      int
+	LastEventType     string
+	LastEventAt       *time.Time
 	StartedAt         time.Time
 	UpdatedAt         time.Time
 	CurrentStep       *StepSummary

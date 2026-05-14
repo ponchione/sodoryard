@@ -136,6 +136,8 @@ export interface ChainSummary {
   total_tokens: number;
   total_duration_secs: number;
   receipt_count: number;
+  last_event_type?: string;
+  last_event_at?: string;
   started_at: string;
   updated_at: string;
   current_step?: StepSummary;

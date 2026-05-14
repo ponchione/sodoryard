@@ -334,6 +334,8 @@ type chainSummaryResponse struct {
 	TotalTokens       int                  `json:"total_tokens"`
 	TotalDurationSecs int                  `json:"total_duration_secs"`
 	ReceiptCount      int                  `json:"receipt_count"`
+	LastEventType     string               `json:"last_event_type,omitempty"`
+	LastEventAt       string               `json:"last_event_at,omitempty"`
 	StartedAt         string               `json:"started_at"`
 	UpdatedAt         string               `json:"updated_at"`
 	CurrentStep       *stepSummaryResponse `json:"current_step,omitempty"`
@@ -673,6 +675,8 @@ func chainSummaryResponseFromOperator(summary operator.ChainSummary) chainSummar
 		TotalTokens:       summary.TotalTokens,
 		TotalDurationSecs: summary.TotalDurationSecs,
 		ReceiptCount:      summary.ReceiptCount,
+		LastEventType:     summary.LastEventType,
+		LastEventAt:       formatTimePtr(summary.LastEventAt),
 		StartedAt:         formatTime(summary.StartedAt),
 		UpdatedAt:         formatTime(summary.UpdatedAt),
 		CurrentStep:       stepSummaryResponseFromOperator(summary.CurrentStep),

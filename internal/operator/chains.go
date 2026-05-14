@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ponchione/sodoryard/internal/chain"
 	appconfig "github.com/ponchione/sodoryard/internal/config"
@@ -32,7 +33,11 @@ func (s *Service) ListChains(ctx context.Context, limit int) ([]ChainSummary, er
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, summarizeChain(ch, steps))
+		events, err := store.ListEvents(ctx, ch.ID)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summarizeChain(ch, steps, events))
 	}
 	return summaries, nil
 }
@@ -118,7 +123,8 @@ func normalizeLimit(limit int) int {
 	return limit
 }
 
-func summarizeChain(ch chain.Chain, steps []chain.Step) ChainSummary {
+func summarizeChain(ch chain.Chain, steps []chain.Step, events []chain.Event) ChainSummary {
+	lastEvent := lastChainEvent(events)
 	return ChainSummary{
 		ID:                ch.ID,
 		Status:            ch.Status,
@@ -129,10 +135,33 @@ func summarizeChain(ch chain.Chain, steps []chain.Step) ChainSummary {
 		TotalTokens:       ch.TotalTokens,
 		TotalDurationSecs: ch.TotalDurationSecs,
 		ReceiptCount:      countStepReceipts(steps),
+		LastEventType:     lastEventType(lastEvent),
+		LastEventAt:       lastEventTime(lastEvent),
 		StartedAt:         ch.StartedAt,
 		UpdatedAt:         ch.UpdatedAt,
 		CurrentStep:       summarizeCurrentStep(steps),
 	}
+}
+
+func lastChainEvent(events []chain.Event) *chain.Event {
+	if len(events) == 0 {
+		return nil
+	}
+	return &events[len(events)-1]
+}
+
+func lastEventType(event *chain.Event) string {
+	if event == nil {
+		return ""
+	}
+	return string(event.EventType)
+}
+
+func lastEventTime(event *chain.Event) *time.Time {
+	if event == nil {
+		return nil
+	}
+	return &event.CreatedAt
 }
 
 func summarizeStepRoles(steps []chain.Step) []string {

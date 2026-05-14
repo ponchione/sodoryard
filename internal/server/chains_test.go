@@ -209,6 +209,8 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		Roles             []string `json:"roles"`
 		TotalDurationSecs int      `json:"total_duration_secs"`
 		ReceiptCount      int      `json:"receipt_count"`
+		LastEventType     string   `json:"last_event_type"`
+		LastEventAt       string   `json:"last_event_at"`
 	}
 	getJSON(t, base+"/api/chains", &chains)
 	if len(chains) != 1 || chains[0].ID != chainID || chains[0].Status != "completed" {
@@ -219,6 +221,9 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if len(chains[0].Roles) != 1 || chains[0].Roles[0] != "coder" {
 		t.Fatalf("chains summary roles = %+v, want coder", chains[0].Roles)
+	}
+	if chains[0].LastEventType != string(chain.EventApprovalRequired) || chains[0].LastEventAt == "" {
+		t.Fatalf("chains summary last event = %+v, want approval_required timestamp", chains[0])
 	}
 
 	var templates []struct {

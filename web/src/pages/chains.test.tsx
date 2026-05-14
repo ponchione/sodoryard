@@ -57,6 +57,8 @@ function chainSummary(): ChainSummary {
     total_tokens: 42,
     total_duration_secs: 65,
     receipt_count: 0,
+    last_event_type: "approval_required",
+    last_event_at: "2026-01-02T03:05:00Z",
     started_at: "2026-01-02T03:04:05Z",
     updated_at: "2026-01-02T03:05:06Z",
     current_step: {
@@ -81,6 +83,8 @@ function completedChainSummary(): ChainSummary {
     total_tokens: 84,
     total_duration_secs: 9,
     receipt_count: 1,
+    last_event_type: "chain_completed",
+    last_event_at: "2026-01-02T03:06:00Z",
     updated_at: "2026-01-02T03:06:06Z",
     current_step: undefined,
   };
@@ -136,7 +140,8 @@ describe("ChainsPage", () => {
 
     expect(screen.getByText("Recent Project Memory Events")).toBeInTheDocument();
     expect(screen.getByText("project memory: connected / 2 chain rows / 1 event rows")).toBeInTheDocument();
-    expect(screen.getByText("approval_required")).toBeInTheDocument();
+    expect(screen.getAllByText("approval_required").length).toBeGreaterThan(0);
+    expect(screen.getByText("chain_completed")).toBeInTheDocument();
     expect(screen.getByText("{\"tool\":\"shell\"}")).toBeInTheDocument();
     expect(screen.getByText("1m 5s")).toBeInTheDocument();
     expect(screen.getByText("9s")).toBeInTheDocument();
