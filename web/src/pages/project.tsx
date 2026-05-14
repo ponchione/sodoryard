@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Eye, FileText, Folder, Paperclip, Rocket, Search, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Eye, FileText, Folder, FolderOpen, Paperclip, Rocket, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { api } from "@/lib/api";
@@ -82,6 +82,8 @@ export function ProjectPage() {
   const [attachments, setAttachments] = useState<string[]>([]);
   const [attachmentLoadingPath, setAttachmentLoadingPath] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [fileActionPath, setFileActionPath] = useState<string | null>(null);
+  const [fileActionError, setFileActionError] = useState<string | null>(null);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredFiles = useMemo(() => {
@@ -128,6 +130,44 @@ export function ProjectPage() {
       setAttachmentError(error instanceof Error ? error.message : "Failed to attach file");
     } finally {
       setAttachmentLoadingPath(null);
+    }
+  };
+
+  const validateProjectFileAction = async (path: string, purpose: "open_editor" | "reveal"): Promise<string> => {
+    const result = await api.post<ValidatePathsResponse>("/api/project/validate-paths", {
+      purpose,
+      paths: [path],
+    });
+    if (result.accepted.length > 0) return result.accepted[0];
+    const rejection = result.rejected[0];
+    throw new Error(rejection ? `${rejection.path}: ${rejection.reason}` : "path was not accepted");
+  };
+
+  const openProjectPath = async (path: string) => {
+    if (!platform.openProjectPath) return;
+    setFileActionPath(`open:${path}`);
+    setFileActionError(null);
+    try {
+      const acceptedPath = await validateProjectFileAction(path, "open_editor");
+      await platform.openProjectPath(acceptedPath);
+    } catch (error) {
+      setFileActionError(error instanceof Error ? error.message : "Failed to open file");
+    } finally {
+      setFileActionPath(null);
+    }
+  };
+
+  const revealProjectPath = async (path: string) => {
+    if (!platform.revealProjectPath) return;
+    setFileActionPath(`reveal:${path}`);
+    setFileActionError(null);
+    try {
+      const acceptedPath = await validateProjectFileAction(path, "reveal");
+      await platform.revealProjectPath(acceptedPath);
+    } catch (error) {
+      setFileActionError(error instanceof Error ? error.message : "Failed to reveal file");
+    } finally {
+      setFileActionPath(null);
     }
   };
 
@@ -187,6 +227,7 @@ export function ProjectPage() {
         {treeError && <StatusBanner tone="danger" text={treeError} />}
         {previewError && <StatusBanner tone="danger" text={previewError} />}
         {attachmentError && <StatusBanner tone="warning" text={attachmentError} />}
+        {fileActionError && <StatusBanner tone="warning" text={fileActionError} />}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.15fr)]">
           <section className="min-w-0 border border-border">
@@ -237,7 +278,12 @@ export function ProjectPage() {
                         selected={preview?.path === file.path}
                         attached={attachments.includes(file.path)}
                         loading={previewLoadingPath === file.path || attachmentLoadingPath === file.path}
+                        actionLoading={fileActionPath}
+                        canOpenExternal={Boolean(platform.openProjectPath)}
+                        canReveal={Boolean(platform.revealProjectPath)}
                         onOpen={openFile}
+                        onOpenExternal={openProjectPath}
+                        onReveal={revealProjectPath}
                         onAttach={addAttachment}
                       />
                     ))}
@@ -251,7 +297,12 @@ export function ProjectPage() {
                         selectedPath={preview?.path}
                         previewLoadingPath={previewLoadingPath}
                         attachmentLoadingPath={attachmentLoadingPath}
+                        fileActionPath={fileActionPath}
+                        canOpenExternal={Boolean(platform.openProjectPath)}
+                        canReveal={Boolean(platform.revealProjectPath)}
                         onOpen={openFile}
+                        onOpenExternal={openProjectPath}
+                        onReveal={revealProjectPath}
                         onAttach={addAttachment}
                       />
                     )}
@@ -282,15 +333,25 @@ export function ProjectPage() {
                 <>
                   <div className="flex flex-col gap-2 border-b border-border px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 truncate font-mono text-primary">{preview.path}</div>
-                    <button
-                      type="button"
-                      onClick={() => void addAttachment(preview.path)}
-                      disabled={attachments.includes(preview.path) || attachmentLoadingPath === preview.path}
-                      className="inline-flex items-center gap-2 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Paperclip size={13} aria-hidden="true" />
-                      {attachments.includes(preview.path) ? "Attached" : "Attach"}
-                    </button>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <FileActionButtons
+                        path={preview.path}
+                        actionLoading={fileActionPath}
+                        canOpenExternal={Boolean(platform.openProjectPath)}
+                        canReveal={Boolean(platform.revealProjectPath)}
+                        onOpenExternal={openProjectPath}
+                        onReveal={revealProjectPath}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void addAttachment(preview.path)}
+                        disabled={attachments.includes(preview.path) || attachmentLoadingPath === preview.path}
+                        className="inline-flex items-center gap-2 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Paperclip size={13} aria-hidden="true" />
+                        {attachments.includes(preview.path) ? "Attached" : "Attach"}
+                      </button>
+                    </div>
                   </div>
                   <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-xs leading-relaxed text-foreground">
                     {preview.content}
@@ -311,7 +372,12 @@ function ProjectTree({
   selectedPath,
   previewLoadingPath,
   attachmentLoadingPath,
+  fileActionPath,
+  canOpenExternal,
+  canReveal,
   onOpen,
+  onOpenExternal,
+  onReveal,
   onAttach,
   parentPath = "",
 }: {
@@ -320,7 +386,12 @@ function ProjectTree({
   selectedPath?: string;
   previewLoadingPath: string | null;
   attachmentLoadingPath: string | null;
+  fileActionPath: string | null;
+  canOpenExternal: boolean;
+  canReveal: boolean;
   onOpen: (path: string) => Promise<void>;
+  onOpenExternal: (path: string) => Promise<void>;
+  onReveal: (path: string) => Promise<void>;
   onAttach: (path: string) => Promise<void>;
   parentPath?: string;
 }) {
@@ -332,7 +403,12 @@ function ProjectTree({
         selected={selectedPath === path}
         attached={attachments.includes(path)}
         loading={previewLoadingPath === path || attachmentLoadingPath === path}
+        actionLoading={fileActionPath}
+        canOpenExternal={canOpenExternal}
+        canReveal={canReveal}
         onOpen={onOpen}
+        onOpenExternal={onOpenExternal}
+        onReveal={onReveal}
         onAttach={onAttach}
       />
     );
@@ -349,7 +425,12 @@ function ProjectTree({
             selectedPath={selectedPath}
             previewLoadingPath={previewLoadingPath}
             attachmentLoadingPath={attachmentLoadingPath}
+            fileActionPath={fileActionPath}
+            canOpenExternal={canOpenExternal}
+            canReveal={canReveal}
             onOpen={onOpen}
+            onOpenExternal={onOpenExternal}
+            onReveal={onReveal}
             onAttach={onAttach}
             parentPath={path}
           />
@@ -372,7 +453,12 @@ function ProjectTree({
             selectedPath={selectedPath}
             previewLoadingPath={previewLoadingPath}
             attachmentLoadingPath={attachmentLoadingPath}
+            fileActionPath={fileActionPath}
+            canOpenExternal={canOpenExternal}
+            canReveal={canReveal}
             onOpen={onOpen}
+            onOpenExternal={onOpenExternal}
+            onReveal={onReveal}
             onAttach={onAttach}
             parentPath={path}
           />
@@ -387,14 +473,24 @@ function FileRow({
   selected,
   attached,
   loading,
+  actionLoading,
+  canOpenExternal,
+  canReveal,
   onOpen,
+  onOpenExternal,
+  onReveal,
   onAttach,
 }: {
   file: ProjectFileOption;
   selected: boolean;
   attached: boolean;
   loading: boolean;
+  actionLoading: string | null;
+  canOpenExternal: boolean;
+  canReveal: boolean;
   onOpen: (path: string) => Promise<void>;
+  onOpenExternal: (path: string) => Promise<void>;
+  onReveal: (path: string) => Promise<void>;
   onAttach: (path: string) => Promise<void>;
 }) {
   return (
@@ -407,7 +503,7 @@ function FileRow({
         <FileText size={14} className="shrink-0" aria-hidden="true" />
         <span className="truncate font-mono">{file.path}</span>
       </button>
-      <div className="flex gap-2 sm:justify-end">
+      <div className="flex flex-wrap gap-2 sm:justify-end">
         <button
           type="button"
           onClick={() => void onOpen(file.path)}
@@ -416,6 +512,14 @@ function FileRow({
           <Eye size={12} aria-hidden="true" />
           Preview
         </button>
+        <FileActionButtons
+          path={file.path}
+          actionLoading={actionLoading}
+          canOpenExternal={canOpenExternal}
+          canReveal={canReveal}
+          onOpenExternal={onOpenExternal}
+          onReveal={onReveal}
+        />
         <button
           type="button"
           onClick={() => void onAttach(file.path)}
@@ -428,6 +532,52 @@ function FileRow({
         </button>
       </div>
     </div>
+  );
+}
+
+function FileActionButtons({
+  path,
+  actionLoading,
+  canOpenExternal,
+  canReveal,
+  onOpenExternal,
+  onReveal,
+}: {
+  path: string;
+  actionLoading: string | null;
+  canOpenExternal: boolean;
+  canReveal: boolean;
+  onOpenExternal: (path: string) => Promise<void>;
+  onReveal: (path: string) => Promise<void>;
+}) {
+  if (!canOpenExternal && !canReveal) return null;
+  return (
+    <>
+      {canOpenExternal && (
+        <button
+          type="button"
+          onClick={() => void onOpenExternal(path)}
+          disabled={actionLoading !== null}
+          aria-label={`Open ${path}`}
+          className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <ExternalLink size={12} aria-hidden="true" />
+          {actionLoading === `open:${path}` ? "Opening" : "Open"}
+        </button>
+      )}
+      {canReveal && (
+        <button
+          type="button"
+          onClick={() => void onReveal(path)}
+          disabled={actionLoading !== null}
+          aria-label={`Reveal ${path}`}
+          className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <FolderOpen size={12} aria-hidden="true" />
+          {actionLoading === `reveal:${path}` ? "Revealing" : "Reveal"}
+        </button>
+      )}
+    </>
   );
 }
 
