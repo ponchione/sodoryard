@@ -618,6 +618,16 @@ func (p *CodexProvider) refreshToken(ctx context.Context) error {
 	return nil
 }
 
+func (p *CodexProvider) RefreshAuth(ctx context.Context) (*provider.AuthStatus, error) {
+	p.mu.Lock()
+	err := p.refreshToken(ctx)
+	p.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return p.AuthStatus(ctx)
+}
+
 func (p *CodexProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, error) {
 	_ = ctx
 	state, err := p.inspectAuthState()
@@ -643,6 +653,7 @@ func (p *CodexProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus, e
 		ExpiresAt:       state.expiry,
 		HasAccessToken:  strings.TrimSpace(state.token) != "",
 		HasRefreshToken: strings.TrimSpace(state.auth.Tokens.RefreshToken) != "" || strings.TrimSpace(state.auth.RefreshToken) != "",
+		SupportsRefresh: true,
 		Detail:          detail,
 		Remediation:     codexAuthRemediation(),
 	}

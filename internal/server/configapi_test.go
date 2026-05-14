@@ -100,6 +100,9 @@ type stubRuntimeInspector struct {
 	authStatuses map[string]*provider.AuthStatus
 	authErr      error
 	health       map[string]*router.ProviderHealth
+	refreshAuth  map[string]*provider.AuthStatus
+	refreshErr   error
+	refreshCalls []string
 }
 
 func (s *stubRuntimeInspector) Models(_ context.Context) ([]provider.Model, error) {
@@ -112,6 +115,22 @@ func (s *stubRuntimeInspector) AuthStatuses(_ context.Context) (map[string]*prov
 
 func (s *stubRuntimeInspector) ProviderHealthMap() map[string]*router.ProviderHealth {
 	return s.health
+}
+
+func (s *stubRuntimeInspector) RefreshAuth(_ context.Context, providerName string) (*provider.AuthStatus, error) {
+	s.refreshCalls = append(s.refreshCalls, providerName)
+	if s.refreshErr != nil {
+		return nil, s.refreshErr
+	}
+	status := s.refreshAuth[providerName]
+	if status == nil {
+		return nil, provider.ErrAuthRefreshUnsupported
+	}
+	if s.authStatuses == nil {
+		s.authStatuses = map[string]*provider.AuthStatus{}
+	}
+	s.authStatuses[providerName] = status
+	return status, nil
 }
 
 func TestPutConfigRejectsRuntimeDefaultOverrideAwayFromForcedCodexGPT55(t *testing.T) {
@@ -310,6 +329,58 @@ func TestAuthProvidersEndpointMarksMissingRuntimeProviderUnavailable(t *testing.
 	}
 	if body[1].Name != "codex" || !body[1].Healthy || body[1].Status != "available" {
 		t.Fatalf("expected registered codex provider to stay available, got %+v", body[1])
+	}
+}
+
+func TestAuthProviderRefreshEndpointUsesRuntimeRefresh(t *testing.T) {
+	cfg := config.Default()
+	cfg.ProjectRoot = t.TempDir()
+	cfg.Brain.Enabled = false
+	cfg.Providers = map[string]config.ProviderConfig{
+		"codex": {Type: "codex", Model: "gpt-5.5"},
+	}
+
+	runtime := &stubRuntimeInspector{
+		refreshAuth: map[string]*provider.AuthStatus{
+			"codex": {
+				Provider:        "codex",
+				Mode:            "chatgpt",
+				Source:          "yard_store",
+				HasAccessToken:  true,
+				HasRefreshToken: true,
+				SupportsRefresh: true,
+			},
+		},
+		health: map[string]*router.ProviderHealth{
+			"codex": {Healthy: true},
+		},
+	}
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewConfigHandler(srv, cfg, runtime, nil, newTestLogger())
+	_, base := startServer(t, srv)
+
+	resp, err := http.Post(base+"/api/auth/providers/codex/refresh", "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Name    string               `json:"name"`
+		Message string               `json:"message"`
+		Auth    *provider.AuthStatus `json:"auth"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !slices.Equal(runtime.refreshCalls, []string{"codex"}) {
+		t.Fatalf("refresh calls = %+v, want codex", runtime.refreshCalls)
+	}
+	if body.Name != "codex" || body.Message != "provider credentials refreshed" || body.Auth == nil || !body.Auth.HasAccessToken {
+		t.Fatalf("refresh body = %+v, want refreshed codex auth", body)
 	}
 }
 

@@ -1117,6 +1117,21 @@ func (m *mockPingProvider) AuthStatus(_ context.Context) (*provider.AuthStatus, 
 	return m.authStatus, nil
 }
 
+type mockRefreshProvider struct {
+	mockProvider
+	refreshStatus *provider.AuthStatus
+	refreshErr    error
+	refreshCalls  int
+}
+
+func (m *mockRefreshProvider) RefreshAuth(_ context.Context) (*provider.AuthStatus, error) {
+	m.refreshCalls++
+	if m.refreshErr != nil {
+		return nil, m.refreshErr
+	}
+	return m.refreshStatus, nil
+}
+
 func TestValidate_UsesPingWhenAvailable(t *testing.T) {
 	cfg := validConfig()
 	r, _ := NewRouter(cfg, nil, nil)
@@ -1235,6 +1250,40 @@ func TestAuthStatuses_ReturnsProviderStatusesAndErrors(t *testing.T) {
 	}
 	if !contains(statuses["codex"].Remediation, "yard auth login codex") {
 		t.Fatalf("expected remediation in codex status, got %+v", statuses["codex"])
+	}
+}
+
+func TestRefreshAuth_UsesProviderRefreshFlow(t *testing.T) {
+	r, _ := NewRouter(validConfig(), nil, nil)
+	refresh := &mockRefreshProvider{
+		mockProvider:  mockProvider{name: "codex", models: []provider.Model{{ID: "gpt-5.5"}}},
+		refreshStatus: &provider.AuthStatus{Mode: "chatgpt", HasAccessToken: true, HasRefreshToken: true, SupportsRefresh: true},
+	}
+	if err := r.RegisterProvider(refresh); err != nil {
+		t.Fatalf("RegisterProvider returned error: %v", err)
+	}
+
+	status, err := r.RefreshAuth(context.Background(), "codex")
+	if err != nil {
+		t.Fatalf("RefreshAuth returned error: %v", err)
+	}
+	if refresh.refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refresh.refreshCalls)
+	}
+	if status.Provider != "codex" || status.Mode != "chatgpt" || !status.HasAccessToken {
+		t.Fatalf("refresh status = %+v, want codex chatgpt access token", status)
+	}
+}
+
+func TestRefreshAuth_RejectsUnsupportedProvider(t *testing.T) {
+	r, _ := NewRouter(validConfig(), nil, nil)
+	if err := r.RegisterProvider(&mockProvider{name: "local", models: []provider.Model{{ID: "local-model"}}}); err != nil {
+		t.Fatalf("RegisterProvider returned error: %v", err)
+	}
+
+	_, err := r.RefreshAuth(context.Background(), "local")
+	if err == nil || !contains(err.Error(), "does not support credential refresh") {
+		t.Fatalf("RefreshAuth error = %v, want unsupported refresh error", err)
 	}
 }
 

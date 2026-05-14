@@ -467,6 +467,27 @@ func (r *Router) AuthStatuses(ctx context.Context) (map[string]*provider.AuthSta
 	return statuses, nil
 }
 
+func (r *Router) RefreshAuth(ctx context.Context, providerName string) (*provider.AuthStatus, error) {
+	r.mu.RLock()
+	p, ok := r.providers[providerName]
+	r.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerName)
+	}
+	refresher, ok := p.(provider.AuthRefresher)
+	if !ok {
+		return nil, fmt.Errorf("provider %s does not support credential refresh", providerName)
+	}
+	status, err := refresher.RefreshAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status != nil && status.Provider == "" {
+		status.Provider = providerName
+	}
+	return status, nil
+}
+
 // resolveTarget determines which provider and provider name should handle the
 // request, considering per-request overrides and the default configuration.
 func (r *Router) resolveTarget(ctx context.Context, req *provider.Request) (provider.Provider, string, error) {

@@ -108,6 +108,7 @@ function providerStatuses(): ProviderStatus[] {
         source_path: "/tmp/.codex/auth.json",
         has_access_token: true,
         has_refresh_token: true,
+        supports_refresh: true,
         expires_at: "2099-01-02T03:04:05Z",
         remediation: "Run `yard auth login codex` to refresh Codex provider credentials.",
       },
@@ -235,6 +236,9 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", {
       name: "Copy codex provider credential remediation command",
     })).toHaveTextContent("yard auth login codex");
+    expect(screen.getByRole("button", {
+      name: "Refresh codex provider credentials",
+    })).toHaveTextContent("Refresh Credentials");
     expect(screen.getByText("200k ctx")).toBeInTheDocument();
     expect(screen.getAllByLabelText("tools").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("thinking")).toBeInTheDocument();
@@ -251,6 +255,20 @@ describe("SettingsPage", () => {
       expect(clipboardWriteTextMock).toHaveBeenCalledWith("yard auth login codex");
     });
     expect(await screen.findByText("Command copied")).toBeInTheDocument();
+  });
+
+  it("refreshes provider credentials through the backend remediation endpoint", async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: "Refresh codex provider credentials",
+    }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/auth/providers/codex/refresh", {});
+    });
+    expect(refreshProvidersMock).toHaveBeenCalled();
+    expect(await screen.findByText("codex provider credentials refreshed")).toBeInTheDocument();
   });
 
   it("refreshes provider credential status from settings", async () => {

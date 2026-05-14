@@ -236,6 +236,7 @@ export interface ProviderAuthStatus {
   expires_at?: string;
   has_access_token: boolean;
   has_refresh_token: boolean;
+  supports_refresh?: boolean;
   detail?: string;
   remediation?: string;
 }

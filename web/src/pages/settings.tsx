@@ -250,6 +250,9 @@ export function SettingsPage() {
   const [providersRefreshing, setProvidersRefreshing] = useState(false);
   const [providersRefreshMessage, setProvidersRefreshMessage] = useState<string | null>(null);
   const [providersRefreshError, setProvidersRefreshError] = useState<string | null>(null);
+  const [credentialRefreshing, setCredentialRefreshing] = useState<string | null>(null);
+  const [credentialRefreshMessage, setCredentialRefreshMessage] = useState<string | null>(null);
+  const [credentialRefreshError, setCredentialRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -356,6 +359,21 @@ export function SettingsPage() {
       setProvidersRefreshError(apiErrorMessage(error));
     } finally {
       setProvidersRefreshing(false);
+    }
+  };
+
+  const refreshProviderCredentials = async (providerName: string) => {
+    setCredentialRefreshing(providerName);
+    setCredentialRefreshMessage(null);
+    setCredentialRefreshError(null);
+    try {
+      await api.post(`/api/auth/providers/${encodeURIComponent(providerName)}/refresh`, {});
+      await refreshProviders();
+      setCredentialRefreshMessage(`${providerName} provider credentials refreshed`);
+    } catch (error) {
+      setCredentialRefreshError(apiErrorMessage(error));
+    } finally {
+      setCredentialRefreshing(null);
     }
   };
 
@@ -566,6 +584,8 @@ export function SettingsPage() {
           {providerError && <StatusMessage tone="danger" text={providerError} />}
           {providersRefreshMessage && <StatusMessage tone="success" text={providersRefreshMessage} />}
           {providersRefreshError && <StatusMessage tone="danger" text={providersRefreshError} />}
+          {credentialRefreshMessage && <StatusMessage tone="success" text={credentialRefreshMessage} />}
+          {credentialRefreshError && <StatusMessage tone="danger" text={credentialRefreshError} />}
           {provLoading && providerOptions.length === 0 ? (
             <p className="text-xs text-muted-foreground">Loading...</p>
           ) : providerOptions.length === 0 ? (
@@ -573,7 +593,12 @@ export function SettingsPage() {
           ) : (
             <div className="grid gap-2 lg:grid-cols-2">
               {providerOptions.map((provider) => (
-                <ProviderCard key={provider.name} provider={provider} />
+                <ProviderCard
+                  key={provider.name}
+                  provider={provider}
+                  credentialRefreshing={credentialRefreshing === provider.name}
+                  onRefreshCredentials={refreshProviderCredentials}
+                />
               ))}
             </div>
           )}
@@ -651,7 +676,15 @@ function StatusMessage({ tone, text }: { tone: "success" | "danger"; text: strin
   );
 }
 
-function ProviderCard({ provider }: { provider: ProviderOption }) {
+function ProviderCard({
+  provider,
+  credentialRefreshing,
+  onRefreshCredentials,
+}: {
+  provider: ProviderOption;
+  credentialRefreshing: boolean;
+  onRefreshCredentials: (providerName: string) => Promise<void>;
+}) {
   return (
     <div
       data-augmented-ui="tl-clip br-clip border"
@@ -675,7 +708,12 @@ function ProviderCard({ provider }: { provider: ProviderOption }) {
         </span>
       </div>
 
-      <ProviderCredentialDetails auth={provider.auth} providerName={provider.name} />
+      <ProviderCredentialDetails
+        auth={provider.auth}
+        providerName={provider.name}
+        refreshing={credentialRefreshing}
+        onRefreshCredentials={onRefreshCredentials}
+      />
 
       {provider.models.length > 0 ? (
         <div className="space-y-1">
@@ -700,7 +738,17 @@ function ProviderCard({ provider }: { provider: ProviderOption }) {
   );
 }
 
-function ProviderCredentialDetails({ auth, providerName }: { auth?: ProviderAuthStatus; providerName: string }) {
+function ProviderCredentialDetails({
+  auth,
+  providerName,
+  refreshing,
+  onRefreshCredentials,
+}: {
+  auth?: ProviderAuthStatus;
+  providerName: string;
+  refreshing: boolean;
+  onRefreshCredentials: (providerName: string) => Promise<void>;
+}) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   if (!auth) {
@@ -752,6 +800,18 @@ function ProviderCredentialDetails({ auth, providerName }: { auth?: ProviderAuth
         >
           <Copy size={11} aria-hidden="true" />
           {copyStatus ?? remediationCommand}
+        </button>
+      )}
+      {auth.supports_refresh && (
+        <button
+          type="button"
+          onClick={() => void onRefreshCredentials(providerName)}
+          disabled={refreshing}
+          className="mt-1 inline-flex items-center gap-1 border border-primary/60 px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label={`Refresh ${providerName} provider credentials`}
+        >
+          <RefreshCw size={11} aria-hidden="true" />
+          {refreshing ? "Refreshing" : "Refresh Credentials"}
         </button>
       )}
     </div>

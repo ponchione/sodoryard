@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -31,6 +32,7 @@ type AuthStatus struct {
 	ExpiresAt       time.Time `json:"expires_at,omitempty"`
 	HasAccessToken  bool      `json:"has_access_token"`
 	HasRefreshToken bool      `json:"has_refresh_token"`
+	SupportsRefresh bool      `json:"supports_refresh,omitempty"`
 	Detail          string    `json:"detail,omitempty"`
 	Remediation     string    `json:"remediation,omitempty"`
 }
@@ -39,6 +41,14 @@ type AuthStatus struct {
 // structured auth status for doctor/status surfaces.
 type AuthStatusReporter interface {
 	AuthStatus(ctx context.Context) (*AuthStatus, error)
+}
+
+var ErrAuthRefreshUnsupported = errors.New("provider credential refresh is unsupported")
+
+// AuthRefresher is implemented by providers that can refresh credentials
+// non-interactively through an existing refresh token or equivalent backend flow.
+type AuthRefresher interface {
+	RefreshAuth(ctx context.Context) (*AuthStatus, error)
 }
 
 const AuthStatusExpiryWindow = 2 * time.Minute

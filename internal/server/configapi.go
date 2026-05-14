@@ -17,6 +17,10 @@ type ProviderRuntimeInspector interface {
 	ProviderHealthMap() map[string]*routerpkg.ProviderHealth
 }
 
+type ProviderCredentialRefresher interface {
+	RefreshAuth(ctx context.Context, providerName string) (*provider.AuthStatus, error)
+}
+
 // ConfigHandler serves config and provider endpoints.
 type ConfigHandler struct {
 	cfg       *config.Config
@@ -44,6 +48,7 @@ func NewConfigHandler(s *Server, cfg *config.Config, runtime ProviderRuntimeInsp
 	s.HandleFunc("PUT /api/config", h.handlePutConfig)
 	s.HandleFunc("GET /api/providers", h.handleProviders)
 	s.HandleFunc("GET /api/auth/providers", h.handleAuthProviders)
+	s.HandleFunc("POST /api/auth/providers/{name}/refresh", h.handleRefreshProviderAuth)
 
 	return h
 }
@@ -285,6 +290,16 @@ type authProviderStatus struct {
 	Auth      *provider.AuthStatus `json:"auth,omitempty"`
 }
 
+type authProviderRefreshResponse struct {
+	Name      string               `json:"name"`
+	Type      string               `json:"type"`
+	Status    string               `json:"status"`
+	Healthy   bool                 `json:"healthy"`
+	LastError string               `json:"last_error,omitempty"`
+	Auth      *provider.AuthStatus `json:"auth,omitempty"`
+	Message   string               `json:"message"`
+}
+
 func (h *ConfigHandler) handleAuthProviders(w http.ResponseWriter, r *http.Request) {
 	runtime := h.collectProviderRuntimeData(r.Context(), false, true)
 
@@ -305,6 +320,40 @@ func (h *ConfigHandler) handleAuthProviders(w http.ResponseWriter, r *http.Reque
 		})
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *ConfigHandler) handleRefreshProviderAuth(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	pc, ok := h.providers[name]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown provider: "+name)
+		return
+	}
+	if h.runtime == nil {
+		writeError(w, http.StatusServiceUnavailable, "provider credential refresh is unavailable")
+		return
+	}
+	refresher, ok := h.runtime.(ProviderCredentialRefresher)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider credential refresh is not supported by this runtime")
+		return
+	}
+	auth, err := refresher.RefreshAuth(r.Context(), name)
+	if err != nil {
+		h.logger.Warn("refresh provider credentials", "provider", name, "error", err)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	status, healthy, lastError := providerHealthSummary(h.runtime.ProviderHealthMap()[name])
+	writeJSON(w, http.StatusOK, authProviderRefreshResponse{
+		Name:      name,
+		Type:      pc.Type,
+		Status:    status,
+		Healthy:   healthy,
+		LastError: lastError,
+		Auth:      auth,
+		Message:   "provider credentials refreshed",
+	})
 }
 
 type providerRuntimeData struct {

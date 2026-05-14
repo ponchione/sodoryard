@@ -63,6 +63,7 @@ func (tp *TrackedProvider) Ping(ctx context.Context) error {
 // Compile-time check that TrackedProvider satisfies Pinger.
 var _ provider.Pinger = (*TrackedProvider)(nil)
 var _ provider.AuthStatusReporter = (*TrackedProvider)(nil)
+var _ provider.AuthRefresher = (*TrackedProvider)(nil)
 
 // AuthStatus delegates to the inner provider if it implements
 // provider.AuthStatusReporter.
@@ -72,6 +73,14 @@ func (tp *TrackedProvider) AuthStatus(ctx context.Context) (*provider.AuthStatus
 		return nil, nil
 	}
 	return reporter.AuthStatus(ctx)
+}
+
+func (tp *TrackedProvider) RefreshAuth(ctx context.Context) (*provider.AuthStatus, error) {
+	refresher, ok := tp.inner.(provider.AuthRefresher)
+	if !ok {
+		return nil, provider.ErrAuthRefreshUnsupported
+	}
+	return refresher.RefreshAuth(ctx)
 }
 
 // Complete delegates to the inner provider, measures wall-clock latency, extracts
