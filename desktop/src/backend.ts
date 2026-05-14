@@ -13,6 +13,8 @@ import type {
 export interface BackendOptions {
   appVersion: string;
   appPath: string;
+  projectDir?: string;
+  configPath?: string;
 }
 
 export interface BackendRuntime {
@@ -40,7 +42,7 @@ export async function startBackendRuntime(options: BackendOptions): Promise<Back
     if (explicitBackend) {
       throw new Error(`Yard backend is not reachable at ${directBaseUrl}`);
     }
-    child = spawnBackend(options.appPath, directBaseUrl);
+    child = spawnBackend(options.appPath, directBaseUrl, options.projectDir, options.configPath);
     mode = "managed";
     await waitForHealth(directBaseUrl, 45_000);
   }
@@ -74,11 +76,16 @@ async function selectRendererBaseURL(rendererURL: string, directBaseUrl: string)
   return directBaseUrl;
 }
 
-function spawnBackend(appPath: string, directBaseUrl: string): ChildProcess {
+function spawnBackend(
+  appPath: string,
+  directBaseUrl: string,
+  projectDirOverride?: string,
+  configPathOverride?: string,
+): ChildProcess {
   const yardBinary = resolveYardBinary(appPath);
   const url = new URL(directBaseUrl);
-  const args = yardArgs(url);
-  const projectDir = process.env.YARD_PROJECT_DIR || resolveRepoRoot(appPath);
+  const args = yardArgs(url, configPathOverride);
+  const projectDir = projectDirOverride || process.env.YARD_PROJECT_DIR || resolveRepoRoot(appPath);
   const child = spawn(yardBinary, args, {
     cwd: projectDir,
     env: { ...process.env, NO_COLOR: "1" },
@@ -89,9 +96,9 @@ function spawnBackend(appPath: string, directBaseUrl: string): ChildProcess {
   return child;
 }
 
-function yardArgs(url: URL): string[] {
+function yardArgs(url: URL, configPathOverride?: string): string[] {
   const args: string[] = [];
-  const configPath = process.env.YARD_CONFIG;
+  const configPath = configPathOverride || process.env.YARD_CONFIG;
   if (configPath) args.push("--config", configPath);
   args.push("serve", "--dev", "--host", url.hostname, "--port", String(Number(url.port) || defaultBackendPort));
   return args;
@@ -207,6 +214,7 @@ function toDesktopPlatformInfo(input: {
     backendLaunchMode: input.mode,
     projectRoot: input.capabilities.project_root,
     configPath: input.capabilities.config_path,
+    recentProjectRoot: input.capabilities.project_root,
     capabilities: input.capabilities.capabilities ?? [],
     projectMemory: projectMemory ? {
       backend: projectMemory.backend,

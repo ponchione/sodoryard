@@ -23,6 +23,7 @@ export interface DesktopPlatformInfo {
   backendLaunchMode: BackendLaunchMode;
   projectRoot?: string;
   configPath?: string;
+  recentProjectRoot?: string;
   capabilities: string[];
   projectMemory?: DesktopProjectMemoryInfo;
 }

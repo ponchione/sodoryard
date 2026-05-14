@@ -3,23 +3,39 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackendRuntime, stopBackendRuntime, type BackendRuntime } from "./backend.js";
+import {
+  readDesktopState,
+  updateDesktopState,
+  type DesktopState,
+  type DesktopWindowState,
+} from "./state.js";
 import type { YardNotification } from "./types.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 let mainWindow: BrowserWindow | undefined;
 let runtime: BackendRuntime | undefined;
+let userDataDir = "";
+let desktopState: DesktopState = {};
+let quitting = false;
 
 async function main() {
   await app.whenReady();
+  userDataDir = app.getPath("userData");
+  desktopState = readDesktopState(userDataDir);
   registerIPCHandlers();
-  mainWindow = createWindow();
+  mainWindow = createWindow(desktopState.window);
+  bindWindowLifecycle(mainWindow);
   await showStatus("Starting Yard Desktop", "Starting the local Yard backend...");
   try {
     runtime = await startBackendRuntime({
       appVersion: app.getVersion(),
       appPath: app.getAppPath(),
+      projectDir: process.env.YARD_PROJECT_DIR || desktopState.recentProjectRoot,
+      configPath: process.env.YARD_CONFIG,
     });
+    rememberProjectRoot(runtime.platform.projectRoot);
+    watchManagedBackend(runtime);
     await showStatus("Starting Yard Desktop", "Opening the renderer...");
     await mainWindow.loadURL(runtime.rendererBaseUrl);
   } catch (error) {
@@ -28,10 +44,12 @@ async function main() {
   }
 }
 
-function createWindow(): BrowserWindow {
-  return new BrowserWindow({
-    width: 1320,
-    height: 900,
+function createWindow(windowState?: DesktopWindowState): BrowserWindow {
+  const win = new BrowserWindow({
+    x: windowState?.x,
+    y: windowState?.y,
+    width: windowState?.width ?? 1320,
+    height: windowState?.height ?? 900,
     minWidth: 980,
     minHeight: 680,
     title: "Yard",
@@ -42,6 +60,15 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+  if (windowState?.maximized) win.maximize();
+  return win;
+}
+
+function bindWindowLifecycle(win: BrowserWindow) {
+  win.on("close", () => persistWindowState(win));
+  win.on("closed", () => {
+    if (mainWindow === win) mainWindow = undefined;
   });
 }
 
@@ -108,10 +135,13 @@ function registerIPCHandlers() {
   });
   ipcMain.handle("yard:chooseProjectDirectory", async () => {
     const result = await dialog.showOpenDialog({
+      defaultPath: desktopState.recentProjectRoot ?? runtime?.platform.projectRoot,
       properties: ["openDirectory"],
       title: "Open Yard project",
     });
-    return result.canceled ? null : result.filePaths[0] ?? null;
+    const selected = result.canceled ? null : result.filePaths[0] ?? null;
+    if (selected) rememberProjectRoot(selected);
+    return selected;
   });
   ipcMain.handle("yard:notify", async (_event, notification: YardNotification) => {
     if (!Notification.isSupported()) return;
@@ -130,18 +160,55 @@ function escapeHTML(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+function watchManagedBackend(current: BackendRuntime) {
+  const child = current.process;
+  if (!child) return;
+  child.once("exit", (code, signal) => {
+    if (runtime?.process === child) runtime.process = undefined;
+    if (quitting) return;
+    const reason = signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`;
+    void showStatus(
+      "Yard backend stopped",
+      `The managed backend exited with ${reason}. Close and reopen Yard Desktop to start it again.`,
+    );
+  });
+}
+
+function rememberProjectRoot(projectRoot: string | undefined) {
+  if (!projectRoot || userDataDir === "") return;
+  desktopState = updateDesktopState(userDataDir, { recentProjectRoot: projectRoot });
+}
+
+function persistWindowState(win = mainWindow) {
+  if (!win || win.isDestroyed() || userDataDir === "") return;
+  const bounds = win.getNormalBounds();
+  desktopState = updateDesktopState(userDataDir, {
+    window: {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      maximized: win.isMaximized(),
+    },
+  });
+}
+
 app.on("window-all-closed", () => {
+  quitting = true;
   stopBackendRuntime(runtime);
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", () => {
+  quitting = true;
+  persistWindowState();
   stopBackendRuntime(runtime);
 });
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = createWindow();
+    mainWindow = createWindow(desktopState.window);
+    bindWindowLifecycle(mainWindow);
     if (runtime) void mainWindow.loadURL(runtime.rendererBaseUrl);
   }
 });

@@ -27,6 +27,7 @@ export interface YardDesktopPlatformInfo {
   desktopSessionToken?: string;
   projectRoot?: string;
   configPath?: string;
+  recentProjectRoot?: string;
   capabilities: string[];
   projectMemory?: YardProjectMemoryPlatform;
 }

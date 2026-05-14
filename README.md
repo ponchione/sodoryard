@@ -385,7 +385,7 @@ Current repo state:
 - Spec 23 eval work now supports saved baselines and append-only JSONL history entries via `yard eval run <suite> --append-history <path>`.
 - Daily-driver final touches now include actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and browser inspector routes for chains, approvals, and metrics. Browser chain detail and `/api/chains/{id}/metrics` now expose the same dogfooding metrics summary used by `yard chain metrics`. The TUI intentionally does not grow a project file browser; code review stays in the operator's IDE.
 - Spec 24 backend-enabling work is partially implemented: the server exposes desktop capabilities, runtime status, local-service controls, launch draft/preset/preview/start APIs, chain snapshots/events/receipts/control APIs, project-memory contract/token endpoints, and Shunter protocol mounting. The generated project-memory binding includes parameterized `chain_events` and `live_chain_events`, and the web chain detail uses those generated helpers instead of renderer-built raw SQL.
-- Spec 24 desktop shell work has started under `desktop/`. `make desktop-dev` builds `bin/yard`, starts the Vite renderer, opens Electron, starts or attaches to a local backend, shows startup/failure states, and passes backend/project-memory metadata through a minimal preload bridge. Product-specific desktop routes are still future work.
+- Spec 24 desktop shell work has started under `desktop/`. `make desktop-dev` builds `bin/yard`, starts the Vite renderer, opens Electron, starts or attaches to a local backend, shows startup/failure states, persists recent project/window state, and passes backend/project-memory metadata through a minimal preload bridge. Product-specific desktop routes are still future work.
 - The remaining active docs are the README, current specs, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance. If a future `NEXT_SESSION_HANDOFF.md` exists in a checkout, prefer it over historical planning artifacts.
 
 If you are resuming work cold, read in this order:
@@ -415,6 +415,7 @@ make test
 make build
 make desktop-dev
 make desktop-build
+make desktop-test
 make install-user-bin
 yard index
 yard brain index

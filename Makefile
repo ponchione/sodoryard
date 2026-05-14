@@ -11,7 +11,7 @@ CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIB
 CGO_BUILD_ENV       := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS) -Wl,-rpath,$(LANCEDB_LIB_DIR)"
 RETIRED_BINARIES    := $(BIN_DIR)/sirtopham $(BIN_DIR)/knapford
 
-.PHONY: all build cleanup-retired-binaries tidmouth yard install-user-bin test dev-backend dev-frontend dev desktop-deps desktop-build desktop-dev frontend-deps frontend-build frontend-test frontend-typecheck projectmemory-bindings projectmemory-bindings-check projectmemory-sdk-smoke clean
+.PHONY: all build cleanup-retired-binaries tidmouth yard install-user-bin test dev-backend dev-frontend dev desktop-deps desktop-build desktop-test desktop-dev frontend-deps frontend-build frontend-test frontend-typecheck projectmemory-bindings projectmemory-bindings-check projectmemory-sdk-smoke clean
 
 # `make build` builds every retained binary needed for a runnable local tree:
 # the operator-facing yard CLI plus the internal tidmouth engine used by chain
@@ -66,6 +66,9 @@ desktop-deps:
 
 desktop-build: yard desktop-deps frontend-build
 	cd $(DESKTOP_DIR) && npm run build
+
+desktop-test: desktop-deps
+	cd $(DESKTOP_DIR) && npm test
 
 desktop-dev: yard frontend-deps desktop-deps
 	( \
