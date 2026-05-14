@@ -37,13 +37,18 @@ function eventPayloadPreview(payloadJson: string): string {
 
 export function ChainsPage() {
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const { data: chains, loading, error, refresh } = useApiResource<ChainSummary[]>("/api/chains?limit=100", []);
   const { data: status } = useApiResource<RuntimeStatus | null>("/api/runtime/status", null);
   const projectMemory = useProjectMemoryChains({ onChanged: refresh });
   const normalizedQuery = query.trim().toLowerCase();
+  const statusFilters = useMemo(() => (
+    Array.from(new Set(chains.map((chain) => chain.status).filter(Boolean))).sort()
+  ), [chains]);
   const visibleChains = useMemo(() => {
-    if (!normalizedQuery) return chains;
     return chains.filter((chain) => {
+      if (statusFilter !== "all" && chain.status !== statusFilter) return false;
+      if (!normalizedQuery) return true;
       const haystack = [
         chain.id,
         chain.status,
@@ -55,7 +60,7 @@ export function ChainsPage() {
       ].join(" ").toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [chains, normalizedQuery]);
+  }, [chains, normalizedQuery, statusFilter]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -103,6 +108,31 @@ export function ChainsPage() {
             </button>
           </div>
         </div>
+
+        {statusFilters.length > 0 && (
+          <section className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</span>
+            <div className="flex flex-wrap gap-1">
+              {["all", ...statusFilters].map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  onClick={() => setStatusFilter(candidate)}
+                  className={`border px-2 py-1 text-[10px] font-medium uppercase tracking-widest ${
+                    statusFilter === candidate
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  }`}
+                >
+                  {candidate}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              {visibleChains.length}/{chains.length}
+            </span>
+          </section>
+        )}
 
         {status && status.warnings.length > 0 && (
           <section className="border border-warning/50 bg-warning/5 p-3">

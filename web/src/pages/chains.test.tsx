@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UseProjectMemoryChainsReturn } from "@/hooks/use-project-memory-chains";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
 
@@ -68,6 +68,17 @@ function chainSummary(): ChainSummary {
   };
 }
 
+function completedChainSummary(): ChainSummary {
+  return {
+    ...chainSummary(),
+    id: "chain-2",
+    status: "completed",
+    source_task: "archive chain results",
+    total_tokens: 84,
+    current_step: undefined,
+  };
+}
+
 function projectMemoryState(): UseProjectMemoryChainsReturn {
   return {
     status: "connected",
@@ -91,11 +102,15 @@ function projectMemoryState(): UseProjectMemoryChainsReturn {
 }
 
 describe("ChainsPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     refreshMock.mockReset();
     useApiResourceMock.mockReset().mockImplementation((path: string, initial: unknown) => {
       if (path === "/api/chains?limit=100") {
-        return { data: [chainSummary()], loading: false, error: null, refresh: refreshMock };
+        return { data: [chainSummary(), completedChainSummary()], loading: false, error: null, refresh: refreshMock };
       }
       if (path === "/api/runtime/status") {
         return { data: runtimeStatus(), loading: false, error: null, refresh: vi.fn() };
@@ -117,5 +132,22 @@ describe("ChainsPage", () => {
     expect(screen.getByText("approval_required")).toBeInTheDocument();
     expect(screen.getByText("{\"tool\":\"shell\"}")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "chain-1" })[0]).toHaveAttribute("href", "/chains/chain-1");
+  });
+
+  it("filters chain rows by status", () => {
+    render(
+      <MemoryRouter>
+        <ChainsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByText("inspect project memory").length).toBeGreaterThan(0);
+    expect(screen.getByText("archive chain results")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "completed" }));
+
+    expect(screen.queryAllByText("inspect project memory")).toHaveLength(0);
+    expect(screen.getByText("archive chain results")).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => element?.textContent === "1/2")).toBeInTheDocument();
   });
 });
