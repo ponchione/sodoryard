@@ -1,12 +1,21 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LaunchPreview, LaunchTemplate, RuntimeStatus } from "@/types/chains";
 
-const { useApiResourceMock, apiPostMock } = vi.hoisted(() => ({
+const { useApiResourceMock, apiPostMock, navigateMock } = vi.hoisted(() => ({
   useApiResourceMock: vi.fn(),
   apiPostMock: vi.fn(),
+  navigateMock: vi.fn(),
 }));
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 vi.mock("@/hooks/use-api-resource", () => ({
   useApiResource: useApiResourceMock,
@@ -86,8 +95,18 @@ function preview(): LaunchPreview {
 }
 
 describe("LaunchPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
-    apiPostMock.mockReset().mockResolvedValue(preview());
+    navigateMock.mockReset();
+    apiPostMock.mockReset().mockImplementation((path: string) => {
+      if (path === "/api/launch/start") {
+        return Promise.resolve({ chain_id: "chain-started", status: "running", preview: preview() });
+      }
+      return Promise.resolve(preview());
+    });
     useApiResourceMock.mockReset().mockImplementation((path: string, fallback: unknown) => {
       if (path === "/api/runtime/status") {
         return { data: runtimeStatus(), loading: false, error: null, refresh: vi.fn() };
@@ -137,5 +156,28 @@ describe("LaunchPage", () => {
     expect(await screen.findByText("one-step coder launch")).toBeInTheDocument();
     expect(screen.getByText("Launch task: Ship launch workbench preview")).toBeInTheDocument();
     expect(screen.getByText("single-step coder launch has no per-step caps")).toBeInTheDocument();
+  });
+
+  it("starts a launch and navigates to the started chain", async () => {
+    render(
+      <MemoryRouter>
+        <LaunchPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Task"), {
+      target: { value: "Start launch workbench chain" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/launch/start", expect.objectContaining({
+        template_id: "one_step",
+        mode: "one_step_chain",
+        role: "coder",
+        source_task: "Start launch workbench chain",
+      }));
+    });
+    expect(navigateMock).toHaveBeenCalledWith("/chains/chain-started");
   });
 });

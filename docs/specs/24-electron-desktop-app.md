@@ -1738,8 +1738,8 @@ Implementation progress as of 2026-05-14:
 - The Electron shell MVP has started in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
 - `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
 - The first desktop product route is `/dashboard`, which Electron opens by default. It combines runtime readiness, recent chains, recent conversations, and Shunter Project Memory activity using existing REST and SDK paths.
-- The launch workbench preview route is implemented at `/launch`. It loads roles, templates, the current draft, and custom presets, assembles launch requests, and calls `/api/launch/preview` without starting chains.
-- Remaining desktop work starts with launch start/navigation, then chain monitoring polish, receipt review, project attachments, readiness actions, and settings.
+- The launch workbench route is implemented at `/launch`. It loads roles, templates, the current draft, and custom presets, assembles launch requests, calls `/api/launch/preview`, starts chains through `/api/launch/start`, and routes to the started chain detail.
+- Remaining desktop work starts with chain monitoring polish, then receipt review, project attachments, readiness actions, and settings.
 
 ### Phase 0: Spec And Alignment
 

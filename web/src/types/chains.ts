@@ -90,6 +90,12 @@ export interface LaunchPreview {
   warnings: RuntimeWarning[];
 }
 
+export interface LaunchStartResponse {
+  chain_id: string;
+  status: string;
+  preview: LaunchPreview;
+}
+
 export interface LaunchDraft {
   id: string;
   request: LaunchRequest;

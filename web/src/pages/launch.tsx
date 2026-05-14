@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { AlertTriangle, Check, Eye, Plus, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Check, Eye, Plus, RefreshCw, Rocket, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { ApiError, api } from "@/lib/api";
 import { formatTokenLimit } from "@/lib/model-capabilities";
@@ -11,6 +12,7 @@ import type {
   LaunchPreset,
   LaunchPreview,
   LaunchRequest,
+  LaunchStartResponse,
   LaunchTemplate,
   RuntimeStatus,
 } from "@/types/chains";
@@ -176,6 +178,7 @@ function modeLabel(mode: LaunchMode): string {
 }
 
 export function LaunchPage() {
+  const navigate = useNavigate();
   const { data: runtime, error: runtimeError } = useApiResource<RuntimeStatus | null>("/api/runtime/status", null);
   const { data: roles, loading: rolesLoading, error: rolesError } = useApiResource<AgentRoleSummary[]>("/api/roles", []);
   const { data: templates, loading: templatesLoading, error: templatesError } = (
@@ -190,6 +193,8 @@ export function LaunchPage() {
   const [preview, setPreview] = useState<LaunchPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [startLoading, setStartLoading] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -215,6 +220,7 @@ export function LaunchPage() {
     }));
     setPreview(null);
     setPreviewError(null);
+    setStartError(null);
   };
 
   const applyTemplate = (template: LaunchTemplate) => {
@@ -226,6 +232,7 @@ export function LaunchPage() {
     setForm(formFromRequest(preset.request, rolesList, templates));
     setPreview(null);
     setPreviewError(null);
+    setStartError(null);
   };
 
   const addRosterRole = () => {
@@ -256,12 +263,14 @@ export function LaunchPage() {
     setForm(formFromRequest(undefined, rolesList, templates));
     setPreview(null);
     setPreviewError(null);
+    setStartError(null);
   };
 
   const handlePreview = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPreviewLoading(true);
     setPreviewError(null);
+    setStartError(null);
     try {
       const result = await api.post<LaunchPreview>("/api/launch/preview", currentRequest);
       setPreview(result);
@@ -269,6 +278,21 @@ export function LaunchPage() {
       setPreviewError(errorMessage(error));
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  const handleStart = async () => {
+    setStartLoading(true);
+    setPreviewError(null);
+    setStartError(null);
+    try {
+      const result = await api.post<LaunchStartResponse>("/api/launch/start", currentRequest);
+      setPreview(result.preview);
+      navigate(`/chains/${result.chain_id}`);
+    } catch (error) {
+      setStartError(errorMessage(error));
+    } finally {
+      setStartLoading(false);
     }
   };
 
@@ -497,6 +521,15 @@ export function LaunchPage() {
                 <RefreshCw size={15} aria-hidden="true" />
                 Reset
               </button>
+              <button
+                type="button"
+                onClick={handleStart}
+                disabled={startLoading || previewLoading}
+                className="inline-flex items-center gap-2 border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Rocket size={15} aria-hidden="true" />
+                {startLoading ? "Starting" : "Start"}
+              </button>
             </div>
           </div>
 
@@ -556,7 +589,12 @@ export function LaunchPage() {
                   {previewError}
                 </div>
               )}
-              {!preview && !previewError && <EmptyLine text="No preview generated." />}
+              {startError && (
+                <div className="border-b border-destructive/40 px-3 py-2 text-xs text-destructive">
+                  {startError}
+                </div>
+              )}
+              {!preview && !previewError && !startError && <EmptyLine text="No preview generated." />}
               {preview && (
                 <div className="grid gap-3 px-3 py-3 text-xs">
                   <div>
