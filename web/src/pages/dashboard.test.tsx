@@ -197,8 +197,9 @@ describe("DashboardPage", () => {
     expect(screen.getByText("required service qwen-coder unhealthy")).toBeInTheDocument();
     expect(screen.getByText("models endpoint returned no models")).toBeInTheDocument();
     expect(screen.getByText("build dashboard")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Launch" })[0]).toHaveAttribute("href", "/launch");
-    expect(screen.getAllByRole("link", { name: "Project" })[0]).toHaveAttribute("href", "/project");
+    expect(screen.queryByRole("link", { name: "Launch" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Project" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /chain-1/ })[0]).toHaveAttribute("href", "/chains/chain-1");
     expect(screen.getByText("Runtime follow-up")).toBeInTheDocument();
     expect(screen.getByText("step_completed")).toBeInTheDocument();

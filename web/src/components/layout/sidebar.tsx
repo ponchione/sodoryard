@@ -203,6 +203,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             label="Metrics"
             onClick={onClose}
           />
+          <NavLinkItem
+            to="/settings"
+            active={location.pathname.startsWith("/settings")}
+            icon={<Settings size={16} aria-hidden="true" />}
+            label="Settings"
+            onClick={onClose}
+          />
         </nav>
 
         <Separator />
@@ -302,20 +309,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 ))}
           </div>
         </ScrollArea>
-
-        <Separator />
-
-        {/* Footer / settings */}
-        <div className="p-2">
-          <Link
-            to="/settings"
-            onClick={onClose}
-            className="inline-flex w-full items-center justify-start gap-2 px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <Settings size={16} aria-hidden="true" />
-            Settings
-          </Link>
-        </div>
       </aside>
     </>
   );

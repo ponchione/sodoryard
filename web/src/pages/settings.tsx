@@ -379,7 +379,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="w-full space-y-6">
         <header className="border-b border-border pb-4">
           <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
             Settings

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { normalizeZoomFactor } from "./zoom.js";
+
 export interface DesktopWindowState {
   x?: number;
   y?: number;
@@ -12,6 +14,7 @@ export interface DesktopWindowState {
 export interface DesktopState {
   recentProjectRoot?: string;
   window?: DesktopWindowState;
+  zoomFactor?: number;
 }
 
 const stateFilename = "desktop-state.json";
@@ -46,6 +49,8 @@ export function normalizeDesktopState(value: unknown): DesktopState {
   }
   const windowState = normalizeWindowState(value.window);
   if (windowState) state.window = windowState;
+  const zoomFactor = normalizeZoomFactor(value.zoomFactor);
+  if (zoomFactor !== undefined) state.zoomFactor = zoomFactor;
   return state;
 }
 

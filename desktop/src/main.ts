@@ -11,6 +11,12 @@ import {
   type DesktopWindowState,
 } from "./state.js";
 import type { YardNotification } from "./types.js";
+import {
+  defaultZoomFactor,
+  nextZoomFactor,
+  normalizeZoomFactor,
+  zoomCommandForInput,
+} from "./zoom.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
@@ -31,7 +37,7 @@ async function main() {
   userDataDir = app.getPath("userData");
   desktopState = readDesktopState(userDataDir);
   registerIPCHandlers();
-  mainWindow = createWindow(desktopState.window);
+  mainWindow = createWindow(desktopState.window, desktopState.zoomFactor);
   bindWindowLifecycle(mainWindow);
   await showStatus("Starting Yard Desktop", "Starting the local Yard backend...");
   try {
@@ -52,7 +58,7 @@ async function main() {
   }
 }
 
-function createWindow(windowState?: DesktopWindowState): BrowserWindow {
+function createWindow(windowState?: DesktopWindowState, zoomFactor = defaultZoomFactor): BrowserWindow {
   const win = new BrowserWindow({
     x: windowState?.x,
     y: windowState?.y,
@@ -69,6 +75,7 @@ function createWindow(windowState?: DesktopWindowState): BrowserWindow {
       sandbox: false,
     },
   });
+  applyWindowZoom(win, zoomFactor);
   if (windowState?.maximized) win.maximize();
   return win;
 }
@@ -77,6 +84,12 @@ function bindWindowLifecycle(win: BrowserWindow) {
   win.on("close", () => persistWindowState(win));
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = undefined;
+  });
+  win.webContents.on("before-input-event", (event, input) => {
+    const command = zoomCommandForInput(input);
+    if (!command) return;
+    event.preventDefault();
+    setWindowZoom(win, nextZoomFactor(win.webContents.getZoomFactor(), command));
   });
 }
 
@@ -248,6 +261,18 @@ function persistWindowState(win = mainWindow) {
   });
 }
 
+function applyWindowZoom(win: BrowserWindow, zoomFactor: unknown) {
+  win.webContents.setZoomFactor(normalizeZoomFactor(zoomFactor) ?? defaultZoomFactor);
+}
+
+function setWindowZoom(win: BrowserWindow, zoomFactor: unknown) {
+  const next = normalizeZoomFactor(zoomFactor) ?? defaultZoomFactor;
+  win.webContents.setZoomFactor(next);
+  if (userDataDir !== "") {
+    desktopState = updateDesktopState(userDataDir, { zoomFactor: next });
+  }
+}
+
 app.on("window-all-closed", () => {
   quitting = true;
   stopBackendRuntime(runtime);
@@ -262,7 +287,7 @@ app.on("before-quit", () => {
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = createWindow(desktopState.window);
+    mainWindow = createWindow(desktopState.window, desktopState.zoomFactor);
     bindWindowLifecycle(mainWindow);
     if (runtime) void mainWindow.loadURL(rendererRouteURL(runtime.rendererBaseUrl, "/dashboard"));
   }

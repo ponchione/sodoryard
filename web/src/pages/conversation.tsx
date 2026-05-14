@@ -209,8 +209,8 @@ export function ConversationPage() {
         />
 
         {metricsOpen && convId && (
-          <div className="border-t border-border px-4 py-2 max-h-60 overflow-y-auto">
-            <div className="mx-auto max-w-3xl">
+          <div className="max-h-60 overflow-y-auto border-t border-border px-4 py-2">
+            <div className="w-full">
               <ConversationMetricsPanel
                 conversationId={convId}
                 refreshKey={lastTurnUsage?.turnNumber}

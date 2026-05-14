@@ -154,7 +154,7 @@ export function ReceiptDetailPage() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="mx-auto max-w-6xl space-y-5">
+      <div className="w-full space-y-5">
         <div className="border-b border-border pb-4">
           <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-widest">
             <Link to={`/chains/${encodeURIComponent(chainId)}`} className="text-muted-foreground hover:text-primary">

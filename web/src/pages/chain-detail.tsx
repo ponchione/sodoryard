@@ -548,7 +548,7 @@ export function ChainDetailPage() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="mx-auto max-w-6xl space-y-5">
+      <div className="w-full space-y-5">
         <div className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <Link to="/chains" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-primary">

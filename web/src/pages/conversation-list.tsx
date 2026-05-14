@@ -30,21 +30,8 @@ export function ConversationListPage() {
         </p>
       </div>
 
-      <div className="w-full max-w-2xl">
-        <div
-          data-augmented-ui="tl-clip tr-clip bl-clip br-clip both"
-          className="flex gap-2 p-1"
-          style={{
-            "--aug-tl": "15px",
-            "--aug-tr": "15px",
-            "--aug-bl": "15px",
-            "--aug-br": "15px",
-            "--aug-border-all": "2px",
-            "--aug-border-bg": "#00e5ff",
-            "--aug-inlay-all": "4px",
-            "--aug-inlay-bg": "#0d1520",
-          } as React.CSSProperties}
-        >
+      <div className="w-full max-w-4xl">
+        <div className="flex gap-2 border border-border bg-input p-1 focus-within:border-primary">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -57,14 +44,7 @@ export function ConversationListPage() {
           <Button
             onClick={handleSend}
             disabled={!input.trim()}
-            data-augmented-ui="tl-clip br-clip border"
-            className="self-end bg-primary px-4 py-2 text-xs font-bold uppercase tracking-widest text-primary-foreground hover:bg-primary/80"
-            style={{
-              "--aug-tl": "6px",
-              "--aug-br": "6px",
-              "--aug-border-all": "1px",
-              "--aug-border-bg": "#00e5ff",
-            } as React.CSSProperties}
+            className="self-end border border-primary bg-primary px-4 py-2 text-xs font-bold uppercase tracking-widest text-primary-foreground hover:bg-primary/80"
           >
             Send
           </Button>

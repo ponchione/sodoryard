@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 
 export function ConversationComposer({
@@ -29,23 +29,14 @@ export function ConversationComposer({
 
   return (
     <div className="border-t border-border p-4">
-      <div className="mx-auto flex max-w-3xl gap-2">
-        <div
-          data-augmented-ui="tl-clip br-clip border"
-          className="flex flex-1"
-          style={{
-            "--aug-tl": "10px",
-            "--aug-br": "10px",
-            "--aug-border-all": "1px",
-            "--aug-border-bg": "#00e5ff60",
-          } as CSSProperties}
-        >
+      <div className="mx-auto flex w-full max-w-4xl gap-2">
+        <div className="flex flex-1 border border-border bg-input focus-within:border-primary">
           <textarea
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
-            className="flex-1 resize-none border-0 bg-input px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
             rows={1}
             disabled={isStreaming}
             autoFocus
@@ -55,14 +46,7 @@ export function ConversationComposer({
           <Button
             variant="destructive"
             onClick={onCancel}
-            data-augmented-ui="tl-clip br-clip border"
-            className="border-0 bg-destructive/20 text-destructive hover:bg-destructive/30"
-            style={{
-              "--aug-tl": "6px",
-              "--aug-br": "6px",
-              "--aug-border-all": "1px",
-              "--aug-border-bg": "#ff1744",
-            } as CSSProperties}
+            className="border border-destructive/40 bg-destructive/20 text-destructive hover:bg-destructive/30"
           >
             Cancel
           </Button>
@@ -70,14 +54,7 @@ export function ConversationComposer({
           <Button
             onClick={onSend}
             disabled={sendDisabled}
-            data-augmented-ui="tl-clip br-clip border"
-            className="border-0 bg-primary text-primary-foreground hover:bg-primary/80"
-            style={{
-              "--aug-tl": "6px",
-              "--aug-br": "6px",
-              "--aug-border-all": "1px",
-              "--aug-border-bg": "#00e5ff",
-            } as CSSProperties}
+            className="border border-primary bg-primary px-4 text-primary-foreground hover:bg-primary/80"
           >
             Send
           </Button>

@@ -1,16 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Activity,
   AlertTriangle,
-  BarChart3,
-  FolderTree,
-  GitBranch,
-  MessageSquare,
-  Play,
   Power,
-  Rocket,
-  Settings,
   Square,
   Terminal,
 } from "lucide-react";
@@ -126,13 +118,6 @@ export function DashboardPage() {
   const [localServicesLogs, setLocalServicesLogs] = useState<string | null>(null);
   const localServicesDisabled = runtime?.local_services_status === "disabled" || localServices?.mode === "disabled";
 
-  const refreshAll = () => {
-    void refreshRuntime();
-    void refreshChains();
-    void refreshLocalServices();
-    void projectMemory.refresh();
-  };
-
   const runLocalServicesCommand = async (action: "up" | "down") => {
     setLocalServicesAction(action);
     setLocalServicesMessage(null);
@@ -166,8 +151,8 @@ export function DashboardPage() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5">
-        <header className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
+      <div className="flex w-full flex-col gap-5">
+        <header className="border-b border-border pb-4">
           <div className="min-w-0">
             <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
               Dashboard
@@ -181,21 +166,6 @@ export function DashboardPage() {
                 {runtime.auth_status}
               </p>
             )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <ActionLink to="/launch" icon={<Rocket size={15} aria-hidden="true" />} label="Launch" />
-            <ActionLink to="/project" icon={<FolderTree size={15} aria-hidden="true" />} label="Project" />
-            <ActionLink to="/" icon={<MessageSquare size={15} aria-hidden="true" />} label="Chat" />
-            <ActionLink to="/chains" icon={<GitBranch size={15} aria-hidden="true" />} label="Chains" />
-            <ActionLink to="/metrics" icon={<BarChart3 size={15} aria-hidden="true" />} label="Metrics" />
-            <button
-              type="button"
-              onClick={refreshAll}
-              className="inline-flex items-center gap-2 border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
-            >
-              <Activity size={15} aria-hidden="true" />
-              Refresh
-            </button>
           </div>
         </header>
 
@@ -412,14 +382,6 @@ export function DashboardPage() {
           )}
         </section>
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <ActionBlock to="/launch" icon={<Rocket size={16} aria-hidden="true" />} title="Launch" />
-          <ActionBlock to="/project" icon={<FolderTree size={16} aria-hidden="true" />} title="Project" />
-          <ActionBlock to="/" icon={<MessageSquare size={16} aria-hidden="true" />} title="Chat" />
-          <ActionBlock to="/chains" icon={<Play size={16} aria-hidden="true" />} title="Monitor Chains" />
-          <ActionBlock to="/metrics" icon={<BarChart3 size={16} aria-hidden="true" />} title="Metrics" />
-          <ActionBlock to="/settings" icon={<Settings size={16} aria-hidden="true" />} title="Settings" />
-        </section>
       </div>
     </div>
   );
@@ -461,28 +423,4 @@ function EmptyLine({ text }: { text: string }) {
 function StatusBanner({ text, tone }: { text: string; tone: "danger" | "warning" }) {
   const toneClass = tone === "danger" ? "border-destructive/50 text-destructive" : "border-warning/50 text-warning";
   return <div className={`border bg-background px-3 py-2 text-xs ${toneClass}`}>{text}</div>;
-}
-
-function ActionLink({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
-  return (
-    <Link
-      to={to}
-      className="inline-flex items-center gap-2 border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
-    >
-      {icon}
-      {label}
-    </Link>
-  );
-}
-
-function ActionBlock({ to, icon, title }: { to: string; icon: React.ReactNode; title: string }) {
-  return (
-    <Link
-      to={to}
-      className="flex items-center gap-3 border border-border px-3 py-3 text-sm font-medium text-foreground hover:border-primary hover:text-primary"
-    >
-      {icon}
-      {title}
-    </Link>
-  );
 }

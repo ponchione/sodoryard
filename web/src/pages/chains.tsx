@@ -107,7 +107,7 @@ export function ChainsPage() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="mx-auto max-w-5xl space-y-5">
+      <div className="w-full space-y-5">
         <div className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
