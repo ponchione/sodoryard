@@ -32,6 +32,7 @@ let userDataDir = "";
 let desktopState: DesktopState = {};
 let quitting = false;
 let trustedRendererBaseURL = "";
+let trustedStatusURL = "";
 
 interface ValidatePathsResponse {
   accepted: string[];
@@ -104,7 +105,7 @@ function bindWindowLifecycle(win: BrowserWindow) {
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, url) => {
-    if (isTrustedNavigationURL(url, trustedRendererBaseURL)) return;
+    if (isTrustedNavigationURL(url, trustedRendererBaseURL, trustedStatusURL)) return;
     event.preventDefault();
     if (isSafeExternalURL(url)) {
       void shell.openExternal(url);
@@ -165,7 +166,8 @@ async function showStatus(title: string, detail: string) {
     </main>
   </body>
 </html>`;
-  await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  trustedStatusURL = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  await mainWindow.loadURL(trustedStatusURL);
 }
 
 function registerIPCHandlers() {

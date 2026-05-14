@@ -354,7 +354,13 @@ func shellTokenize(command string) []string {
 		tokens = append(tokens, current.String())
 		current.Reset()
 	}
-	for _, r := range command {
+	appendOperator := func(op string) {
+		flush()
+		tokens = append(tokens, op)
+	}
+	runes := []rune(command)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
 		switch {
 		case escaped:
 			current.WriteRune(r)
@@ -367,6 +373,22 @@ func shellTokenize(command string) []string {
 			inDouble = !inDouble
 		case unicode.IsSpace(r) && !inSingle && !inDouble:
 			flush()
+		case !inSingle && !inDouble && r == ';':
+			appendOperator(";")
+		case !inSingle && !inDouble && r == '&':
+			if i+1 < len(runes) && runes[i+1] == '&' {
+				appendOperator("&&")
+				i++
+			} else {
+				appendOperator("&")
+			}
+		case !inSingle && !inDouble && r == '|':
+			if i+1 < len(runes) && runes[i+1] == '|' {
+				appendOperator("||")
+				i++
+			} else {
+				appendOperator("|")
+			}
 		default:
 			current.WriteRune(r)
 		}

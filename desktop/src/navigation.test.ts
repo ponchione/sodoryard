@@ -22,6 +22,12 @@ test("rejects navigation outside the configured renderer origin", () => {
   assert.equal(isTrustedNavigationURL("javascript:alert(1)", rendererBaseURL), false);
 });
 
+test("allows only the app-owned status data URL", () => {
+  const statusURL = "data:text/html;charset=utf-8,Starting";
+  assert.equal(isTrustedNavigationURL(statusURL, rendererBaseURL, statusURL), true);
+  assert.equal(isTrustedNavigationURL("data:text/html;charset=utf-8,Other", rendererBaseURL, statusURL), false);
+});
+
 test("classifies safe system-browser external URLs", () => {
   assert.equal(isSafeExternalURL("https://example.test/docs"), true);
   assert.equal(isSafeExternalURL("http://example.test/docs"), true);

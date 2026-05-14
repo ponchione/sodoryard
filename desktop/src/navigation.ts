@@ -1,6 +1,13 @@
 const externalProtocols = new Set(["http:", "https:", "mailto:"]);
 
-export function isTrustedNavigationURL(rawURL: string, rendererBaseURL: string | undefined): boolean {
+export function isTrustedNavigationURL(
+  rawURL: string,
+  rendererBaseURL: string | undefined,
+  trustedStatusURL?: string,
+): boolean {
+  if (trustedStatusURL && rawURL === trustedStatusURL) {
+    return true;
+  }
   return isTrustedRendererURL(rawURL, rendererBaseURL);
 }
 
