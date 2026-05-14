@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import { parseReceiptDocument, receiptFollowUpSections, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
+import { parseReceiptDocument, receiptFollowUpSections, receiptProjectPaths, receiptRoute, receiptRouteForSummary } from "@/lib/receipts";
 import { getYardPlatform } from "@/platform";
 import type {
   ApprovalDecisionResult,
@@ -988,8 +988,8 @@ export function ChainDetailPage() {
               <p className="border border-border bg-muted/40 p-3 text-xs text-foreground">{source}</p>
             </section>
 
-            <section id="steps" className="space-y-2">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Steps</h2>
+            <section id="steps" aria-labelledby="steps-heading" className="space-y-2">
+              <h2 id="steps-heading" className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Steps</h2>
               <div className="overflow-hidden border border-border">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-border bg-muted text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -1002,19 +1002,34 @@ export function ChainDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.steps.map((step) => (
-                      <tr
-                        id={step.id ? anchorID("step", step.id) : undefined}
-                        key={step.id || `${step.sequence_num}-${step.role}`}
-                        className="border-b border-border/70"
-                      >
-                        <td className="px-3 py-2 tabular-nums">{step.sequence_num}</td>
-                        <td className="px-3 py-2">{step.role}</td>
-                        <td className={`px-3 py-2 ${chainStatusClass(step.status)}`}>{step.status}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{step.verdict || "none"}</td>
-                        <td className="px-3 py-2 font-mono text-muted-foreground">{step.receipt_path || "none"}</td>
-                      </tr>
-                    ))}
+                    {detail.steps.map((step) => {
+                      const receiptPath = step.receipt_path.trim();
+                      return (
+                        <tr
+                          id={step.id ? anchorID("step", step.id) : undefined}
+                          key={step.id || `${step.sequence_num}-${step.role}`}
+                          className="border-b border-border/70"
+                        >
+                          <td className="px-3 py-2 tabular-nums">{step.sequence_num}</td>
+                          <td className="px-3 py-2">{step.role}</td>
+                          <td className={`px-3 py-2 ${chainStatusClass(step.status)}`}>{step.status}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{step.verdict || "none"}</td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground">
+                            {receiptPath ? (
+                              <Link
+                                to={receiptRoute(id, String(step.sequence_num))}
+                                className="break-all text-primary hover:underline"
+                                aria-label={`Open receipt for step ${step.sequence_num}`}
+                              >
+                                {receiptPath}
+                              </Link>
+                            ) : (
+                              "none"
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

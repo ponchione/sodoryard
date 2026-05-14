@@ -461,6 +461,11 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText("provider.stream")).toBeInTheDocument();
     expect(screen.getByText(/turn=1 \/ iter=1 \/ 1250ms/)).toBeInTheDocument();
     expect(screen.getByText("provider failed")).toBeInTheDocument();
+    const steps = screen.getByRole("region", { name: "Steps" });
+    expect(within(steps).getByRole("link", { name: "Open receipt for step 1" })).toHaveAttribute(
+      "href",
+      "/receipts/chain-1/1",
+    );
     expect(screen.getAllByRole("link", { name: "Step" })[0]).toHaveAttribute("href", "#step-step-1");
     expect(screen.getAllByRole("link", { name: "Event" })[0]).toHaveAttribute("href", "#event-1");
     expect(screen.getByRole("link", { name: "Context" })).toHaveAttribute(
