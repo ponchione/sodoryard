@@ -3,6 +3,7 @@ import { AlertTriangle, Eye, FileText, Folder, Paperclip, Rocket, Search, X } fr
 import { Link } from "react-router-dom";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { api } from "@/lib/api";
+import { getYardPlatform } from "@/platform";
 import type { ProjectInfo } from "@/types/metrics";
 
 interface ProjectTreeNode {
@@ -66,6 +67,7 @@ function formatProjectTitle(project: ProjectInfo | null): string {
 }
 
 export function ProjectPage() {
+  const platform = useMemo(() => getYardPlatform(), []);
   const { data: project, loading: projectLoading, error: projectError } = (
     useApiResource<ProjectInfo | null>("/api/project", null)
   );
@@ -88,6 +90,22 @@ export function ProjectPage() {
   }, [files, normalizedQuery]);
   const visibleFiles = filteredFiles.slice(0, 80);
 
+  const validateAttachments = async (paths: string[]): Promise<string[]> => {
+    const requested = unique(paths.map((path) => path.trim()).filter(Boolean));
+    if (requested.length === 0) return [];
+    const result = await api.post<ValidatePathsResponse>("/api/project/validate-paths", {
+      purpose: "launch_attachment",
+      paths: requested,
+    });
+    if (result.rejected.length > 0) {
+      setAttachmentError(validationMessage(result));
+    }
+    if (result.accepted.length > 0) {
+      setAttachments((current) => unique([...current, ...result.accepted]));
+    }
+    return result.accepted;
+  };
+
   const openFile = async (path: string) => {
     setPreviewLoadingPath(path);
     setPreviewError(null);
@@ -105,17 +123,27 @@ export function ProjectPage() {
     setAttachmentLoadingPath(path);
     setAttachmentError(null);
     try {
-      const result = await api.post<ValidatePathsResponse>("/api/project/validate-paths", {
-        purpose: "launch_attachment",
-        paths: [path],
-      });
-      if (result.rejected.length > 0) {
-        setAttachmentError(validationMessage(result));
-        return;
-      }
-      setAttachments((current) => unique([...current, ...result.accepted]));
+      await validateAttachments([path]);
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : "Failed to attach file");
+    } finally {
+      setAttachmentLoadingPath(null);
+    }
+  };
+
+  const addNativeAttachments = async () => {
+    if (!platform.chooseProjectFiles) return;
+    setAttachmentLoadingPath("__native__");
+    setAttachmentError(null);
+    try {
+      const paths = await platform.chooseProjectFiles();
+      if (paths.length === 0) {
+        setAttachmentError("No project files selected.");
+        return;
+      }
+      await validateAttachments(paths);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "Failed to choose project files");
     } finally {
       setAttachmentLoadingPath(null);
     }
@@ -181,6 +209,17 @@ export function ProjectPage() {
                   />
                 </span>
               </label>
+              {platform.chooseProjectFiles && (
+                <button
+                  type="button"
+                  onClick={() => void addNativeAttachments()}
+                  disabled={attachmentLoadingPath === "__native__"}
+                  className="inline-flex items-center justify-center gap-2 border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Paperclip size={14} aria-hidden="true" />
+                  {attachmentLoadingPath === "__native__" ? "Choosing Files" : "Choose Files"}
+                </button>
+              )}
 
               {treeLoading && <p className="text-xs text-muted-foreground">Loading project tree...</p>}
               {!treeLoading && files.length === 0 && <p className="text-xs text-muted-foreground">No project files found.</p>}

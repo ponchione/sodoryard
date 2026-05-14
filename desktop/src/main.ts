@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackendRuntime, stopBackendRuntime, type BackendRuntime } from "./backend.js";
+import { toProjectRelativeFilePaths } from "./project-paths.js";
 import {
   readDesktopState,
   updateDesktopState,
@@ -144,6 +145,16 @@ function registerIPCHandlers() {
     const selected = result.canceled ? null : result.filePaths[0] ?? null;
     if (selected) rememberProjectRoot(selected);
     return selected;
+  });
+  ipcMain.handle("yard:chooseProjectFiles", async () => {
+    const projectRoot = runtime?.platform.projectRoot ?? desktopState.recentProjectRoot;
+    const result = await dialog.showOpenDialog({
+      defaultPath: projectRoot,
+      properties: ["openFile", "multiSelections"],
+      title: "Attach project files",
+    });
+    if (result.canceled) return [];
+    return toProjectRelativeFilePaths(projectRoot, result.filePaths);
   });
   ipcMain.handle("yard:notify", async (_event, notification: YardNotification) => {
     if (!Notification.isSupported()) return;

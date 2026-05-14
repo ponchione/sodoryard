@@ -2,10 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useApiResourceMock, apiGetMock, apiPostMock } = vi.hoisted(() => ({
+const { useApiResourceMock, apiGetMock, apiPostMock, chooseProjectFilesMock } = vi.hoisted(() => ({
   useApiResourceMock: vi.fn(),
   apiGetMock: vi.fn(),
   apiPostMock: vi.fn(),
+  chooseProjectFilesMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-api-resource", () => ({
@@ -17,6 +18,15 @@ vi.mock("@/lib/api", () => ({
     get: apiGetMock,
     post: apiPostMock,
   },
+}));
+
+vi.mock("@/platform", () => ({
+  getYardPlatform: () => ({
+    kind: "desktop",
+    backendBaseUrl: "",
+    openExternal: vi.fn(),
+    chooseProjectFiles: chooseProjectFilesMock,
+  }),
 }));
 
 import { ProjectPage } from "./project";
@@ -37,6 +47,7 @@ describe("ProjectPage", () => {
       accepted: ["docs/specs/24-electron-desktop-app.md"],
       rejected: [],
     });
+    chooseProjectFilesMock.mockReset().mockResolvedValue([]);
     useApiResourceMock.mockReset().mockImplementation((path: string, fallback: unknown) => {
       if (path === "/api/project") {
         return {
@@ -103,6 +114,34 @@ describe("ProjectPage", () => {
     expect(screen.getByRole("link", { name: "Launch with attachments" })).toHaveAttribute(
       "href",
       "/launch?source_spec=docs%2Fspecs%2F24-electron-desktop-app.md",
+    );
+  });
+
+  it("validates native dialog selections before launch handoff", async () => {
+    chooseProjectFilesMock.mockResolvedValue(["README.md", "docs/specs/24-electron-desktop-app.md"]);
+    apiPostMock.mockResolvedValue({
+      accepted: ["README.md", "docs/specs/24-electron-desktop-app.md"],
+      rejected: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <ProjectPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose Files" }));
+
+    await waitFor(() => {
+      expect(chooseProjectFilesMock).toHaveBeenCalled();
+      expect(apiPostMock).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "launch_attachment",
+        paths: ["README.md", "docs/specs/24-electron-desktop-app.md"],
+      });
+    });
+    expect(screen.getByRole("link", { name: "Launch with attachments" })).toHaveAttribute(
+      "href",
+      "/launch?source_spec=README.md&source_spec=docs%2Fspecs%2F24-electron-desktop-app.md",
     );
   });
 });

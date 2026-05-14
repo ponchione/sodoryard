@@ -29,8 +29,9 @@ describe("Yard platform adapter", () => {
     expect(toBackendWebSocketURL("/api/ws")).toBe("ws://localhost:3000/api/ws");
   });
 
-  it("uses the desktop-provided backend base URL", () => {
+  it("uses the desktop-provided backend base URL", async () => {
     const openExternal = vi.fn();
+    const chooseProjectFiles = vi.fn().mockResolvedValue(["README.md"]);
     installDesktopBridge({
       getPlatformInfo: () => ({
         kind: "desktop",
@@ -44,10 +45,12 @@ describe("Yard platform adapter", () => {
         },
       }),
       openExternal,
+      chooseProjectFiles,
     });
 
     expect(getYardPlatform().kind).toBe("desktop");
     expect(toBackendURL("/api/health")).toBe("http://127.0.0.1:5173/api/health");
     expect(toBackendWebSocketURL("/api/ws")).toBe("ws://127.0.0.1:5173/api/ws");
+    await expect(getYardPlatform().chooseProjectFiles?.()).resolves.toEqual(["README.md"]);
   });
 });

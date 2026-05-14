@@ -39,6 +39,7 @@ export interface YardPlatform {
   projectMemory?: YardProjectMemoryPlatform;
   openExternal(url: string): Promise<void>;
   chooseProjectDirectory?(): Promise<string | null>;
+  chooseProjectFiles?(): Promise<string[]>;
   notify?(notification: YardNotification): Promise<void>;
   getAppInfo?(): Promise<YardDesktopPlatformInfo | null>;
 }
@@ -47,5 +48,6 @@ export interface YardDesktopBridge {
   getPlatformInfo(): YardDesktopPlatformInfo | null;
   openExternal(url: string): Promise<void>;
   chooseProjectDirectory?(): Promise<string | null>;
+  chooseProjectFiles?(): Promise<string[]>;
   notify?(notification: YardNotification): Promise<void>;
 }
