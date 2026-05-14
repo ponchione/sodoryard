@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReceiptDocument, receiptRoute } from "./receipts";
+import { parseReceiptDocument, receiptFollowUpSections, receiptRoute } from "./receipts";
 
 describe("receipt helpers", () => {
   it("builds receipt detail routes for orchestrator and step receipts", () => {
@@ -29,5 +29,35 @@ describe("receipt helpers", () => {
       validation: "rtk make test, rtk make build",
     });
     expect(parsed.body).toBe("# Receipt\n\nBody");
+  });
+
+  it("extracts follow-up sections from receipt body headings", () => {
+    const parsed = parseReceiptDocument([
+      "---",
+      "role: coder",
+      "---",
+      "## Summary",
+      "Done.",
+      "",
+      "## Concerns",
+      "- Review the retry edge case.",
+      "",
+      "### Detail",
+      "Nested notes stay with concerns.",
+      "",
+      "## Next Steps",
+      "Code is ready for audit.",
+    ].join("\n"));
+
+    expect(receiptFollowUpSections(parsed)).toEqual([
+      {
+        title: "Concerns",
+        content: "- Review the retry edge case.\n\n### Detail\nNested notes stay with concerns.",
+      },
+      {
+        title: "Next Steps",
+        content: "Code is ready for audit.",
+      },
+    ]);
   });
 });

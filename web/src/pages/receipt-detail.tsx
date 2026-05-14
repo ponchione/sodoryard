@@ -4,7 +4,7 @@ import { Copy, ExternalLink, FolderOpen } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import { parseReceiptDocument, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
+import { parseReceiptDocument, receiptFollowUpSections, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
 import { getYardPlatform } from "@/platform";
 import type { ChainDetail, ChainEvent, ChainStep, ReceiptSummary, ReceiptView } from "@/types/chains";
 
@@ -94,6 +94,7 @@ export function ReceiptDetailPage() {
 
   const parsed = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
   const changedFiles = useMemo(() => receiptProjectPaths(parsed), [parsed]);
+  const followUpSections = useMemo(() => receiptFollowUpSections(parsed), [parsed]);
   const sourceSpecs = useMemo(() => (
     Array.from(new Set((detail?.chain.source_specs ?? []).map((path) => path.trim()).filter(Boolean)))
   ), [detail]);
@@ -334,6 +335,24 @@ export function ReceiptDetailPage() {
                             )}
                           </div>
                         )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {followUpSections.length > 0 && (
+                <section className="border border-border p-3 text-xs">
+                  <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Follow Ups
+                  </h2>
+                  <div className="mt-3 grid gap-3">
+                    {followUpSections.map((section) => (
+                      <div key={section.title} className="border-t border-border/70 pt-2">
+                        <h3 className="text-[10px] font-semibold uppercase tracking-widest text-primary">{section.title}</h3>
+                        <div className="mt-1 text-muted-foreground">
+                          <MarkdownContent content={section.content} />
+                        </div>
                       </div>
                     ))}
                   </div>

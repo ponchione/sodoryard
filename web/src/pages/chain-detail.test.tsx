@@ -401,6 +401,12 @@ describe("ChainDetailPage", () => {
             "# Coder Receipt",
             "",
             "coder receipt body",
+            "",
+            "## Concerns",
+            "Confirm follow-up routing.",
+            "",
+            "## Next Steps",
+            "Code is ready for audit.",
           ].join("\n"),
         });
       }
@@ -474,6 +480,11 @@ describe("ChainDetailPage", () => {
     });
     expect(await screen.findByRole("heading", { name: "Coder Receipt" })).toBeInTheDocument();
     expect(screen.getByText("changed files")).toBeInTheDocument();
+    expect(screen.getByText("Follow Ups")).toBeInTheDocument();
+    expect(screen.getAllByText("Concerns").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Confirm follow-up routing.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Next Steps").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Code is ready for audit.").length).toBeGreaterThan(0);
     expect(screen.getByText("Raw Markdown")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open internal/example.go" }));

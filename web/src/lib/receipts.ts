@@ -6,6 +6,11 @@ export interface ParsedReceiptDocument {
   rawFrontmatter: string;
 }
 
+export interface ReceiptSection {
+  title: string;
+  content: string;
+}
+
 export function receiptRoute(chainID: string, step?: string): string {
   const base = `/receipts/${encodeURIComponent(chainID)}`;
   const trimmedStep = step?.trim() ?? "";
@@ -25,6 +30,26 @@ export function receiptProjectPaths(parsed: ParsedReceiptDocument): string[] {
       if (seen.has(path)) continue;
       seen.add(path);
       out.push(path);
+    }
+  }
+  return out;
+}
+
+export function receiptFollowUpSections(parsed: ParsedReceiptDocument): ReceiptSection[] {
+  const sections = receiptHeadingSections(parsed.body);
+  const wanted = [
+    { title: "Concerns", keys: ["concerns"] },
+    { title: "Next Steps", keys: ["next steps", "next step", "follow ups", "follow-up actions", "follow up actions"] },
+  ];
+
+  const out: ReceiptSection[] = [];
+  for (const section of wanted) {
+    for (const key of section.keys) {
+      const content = sections.get(key);
+      if (content) {
+        out.push({ title: section.title, content });
+        break;
+      }
     }
   }
   return out;
@@ -97,4 +122,38 @@ function splitReceiptPathList(value: string): string[] {
     .split(",")
     .map((part) => stripQuotes(part.trim()))
     .filter((part) => part !== "" && part !== "<empty>");
+}
+
+function receiptHeadingSections(body: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  let currentTitle = "";
+  let currentLines: string[] = [];
+
+  const flush = () => {
+    if (!currentTitle) return;
+    const content = currentLines.join("\n").trim();
+    if (content) sections.set(normalizeSectionTitle(currentTitle), content);
+  };
+
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    const heading = /^##(?!#)\s+(.+?)\s*#*\s*$/.exec(line);
+    if (heading) {
+      flush();
+      currentTitle = heading[1];
+      currentLines = [];
+      continue;
+    }
+    if (currentTitle) currentLines.push(line);
+  }
+
+  flush();
+  return sections;
+}
+
+function normalizeSectionTitle(title: string): string {
+  return title
+    .replace(/[`*_#]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }

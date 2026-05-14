@@ -144,6 +144,12 @@ describe("ReceiptDetailPage", () => {
             "# Receipt Body",
             "",
             "- Rendered item",
+            "",
+            "## Concerns",
+            "Review browser fallback behavior.",
+            "",
+            "## Next Steps",
+            "Code is ready for audit.",
           ].join("\n"),
         });
       }
@@ -172,6 +178,11 @@ describe("ReceiptDetailPage", () => {
     expect(screen.getByText("verdict")).toBeInTheDocument();
     expect(screen.getByText("accepted")).toBeInTheDocument();
     expect(screen.getByText("changed files")).toBeInTheDocument();
+    expect(screen.getByText("Follow Ups")).toBeInTheDocument();
+    expect(screen.getAllByText("Concerns").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Review browser fallback behavior.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Next Steps").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Code is ready for audit.").length).toBeGreaterThan(0);
     expect(screen.getByText("Source Specs")).toBeInTheDocument();
     expect(screen.getByText("docs/specs/24-electron-desktop-app.md")).toBeInTheDocument();
     expect(screen.getAllByText("web/src/pages/receipt-detail.tsx").length).toBeGreaterThan(0);

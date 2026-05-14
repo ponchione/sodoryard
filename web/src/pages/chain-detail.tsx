@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import { parseReceiptDocument, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
+import { parseReceiptDocument, receiptFollowUpSections, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
 import { getYardPlatform } from "@/platform";
 import type {
   ApprovalDecisionResult,
@@ -495,6 +495,7 @@ export function ChainDetailPage() {
   const parsedReceipt = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
   const receiptFrontmatter = useMemo(() => Object.entries(parsedReceipt.frontmatter), [parsedReceipt]);
   const receiptChangedFiles = useMemo(() => receiptProjectPaths(parsedReceipt), [parsedReceipt]);
+  const receiptFollowUps = useMemo(() => receiptFollowUpSections(parsedReceipt), [parsedReceipt]);
   const hasFileActions = Boolean(platform.openProjectPath || platform.revealProjectPath);
 
   function selectTimelineReceipt(receiptTarget: ReceiptSummary) {
@@ -1136,6 +1137,23 @@ export function ChainDetailPage() {
                               </span>
                             ))}
                           </div>
+                        </div>
+                      )}
+                      {receiptFollowUps.length > 0 && (
+                        <div className="grid gap-2 border border-border/70 bg-muted/30 p-2 text-xs">
+                          <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                            Follow Ups
+                          </div>
+                          {receiptFollowUps.map((section) => (
+                            <div key={section.title} className="border-t border-border/70 pt-2">
+                              <h3 className="text-[10px] font-semibold uppercase tracking-widest text-primary">
+                                {section.title}
+                              </h3>
+                              <div className="mt-1 text-muted-foreground">
+                                <MarkdownContent content={section.content} />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                       <div className="text-sm leading-relaxed text-foreground">
