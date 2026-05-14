@@ -76,6 +76,7 @@ func TestDesktopCapabilitiesEndpointReportsProjectMemoryProtocol(t *testing.T) {
 		"launch_presets",
 		"project_tree",
 		"project_file_preview",
+		"project_path_validation",
 		"context_reports",
 		"metrics",
 	} {

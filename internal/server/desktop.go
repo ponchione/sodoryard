@@ -85,6 +85,7 @@ func (h *DesktopHandler) capabilities() []string {
 		"launch_presets",
 		"project_tree",
 		"project_file_preview",
+		"project_path_validation",
 		"context_reports",
 		"metrics",
 	}

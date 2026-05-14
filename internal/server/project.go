@@ -43,6 +43,7 @@ func NewProjectHandler(s *Server, cfg *config.Config, logger *slog.Logger, memor
 	s.HandleFunc("GET /api/project", h.handleProject)
 	s.HandleFunc("GET /api/project/tree", h.handleTree)
 	s.HandleFunc("GET /api/project/file", h.handleFile)
+	s.HandleFunc("POST /api/project/validate-paths", h.handleValidatePaths)
 
 	return h
 }
@@ -169,7 +170,85 @@ func (h *ProjectHandler) handleFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── POST /api/project/validate-paths ─────────────────────────────────
+
+type validatePathsRequest struct {
+	Paths   []string `json:"paths"`
+	Purpose string   `json:"purpose"`
+}
+
+type validatePathsResponse struct {
+	Accepted []string                `json:"accepted"`
+	Rejected []validatePathRejection `json:"rejected"`
+}
+
+type validatePathRejection struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+func (h *ProjectHandler) handleValidatePaths(w http.ResponseWriter, r *http.Request) {
+	var req validatePathsRequest
+	if !decodeJSON(w, r, &req, h.logger) {
+		return
+	}
+	if !validPathValidationPurpose(req.Purpose) {
+		writeError(w, http.StatusBadRequest, "unsupported path validation purpose")
+		return
+	}
+
+	resp := validatePathsResponse{
+		Accepted: make([]string, 0, len(req.Paths)),
+		Rejected: make([]validatePathRejection, 0),
+	}
+	for _, rawPath := range req.Paths {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		if path == "." || path == "" {
+			resp.Rejected = append(resp.Rejected, validatePathRejection{Path: rawPath, Reason: "path is required"})
+			continue
+		}
+		absPath, err := pathguard.Resolve(h.cfg.ProjectRoot, path)
+		if err != nil {
+			resp.Rejected = append(resp.Rejected, validatePathRejection{Path: rawPath, Reason: pathValidationErrorReason(err)})
+			continue
+		}
+		info, err := os.Stat(absPath)
+		if err != nil {
+			resp.Rejected = append(resp.Rejected, validatePathRejection{Path: rawPath, Reason: "path not found"})
+			continue
+		}
+		if req.Purpose == "open_editor" && info.IsDir() {
+			resp.Rejected = append(resp.Rejected, validatePathRejection{Path: rawPath, Reason: "path is a directory"})
+			continue
+		}
+		resp.Accepted = append(resp.Accepted, filepath.ToSlash(path))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
+
+func validPathValidationPurpose(purpose string) bool {
+	switch purpose {
+	case "launch_attachment", "open_editor", "reveal":
+		return true
+	default:
+		return false
+	}
+}
+
+func pathValidationErrorReason(err error) string {
+	switch {
+	case errors.Is(err, pathguard.ErrEmptyPath):
+		return "path is required"
+	case errors.Is(err, pathguard.ErrAbsolutePath):
+		return "absolute paths are not allowed"
+	case errors.Is(err, pathguard.ErrEscapesRoot):
+		return "path escapes project root"
+	default:
+		return "path not found"
+	}
+}
 
 func (h *ProjectHandler) loadProjectIndexMetadata(ctx context.Context) (lastIndexedAt string, lastIndexedCommit string) {
 	if ctx == nil {

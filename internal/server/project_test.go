@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -408,6 +409,109 @@ func TestProjectTreeHonorsYamlExcludePatterns(t *testing.T) {
 	if !foundSrc {
 		t.Fatalf("expected normal project content in tree, got: %s", got)
 	}
+}
+
+func TestProjectValidatePathsAcceptsSafeProjectPaths(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteTreeFile(t, dir, "docs/spec.md", "# spec\n")
+	mustWriteTreeFile(t, dir, "src/main.go", "package main\n")
+
+	cfg := config.Default()
+	cfg.ProjectRoot = dir
+	cfg.Brain.Enabled = false
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewProjectHandler(srv, cfg, newTestLogger())
+	_, base := startServer(t, srv)
+
+	body := postProjectValidation(t, base, `{"purpose":"launch_attachment","paths":["docs/spec.md","src","../outside","/tmp/nope","missing.md",""]}`)
+	if got, want := strings.Join(body.Accepted, ","), "docs/spec.md,src"; got != want {
+		t.Fatalf("accepted = %q, want %q", got, want)
+	}
+	rejections := map[string]string{}
+	for _, rejected := range body.Rejected {
+		rejections[rejected.Path] = rejected.Reason
+	}
+	for path, reason := range map[string]string{
+		"../outside": "path escapes project root",
+		"/tmp/nope":  "absolute paths are not allowed",
+		"missing.md": "path not found",
+		"":           "path is required",
+	} {
+		if rejections[path] != reason {
+			t.Fatalf("rejection %q = %q, want %q (all: %#v)", path, rejections[path], reason, rejections)
+		}
+	}
+}
+
+func TestProjectValidatePathsRejectsDirectoriesForEditorOpen(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteTreeFile(t, dir, "docs/spec.md", "# spec\n")
+
+	cfg := config.Default()
+	cfg.ProjectRoot = dir
+	cfg.Brain.Enabled = false
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewProjectHandler(srv, cfg, newTestLogger())
+	_, base := startServer(t, srv)
+
+	body := postProjectValidation(t, base, `{"purpose":"open_editor","paths":["docs","docs/spec.md"]}`)
+	if got, want := strings.Join(body.Accepted, ","), "docs/spec.md"; got != want {
+		t.Fatalf("accepted = %q, want %q", got, want)
+	}
+	if len(body.Rejected) != 1 || body.Rejected[0].Path != "docs" || body.Rejected[0].Reason != "path is a directory" {
+		t.Fatalf("rejected = %+v, want docs directory rejection", body.Rejected)
+	}
+}
+
+func TestProjectValidatePathsRejectsUnsupportedPurpose(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.ProjectRoot = dir
+	cfg.Brain.Enabled = false
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewProjectHandler(srv, cfg, newTestLogger())
+	_, base := startServer(t, srv)
+
+	resp, err := http.Post(base+"/api/project/validate-paths", "application/json", bytes.NewBufferString(`{"purpose":"shell","paths":["README.md"]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func postProjectValidation(t *testing.T, base string, payload string) struct {
+	Accepted []string `json:"accepted"`
+	Rejected []struct {
+		Path   string `json:"path"`
+		Reason string `json:"reason"`
+	} `json:"rejected"`
+} {
+	t.Helper()
+	resp, err := http.Post(base+"/api/project/validate-paths", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Accepted []string `json:"accepted"`
+		Rejected []struct {
+			Path   string `json:"path"`
+			Reason string `json:"reason"`
+		} `json:"rejected"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return body
 }
 
 func mustWriteTreeFile(t *testing.T, root, relPath, content string) {

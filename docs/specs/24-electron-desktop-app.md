@@ -1739,7 +1739,9 @@ Implementation progress as of 2026-05-14:
 - `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
 - The first desktop product route is `/dashboard`, which Electron opens by default. It combines runtime readiness, recent chains, recent conversations, and Shunter Project Memory activity using existing REST and SDK paths.
 - The launch workbench route is implemented at `/launch`. It loads roles, templates, the current draft, and custom presets, assembles launch requests, calls `/api/launch/preview`, starts chains through `/api/launch/start`, and routes to the started chain detail.
-- Remaining desktop work starts with chain monitoring polish, then receipt review, project attachments, readiness actions, and settings.
+- Chain detail includes desktop pause/resume/cancel controls, and receipts have a desktop detail route for frontmatter, body, and chain event review.
+- Launch attachments have started: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, and include accepted paths in launch `source_specs`.
+- Remaining desktop work starts with broader project-browser/native-dialog attachment affordances, readiness actions, settings, and any remaining chain/receipt polish.
 
 ### Phase 0: Spec And Alignment
 

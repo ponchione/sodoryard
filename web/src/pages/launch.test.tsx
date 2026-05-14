@@ -105,6 +105,9 @@ describe("LaunchPage", () => {
       if (path === "/api/launch/start") {
         return Promise.resolve({ chain_id: "chain-started", status: "running", preview: preview() });
       }
+      if (path === "/api/project/validate-paths") {
+        return Promise.resolve({ accepted: ["docs/specs/24-electron-desktop-app.md"], rejected: [] });
+      }
       return Promise.resolve(preview());
     });
     useApiResourceMock.mockReset().mockImplementation((path: string, fallback: unknown) => {
@@ -127,6 +130,30 @@ describe("LaunchPage", () => {
       }
       if (path === "/api/launch/presets") {
         return { data: [], loading: false, error: null, refresh: vi.fn() };
+      }
+      if (path === "/api/project/tree?depth=4") {
+        return {
+          data: {
+            name: ".",
+            type: "dir",
+            children: [
+              {
+                name: "docs",
+                type: "dir",
+                children: [
+                  {
+                    name: "specs",
+                    type: "dir",
+                    children: [{ name: "24-electron-desktop-app.md", type: "file" }],
+                  },
+                ],
+              },
+            ],
+          },
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        };
       }
       return { data: fallback, loading: false, error: null, refresh: vi.fn() };
     });
@@ -156,6 +183,32 @@ describe("LaunchPage", () => {
     expect(await screen.findByText("one-step coder launch")).toBeInTheDocument();
     expect(screen.getByText("Launch task: Ship launch workbench preview")).toBeInTheDocument();
     expect(screen.getByText("single-step coder launch has no per-step caps")).toBeInTheDocument();
+  });
+
+  it("attaches validated project files to source specs before previewing", async () => {
+    render(
+      <MemoryRouter>
+        <LaunchPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "launch_attachment",
+        paths: ["docs/specs/24-electron-desktop-app.md"],
+      });
+    });
+    expect(screen.getByLabelText("Source Specs")).toHaveValue("docs/specs/24-electron-desktop-app.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/launch/preview", expect.objectContaining({
+        source_specs: ["docs/specs/24-electron-desktop-app.md"],
+      }));
+    });
   });
 
   it("starts a launch and navigates to the started chain", async () => {

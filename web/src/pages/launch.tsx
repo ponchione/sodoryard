@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { AlertTriangle, Check, Eye, Plus, RefreshCw, Rocket, X } from "lucide-react";
+import { AlertTriangle, Check, Eye, FileText, Plus, RefreshCw, Rocket, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { ApiError, api } from "@/lib/api";
@@ -16,6 +16,22 @@ import type {
   LaunchTemplate,
   RuntimeStatus,
 } from "@/types/chains";
+
+interface ProjectTreeNode {
+  name: string;
+  type: "dir" | "file";
+  children?: ProjectTreeNode[];
+}
+
+interface ProjectFileOption {
+  name: string;
+  path: string;
+}
+
+interface ValidatePathsResponse {
+  accepted: string[];
+  rejected: Array<{ path: string; reason: string }>;
+}
 
 interface LaunchFormState {
   mode: LaunchMode;
@@ -88,6 +104,19 @@ function optionalInt(value: string): number | undefined {
 
 function roleNames(roles: AgentRoleSummary[]): string[] {
   return roles.map((role) => role.name).filter(Boolean);
+}
+
+function flattenProjectFiles(node: ProjectTreeNode | null, parent = ""): ProjectFileOption[] {
+  if (!node) return [];
+  const currentPath = node.name === "." ? parent : (parent ? `${parent}/${node.name}` : node.name);
+  if (node.type === "file") {
+    return [{ name: node.name, path: currentPath }];
+  }
+  return (node.children ?? []).flatMap((child) => flattenProjectFiles(child, currentPath));
+}
+
+function attachmentErrorMessage(result: ValidatePathsResponse): string {
+  return result.rejected.map((item) => `${item.path}: ${item.reason}`).join("; ");
 }
 
 function preferredRole(roles: string[], current?: string): string {
@@ -188,13 +217,20 @@ export function LaunchPage() {
     useApiResource<LaunchDraftRead>("/api/launch/draft", { found: false })
   );
   const { data: presets, error: presetsError } = useApiResource<LaunchPreset[]>("/api/launch/presets", []);
+  const { data: projectTree, loading: projectTreeLoading, error: projectTreeError } = (
+    useApiResource<ProjectTreeNode | null>("/api/project/tree?depth=4", null)
+  );
   const rolesList = useMemo(() => roleNames(roles), [roles]);
+  const projectFiles = useMemo(() => flattenProjectFiles(projectTree), [projectTree]);
   const [form, setForm] = useState<LaunchFormState>(emptyForm);
   const [preview, setPreview] = useState<LaunchPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [attachmentQuery, setAttachmentQuery] = useState("");
+  const [attachmentLoadingPath, setAttachmentLoadingPath] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -206,6 +242,14 @@ export function LaunchPage() {
 
   const selectedTemplate = templateForMode(templates, form.mode);
   const currentRequest = useMemo(() => buildLaunchRequest(form, templates), [form, templates]);
+  const sourceSpecList = useMemo(() => splitList(form.sourceSpecsText), [form.sourceSpecsText]);
+  const normalizedAttachmentQuery = attachmentQuery.trim().toLowerCase();
+  const visibleProjectFiles = useMemo(() => {
+    const filtered = normalizedAttachmentQuery
+      ? projectFiles.filter((file) => file.path.toLowerCase().includes(normalizedAttachmentQuery))
+      : projectFiles;
+    return filtered.slice(0, 20);
+  }, [normalizedAttachmentQuery, projectFiles]);
 
   const updateMode = (mode: LaunchMode) => {
     const template = templateForMode(templates, mode);
@@ -245,6 +289,42 @@ export function LaunchPage() {
 
   const removeRosterRole = (role: string) => {
     setForm((current) => ({ ...current, roster: current.roster.filter((item) => item !== role) }));
+  };
+
+  const addProjectAttachment = async (path: string) => {
+    setAttachmentLoadingPath(path);
+    setAttachmentError(null);
+    try {
+      const result = await api.post<ValidatePathsResponse>("/api/project/validate-paths", {
+        purpose: "launch_attachment",
+        paths: [path],
+      });
+      if (result.rejected.length > 0) {
+        setAttachmentError(attachmentErrorMessage(result));
+        return;
+      }
+      setForm((current) => ({
+        ...current,
+        sourceSpecsText: unique([...splitList(current.sourceSpecsText), ...result.accepted]).join("\n"),
+      }));
+      setPreview(null);
+      setPreviewError(null);
+      setStartError(null);
+    } catch (error) {
+      setAttachmentError(errorMessage(error));
+    } finally {
+      setAttachmentLoadingPath(null);
+    }
+  };
+
+  const removeProjectAttachment = (path: string) => {
+    setForm((current) => ({
+      ...current,
+      sourceSpecsText: splitList(current.sourceSpecsText).filter((candidate) => candidate !== path).join("\n"),
+    }));
+    setPreview(null);
+    setPreviewError(null);
+    setStartError(null);
   };
 
   const toggleAllowedRole = (role: string) => {
@@ -296,7 +376,7 @@ export function LaunchPage() {
     }
   };
 
-  const pageErrors = [runtimeError, rolesError, templatesError, draftError, presetsError].filter(Boolean);
+  const pageErrors = [runtimeError, rolesError, templatesError, draftError, presetsError, projectTreeError].filter(Boolean);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -387,6 +467,7 @@ export function LaunchPage() {
                     className="min-h-20 resize-y border border-border bg-background px-3 py-2 font-mono text-xs text-foreground outline-none focus:border-primary"
                   />
                 </label>
+                <AttachmentPills paths={sourceSpecList} onRemove={removeProjectAttachment} />
               </div>
             </section>
 
@@ -576,6 +657,56 @@ export function LaunchPage() {
             </section>
 
             <section className="border border-border">
+              <SectionHeader title="Project Attachments" />
+              <div className="grid gap-3 p-3">
+                <label className="grid gap-1 text-xs">
+                  <span className="font-medium uppercase tracking-widest text-muted-foreground">Find Files</span>
+                  <span className="relative">
+                    <Search
+                      size={14}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70"
+                    />
+                    <input
+                      type="search"
+                      value={attachmentQuery}
+                      onChange={(event) => setAttachmentQuery(event.target.value)}
+                      placeholder="docs/specs"
+                      className="w-full border border-border bg-background px-8 py-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary"
+                    />
+                  </span>
+                </label>
+                {attachmentError && <p className="text-xs text-destructive">{attachmentError}</p>}
+                {projectTreeLoading && <p className="text-xs text-muted-foreground">Loading project files...</p>}
+                {!projectTreeLoading && visibleProjectFiles.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No project files match.</p>
+                )}
+                <div className="max-h-72 divide-y divide-border/70 overflow-auto border border-border">
+                  {visibleProjectFiles.map((file) => {
+                    const attached = sourceSpecList.includes(file.path);
+                    const loading = attachmentLoadingPath === file.path;
+                    return (
+                      <div key={file.path} className="grid gap-2 px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto]">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileText size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="truncate font-mono text-muted-foreground">{file.path}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void addProjectAttachment(file.path)}
+                          disabled={attached || loading}
+                          className="border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {attached ? "Attached" : loading ? "Adding" : "Attach"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <section className="border border-border">
               <SectionHeader title="Request" />
               <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-[11px] text-muted-foreground">
                 {JSON.stringify(currentRequest, null, 2)}
@@ -690,6 +821,38 @@ function RolePills({
             onClick={() => onRemove(role)}
             className="text-muted-foreground hover:text-destructive"
             aria-label={`Remove ${role} from roster`}
+          >
+            <X size={13} aria-hidden="true" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AttachmentPills({
+  paths,
+  onRemove,
+}: {
+  paths: string[];
+  onRemove: (path: string) => void;
+}) {
+  if (paths.length === 0) {
+    return <p className="text-xs text-muted-foreground">No project attachments selected.</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {paths.map((path) => (
+        <span
+          key={path}
+          className="inline-flex max-w-full items-center gap-2 border border-border px-2 py-1 font-mono text-xs text-foreground"
+        >
+          <span className="truncate">{path}</span>
+          <button
+            type="button"
+            onClick={() => onRemove(path)}
+            className="shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label={`Remove ${path} from project attachments`}
           >
             <X size={13} aria-hidden="true" />
           </button>
