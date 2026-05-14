@@ -253,6 +253,30 @@ func TestCreateConversationEmptyBody(t *testing.T) {
 	}
 }
 
+func TestCreateConversationDecodesChunkedBody(t *testing.T) {
+	mock := &mockConversationService{}
+	base := setupConversationTests(t, mock)
+
+	req, err := http.NewRequest(http.MethodPost, base+"/api/conversations", strings.NewReader(`{"title":"Chunked Chat"}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.ContentLength = -1
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	if len(mock.conversations) != 1 || mock.conversations[0].Title == nil || *mock.conversations[0].Title != "Chunked Chat" {
+		t.Fatalf("created conversation title = %+v, want Chunked Chat", mock.conversations)
+	}
+}
+
 func TestGetConversation(t *testing.T) {
 	title := "Found It"
 	mock := &mockConversationService{

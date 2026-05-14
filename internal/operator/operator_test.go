@@ -1449,6 +1449,22 @@ func TestReadReceiptFallsBackToStepReceiptWhenOrchestratorReceiptIsMissing(t *te
 	}
 }
 
+func TestReadReceiptRequiresExistingChain(t *testing.T) {
+	ctx := context.Background()
+	store := chain.NewStore(newOperatorTestDB(t))
+	backend := &fakeBrainBackend{docs: map[string]string{
+		"receipts/orchestrator/missing-chain.md": "orphan receipt",
+	}}
+	svc := openOperatorTestService(t, t.TempDir(), store, backend, nil)
+
+	if _, err := svc.ReadReceipt(ctx, "missing-chain", ""); err == nil {
+		t.Fatal("ReadReceipt returned nil error for missing chain")
+	}
+	if len(backend.readPaths) != 0 {
+		t.Fatalf("brain backend was read for missing chain: %v", backend.readPaths)
+	}
+}
+
 func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	ctx := context.Background()
 	svc := openOperatorTestService(t, t.TempDir(), chain.NewStore(newOperatorTestDB(t)), &fakeBrainBackend{}, nil)

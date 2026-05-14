@@ -1,8 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackendRuntime, stopBackendRuntime, type BackendRuntime } from "./backend.js";
+import {
+  isSafeExternalURL,
+  isTrustedNavigationURL,
+  isTrustedRendererURL,
+} from "./navigation.js";
 import { toProjectAbsolutePath, toProjectRelativeFilePaths } from "./project-paths.js";
 import {
   readDesktopState,
@@ -25,6 +31,7 @@ let runtime: BackendRuntime | undefined;
 let userDataDir = "";
 let desktopState: DesktopState = {};
 let quitting = false;
+let trustedRendererBaseURL = "";
 
 interface ValidatePathsResponse {
   accepted: string[];
@@ -48,6 +55,7 @@ async function main() {
       projectDir: process.env.YARD_PROJECT_DIR || desktopState.recentProjectRoot,
       configPath: process.env.YARD_CONFIG,
     });
+    trustedRendererBaseURL = runtime.rendererBaseUrl;
     rememberProjectRoot(runtime.platform.projectRoot);
     watchManagedBackend(runtime);
     await showStatus("Starting Yard Desktop", "Opening the renderer...");
@@ -84,6 +92,23 @@ function bindWindowLifecycle(win: BrowserWindow) {
   win.on("close", () => persistWindowState(win));
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = undefined;
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isTrustedRendererURL(url, trustedRendererBaseURL)) {
+      void win.loadURL(url);
+      return { action: "deny" };
+    }
+    if (isSafeExternalURL(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (isTrustedNavigationURL(url, trustedRendererBaseURL)) return;
+    event.preventDefault();
+    if (isSafeExternalURL(url)) {
+      void shell.openExternal(url);
+    }
   });
   win.webContents.on("before-input-event", (event, input) => {
     const command = zoomCommandForInput(input);
@@ -145,16 +170,22 @@ async function showStatus(title: string, detail: string) {
 
 function registerIPCHandlers() {
   ipcMain.on("yard:getPlatformInfo", (event) => {
+    if (!trustedIPCEvent(event)) {
+      event.returnValue = null;
+      return;
+    }
     event.returnValue = runtime?.platform ?? null;
   });
-  ipcMain.handle("yard:openExternal", async (_event, rawURL: string) => {
+  ipcMain.handle("yard:openExternal", async (event, rawURL: string) => {
+    assertTrustedIPCEvent(event);
     const url = new URL(String(rawURL));
     if (!["http:", "https:", "mailto:"].includes(url.protocol)) {
       throw new Error(`Unsupported external URL protocol: ${url.protocol}`);
     }
     await shell.openExternal(url.toString());
   });
-  ipcMain.handle("yard:chooseProjectDirectory", async () => {
+  ipcMain.handle("yard:chooseProjectDirectory", async (event) => {
+    assertTrustedIPCEvent(event);
     const result = await dialog.showOpenDialog({
       defaultPath: desktopState.recentProjectRoot ?? runtime?.platform.projectRoot,
       properties: ["openDirectory"],
@@ -164,7 +195,8 @@ function registerIPCHandlers() {
     if (selected) rememberProjectRoot(selected);
     return selected;
   });
-  ipcMain.handle("yard:chooseProjectFiles", async () => {
+  ipcMain.handle("yard:chooseProjectFiles", async (event) => {
+    assertTrustedIPCEvent(event);
     const projectRoot = runtime?.platform.projectRoot ?? desktopState.recentProjectRoot;
     const result = await dialog.showOpenDialog({
       defaultPath: projectRoot,
@@ -175,23 +207,38 @@ function registerIPCHandlers() {
     return toProjectRelativeFilePaths(projectRoot, result.filePaths);
   });
   ipcMain.handle("yard:openProjectPath", async (_event, projectPath: string) => {
+    assertTrustedIPCEvent(_event);
     const acceptedPath = await validateProjectPath(projectPath, "open_editor");
     const absPath = resolveProjectPath(acceptedPath);
     const error = await shell.openPath(absPath);
     if (error) throw new Error(error);
   });
   ipcMain.handle("yard:revealProjectPath", async (_event, projectPath: string) => {
+    assertTrustedIPCEvent(_event);
     const acceptedPath = await validateProjectPath(projectPath, "reveal");
     const absPath = resolveProjectPath(acceptedPath);
     shell.showItemInFolder(absPath);
   });
   ipcMain.handle("yard:notify", async (_event, notification: YardNotification) => {
+    assertTrustedIPCEvent(_event);
     if (!Notification.isSupported()) return;
     new Notification({
       title: notification.title,
       body: notification.body,
     }).show();
   });
+}
+
+function assertTrustedIPCEvent(event?: IpcMainEvent | IpcMainInvokeEvent) {
+  if (!trustedIPCEvent(event)) {
+    throw new Error("Untrusted renderer origin");
+  }
+}
+
+function trustedIPCEvent(event?: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  if (!event) return false;
+  const sourceURL = event.senderFrame?.url || event.sender.getURL();
+  return isTrustedRendererURL(sourceURL, trustedRendererBaseURL);
 }
 
 function resolveProjectPath(projectPath: string): string {

@@ -78,7 +78,7 @@ func (h *ConversationHandler) handleCreate(w http.ResponseWriter, r *http.Reques
 		Model    string `json:"model"`
 		Provider string `json:"provider"`
 	}
-	if r.ContentLength > 0 {
+	if r.Body != http.NoBody && r.ContentLength != 0 {
 		if !decodeJSON(w, r, &req, h.logger) {
 			return
 		}

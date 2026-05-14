@@ -10,16 +10,20 @@ import (
 )
 
 func (s *Service) ReadReceipt(ctx context.Context, chainID string, step string) (ReceiptView, error) {
+	store, err := s.store()
+	if err != nil {
+		return ReceiptView{}, err
+	}
+	if _, err := store.GetChain(ctx, chainID); err != nil {
+		return ReceiptView{}, err
+	}
+	steps, err := store.ListSteps(ctx, chainID)
+	if err != nil {
+		return ReceiptView{}, err
+	}
+
 	path := fmt.Sprintf("receipts/orchestrator/%s.md", chainID)
 	if step != "" {
-		store, err := s.store()
-		if err != nil {
-			return ReceiptView{}, err
-		}
-		steps, err := store.ListSteps(ctx, chainID)
-		if err != nil {
-			return ReceiptView{}, err
-		}
 		if stepPath, ok := receiptPathForStep(chainID, step, steps); ok {
 			path = stepPath
 		}
@@ -30,8 +34,7 @@ func (s *Service) ReadReceipt(ctx context.Context, chainID string, step string) 
 	}
 	content, err := backend.ReadDocument(ctx, path)
 	if err != nil && step == "" {
-		fallbackPath, ok := s.defaultStepReceiptPath(ctx, chainID)
-		if ok {
+		if fallbackPath, ok := firstStepReceiptPath(steps); ok {
 			fallbackContent, fallbackErr := backend.ReadDocument(ctx, fallbackPath)
 			if fallbackErr == nil {
 				return ReceiptView{ChainID: chainID, Step: step, Path: fallbackPath, Content: fallbackContent}, nil
@@ -44,15 +47,7 @@ func (s *Service) ReadReceipt(ctx context.Context, chainID string, step string) 
 	return ReceiptView{ChainID: chainID, Step: step, Path: path, Content: content}, nil
 }
 
-func (s *Service) defaultStepReceiptPath(ctx context.Context, chainID string) (string, bool) {
-	store, err := s.store()
-	if err != nil {
-		return "", false
-	}
-	steps, err := store.ListSteps(ctx, chainID)
-	if err != nil {
-		return "", false
-	}
+func firstStepReceiptPath(steps []chain.Step) (string, bool) {
 	for _, step := range steps {
 		if step.ReceiptPath != "" {
 			return step.ReceiptPath, true
