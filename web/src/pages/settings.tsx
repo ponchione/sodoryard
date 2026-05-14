@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { AlertTriangle, Brain, Check, Copy, Download, KeyRound, Save, Wrench } from "lucide-react";
+import { AlertTriangle, Brain, Check, Copy, Download, KeyRound, RefreshCw, Save, Wrench } from "lucide-react";
 import { useProviders } from "@/hooks/use-providers";
 import { useProjectInfo } from "@/hooks/use-project-info";
 import { ApiError, api } from "@/lib/api";
@@ -234,7 +234,7 @@ function projectMemoryLabel(projectMemory?: YardProjectMemoryPlatform): string {
 }
 
 export function SettingsPage() {
-  const { providers, loading: provLoading } = useProviders();
+  const { providers, loading: provLoading, error: providerError, refresh: refreshProviders } = useProviders();
   const { project, loading: projLoading } = useProjectInfo();
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -247,6 +247,9 @@ export function SettingsPage() {
   const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [platformInfo, setPlatformInfo] = useState<SettingsPlatformInfo>(() => platformInfoFallback());
+  const [providersRefreshing, setProvidersRefreshing] = useState(false);
+  const [providersRefreshMessage, setProvidersRefreshMessage] = useState<string | null>(null);
+  const [providersRefreshError, setProvidersRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -339,6 +342,20 @@ export function SettingsPage() {
       setDiagnosticsError(apiErrorMessage(error));
     } finally {
       setDiagnosticsExporting(false);
+    }
+  };
+
+  const refreshProviderStatus = async () => {
+    setProvidersRefreshing(true);
+    setProvidersRefreshMessage(null);
+    setProvidersRefreshError(null);
+    try {
+      await refreshProviders();
+      setProvidersRefreshMessage("Provider status refreshed");
+    } catch (error) {
+      setProvidersRefreshError(apiErrorMessage(error));
+    } finally {
+      setProvidersRefreshing(false);
     }
   };
 
@@ -532,9 +549,23 @@ export function SettingsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Providers
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Providers
+            </h2>
+            <button
+              type="button"
+              onClick={() => void refreshProviderStatus()}
+              disabled={providersRefreshing || provLoading}
+              className="inline-flex items-center gap-2 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw size={12} aria-hidden="true" />
+              {providersRefreshing ? "Refreshing" : "Refresh"}
+            </button>
+          </div>
+          {providerError && <StatusMessage tone="danger" text={providerError} />}
+          {providersRefreshMessage && <StatusMessage tone="success" text={providersRefreshMessage} />}
+          {providersRefreshError && <StatusMessage tone="danger" text={providersRefreshError} />}
           {provLoading && providerOptions.length === 0 ? (
             <p className="text-xs text-muted-foreground">Loading...</p>
           ) : providerOptions.length === 0 ? (
@@ -704,6 +735,8 @@ function ProviderCredentialDetails({ auth, providerName }: { auth?: ProviderAuth
       <div className="grid gap-1 text-[11px] text-muted-foreground">
         {auth.mode && <span>mode {auth.mode}</span>}
         {auth.source && <span>source {auth.source}</span>}
+        {auth.store_path && <span className="break-all font-mono">store {auth.store_path}</span>}
+        {auth.source_path && <span className="break-all font-mono">source path {auth.source_path}</span>}
         {auth.active_provider && <span>active provider {auth.active_provider}</span>}
         {auth.expires_at && <span>expires {formatTimestamp(auth.expires_at)}</span>}
         {auth.last_refresh && <span>last refresh {formatTimestamp(auth.last_refresh)}</span>}

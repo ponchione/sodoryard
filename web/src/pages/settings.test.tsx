@@ -13,6 +13,7 @@ const {
   revokeObjectURLMock,
   anchorClickMock,
   getAppInfoMock,
+  refreshProvidersMock,
 } = vi.hoisted(() => ({
   useProvidersMock: vi.fn(),
   useProjectInfoMock: vi.fn(),
@@ -24,6 +25,7 @@ const {
   revokeObjectURLMock: vi.fn(),
   anchorClickMock: vi.fn(),
   getAppInfoMock: vi.fn(),
+  refreshProvidersMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-providers", () => ({
@@ -102,6 +104,8 @@ function providerStatuses(): ProviderStatus[] {
         provider: "codex",
         mode: "chatgpt",
         source: "sirtopham_store",
+        store_path: "/tmp/.sirtopham/auth.json",
+        source_path: "/tmp/.codex/auth.json",
         has_access_token: true,
         has_refresh_token: true,
         expires_at: "2099-01-02T03:04:05Z",
@@ -189,8 +193,9 @@ describe("SettingsPage", () => {
       providers: providerStatuses(),
       loading: false,
       error: null,
-      refresh: vi.fn(),
+      refresh: refreshProvidersMock,
     });
+    refreshProvidersMock.mockReset().mockResolvedValue(undefined);
     useProjectInfoMock.mockReset().mockReturnValue({
       project: {
         id: "/tmp/project",
@@ -224,6 +229,8 @@ describe("SettingsPage", () => {
     expect(screen.getAllByText("provider access token ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Provider Credentials").length).toBeGreaterThan(0);
     expect(screen.getByText("mode chatgpt")).toBeInTheDocument();
+    expect(screen.getByText("store /tmp/.sirtopham/auth.json")).toBeInTheDocument();
+    expect(screen.getByText("source path /tmp/.codex/auth.json")).toBeInTheDocument();
     expect(screen.getByText("Run `yard auth login codex` to refresh Codex provider credentials.")).toBeInTheDocument();
     expect(screen.getByRole("button", {
       name: "Copy codex provider credential remediation command",
@@ -244,6 +251,17 @@ describe("SettingsPage", () => {
       expect(clipboardWriteTextMock).toHaveBeenCalledWith("yard auth login codex");
     });
     expect(await screen.findByText("Command copied")).toBeInTheDocument();
+  });
+
+  it("refreshes provider credential status from settings", async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(refreshProvidersMock).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("Provider status refreshed")).toBeInTheDocument();
   });
 
   it("saves default provider and model through the validated config endpoint", async () => {
