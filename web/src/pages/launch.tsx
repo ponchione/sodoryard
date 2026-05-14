@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { AlertTriangle, Check, Eye, FileText, Plus, RefreshCw, Rocket, Search, X } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { ApiError, api } from "@/lib/api";
 import { formatTokenLimit } from "@/lib/model-capabilities";
@@ -208,6 +208,7 @@ function modeLabel(mode: LaunchMode): string {
 
 export function LaunchPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: runtime, error: runtimeError } = useApiResource<RuntimeStatus | null>("/api/runtime/status", null);
   const { data: roles, loading: rolesLoading, error: rolesError } = useApiResource<AgentRoleSummary[]>("/api/roles", []);
   const { data: templates, loading: templatesLoading, error: templatesError } = (
@@ -222,6 +223,7 @@ export function LaunchPage() {
   );
   const rolesList = useMemo(() => roleNames(roles), [roles]);
   const projectFiles = useMemo(() => flattenProjectFiles(projectTree), [projectTree]);
+  const sourceSpecParams = useMemo(() => unique(searchParams.getAll("source_spec").flatMap(splitList)), [searchParams]);
   const [form, setForm] = useState<LaunchFormState>(emptyForm);
   const [preview, setPreview] = useState<LaunchPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -236,9 +238,12 @@ export function LaunchPage() {
   useEffect(() => {
     if (initialized.current || rolesLoading || templatesLoading || draftLoading) return;
     const nextForm = formFromRequest(draftRead.found ? draftRead.draft?.request : undefined, rolesList, templates);
+    if (sourceSpecParams.length > 0) {
+      nextForm.sourceSpecsText = unique([...splitList(nextForm.sourceSpecsText), ...sourceSpecParams]).join("\n");
+    }
     setForm(nextForm);
     initialized.current = true;
-  }, [draftLoading, draftRead, rolesList, rolesLoading, templates, templatesLoading]);
+  }, [draftLoading, draftRead, rolesList, rolesLoading, sourceSpecParams, templates, templatesLoading]);
 
   const selectedTemplate = templateForMode(templates, form.mode);
   const currentRequest = useMemo(() => buildLaunchRequest(form, templates), [form, templates]);

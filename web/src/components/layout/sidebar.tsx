@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Activity, BarChart3, LayoutDashboard, MessageSquare, Plus, Rocket, Search, Settings, Trash2, X } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  FolderTree,
+  LayoutDashboard,
+  MessageSquare,
+  Plus,
+  Rocket,
+  Search,
+  Settings,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -168,6 +180,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             active={location.pathname.startsWith("/launch")}
             icon={<Rocket size={16} aria-hidden="true" />}
             label="Launch"
+            onClick={onClose}
+          />
+          <NavLinkItem
+            to="/project"
+            active={location.pathname.startsWith("/project")}
+            icon={<FolderTree size={16} aria-hidden="true" />}
+            label="Project"
             onClick={onClose}
           />
           <NavLinkItem

@@ -211,6 +211,18 @@ describe("LaunchPage", () => {
     });
   });
 
+  it("loads source spec query attachments from the project browser", async () => {
+    render(
+      <MemoryRouter initialEntries={["/launch?source_spec=docs%2Fspec.md&source_spec=README.md"]}>
+        <LaunchPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Source Specs")).toHaveValue("docs/spec.md\nREADME.md");
+    });
+  });
+
   it("starts a launch and navigates to the started chain", async () => {
     render(
       <MemoryRouter>

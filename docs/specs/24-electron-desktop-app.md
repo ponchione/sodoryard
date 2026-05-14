@@ -1741,7 +1741,8 @@ Implementation progress as of 2026-05-14:
 - The launch workbench route is implemented at `/launch`. It loads roles, templates, the current draft, and custom presets, assembles launch requests, calls `/api/launch/preview`, starts chains through `/api/launch/start`, and routes to the started chain detail.
 - Chain detail includes desktop pause/resume/cancel controls, and receipts have a desktop detail route for frontmatter, body, and chain event review.
 - Launch attachments have started: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, and include accepted paths in launch `source_specs`.
-- Remaining desktop work starts with broader project-browser/native-dialog attachment affordances, readiness actions, settings, and any remaining chain/receipt polish.
+- The project browser route is implemented at `/project`. It loads the backend-safe project tree, filters files, previews file contents through `/api/project/file`, validates selected launch attachments through `/api/project/validate-paths`, and hands those attachments to `/launch` through `source_spec` query parameters.
+- Remaining desktop work starts with native-dialog attachment affordances, readiness actions, settings, and any remaining chain/receipt polish.
 
 ### Phase 0: Spec And Alignment
 
