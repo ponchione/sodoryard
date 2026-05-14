@@ -131,6 +131,7 @@ export interface ChainSummary {
   status: string;
   source_task: string;
   source_specs: string[];
+  roles: string[];
   total_steps: number;
   total_tokens: number;
   total_duration_secs: number;

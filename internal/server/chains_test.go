@@ -204,10 +204,11 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	_, base := startServer(t, srv)
 
 	var chains []struct {
-		ID                string `json:"id"`
-		Status            string `json:"status"`
-		TotalDurationSecs int    `json:"total_duration_secs"`
-		ReceiptCount      int    `json:"receipt_count"`
+		ID                string   `json:"id"`
+		Status            string   `json:"status"`
+		Roles             []string `json:"roles"`
+		TotalDurationSecs int      `json:"total_duration_secs"`
+		ReceiptCount      int      `json:"receipt_count"`
 	}
 	getJSON(t, base+"/api/chains", &chains)
 	if len(chains) != 1 || chains[0].ID != chainID || chains[0].Status != "completed" {
@@ -215,6 +216,9 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	}
 	if chains[0].TotalDurationSecs != 5 || chains[0].ReceiptCount != 1 {
 		t.Fatalf("chains summary indicators = %+v, want duration 5 and one receipt", chains[0])
+	}
+	if len(chains[0].Roles) != 1 || chains[0].Roles[0] != "coder" {
+		t.Fatalf("chains summary roles = %+v, want coder", chains[0].Roles)
 	}
 
 	var templates []struct {

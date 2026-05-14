@@ -77,6 +77,7 @@ function chainSummary(): ChainSummary {
     status: "running",
     source_task: "build dashboard",
     source_specs: [],
+    roles: ["coder"],
     total_steps: 2,
     total_tokens: 500,
     total_duration_secs: 120,

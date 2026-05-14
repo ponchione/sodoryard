@@ -85,6 +85,7 @@ type ChainSummary struct {
 	Status            string
 	SourceTask        string
 	SourceSpecs       []string
+	Roles             []string
 	TotalSteps        int
 	TotalTokens       int
 	TotalDurationSecs int

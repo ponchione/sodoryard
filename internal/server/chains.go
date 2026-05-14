@@ -329,6 +329,7 @@ type chainSummaryResponse struct {
 	Status            string               `json:"status"`
 	SourceTask        string               `json:"source_task"`
 	SourceSpecs       []string             `json:"source_specs"`
+	Roles             []string             `json:"roles"`
 	TotalSteps        int                  `json:"total_steps"`
 	TotalTokens       int                  `json:"total_tokens"`
 	TotalDurationSecs int                  `json:"total_duration_secs"`
@@ -667,6 +668,7 @@ func chainSummaryResponseFromOperator(summary operator.ChainSummary) chainSummar
 		Status:            summary.Status,
 		SourceTask:        summary.SourceTask,
 		SourceSpecs:       append([]string(nil), summary.SourceSpecs...),
+		Roles:             append([]string(nil), summary.Roles...),
 		TotalSteps:        summary.TotalSteps,
 		TotalTokens:       summary.TotalTokens,
 		TotalDurationSecs: summary.TotalDurationSecs,

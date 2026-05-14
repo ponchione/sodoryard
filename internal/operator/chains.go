@@ -124,6 +124,7 @@ func summarizeChain(ch chain.Chain, steps []chain.Step) ChainSummary {
 		Status:            ch.Status,
 		SourceTask:        ch.SourceTask,
 		SourceSpecs:       append([]string(nil), ch.SourceSpecs...),
+		Roles:             summarizeStepRoles(steps),
 		TotalSteps:        ch.TotalSteps,
 		TotalTokens:       ch.TotalTokens,
 		TotalDurationSecs: ch.TotalDurationSecs,
@@ -132,6 +133,23 @@ func summarizeChain(ch chain.Chain, steps []chain.Step) ChainSummary {
 		UpdatedAt:         ch.UpdatedAt,
 		CurrentStep:       summarizeCurrentStep(steps),
 	}
+}
+
+func summarizeStepRoles(steps []chain.Step) []string {
+	seen := make(map[string]struct{})
+	roles := make([]string, 0)
+	for _, step := range steps {
+		role := strings.TrimSpace(step.Role)
+		if role == "" {
+			continue
+		}
+		if _, ok := seen[role]; ok {
+			continue
+		}
+		seen[role] = struct{}{}
+		roles = append(roles, role)
+	}
+	return roles
 }
 
 func countStepReceipts(steps []chain.Step) int {

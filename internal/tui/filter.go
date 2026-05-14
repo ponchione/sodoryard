@@ -27,6 +27,7 @@ func chainMatchesFilter(ch operator.ChainSummary, query string) bool {
 		ch.Status,
 		ch.SourceTask,
 		strings.Join(ch.SourceSpecs, " "),
+		strings.Join(ch.Roles, " "),
 		strconv.Itoa(ch.TotalSteps),
 		strconv.Itoa(ch.TotalTokens),
 	}

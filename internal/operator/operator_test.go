@@ -545,6 +545,9 @@ func TestListChainsAndDetail(t *testing.T) {
 	if summary.SourceTask != "build it" || !reflect.DeepEqual(summary.SourceSpecs, []string{"specs/plan.md"}) {
 		t.Fatalf("summary source = task %q specs %v, want build it/specs", summary.SourceTask, summary.SourceSpecs)
 	}
+	if !reflect.DeepEqual(summary.Roles, []string{"planner", "coder"}) {
+		t.Fatalf("summary roles = %v, want planner/coder", summary.Roles)
+	}
 	if summary.TotalSteps != 2 || summary.TotalTokens != 123 {
 		t.Fatalf("summary metrics = steps %d tokens %d, want 2/123", summary.TotalSteps, summary.TotalTokens)
 	}

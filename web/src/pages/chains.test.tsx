@@ -52,6 +52,7 @@ function chainSummary(): ChainSummary {
     status: "running",
     source_task: "inspect project memory",
     source_specs: [],
+    roles: ["coder"],
     total_steps: 1,
     total_tokens: 42,
     total_duration_secs: 65,
@@ -76,6 +77,7 @@ function completedChainSummary(): ChainSummary {
     id: "chain-2",
     status: "completed",
     source_task: "archive chain results",
+    roles: ["planner"],
     total_tokens: 84,
     total_duration_secs: 9,
     receipt_count: 1,
@@ -156,6 +158,20 @@ describe("ChainsPage", () => {
     expect(screen.getByText("archive chain results")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "completed" }));
+
+    expect(screen.queryAllByText("inspect project memory")).toHaveLength(0);
+    expect(screen.getByText("archive chain results")).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => element?.textContent === "1/2")).toBeInTheDocument();
+  });
+
+  it("filters chain rows by role", () => {
+    render(
+      <MemoryRouter>
+        <ChainsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "planner" }));
 
     expect(screen.queryAllByText("inspect project memory")).toHaveLength(0);
     expect(screen.getByText("archive chain results")).toBeInTheDocument();

@@ -64,6 +64,7 @@ function eventPayloadPreview(payloadJson: string): string {
 export function ChainsPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
   const { data: chains, loading, error, refresh } = useApiResource<ChainSummary[]>("/api/chains?limit=100", []);
   const { data: status } = useApiResource<RuntimeStatus | null>("/api/runtime/status", null);
   const projectMemory = useProjectMemoryChains({ onChanged: refresh });
@@ -71,16 +72,21 @@ export function ChainsPage() {
   const statusFilters = useMemo(() => (
     Array.from(new Set(chains.map((chain) => chain.status).filter(Boolean))).sort()
   ), [chains]);
+  const roleFilters = useMemo(() => (
+    Array.from(new Set(chains.flatMap((chain) => chain.roles ?? []).filter(Boolean))).sort()
+  ), [chains]);
   const visibleChains = useMemo(() => {
     return chains
       .filter((chain) => {
         if (statusFilter !== "all" && chain.status !== statusFilter) return false;
+        if (roleFilter !== "all" && !(chain.roles ?? []).includes(roleFilter)) return false;
         if (!normalizedQuery) return true;
         const haystack = [
           chain.id,
           chain.status,
           chain.source_task,
           ...chain.source_specs,
+          ...(chain.roles ?? []),
           chain.current_step?.role ?? "",
           chain.current_step?.status ?? "",
           chain.current_step?.verdict ?? "",
@@ -88,7 +94,7 @@ export function ChainsPage() {
         return haystack.includes(normalizedQuery);
       })
       .sort(compareChainRows);
-  }, [chains, normalizedQuery, statusFilter]);
+  }, [chains, normalizedQuery, roleFilter, statusFilter]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -138,24 +144,47 @@ export function ChainsPage() {
         </div>
 
         {statusFilters.length > 0 && (
-          <section className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</span>
-            <div className="flex flex-wrap gap-1">
-              {["all", ...statusFilters].map((candidate) => (
-                <button
-                  key={candidate}
-                  type="button"
-                  onClick={() => setStatusFilter(candidate)}
-                  className={`border px-2 py-1 text-[10px] font-medium uppercase tracking-widest ${
-                    statusFilter === candidate
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary hover:text-primary"
-                  }`}
-                >
-                  {candidate}
-                </button>
-              ))}
+          <section className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</span>
+              <div className="flex flex-wrap gap-1">
+                {["all", ...statusFilters].map((candidate) => (
+                  <button
+                    key={candidate}
+                    type="button"
+                    onClick={() => setStatusFilter(candidate)}
+                    className={`border px-2 py-1 text-[10px] font-medium uppercase tracking-widest ${
+                      statusFilter === candidate
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    }`}
+                  >
+                    {candidate}
+                  </button>
+                ))}
+              </div>
             </div>
+            {roleFilters.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Role</span>
+                <div className="flex flex-wrap gap-1">
+                  {["all", ...roleFilters].map((candidate) => (
+                    <button
+                      key={candidate}
+                      type="button"
+                      onClick={() => setRoleFilter(candidate)}
+                      className={`border px-2 py-1 text-[10px] font-medium uppercase tracking-widest ${
+                        roleFilter === candidate
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                      }`}
+                    >
+                      {candidate}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
               {visibleChains.length}/{chains.length}
             </span>
