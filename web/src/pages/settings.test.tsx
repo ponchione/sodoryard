@@ -2,12 +2,26 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig, ProviderStatus } from "@/types/metrics";
 
-const { useProvidersMock, useProjectInfoMock, apiGetMock, apiPutMock, clipboardWriteTextMock } = vi.hoisted(() => ({
+const {
+  useProvidersMock,
+  useProjectInfoMock,
+  apiGetMock,
+  apiPostMock,
+  apiPutMock,
+  clipboardWriteTextMock,
+  createObjectURLMock,
+  revokeObjectURLMock,
+  anchorClickMock,
+} = vi.hoisted(() => ({
   useProvidersMock: vi.fn(),
   useProjectInfoMock: vi.fn(),
   apiGetMock: vi.fn(),
+  apiPostMock: vi.fn(),
   apiPutMock: vi.fn(),
   clipboardWriteTextMock: vi.fn(),
+  createObjectURLMock: vi.fn(),
+  revokeObjectURLMock: vi.fn(),
+  anchorClickMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-providers", () => ({
@@ -26,6 +40,7 @@ vi.mock("@/lib/api", () => ({
   },
   api: {
     get: apiGetMock,
+    post: apiPostMock,
     put: apiPutMock,
   },
 }));
@@ -112,18 +127,37 @@ function providerStatuses(): ProviderStatus[] {
 describe("SettingsPage", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   beforeEach(() => {
     apiGetMock.mockReset().mockResolvedValue(appConfig());
+    apiPostMock.mockReset().mockResolvedValue({
+      generated_at: "2026-05-14T01:02:03Z",
+      runtime: { provider: "codex", model: "gpt-5.5" },
+    });
     apiPutMock.mockReset().mockResolvedValue(appConfig({
       default_provider: "openai",
       default_model: "gpt-5.4",
     }));
     clipboardWriteTextMock.mockReset().mockResolvedValue(undefined);
+    createObjectURLMock.mockReset().mockReturnValue("blob:diagnostics");
+    revokeObjectURLMock.mockReset();
+    anchorClickMock.mockReset();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: clipboardWriteTextMock },
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURLMock,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURLMock,
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {
+      anchorClickMock();
     });
     useProvidersMock.mockReset().mockReturnValue({
       providers: providerStatuses(),
@@ -208,5 +242,19 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save Default" }));
 
     expect(await screen.findByText("runtime default override is locked to codex/gpt-5.5")).toBeInTheDocument();
+  });
+
+  it("exports diagnostics through the backend endpoint", async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Export Diagnostics" }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/diagnostics/export", {});
+    });
+    expect(createObjectURLMock).toHaveBeenCalled();
+    expect(anchorClickMock).toHaveBeenCalled();
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:diagnostics");
+    expect(await screen.findByText("Diagnostics export downloaded")).toBeInTheDocument();
   });
 });

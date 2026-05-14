@@ -79,6 +79,8 @@ func TestDesktopCapabilitiesEndpointReportsProjectMemoryProtocol(t *testing.T) {
 		"project_path_validation",
 		"context_reports",
 		"metrics",
+		"diagnostics",
+		"diagnostics_export",
 	} {
 		if !stringSliceContains(body.Capabilities, capability) {
 			t.Fatalf("capabilities missing %q in %#v", capability, body.Capabilities)

@@ -1743,7 +1743,7 @@ Implementation progress as of 2026-05-14:
 - Chain detail includes desktop pause/resume/cancel controls, and receipts have a desktop detail route for frontmatter, body, chain event review, and backend-validated changed-file open/reveal actions.
 - Launch attachments have started: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, and include accepted paths in launch `source_specs`.
 - The project browser route is implemented at `/project`. It loads the backend-safe project tree, filters files, previews file contents through `/api/project/file`, validates selected launch attachments through `/api/project/validate-paths`, can add project-relative files selected from an Electron native file dialog, opens or reveals backend-validated files through native desktop actions, and hands attachments to `/launch` through `source_spec` query parameters.
-- The settings route now shows project status, backend-validated runtime routing controls for the default provider/model, read-only fallback and agent settings, provider model metadata, and provider credential status/remediation.
+- The settings route now shows project status, backend-validated runtime routing controls for the default provider/model, read-only fallback and agent settings, provider model metadata, provider credential status/remediation, and diagnostics export through `/api/diagnostics/export`.
 - Remaining desktop work starts with provider credential remediation follow-through and any remaining chain/receipt polish.
 
 ### Phase 0: Spec And Alignment

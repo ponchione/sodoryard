@@ -165,6 +165,10 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 	}
 	defer operatorSvc.Close()
 	server.NewChainInspectorHandler(srv, operatorSvc, logger)
+	server.NewDiagnosticsHandler(srv, cfg, operatorSvc, rt.ProviderRouter, server.DiagnosticsOptions{
+		YardVersion: version,
+		ConfigPath:  configPath,
+	}, logger)
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

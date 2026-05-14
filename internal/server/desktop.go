@@ -88,6 +88,8 @@ func (h *DesktopHandler) capabilities() []string {
 		"project_path_validation",
 		"context_reports",
 		"metrics",
+		"diagnostics",
+		"diagnostics_export",
 	}
 	if _, ok := h.backend.(projectMemoryContractExporter); ok {
 		capabilities = append(capabilities, "project_memory_contract")

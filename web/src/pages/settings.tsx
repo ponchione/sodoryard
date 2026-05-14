@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { AlertTriangle, Brain, Check, Copy, KeyRound, Save, Wrench } from "lucide-react";
+import { AlertTriangle, Brain, Check, Copy, Download, KeyRound, Save, Wrench } from "lucide-react";
 import { useProviders } from "@/hooks/use-providers";
 import { useProjectInfo } from "@/hooks/use-project-info";
 import { ApiError, api } from "@/lib/api";
@@ -29,6 +29,11 @@ interface ProviderOption {
   last_error?: string;
   auth?: ProviderAuthStatus;
   models: ProviderModelOption[];
+}
+
+interface DiagnosticsExport {
+  generated_at?: string;
+  [key: string]: unknown;
 }
 
 function formatTimestamp(value?: string): string {
@@ -159,6 +164,25 @@ function modelLabel(model: ProviderModelOption): string {
   return model.id;
 }
 
+function diagnosticsFilename(generatedAt?: string): string {
+  const date = generatedAt ? new Date(generatedAt) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const stamp = safeDate.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  return `yard-diagnostics-${stamp}.json`;
+}
+
+function downloadDiagnostics(body: DiagnosticsExport) {
+  const blob = new Blob([JSON.stringify(body, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = diagnosticsFilename(body.generated_at);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function SettingsPage() {
   const { providers, loading: provLoading } = useProviders();
   const { project, loading: projLoading } = useProjectInfo();
@@ -169,6 +193,9 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [diagnosticsExporting, setDiagnosticsExporting] = useState(false);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -225,6 +252,21 @@ export function SettingsPage() {
       setSaveError(apiErrorMessage(error));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const exportDiagnostics = async () => {
+    setDiagnosticsExporting(true);
+    setDiagnosticsMessage(null);
+    setDiagnosticsError(null);
+    try {
+      const body = await api.post<DiagnosticsExport>("/api/diagnostics/export", {});
+      downloadDiagnostics(body);
+      setDiagnosticsMessage("Diagnostics export downloaded");
+    } catch (error) {
+      setDiagnosticsError(apiErrorMessage(error));
+    } finally {
+      setDiagnosticsExporting(false);
     }
   };
 
@@ -412,6 +454,29 @@ export function SettingsPage() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Diagnostics
+          </h2>
+          <div
+            data-augmented-ui="tl-clip br-clip border"
+            className="space-y-3 border-0 bg-muted p-3"
+            style={panelStyle}
+          >
+            <button
+              type="button"
+              onClick={exportDiagnostics}
+              disabled={diagnosticsExporting}
+              className="inline-flex items-center gap-2 border border-primary/60 px-3 py-2 text-xs font-medium uppercase tracking-widest text-primary hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
+            >
+              <Download size={14} aria-hidden="true" />
+              {diagnosticsExporting ? "Exporting" : "Export Diagnostics"}
+            </button>
+            {diagnosticsMessage && <StatusMessage tone="success" text={diagnosticsMessage} />}
+            {diagnosticsError && <StatusMessage tone="danger" text={diagnosticsError} />}
+          </div>
         </section>
       </div>
     </div>
