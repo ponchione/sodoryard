@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { AlertTriangle, Brain, Check, KeyRound, Save, Wrench } from "lucide-react";
+import { AlertTriangle, Brain, Check, Copy, KeyRound, Save, Wrench } from "lucide-react";
 import { useProviders } from "@/hooks/use-providers";
 import { useProjectInfo } from "@/hooks/use-project-info";
 import { ApiError, api } from "@/lib/api";
@@ -129,19 +129,29 @@ function providerStatusClass(provider: ProviderOption): string {
   return "bg-muted-foreground/10 text-muted-foreground";
 }
 
-function authStatusLabel(auth?: ProviderAuthStatus): string {
-  if (!auth) return "auth unavailable";
+function credentialStatusLabel(auth?: ProviderAuthStatus): string {
+  if (!auth) return "provider credentials unavailable";
   if (auth.has_access_token) {
     if (auth.expires_at) {
       const expiresAt = new Date(auth.expires_at);
       if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
-        return "access token expired";
+        return "provider access token expired";
       }
     }
-    return "access token ready";
+    return "provider access token ready";
   }
-  if (auth.has_refresh_token) return "refresh token only";
-  return "credentials missing";
+  if (auth.has_refresh_token) return "provider refresh token only";
+  return "provider credentials missing";
+}
+
+function credentialRemediationCommand(remediation?: string): string {
+  if (!remediation) return "";
+  const quoted = /`([^`]+)`/.exec(remediation);
+  if (quoted?.[1]) return quoted[1].trim();
+  const yardCommand = /(yard\s+auth\s+login\s+codex)/i.exec(remediation);
+  if (yardCommand?.[1]) return yardCommand[1].trim();
+  const claudeCommand = /(claude\s+login)/i.exec(remediation);
+  return claudeCommand?.[1]?.trim() ?? "";
 }
 
 function modelLabel(model: ProviderModelOption): string {
@@ -477,7 +487,7 @@ function ProviderCard({ provider }: { provider: ProviderOption }) {
         </span>
       </div>
 
-      <ProviderAuthDetails auth={provider.auth} />
+      <ProviderCredentialDetails auth={provider.auth} providerName={provider.name} />
 
       {provider.models.length > 0 ? (
         <div className="space-y-1">
@@ -502,21 +512,37 @@ function ProviderCard({ provider }: { provider: ProviderOption }) {
   );
 }
 
-function ProviderAuthDetails({ auth }: { auth?: ProviderAuthStatus }) {
+function ProviderCredentialDetails({ auth, providerName }: { auth?: ProviderAuthStatus; providerName: string }) {
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+
   if (!auth) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <KeyRound size={13} aria-hidden="true" />
-        <span>auth unavailable</span>
+        <span>provider credentials unavailable</span>
       </div>
     );
   }
 
+  const remediationCommand = credentialRemediationCommand(auth.remediation);
+  const copyRemediationCommand = async () => {
+    if (!remediationCommand) return;
+    try {
+      await navigator.clipboard.writeText(remediationCommand);
+      setCopyStatus("Command copied");
+    } catch {
+      setCopyStatus("Copy unavailable");
+    }
+  };
+
   return (
     <div className="space-y-1 border border-border/70 bg-background/40 p-2 text-xs">
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        Provider Credentials
+      </div>
       <div className="flex items-center gap-2 text-foreground">
         <KeyRound size={13} aria-hidden="true" />
-        <span>{authStatusLabel(auth)}</span>
+        <span>{credentialStatusLabel(auth)}</span>
       </div>
       <div className="grid gap-1 text-[11px] text-muted-foreground">
         {auth.mode && <span>mode {auth.mode}</span>}
@@ -527,6 +553,17 @@ function ProviderAuthDetails({ auth }: { auth?: ProviderAuthStatus }) {
         {auth.detail && <span>{auth.detail}</span>}
         {auth.remediation && <span className="text-warning">{auth.remediation}</span>}
       </div>
+      {remediationCommand && (
+        <button
+          type="button"
+          onClick={() => void copyRemediationCommand()}
+          className="mt-1 inline-flex items-center gap-1 border border-border px-2 py-1 font-mono text-[10px] text-primary hover:bg-muted"
+          aria-label={`Copy ${providerName} provider credential remediation command`}
+        >
+          <Copy size={11} aria-hidden="true" />
+          {copyStatus ?? remediationCommand}
+        </button>
+      )}
     </div>
   );
 }

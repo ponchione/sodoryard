@@ -2,11 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig, ProviderStatus } from "@/types/metrics";
 
-const { useProvidersMock, useProjectInfoMock, apiGetMock, apiPutMock } = vi.hoisted(() => ({
+const { useProvidersMock, useProjectInfoMock, apiGetMock, apiPutMock, clipboardWriteTextMock } = vi.hoisted(() => ({
   useProvidersMock: vi.fn(),
   useProjectInfoMock: vi.fn(),
   apiGetMock: vi.fn(),
   apiPutMock: vi.fn(),
+  clipboardWriteTextMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-providers", () => ({
@@ -79,6 +80,7 @@ function providerStatuses(): ProviderStatus[] {
         has_access_token: true,
         has_refresh_token: true,
         expires_at: "2099-01-02T03:04:05Z",
+        remediation: "Run `yard auth login codex` to refresh Codex provider credentials.",
       },
     },
     {
@@ -118,6 +120,11 @@ describe("SettingsPage", () => {
       default_provider: "openai",
       default_model: "gpt-5.4",
     }));
+    clipboardWriteTextMock.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWriteTextMock },
+    });
     useProvidersMock.mockReset().mockReturnValue({
       providers: providerStatuses(),
       loading: false,
@@ -140,7 +147,7 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("renders project, routing, provider, model, and auth settings", async () => {
+  it("renders project, routing, provider, model, and credential settings", async () => {
     render(<SettingsPage />);
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
@@ -149,11 +156,29 @@ describe("SettingsPage", () => {
     expect(screen.getByText("anthropic:claude-sonnet-4-5")).toBeInTheDocument();
     expect(screen.getByLabelText("Default Provider")).toHaveValue("codex");
     expect(screen.getByLabelText("Default Model")).toHaveValue("gpt-5.5");
-    expect(screen.getAllByText("access token ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("provider access token ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Provider Credentials").length).toBeGreaterThan(0);
     expect(screen.getByText("mode chatgpt")).toBeInTheDocument();
+    expect(screen.getByText("Run `yard auth login codex` to refresh Codex provider credentials.")).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Copy codex provider credential remediation command",
+    })).toHaveTextContent("yard auth login codex");
     expect(screen.getByText("200k ctx")).toBeInTheDocument();
     expect(screen.getAllByLabelText("tools").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("thinking")).toBeInTheDocument();
+  });
+
+  it("copies provider credential remediation commands", async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: "Copy codex provider credential remediation command",
+    }));
+
+    await waitFor(() => {
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("yard auth login codex");
+    });
+    expect(await screen.findByText("Command copied")).toBeInTheDocument();
   });
 
   it("saves default provider and model through the validated config endpoint", async () => {

@@ -858,7 +858,7 @@ Actions:
 
 - rebuild code index
 - rebuild brain index
-- open auth status/login flow
+- open provider credential status/remediation
 - open local service status/remediation
 - start a launch
 - resume/follow active work
@@ -1055,8 +1055,8 @@ Settings should cover:
 
 - project identity and config path
 - provider routing default/fallback
-- provider auth status
-- provider login flows where backend supports them
+- provider credential status
+- provider credential remediation flows where backend supports them
 - available models
 - local LLM service status
 - index configuration and status
@@ -1122,7 +1122,7 @@ Desktop should include a command palette for common actions:
 - open chain by ID
 - open receipt
 - rebuild indexes
-- provider auth status
+- provider credential status
 - local service status
 - open settings
 
@@ -1743,8 +1743,8 @@ Implementation progress as of 2026-05-14:
 - Chain detail includes desktop pause/resume/cancel controls, and receipts have a desktop detail route for frontmatter, body, and chain event review.
 - Launch attachments have started: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, and include accepted paths in launch `source_specs`.
 - The project browser route is implemented at `/project`. It loads the backend-safe project tree, filters files, previews file contents through `/api/project/file`, validates selected launch attachments through `/api/project/validate-paths`, can add project-relative files selected from an Electron native file dialog, and hands those attachments to `/launch` through `source_spec` query parameters.
-- The settings route now shows project status, backend-validated runtime routing controls for the default provider/model, read-only fallback and agent settings, provider model metadata, and provider auth status.
-- Remaining desktop work starts with settings auth/login follow-through and any remaining chain/receipt polish.
+- The settings route now shows project status, backend-validated runtime routing controls for the default provider/model, read-only fallback and agent settings, provider model metadata, and provider credential status/remediation.
+- Remaining desktop work starts with provider credential remediation follow-through and any remaining chain/receipt polish.
 
 ### Phase 0: Spec And Alignment
 
@@ -2058,7 +2058,7 @@ Validation:
 1. Should the packaged app support multiple project windows concurrently in v1, or only one project window at a time?
 2. Should managed desktop mode start one backend per project window, or one backend process that can switch projects?
 3. Should desktop mode be a flag on `yard serve`, or a new hidden/internal command such as `yard desktop-backend`?
-4. How should provider login flows that currently assume terminal interaction be represented in desktop?
+4. How should provider credential refresh flows that currently assume terminal interaction be represented in desktop?
 5. Should the desktop app include a tray/status item for long-running chains after all windows close?
 6. Should `yard://` deep links be implemented in the MVP or deferred until chain notifications are useful?
 7. What is the first supported packaged platform: Linux AppImage, unpacked Linux directory, or something else?
