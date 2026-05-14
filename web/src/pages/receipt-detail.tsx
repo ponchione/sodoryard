@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ExternalLink, FolderOpen } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import { parseReceiptDocument, receiptRouteForSummary } from "@/lib/receipts";
+import { parseReceiptDocument, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
+import { getYardPlatform } from "@/platform";
 import type { ChainDetail, ChainEvent, ChainStep, ReceiptSummary, ReceiptView } from "@/types/chains";
+
+interface ValidatePathsResponse {
+  accepted: string[];
+  rejected: Array<{ path: string; reason: string }>;
+}
 
 function formatDate(value?: string): string {
   if (!value) return "unknown";
@@ -46,10 +53,13 @@ function receiptLabel(receipt: ReceiptSummary): string {
 
 export function ReceiptDetailPage() {
   const { chainId = "", step } = useParams();
+  const platform = useMemo(() => getYardPlatform(), []);
   const [detail, setDetail] = useState<ChainDetail | null>(null);
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fileActionPath, setFileActionPath] = useState<string | null>(null);
+  const [fileActionError, setFileActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,9 +87,49 @@ export function ReceiptDetailPage() {
   }, [chainId, step]);
 
   const parsed = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
+  const changedFiles = useMemo(() => receiptProjectPaths(parsed), [parsed]);
+  const hasFileActions = Boolean(platform.openProjectPath || platform.revealProjectPath);
   const currentStep = selectedStep(detail, receipt);
   const events = linkedEvents(detail, receipt, currentStep);
   const frontmatterEntries = Object.entries(parsed.frontmatter);
+
+  async function validateProjectPath(path: string, purpose: "open_editor" | "reveal"): Promise<string> {
+    const result = await api.post<ValidatePathsResponse>("/api/project/validate-paths", {
+      purpose,
+      paths: [path],
+    });
+    if (result.accepted.length > 0) return result.accepted[0];
+    const rejection = result.rejected[0];
+    throw new Error(rejection ? `${rejection.path}: ${rejection.reason}` : "path was not accepted");
+  }
+
+  async function openProjectPath(path: string) {
+    if (!platform.openProjectPath) return;
+    setFileActionPath(`open:${path}`);
+    setFileActionError(null);
+    try {
+      const acceptedPath = await validateProjectPath(path, "open_editor");
+      await platform.openProjectPath(acceptedPath);
+    } catch (err) {
+      setFileActionError(err instanceof Error ? err.message : "Failed to open file");
+    } finally {
+      setFileActionPath(null);
+    }
+  }
+
+  async function revealProjectPath(path: string) {
+    if (!platform.revealProjectPath) return;
+    setFileActionPath(`reveal:${path}`);
+    setFileActionError(null);
+    try {
+      const acceptedPath = await validateProjectPath(path, "reveal");
+      await platform.revealProjectPath(acceptedPath);
+    } catch (err) {
+      setFileActionError(err instanceof Error ? err.message : "Failed to reveal file");
+    } finally {
+      setFileActionPath(null);
+    }
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -153,6 +203,50 @@ export function ReceiptDetailPage() {
                       </div>
                     ))}
                   </dl>
+                </section>
+              )}
+
+              {changedFiles.length > 0 && (
+                <section className="border border-border p-3 text-xs">
+                  <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Changed Files
+                  </h2>
+                  {fileActionError && <p className="mt-2 text-warning">{fileActionError}</p>}
+                  <div className="mt-3 grid gap-2">
+                    {changedFiles.map((path) => (
+                      <div key={path} className="grid gap-2 border-t border-border/70 pt-2">
+                        <span className="break-all font-mono text-foreground">{path}</span>
+                        {hasFileActions && (
+                          <div className="flex flex-wrap gap-2">
+                            {platform.openProjectPath && (
+                              <button
+                                type="button"
+                                onClick={() => void openProjectPath(path)}
+                                disabled={fileActionPath !== null}
+                                aria-label={`Open ${path}`}
+                                className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <ExternalLink size={12} aria-hidden="true" />
+                                {fileActionPath === `open:${path}` ? "Opening" : "Open"}
+                              </button>
+                            )}
+                            {platform.revealProjectPath && (
+                              <button
+                                type="button"
+                                onClick={() => void revealProjectPath(path)}
+                                disabled={fileActionPath !== null}
+                                aria-label={`Reveal ${path}`}
+                                className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <FolderOpen size={12} aria-hidden="true" />
+                                {fileActionPath === `reveal:${path}` ? "Revealing" : "Reveal"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </section>
               )}
 

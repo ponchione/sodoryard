@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackendRuntime, stopBackendRuntime, type BackendRuntime } from "./backend.js";
-import { toProjectRelativeFilePaths } from "./project-paths.js";
+import { toProjectAbsolutePath, toProjectRelativeFilePaths } from "./project-paths.js";
 import {
   readDesktopState,
   updateDesktopState,
@@ -19,6 +19,11 @@ let runtime: BackendRuntime | undefined;
 let userDataDir = "";
 let desktopState: DesktopState = {};
 let quitting = false;
+
+interface ValidatePathsResponse {
+  accepted: string[];
+  rejected: Array<{ path: string; reason: string }>;
+}
 
 async function main() {
   await app.whenReady();
@@ -156,6 +161,17 @@ function registerIPCHandlers() {
     if (result.canceled) return [];
     return toProjectRelativeFilePaths(projectRoot, result.filePaths);
   });
+  ipcMain.handle("yard:openProjectPath", async (_event, projectPath: string) => {
+    const acceptedPath = await validateProjectPath(projectPath, "open_editor");
+    const absPath = resolveProjectPath(acceptedPath);
+    const error = await shell.openPath(absPath);
+    if (error) throw new Error(error);
+  });
+  ipcMain.handle("yard:revealProjectPath", async (_event, projectPath: string) => {
+    const acceptedPath = await validateProjectPath(projectPath, "reveal");
+    const absPath = resolveProjectPath(acceptedPath);
+    shell.showItemInFolder(absPath);
+  });
   ipcMain.handle("yard:notify", async (_event, notification: YardNotification) => {
     if (!Notification.isSupported()) return;
     new Notification({
@@ -163,6 +179,32 @@ function registerIPCHandlers() {
       body: notification.body,
     }).show();
   });
+}
+
+function resolveProjectPath(projectPath: string): string {
+  const projectRoot = runtime?.platform.projectRoot ?? desktopState.recentProjectRoot;
+  const absPath = toProjectAbsolutePath(projectRoot, String(projectPath));
+  if (!absPath) throw new Error("Invalid project path");
+  return absPath;
+}
+
+async function validateProjectPath(projectPath: string, purpose: "open_editor" | "reveal"): Promise<string> {
+  if (!runtime) throw new Error("Yard backend is not ready");
+  const response = await fetch(new URL("/api/project/validate-paths", runtime.directBaseUrl), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ purpose, paths: [String(projectPath)] }),
+  });
+  if (!response.ok) {
+    throw new Error(`Project path validation failed: ${response.status} ${response.statusText}`);
+  }
+  const payload = await response.json() as ValidatePathsResponse;
+  if (payload.accepted.length > 0) return payload.accepted[0];
+  const rejection = payload.rejected[0];
+  throw new Error(rejection ? `${rejection.path}: ${rejection.reason}` : "Project path was not accepted");
 }
 
 function escapeHTML(value: string): string {

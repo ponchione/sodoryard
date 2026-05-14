@@ -1,16 +1,30 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChainDetail } from "@/types/chains";
 
-const { apiGet } = vi.hoisted(() => ({
+const { apiGet, apiPost, openProjectPath, revealProjectPath } = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  openProjectPath: vi.fn(),
+  revealProjectPath: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     get: apiGet,
+    post: apiPost,
   },
+}));
+
+vi.mock("@/platform", () => ({
+  getYardPlatform: () => ({
+    kind: "desktop",
+    backendBaseUrl: "",
+    openExternal: vi.fn(),
+    openProjectPath,
+    revealProjectPath,
+  }),
 }));
 
 import { ReceiptDetailPage } from "./receipt-detail";
@@ -97,6 +111,9 @@ function chainDetail(): ChainDetail {
 describe("ReceiptDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
+    apiPost.mockReset();
+    openProjectPath.mockReset();
+    revealProjectPath.mockReset();
   });
 
   afterEach(() => {
@@ -126,6 +143,10 @@ describe("ReceiptDetailPage", () => {
       }
       return Promise.reject(new Error(`unexpected path ${path}`));
     });
+    apiPost.mockResolvedValue({
+      accepted: ["web/src/pages/receipt-detail.tsx"],
+      rejected: [],
+    });
 
     render(
       <MemoryRouter initialEntries={["/receipts/chain-1/1"]}>
@@ -145,13 +166,31 @@ describe("ReceiptDetailPage", () => {
     expect(screen.getByText("verdict")).toBeInTheDocument();
     expect(screen.getByText("accepted")).toBeInTheDocument();
     expect(screen.getByText("changed files")).toBeInTheDocument();
-    expect(screen.getByText("web/src/pages/receipt-detail.tsx")).toBeInTheDocument();
+    expect(screen.getAllByText("web/src/pages/receipt-detail.tsx").length).toBeGreaterThan(0);
     expect(screen.getByText("step_completed")).toBeInTheDocument();
     expect(screen.getByText("1 / coder")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /step 1 coder.*receipts\/coder\/chain-1-step-001\.md/ })).toHaveAttribute(
       "href",
       "/receipts/chain-1/1",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open web/src/pages/receipt-detail.tsx" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "open_editor",
+        paths: ["web/src/pages/receipt-detail.tsx"],
+      });
+      expect(openProjectPath).toHaveBeenCalledWith("web/src/pages/receipt-detail.tsx");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal web/src/pages/receipt-detail.tsx" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "reveal",
+        paths: ["web/src/pages/receipt-detail.tsx"],
+      });
+      expect(revealProjectPath).toHaveBeenCalledWith("web/src/pages/receipt-detail.tsx");
+    });
   });
 
   it("loads the orchestrator receipt when no step route parameter is present", async () => {

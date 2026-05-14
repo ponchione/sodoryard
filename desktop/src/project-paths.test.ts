@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { toProjectRelativeFilePaths } from "./project-paths.js";
+import { toProjectAbsolutePath, toProjectRelativeFilePaths } from "./project-paths.js";
 
 test("toProjectRelativeFilePaths returns unique project-relative paths", () => {
   const root = path.resolve("/tmp/project");
@@ -22,4 +22,21 @@ test("toProjectRelativeFilePaths drops selections outside the project root", () 
     path.resolve("/tmp/project", "README.md"),
     path.resolve("/tmp/elsewhere.md"),
   ]), ["README.md"]);
+});
+
+test("toProjectAbsolutePath resolves contained project paths", () => {
+  const root = path.resolve("/tmp/project");
+
+  assert.equal(
+    toProjectAbsolutePath(root, "docs/spec.md"),
+    path.resolve(root, "docs", "spec.md"),
+  );
+});
+
+test("toProjectAbsolutePath rejects empty and escaping paths", () => {
+  const root = path.resolve("/tmp/project");
+
+  assert.equal(toProjectAbsolutePath(root, ""), null);
+  assert.equal(toProjectAbsolutePath(root, "../outside.md"), null);
+  assert.equal(toProjectAbsolutePath(root, path.resolve("/tmp/elsewhere.md")), null);
 });

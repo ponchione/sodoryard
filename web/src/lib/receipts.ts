@@ -16,6 +16,20 @@ export function receiptRouteForSummary(chainID: string, receipt: ReceiptSummary)
   return receiptRoute(chainID, receipt.step);
 }
 
+export function receiptProjectPaths(parsed: ParsedReceiptDocument): string[] {
+  const keys = ["changed_files", "files_changed"];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const key of keys) {
+    for (const path of splitReceiptPathList(parsed.frontmatter[key] ?? "")) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      out.push(path);
+    }
+  }
+  return out;
+}
+
 export function parseReceiptDocument(content: string): ParsedReceiptDocument {
   const normalized = content.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) {
@@ -76,4 +90,11 @@ function cleanFrontmatterValue(value: string): string {
 
 function stripQuotes(value: string): string {
   return value.replace(/^["']|["']$/g, "");
+}
+
+function splitReceiptPathList(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => stripQuotes(part.trim()))
+    .filter((part) => part !== "" && part !== "<empty>");
 }

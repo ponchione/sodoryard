@@ -24,3 +24,17 @@ function projectRelativePath(absRoot: string, filePath: string): string | null {
   }
   return relPath.replaceAll(path.sep, "/");
 }
+
+export function toProjectAbsolutePath(projectRoot: string | undefined, projectPath: string): string | null {
+  const root = projectRoot?.trim();
+  const rawPath = projectPath.trim();
+  if (!root || !rawPath) return null;
+
+  const absRoot = path.resolve(root);
+  const absPath = path.resolve(absRoot, rawPath);
+  const relPath = path.relative(absRoot, absPath);
+  if (!relPath || relPath === ".." || relPath.startsWith(`..${path.sep}`) || path.isAbsolute(relPath)) {
+    return null;
+  }
+  return absPath;
+}

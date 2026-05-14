@@ -12,6 +12,8 @@ export function createDesktopPlatform(): YardPlatform | null {
     openExternal: (url) => bridge.openExternal(url),
     chooseProjectDirectory: bridge.chooseProjectDirectory ? () => bridge.chooseProjectDirectory!() : undefined,
     chooseProjectFiles: bridge.chooseProjectFiles ? () => bridge.chooseProjectFiles!() : undefined,
+    openProjectPath: bridge.openProjectPath ? (path) => bridge.openProjectPath!(path) : undefined,
+    revealProjectPath: bridge.revealProjectPath ? (path) => bridge.revealProjectPath!(path) : undefined,
     notify: bridge.notify ? (notification) => bridge.notify!(notification) : undefined,
     getAppInfo: async () => info,
   };
