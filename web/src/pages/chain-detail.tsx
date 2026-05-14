@@ -117,6 +117,10 @@ function formatControlResult(result: ChainControlResult): string {
   return `${result.message}${transition}`;
 }
 
+function confirmChainCancel(chainID: string): boolean {
+  return window.confirm(`Cancel chain ${chainID}? This will request cancellation for the active chain.`);
+}
+
 function receiptLink(chainID: string, receipt: ReceiptSummary): string {
   return receiptRouteForSummary(chainID, receipt);
 }
@@ -363,6 +367,7 @@ export function ChainDetailPage() {
   }
 
   async function controlChain(action: ChainControlAction) {
+    if (action === "cancel" && !confirmChainCancel(id)) return;
     setControlAction(action);
     setControlMessage(null);
     setControlError(null);

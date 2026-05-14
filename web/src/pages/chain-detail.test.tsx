@@ -179,6 +179,7 @@ describe("ChainDetailPage", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("renders guardrail health warnings from the chain detail response", async () => {
@@ -736,6 +737,44 @@ describe("ChainDetailPage", () => {
     expect(await screen.findByText("pause requested (running -> pause_requested)")).toBeInTheDocument();
     expect(screen.getByText("pause_requested / ok")).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-control");
+  });
+
+  it("confirms chain cancellation with the exact chain id before posting", async () => {
+    const runningDetail = chainDetailFixture({ chain: { id: "chain-cancel", status: "running" } });
+    const cancelRequestedDetail = chainDetailFixture({ chain: { id: "chain-cancel", status: "cancel_requested" } });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    apiGet.mockResolvedValueOnce(runningDetail).mockResolvedValueOnce(cancelRequestedDetail);
+    apiPost.mockResolvedValue({
+      chain_id: "chain-cancel",
+      previous_status: "running",
+      target_status: "cancelled",
+      status: "cancel_requested",
+      event_type: "chain_cancelled",
+      message: "cancel requested",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-cancel"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("running / ok")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Cancel chain chain-cancel? This will request cancellation for the active chain.",
+    );
+    expect(apiPost).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/chains/chain-cancel/cancel", {});
+    });
+    expect(await screen.findByText("cancel requested (running -> cancel_requested)")).toBeInTheDocument();
+    expect(screen.getByText("cancel_requested / ok")).toBeInTheDocument();
   });
 
   it("keeps resume disabled while waiting approval has pending decisions", async () => {
