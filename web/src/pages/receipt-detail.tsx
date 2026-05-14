@@ -399,7 +399,13 @@ export function ReceiptDetailPage() {
                     {events.slice(0, 8).map((event) => (
                       <div key={event.id} className="grid gap-1 border-t border-border/70 pt-2 md:grid-cols-[10rem_12rem_1fr]">
                         <span className="text-muted-foreground">{formatDate(event.created_at)}</span>
-                        <span className="font-medium text-primary">{event.event_type}</span>
+                        <Link
+                          to={`/chains/${encodeURIComponent(chainId)}#${anchorID("event", event.id)}`}
+                          className="font-medium text-primary hover:underline"
+                          aria-label={`Open chain event ${event.id}`}
+                        >
+                          {event.event_type}
+                        </Link>
                         <span className="truncate font-mono text-muted-foreground">{event.event_data}</span>
                       </div>
                     ))}

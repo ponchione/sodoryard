@@ -187,6 +187,7 @@ describe("ReceiptDetailPage", () => {
     expect(screen.getByText("docs/specs/24-electron-desktop-app.md")).toBeInTheDocument();
     expect(screen.getAllByText("web/src/pages/receipt-detail.tsx").length).toBeGreaterThan(0);
     expect(screen.getByText("step_completed")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open chain event 1" })).toHaveAttribute("href", "/chains/chain-1#event-1");
     expect(screen.getByRole("link", { name: "1 / coder" })).toHaveAttribute("href", "/chains/chain-1#step-step-db-1");
     expect(screen.getByRole("link", { name: /step 1 coder.*receipts\/coder\/chain-1-step-001\.md/ })).toHaveAttribute(
       "href",
