@@ -15,16 +15,17 @@ import type {
 interface ContextInspectorProps {
   ctx: UseContextReportReturn;
   onClose: () => void;
+  className?: string;
 }
 
-export function ContextInspector({ ctx, onClose }: ContextInspectorProps) {
+export function ContextInspector({ ctx, onClose, className = "" }: ContextInspectorProps) {
   const { report, loading, error, currentTurn, totalTurns, isFollowingLatest, nextTurn, prevTurn, jumpToLatest } = ctx;
   const budgetCategories = normalizeBudgetBreakdown(report?.budget_breakdown);
 
   return (
     <div
       data-augmented-ui="tl-clip bl-clip border"
-      className="flex w-96 flex-col bg-sidebar overflow-hidden"
+      className={`flex w-96 flex-col overflow-hidden bg-sidebar ${className}`}
       style={{
         "--aug-tl": "15px",
         "--aug-bl": "15px",

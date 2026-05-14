@@ -236,6 +236,13 @@ function findTimelineReceipt(detail: ChainDetail, item: ChainTimelineItem): Rece
   );
 }
 
+function timelineContextHref(chainID: string, item: ChainTimelineItem): string {
+  if (!item.conversation_id || !item.turn_number) return "";
+  const params = new URLSearchParams({ chain_id: chainID });
+  if (item.step_id) params.set("step_id", item.step_id);
+  return `/context/${encodeURIComponent(item.conversation_id)}/${encodeURIComponent(String(item.turn_number))}?${params.toString()}`;
+}
+
 function formatTimelineValue(value: unknown): string {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -900,6 +907,7 @@ export function ChainDetailPage() {
                       const eventID = timelineEventID(item);
                       const hasStepLink = Boolean(item.step_id && detail.steps.some((step) => step.id === item.step_id));
                       const receiptTarget = findTimelineReceipt(detail, item);
+                      const contextHref = timelineContextHref(id, item);
                       const traceDetails = timelineTraceDetails(item);
 
                       return (
@@ -933,6 +941,11 @@ export function ChainDetailPage() {
                                 >
                                   Receipt
                                 </button>
+                              )}
+                              {contextHref && (
+                                <Link to={contextHref} className="text-primary hover:underline">
+                                  Context
+                                </Link>
                               )}
                               {item.kind === "context" && (
                                 <a href="#chain-source" className="text-primary hover:underline">

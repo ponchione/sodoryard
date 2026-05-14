@@ -438,6 +438,10 @@ describe("ChainDetailPage", () => {
     expect(screen.getByText("provider failed")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Step" })[0]).toHaveAttribute("href", "#step-step-1");
     expect(screen.getAllByRole("link", { name: "Event" })[0]).toHaveAttribute("href", "#event-1");
+    expect(screen.getByRole("link", { name: "Context" })).toHaveAttribute(
+      "href",
+      "/context/conv-1/1?chain_id=chain-1&step_id=step-1",
+    );
     expect(screen.getByRole("link", { name: "Guardrails" })).toHaveAttribute("href", "#guardrail-details");
     expect(screen.getAllByText("receipt_validation_warning").length).toBeGreaterThan(0);
     expect(screen.getByText("warning")).toBeInTheDocument();
