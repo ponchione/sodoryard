@@ -35,7 +35,7 @@ function chainDetail(): ChainDetail {
     warnings: [],
     chain: {
       id: "chain-1",
-      source_specs: [],
+      source_specs: ["docs/specs/24-electron-desktop-app.md"],
       source_task: "review receipt",
       status: "completed",
       summary: "",
@@ -143,10 +143,10 @@ describe("ReceiptDetailPage", () => {
       }
       return Promise.reject(new Error(`unexpected path ${path}`));
     });
-    apiPost.mockResolvedValue({
-      accepted: ["web/src/pages/receipt-detail.tsx"],
+    apiPost.mockImplementation((_path: string, body: { paths: string[] }) => Promise.resolve({
+      accepted: body.paths,
       rejected: [],
-    });
+    }));
 
     render(
       <MemoryRouter initialEntries={["/receipts/chain-1/1"]}>
@@ -166,6 +166,8 @@ describe("ReceiptDetailPage", () => {
     expect(screen.getByText("verdict")).toBeInTheDocument();
     expect(screen.getByText("accepted")).toBeInTheDocument();
     expect(screen.getByText("changed files")).toBeInTheDocument();
+    expect(screen.getByText("Source Specs")).toBeInTheDocument();
+    expect(screen.getByText("docs/specs/24-electron-desktop-app.md")).toBeInTheDocument();
     expect(screen.getAllByText("web/src/pages/receipt-detail.tsx").length).toBeGreaterThan(0);
     expect(screen.getByText("step_completed")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "1 / coder" })).toHaveAttribute("href", "/chains/chain-1#step-step-db-1");
@@ -173,6 +175,24 @@ describe("ReceiptDetailPage", () => {
       "href",
       "/receipts/chain-1/1",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open docs/specs/24-electron-desktop-app.md" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "open_editor",
+        paths: ["docs/specs/24-electron-desktop-app.md"],
+      });
+      expect(openProjectPath).toHaveBeenCalledWith("docs/specs/24-electron-desktop-app.md");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal docs/specs/24-electron-desktop-app.md" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "reveal",
+        paths: ["docs/specs/24-electron-desktop-app.md"],
+      });
+      expect(revealProjectPath).toHaveBeenCalledWith("docs/specs/24-electron-desktop-app.md");
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Open web/src/pages/receipt-detail.tsx" }));
     await waitFor(() => {

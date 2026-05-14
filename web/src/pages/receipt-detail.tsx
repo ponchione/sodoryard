@@ -92,6 +92,9 @@ export function ReceiptDetailPage() {
 
   const parsed = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
   const changedFiles = useMemo(() => receiptProjectPaths(parsed), [parsed]);
+  const sourceSpecs = useMemo(() => (
+    Array.from(new Set((detail?.chain.source_specs ?? []).map((path) => path.trim()).filter(Boolean)))
+  ), [detail]);
   const hasFileActions = Boolean(platform.openProjectPath || platform.revealProjectPath);
   const currentStep = selectedStep(detail, receipt);
   const events = linkedEvents(detail, receipt, currentStep);
@@ -205,6 +208,50 @@ export function ReceiptDetailPage() {
                   </div>
                 </dl>
               </section>
+
+              {sourceSpecs.length > 0 && (
+                <section className="border border-border p-3 text-xs">
+                  <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Source Specs
+                  </h2>
+                  {fileActionError && <p className="mt-2 text-warning">{fileActionError}</p>}
+                  <div className="mt-3 grid gap-2">
+                    {sourceSpecs.map((path) => (
+                      <div key={path} className="grid gap-2 border-t border-border/70 pt-2">
+                        <span className="break-all font-mono text-foreground">{path}</span>
+                        {hasFileActions && (
+                          <div className="flex flex-wrap gap-2">
+                            {platform.openProjectPath && (
+                              <button
+                                type="button"
+                                onClick={() => void openProjectPath(path)}
+                                disabled={fileActionPath !== null}
+                                aria-label={`Open ${path}`}
+                                className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <ExternalLink size={12} aria-hidden="true" />
+                                {fileActionPath === `open:${path}` ? "Opening" : "Open"}
+                              </button>
+                            )}
+                            {platform.revealProjectPath && (
+                              <button
+                                type="button"
+                                onClick={() => void revealProjectPath(path)}
+                                disabled={fileActionPath !== null}
+                                aria-label={`Reveal ${path}`}
+                                className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <FolderOpen size={12} aria-hidden="true" />
+                                {fileActionPath === `reveal:${path}` ? "Revealing" : "Reveal"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {frontmatterEntries.length > 0 && (
                 <section className="border border-border p-3 text-xs">
