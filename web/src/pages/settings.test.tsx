@@ -12,6 +12,7 @@ const {
   createObjectURLMock,
   revokeObjectURLMock,
   anchorClickMock,
+  getAppInfoMock,
 } = vi.hoisted(() => ({
   useProvidersMock: vi.fn(),
   useProjectInfoMock: vi.fn(),
@@ -22,6 +23,7 @@ const {
   createObjectURLMock: vi.fn(),
   revokeObjectURLMock: vi.fn(),
   anchorClickMock: vi.fn(),
+  getAppInfoMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-providers", () => ({
@@ -43,6 +45,14 @@ vi.mock("@/lib/api", () => ({
     post: apiPostMock,
     put: apiPutMock,
   },
+}));
+
+vi.mock("@/platform", () => ({
+  getYardPlatform: () => ({
+    kind: "desktop",
+    backendBaseUrl: "app://yard",
+    getAppInfo: getAppInfoMock,
+  }),
 }));
 
 import { SettingsPage } from "./settings";
@@ -144,6 +154,22 @@ describe("SettingsPage", () => {
     createObjectURLMock.mockReset().mockReturnValue("blob:diagnostics");
     revokeObjectURLMock.mockReset();
     anchorClickMock.mockReset();
+    getAppInfoMock.mockReset().mockResolvedValue({
+      kind: "desktop",
+      appVersion: "0.0.0-test",
+      yardVersion: "test-yard",
+      apiVersion: "desktop-v1",
+      backendBaseUrl: "app://yard",
+      backendDirectUrl: "http://127.0.0.1:8090",
+      backendLaunchMode: "managed",
+      configPath: "/tmp/project/yard.yaml",
+      projectMemory: {
+        backend: "shunter",
+        module: "yard_project_memory",
+        shunterVersion: "v1.1.0",
+        defaultSubprotocol: "v2.bsatn.shunter",
+      },
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: clipboardWriteTextMock },
@@ -186,6 +212,11 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(await screen.findByText("sodoryard")).toBeInTheDocument();
+    expect(await screen.findByText("Desktop Runtime")).toBeInTheDocument();
+    expect(screen.getByText("0.0.0-test")).toBeInTheDocument();
+    expect(screen.getByText("test-yard")).toBeInTheDocument();
+    expect(screen.getByText("managed")).toBeInTheDocument();
+    expect(screen.getByText("shunter / yard_project_memory / v1.1.0 / v2.bsatn.shunter")).toBeInTheDocument();
     expect(screen.getAllByText("codex:gpt-5.5").length).toBeGreaterThan(0);
     expect(screen.getByText("anthropic:claude-sonnet-4-5")).toBeInTheDocument();
     expect(screen.getByLabelText("Default Provider")).toHaveValue("codex");

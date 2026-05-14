@@ -4,6 +4,7 @@ import { useProviders } from "@/hooks/use-providers";
 import { useProjectInfo } from "@/hooks/use-project-info";
 import { ApiError, api } from "@/lib/api";
 import { formatTokenLimit } from "@/lib/model-capabilities";
+import { getYardPlatform, type YardDesktopPlatformInfo, type YardProjectMemoryPlatform } from "@/platform";
 import type { AppConfig, ProviderAuthStatus, ProviderModel, ProviderStatus } from "@/types/metrics";
 
 const panelStyle: CSSProperties = {
@@ -34,6 +35,19 @@ interface ProviderOption {
 interface DiagnosticsExport {
   generated_at?: string;
   [key: string]: unknown;
+}
+
+interface SettingsPlatformInfo {
+  kind: "browser" | "desktop";
+  appVersion?: string;
+  yardVersion?: string;
+  apiVersion?: string;
+  backendBaseUrl: string;
+  backendDirectUrl?: string;
+  backendLaunchMode?: "managed" | "attached";
+  projectRoot?: string;
+  configPath?: string;
+  projectMemory?: YardProjectMemoryPlatform;
 }
 
 function formatTimestamp(value?: string): string {
@@ -183,6 +197,42 @@ function downloadDiagnostics(body: DiagnosticsExport) {
   URL.revokeObjectURL(url);
 }
 
+function platformInfoFallback(): SettingsPlatformInfo {
+  const platform = getYardPlatform();
+  return {
+    kind: platform.kind,
+    backendBaseUrl: platform.backendBaseUrl,
+    projectMemory: platform.projectMemory,
+  };
+}
+
+function settingsPlatformInfo(info: YardDesktopPlatformInfo | null, fallback: SettingsPlatformInfo): SettingsPlatformInfo {
+  if (!info) return fallback;
+  return {
+    kind: info.kind,
+    appVersion: info.appVersion,
+    yardVersion: info.yardVersion,
+    apiVersion: info.apiVersion,
+    backendBaseUrl: info.backendBaseUrl,
+    backendDirectUrl: info.backendDirectUrl,
+    backendLaunchMode: info.backendLaunchMode,
+    projectRoot: info.projectRoot,
+    configPath: info.configPath,
+    projectMemory: info.projectMemory,
+  };
+}
+
+function projectMemoryLabel(projectMemory?: YardProjectMemoryPlatform): string {
+  if (!projectMemory) return "Unavailable";
+  const parts = [
+    projectMemory.backend,
+    projectMemory.module,
+    projectMemory.shunterVersion,
+    projectMemory.defaultSubprotocol,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "Available";
+}
+
 export function SettingsPage() {
   const { providers, loading: provLoading } = useProviders();
   const { project, loading: projLoading } = useProjectInfo();
@@ -196,6 +246,7 @@ export function SettingsPage() {
   const [diagnosticsExporting, setDiagnosticsExporting] = useState(false);
   const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [platformInfo, setPlatformInfo] = useState<SettingsPlatformInfo>(() => platformInfoFallback());
 
   useEffect(() => {
     api
@@ -207,6 +258,27 @@ export function SettingsPage() {
         setConfigLoading(false);
       })
       .catch(() => setConfigLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const platform = getYardPlatform();
+    const fallback = platformInfoFallback();
+    if (!platform.getAppInfo) {
+      setPlatformInfo(fallback);
+      return;
+    }
+    platform
+      .getAppInfo()
+      .then((info) => {
+        if (!cancelled) setPlatformInfo(settingsPlatformInfo(info, fallback));
+      })
+      .catch(() => {
+        if (!cancelled) setPlatformInfo(fallback);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const providerOptions = useMemo(() => buildProviderOptions(providers, config), [config, providers]);
@@ -331,6 +403,26 @@ export function SettingsPage() {
           ) : (
             <p className="text-xs text-muted-foreground">No project info available</p>
           )}
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Desktop Runtime
+          </h2>
+          <div
+            data-augmented-ui="tl-clip br-clip border"
+            className="space-y-1 border-0 bg-muted p-3 text-sm"
+            style={panelStyle}
+          >
+            <SettingsRow label="App" value={platformInfo.kind} />
+            <SettingsRow label="App version" value={platformInfo.appVersion ?? "Unknown"} mono />
+            <SettingsRow label="Yard backend" value={platformInfo.yardVersion ?? "Unknown"} mono />
+            <SettingsRow label="API" value={platformInfo.apiVersion ?? "Unknown"} mono />
+            <SettingsRow label="Backend mode" value={platformInfo.backendLaunchMode ?? "same-origin"} />
+            <SettingsRow label="Backend URL" value={platformInfo.backendDirectUrl ?? platformInfo.backendBaseUrl} mono />
+            {platformInfo.configPath && <SettingsRow label="Config" value={platformInfo.configPath} mono />}
+            <SettingsRow label="Project Memory" value={projectMemoryLabel(platformInfo.projectMemory)} />
+          </div>
         </section>
 
         <section className="space-y-2">
