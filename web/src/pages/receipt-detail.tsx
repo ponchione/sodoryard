@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ExternalLink, FolderOpen } from "lucide-react";
+import { Copy, ExternalLink, FolderOpen } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
@@ -64,6 +64,7 @@ export function ReceiptDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [fileActionPath, setFileActionPath] = useState<string | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +79,7 @@ export function ReceiptDetailPage() {
         if (cancelled) return;
         setDetail(loadedDetail);
         setReceipt(loadedReceipt);
+        setCopyStatus(null);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load receipt");
       } finally {
@@ -138,6 +140,17 @@ export function ReceiptDetailPage() {
     }
   }
 
+  async function copyReceiptPath() {
+    if (!receipt?.path) return;
+    setCopyStatus(null);
+    try {
+      await navigator.clipboard.writeText(receipt.path);
+      setCopyStatus("Receipt path copied");
+    } catch {
+      setCopyStatus("Copy unavailable");
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -154,6 +167,20 @@ export function ReceiptDetailPage() {
             Receipt
           </h1>
           <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{receipt?.path ?? "loading"}</p>
+          {receipt && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void copyReceiptPath()}
+                className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
+                aria-label="Copy receipt path"
+              >
+                <Copy size={12} aria-hidden="true" />
+                Copy Path
+              </button>
+              {copyStatus && <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{copyStatus}</span>}
+            </div>
+          )}
           {detail && (
             <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>
               {detail.chain.status} / {detail.health || "unknown"}

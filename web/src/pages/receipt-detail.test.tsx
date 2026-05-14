@@ -3,11 +3,12 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChainDetail } from "@/types/chains";
 
-const { apiGet, apiPost, openProjectPath, revealProjectPath } = vi.hoisted(() => ({
+const { apiGet, apiPost, openProjectPath, revealProjectPath, clipboardWriteText } = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
   openProjectPath: vi.fn(),
   revealProjectPath: vi.fn(),
+  clipboardWriteText: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -114,6 +115,11 @@ describe("ReceiptDetailPage", () => {
     apiPost.mockReset();
     openProjectPath.mockReset();
     revealProjectPath.mockReset();
+    clipboardWriteText.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWriteText },
+    });
   });
 
   afterEach(() => {
@@ -175,6 +181,12 @@ describe("ReceiptDetailPage", () => {
       "href",
       "/receipts/chain-1/1",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy receipt path" }));
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith("receipts/coder/chain-1-step-001.md");
+    });
+    expect(await screen.findByText("Receipt path copied")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open docs/specs/24-electron-desktop-app.md" }));
     await waitFor(() => {
