@@ -12,6 +12,7 @@ import {
   shunterProtocol,
   type ShunterSubprotocol,
 } from "@/generated/yard-project-memory";
+import { getYardPlatform, toBackendURL, toBackendWebSocketURL } from "@/platform";
 
 export {
   decodeEventsRow,
@@ -70,7 +71,7 @@ export function assertProjectMemoryContractCompatible() {
 }
 
 export async function fetchProjectMemoryRuntimeContract(fetcher: typeof fetch = fetch): Promise<ProjectMemoryRuntimeContract> {
-  const response = await fetcher("/api/project-memory/contract", {
+  const response = await fetcher(toBackendURL("/api/project-memory/contract"), {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
@@ -102,14 +103,21 @@ export function createProjectMemoryClient(options: ProjectMemoryClientOptions = 
     url: options.url ?? projectMemorySubscribeURL(),
     protocol: shunterProtocol,
     contract: shunterContract,
-    token: options.token,
+    token: options.token ?? getYardPlatform().projectMemory?.token,
     reconnect: options.reconnect ?? { enabled: true, resubscribe: true },
     onStateChange: options.onStateChange,
   });
 }
 
-export function projectMemorySubscribeURL(origin = window.location.origin): string {
-  const url = new URL("/api/project-memory/subscribe", origin);
+export function projectMemorySubscribeURL(origin?: string): string {
+  if (!origin) {
+    const configuredURL = getYardPlatform().projectMemory?.subscribeUrl;
+    if (configuredURL) return configuredURL;
+    return toBackendWebSocketURL("/api/project-memory/subscribe");
+  }
+  const originURL = new URL(origin);
+  const base = `${originURL.protocol}//${originURL.host}`;
+  const url = new URL("/api/project-memory/subscribe", base);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

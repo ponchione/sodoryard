@@ -6,6 +6,8 @@
  *   const conv = await api.post<Conversation>('/api/conversations', { project_id: '...' });
  */
 
+import { desktopSessionHeaders, toBackendURL } from "@/platform";
+
 export class ApiError extends Error {
   status: number;
   statusText: string;
@@ -24,9 +26,10 @@ async function request<T>(
   url: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(toBackendURL(url), {
     headers: {
       "Content-Type": "application/json",
+      ...desktopSessionHeaders(),
       ...options?.headers,
     },
     ...options,

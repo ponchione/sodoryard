@@ -1,5 +1,6 @@
 BIN_DIR             := bin
 WEB_DIR             := web
+DESKTOP_DIR         := desktop
 GO_TAGS             := sqlite_fts5
 GOFLAGS_DB          := -tags '$(GO_TAGS)'
 WEBFS_DIST          := webfs/dist
@@ -10,7 +11,7 @@ CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIB
 CGO_BUILD_ENV       := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS) -Wl,-rpath,$(LANCEDB_LIB_DIR)"
 RETIRED_BINARIES    := $(BIN_DIR)/sirtopham $(BIN_DIR)/knapford
 
-.PHONY: all build cleanup-retired-binaries tidmouth yard install-user-bin test dev-backend dev-frontend dev frontend-deps frontend-build frontend-test frontend-typecheck projectmemory-bindings projectmemory-bindings-check projectmemory-sdk-smoke clean
+.PHONY: all build cleanup-retired-binaries tidmouth yard install-user-bin test dev-backend dev-frontend dev desktop-deps desktop-build desktop-dev frontend-deps frontend-build frontend-test frontend-typecheck projectmemory-bindings projectmemory-bindings-check projectmemory-sdk-smoke clean
 
 # `make build` builds every retained binary needed for a runnable local tree:
 # the operator-facing yard CLI plus the internal tidmouth engine used by chain
@@ -59,6 +60,24 @@ dev-frontend:
 	cd $(WEB_DIR) && npm run dev
 
 dev: dev-backend
+
+desktop-deps:
+	cd $(DESKTOP_DIR) && npm install
+
+desktop-build: yard desktop-deps frontend-build
+	cd $(DESKTOP_DIR) && npm run build
+
+desktop-dev: yard frontend-deps desktop-deps
+	( \
+		cd $(WEB_DIR) && npm run dev \
+	) & \
+	web_pid=$$!; \
+	trap 'kill $$web_pid 2>/dev/null || true' EXIT INT TERM; \
+	cd $(DESKTOP_DIR) && \
+		YARD_PROJECT_DIR="$(CURDIR)" \
+		YARD_BINARY="$(CURDIR)/$(BIN_DIR)/yard" \
+		YARD_RENDERER_URL="http://localhost:5173" \
+		npm run dev
 
 # -- Frontend ---------------------------------------------------------
 frontend-deps:

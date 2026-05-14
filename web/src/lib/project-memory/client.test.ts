@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as shunterClient from "@shunter/client";
+import { resetYardPlatformForTesting, type YardDesktopBridge } from "@/platform";
 
 import {
   assertProjectMemoryContractCompatible,
   assertProjectMemoryRuntimeContractCompatible,
+  createProjectMemoryClient,
   fetchProjectMemoryRuntimeContract,
   projectMemoryContract,
   projectMemorySubscribeURL,
@@ -14,7 +16,19 @@ import {
   verifyProjectMemoryRuntimeContract,
 } from "./client";
 
+function installDesktopBridge(bridge: YardDesktopBridge | undefined) {
+  Object.defineProperty(window, "yardDesktop", {
+    configurable: true,
+    value: bridge,
+  });
+  resetYardPlatformForTesting();
+}
+
 describe("project memory Shunter client", () => {
+  afterEach(() => {
+    installDesktopBridge(undefined);
+  });
+
   it("builds the subscribe URL under the dedicated project memory route", () => {
     expect(projectMemorySubscribeURL("http://localhost:5173")).toBe(
       "ws://localhost:5173/api/project-memory/subscribe",
@@ -56,6 +70,27 @@ describe("project memory Shunter client", () => {
     await expect(verifyProjectMemoryRuntimeContract(fetcher)).resolves.toMatchObject({
       module: { name: "yard_project_memory", version: "0.13.0" },
     });
+  });
+
+  it("uses desktop project-memory URL and token when the preload bridge provides them", () => {
+    installDesktopBridge({
+      getPlatformInfo: () => ({
+        kind: "desktop",
+        appVersion: "0.0.0",
+        backendBaseUrl: "http://localhost:5173",
+        backendDirectUrl: "http://localhost:8090",
+        capabilities: ["project_memory_protocol"],
+        projectMemory: {
+          subscribeUrl: "ws://localhost:5173/api/project-memory/subscribe",
+          token: "desktop-token",
+        },
+      }),
+      openExternal: vi.fn(),
+    });
+
+    expect(projectMemorySubscribeURL()).toBe("ws://localhost:5173/api/project-memory/subscribe");
+    const client = createProjectMemoryClient({ reconnect: false });
+    expect(client).toBeTruthy();
   });
 
   it("rejects stale backend contract metadata", () => {

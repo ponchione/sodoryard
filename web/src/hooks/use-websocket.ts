@@ -4,6 +4,7 @@ import type {
   ServerMessage,
   ServerEventData,
 } from "@/types/events";
+import { toBackendWebSocketURL } from "@/platform";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -51,9 +52,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const [eventTick, setEventTick] = useState(0);
 
   const connect = useCallback(() => {
-    // Build WS URL relative to the current page origin.
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/api/ws`;
+    const url = toBackendWebSocketURL("/api/ws");
 
     setStatus("connecting");
     const ws = new WebSocket(url);

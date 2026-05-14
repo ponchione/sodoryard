@@ -6,6 +6,7 @@ bin/
 
 # Frontend & Node
 web/dist/
+desktop/dist/
 web/node_modules/
 webfs/dist/*
 !webfs/dist/.gitkeep
