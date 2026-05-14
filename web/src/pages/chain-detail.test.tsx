@@ -377,7 +377,16 @@ describe("ChainDetailPage", () => {
           chain_id: "chain-1",
           step: "step-1",
           path: "receipts/coder/chain-1-step-001.md",
-          content: "coder receipt body",
+          content: [
+            "---",
+            "role: coder",
+            "changed_files:",
+            "  - internal/example.go",
+            "---",
+            "# Coder Receipt",
+            "",
+            "coder receipt body",
+          ].join("\n"),
         });
       }
       if (url.includes("/receipt")) {
@@ -440,7 +449,9 @@ describe("ChainDetailPage", () => {
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-1/receipt?step=step-1");
     });
-    expect(await screen.findByText("coder receipt body")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Coder Receipt" })).toBeInTheDocument();
+    expect(screen.getByText("changed files")).toBeInTheDocument();
+    expect(screen.getByText("Raw Markdown")).toBeInTheDocument();
   });
 
   it("merges SDK-decoded project memory events into the timeline without REST event polling", async () => {

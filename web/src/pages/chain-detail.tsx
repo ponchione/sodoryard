@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Ban, Check, Pause, Play, X } from "lucide-react";
+import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Button } from "@/components/ui/button";
 import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
-import { receiptRouteForSummary } from "@/lib/receipts";
+import { parseReceiptDocument, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
 import type {
   ApprovalDecisionResult,
   ChainApproval,
@@ -122,6 +123,10 @@ function formatApprovalInput(input: unknown): string {
   } catch {
     return String(input);
   }
+}
+
+function receiptFieldLabel(key: string): string {
+  return key.replace(/_/g, " ");
 }
 
 function selectReceiptForDetail(
@@ -428,6 +433,9 @@ export function ChainDetailPage() {
   const resumeEnabled = detail ? canResumeChain(detailStatus, pendingApprovals) : false;
   const cancelEnabled = detail ? canCancelChain(detailStatus) : false;
   const controlsBusy = controlAction !== null;
+  const parsedReceipt = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
+  const receiptFrontmatter = useMemo(() => Object.entries(parsedReceipt.frontmatter), [parsedReceipt]);
+  const receiptChangedFiles = useMemo(() => receiptProjectPaths(parsedReceipt), [parsedReceipt]);
 
   function selectTimelineReceipt(receiptTarget: ReceiptSummary) {
     setSelectedReceipt(receiptTarget);
@@ -993,15 +1001,62 @@ export function ChainDetailPage() {
                 </div>
               </div>
               <div className="min-w-0 space-y-2">
-                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  Receipt Content
-                </h2>
-                <pre
-                  id="receipt-content"
-                  className="max-h-[32rem] overflow-auto whitespace-pre-wrap border border-border bg-background p-3 text-xs leading-relaxed text-foreground"
-                >
-                  {receipt?.content || "No receipt selected."}
-                </pre>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Receipt Content
+                  </h2>
+                  {selectedReceipt && (
+                    <Link
+                      to={receiptLink(id, selectedReceipt)}
+                      className="text-[10px] uppercase tracking-widest text-primary hover:underline"
+                    >
+                      Detail
+                    </Link>
+                  )}
+                </div>
+                <div id="receipt-content" className="space-y-3 border border-border bg-background p-3">
+                  {receipt ? (
+                    <>
+                      {receiptFrontmatter.length > 0 && (
+                        <div className="grid gap-2 border border-border/70 bg-muted/40 p-2 text-[11px] md:grid-cols-2">
+                          {receiptFrontmatter.slice(0, 8).map(([key, value]) => (
+                            <div key={key} className="min-w-0">
+                              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                {receiptFieldLabel(key)}
+                              </div>
+                              <div className="mt-0.5 break-words font-mono text-foreground">{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {receiptChangedFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-2 text-[10px]">
+                          {receiptChangedFiles.map((path) => (
+                            <span
+                              key={path}
+                              className="break-all border border-border/70 px-2 py-1 font-mono text-muted-foreground"
+                            >
+                              {path}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-sm leading-relaxed text-foreground">
+                        <MarkdownContent content={parsedReceipt.body || receipt.content} />
+                      </div>
+                      <details className="border-t border-border/70 pt-2 text-xs">
+                        <summary className="cursor-pointer text-[10px] uppercase tracking-widest text-muted-foreground">
+                          Raw Markdown
+                        </summary>
+                        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap border border-border/70 bg-muted/30 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                          {receipt.content}
+                        </pre>
+                      </details>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No receipt selected.</p>
+                  )}
+                </div>
               </div>
             </section>
 
