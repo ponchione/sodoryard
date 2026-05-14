@@ -11,6 +11,7 @@ const ConversationListPage = lazy(() => import("@/pages/conversation-list").then
 const ConversationPage = lazy(() => import("@/pages/conversation").then((m) => ({ default: m.ConversationPage })));
 const ChainsPage = lazy(() => import("@/pages/chains").then((m) => ({ default: m.ChainsPage })));
 const ChainDetailPage = lazy(() => import("@/pages/chain-detail").then((m) => ({ default: m.ChainDetailPage })));
+const ReceiptDetailPage = lazy(() => import("@/pages/receipt-detail").then((m) => ({ default: m.ReceiptDetailPage })));
 const MetricsPage = lazy(() => import("@/pages/metrics").then((m) => ({ default: m.MetricsPage })));
 const SettingsPage = lazy(() => import("@/pages/settings").then((m) => ({ default: m.SettingsPage })));
 
@@ -72,6 +73,22 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<RouteFallback />}>
             <ChainDetailPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "receipts/:chainId",
+        element: (
+          <Suspense fallback={<RouteFallback />}>
+            <ReceiptDetailPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "receipts/:chainId/:step",
+        element: (
+          <Suspense fallback={<RouteFallback />}>
+            <ReceiptDetailPage />
           </Suspense>
         ),
       },

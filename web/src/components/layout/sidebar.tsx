@@ -172,7 +172,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           />
           <NavLinkItem
             to="/chains"
-            active={location.pathname.startsWith("/chains")}
+            active={location.pathname.startsWith("/chains") || location.pathname.startsWith("/receipts")}
             icon={<Activity size={16} aria-hidden="true" />}
             label="Chains"
             onClick={onClose}

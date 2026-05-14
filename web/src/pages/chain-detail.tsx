@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
+import { receiptRouteForSummary } from "@/lib/receipts";
 import type {
   ApprovalDecisionResult,
   ChainApproval,
@@ -107,6 +108,10 @@ function formatControlResult(result: ChainControlResult): string {
     ? ` (${result.previous_status} -> ${result.status})`
     : "";
   return `${result.message}${transition}`;
+}
+
+function receiptLink(chainID: string, receipt: ReceiptSummary): string {
+  return receiptRouteForSummary(chainID, receipt);
 }
 
 function formatApprovalInput(input: unknown): string {
@@ -963,17 +968,27 @@ export function ChainDetailPage() {
                     <p className="p-3 text-xs text-muted-foreground">No receipts recorded.</p>
                   )}
                   {detail.receipts.map((candidate) => (
-                    <button
+                    <div
                       key={`${candidate.step}:${candidate.path}`}
-                      type="button"
-                      onClick={() => setSelectedReceipt(candidate)}
-                      className={`block w-full border-b border-border px-3 py-2 text-left text-xs hover:bg-muted ${
+                      className={`flex border-b border-border text-xs ${
                         selectedReceipt?.path === candidate.path ? "bg-muted text-primary" : "text-muted-foreground"
                       }`}
                     >
-                      <span className="block font-medium">{candidate.label || "receipt"}</span>
-                      <span className="block truncate font-mono text-[10px]">{candidate.path}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReceipt(candidate)}
+                        className="min-w-0 flex-1 px-3 py-2 text-left hover:bg-muted"
+                      >
+                        <span className="block font-medium">{candidate.label || "receipt"}</span>
+                        <span className="block truncate font-mono text-[10px]">{candidate.path}</span>
+                      </button>
+                      <Link
+                        to={receiptLink(id, candidate)}
+                        className="flex shrink-0 items-center border-l border-border px-3 text-[10px] uppercase tracking-widest text-primary hover:bg-muted"
+                      >
+                        Open
+                      </Link>
+                    </div>
                   ))}
                 </div>
               </div>
