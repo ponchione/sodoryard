@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./sidebar";
@@ -38,5 +38,15 @@ describe("Sidebar layout", () => {
     const scrollArea = container.querySelector('[data-slot="scroll-area"]');
     expect(scrollArea).toBeTruthy();
     expect(scrollArea).toHaveClass("min-h-0");
+  });
+
+  it("links to the dashboard workspace", () => {
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <Sidebar open={false} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole("link", { name: "Dashboard" })[0]).toHaveAttribute("href", "/dashboard");
   });
 });

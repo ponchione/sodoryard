@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Activity, BarChart3, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { Activity, BarChart3, LayoutDashboard, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -149,6 +149,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <Separator />
 
         <nav className="space-y-0.5 p-2 text-sm">
+          <NavLinkItem
+            to="/dashboard"
+            active={location.pathname.startsWith("/dashboard")}
+            icon={<LayoutDashboard size={16} aria-hidden="true" />}
+            label="Dashboard"
+            onClick={onClose}
+          />
           <NavLinkItem
             to="/"
             active={location.pathname === "/"}

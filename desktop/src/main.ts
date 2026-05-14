@@ -39,7 +39,7 @@ async function main() {
     rememberProjectRoot(runtime.platform.projectRoot);
     watchManagedBackend(runtime);
     await showStatus("Starting Yard Desktop", "Opening the renderer...");
-    await mainWindow.loadURL(runtime.rendererBaseUrl);
+    await mainWindow.loadURL(rendererRouteURL(runtime.rendererBaseUrl, "/dashboard"));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown startup error";
     await showStatus("Yard Desktop failed to start", message);
@@ -211,8 +211,12 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     mainWindow = createWindow(desktopState.window);
     bindWindowLifecycle(mainWindow);
-    if (runtime) void mainWindow.loadURL(runtime.rendererBaseUrl);
+    if (runtime) void mainWindow.loadURL(rendererRouteURL(runtime.rendererBaseUrl, "/dashboard"));
   }
 });
 
 void main();
+
+function rendererRouteURL(baseUrl: string, route: string): string {
+  return new URL(route, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+}

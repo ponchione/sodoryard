@@ -15,6 +15,8 @@ through the preload bridge.
 
 The shell stores window bounds and the last selected project root in Electron's
 user data directory. `YARD_PROJECT_DIR` still wins for development runs.
+Electron opens the React app on `/dashboard`; browser mode can still use the
+existing chat route at `/`.
 
 Useful environment overrides:
 

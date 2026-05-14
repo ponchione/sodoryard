@@ -5,6 +5,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import "./index.css";
 
 const RootLayout = lazy(() => import("@/components/layout/root-layout").then((m) => ({ default: m.RootLayout })));
+const DashboardPage = lazy(() => import("@/pages/dashboard").then((m) => ({ default: m.DashboardPage })));
 const ConversationListPage = lazy(() => import("@/pages/conversation-list").then((m) => ({ default: m.ConversationListPage })));
 const ConversationPage = lazy(() => import("@/pages/conversation").then((m) => ({ default: m.ConversationPage })));
 const ChainsPage = lazy(() => import("@/pages/chains").then((m) => ({ default: m.ChainsPage })));
@@ -30,6 +31,14 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<RouteFallback />}>
             <ConversationListPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "dashboard",
+        element: (
+          <Suspense fallback={<RouteFallback />}>
+            <DashboardPage />
           </Suspense>
         ),
       },

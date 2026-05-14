@@ -1737,7 +1737,8 @@ Implementation progress as of 2026-05-14:
 - Backend desktop API groundwork is partially complete: capabilities, project-memory contract/token/protocol endpoints, runtime status, local-service controls, launch draft/preset/preview/start endpoints, chain snapshots/events/receipts/control endpoints, approvals, metrics, and roles are available through HTTP.
 - The Electron shell MVP has started in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
 - `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
-- Remaining desktop work starts with product-specific desktop routes for launch, chain monitoring, receipt review, project attachments, readiness, and settings.
+- The first desktop product route is `/dashboard`, which Electron opens by default. It combines runtime readiness, recent chains, recent conversations, and Shunter Project Memory activity using existing REST and SDK paths.
+- Remaining desktop work starts with the launch workbench preview, then launch start/navigation, chain monitoring polish, receipt review, project attachments, readiness actions, and settings.
 
 ### Phase 0: Spec And Alignment
 
