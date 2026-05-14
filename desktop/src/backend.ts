@@ -27,7 +27,7 @@ export interface BackendRuntime {
 }
 
 const defaultBackendPort = 8090;
-const defaultRendererURL = "http://localhost:5173";
+const defaultRendererURL = "http://127.0.0.1:5173";
 
 export async function startBackendRuntime(options: BackendOptions): Promise<BackendRuntime> {
   const directBaseUrl = normalizeBaseURL(

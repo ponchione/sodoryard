@@ -1,6 +1,10 @@
 BIN_DIR             := bin
 WEB_DIR             := web
 DESKTOP_DIR         := desktop
+DESKTOP_RENDERER_HOST ?= 127.0.0.1
+DESKTOP_RENDERER_PORT ?= 5173
+YARD_BINARY          ?= $(CURDIR)/$(BIN_DIR)/yard
+YARD_PROJECT_DIR     ?= $(CURDIR)
 GO_TAGS             := sqlite_fts5
 GOFLAGS_DB          := -tags '$(GO_TAGS)'
 WEBFS_DIST          := webfs/dist
@@ -80,15 +84,19 @@ desktop-package: desktop-build
 	cd $(DESKTOP_DIR) && npm run package:unpacked
 
 desktop-dev: yard frontend-deps desktop-deps
+	set -e; \
+	renderer_port=$$(node $(DESKTOP_DIR)/scripts/find-free-port.mjs "$(DESKTOP_RENDERER_HOST)" "$(DESKTOP_RENDERER_PORT)"); \
+	renderer_url="http://$(DESKTOP_RENDERER_HOST):$$renderer_port"; \
+	echo "Starting desktop renderer at $$renderer_url"; \
 	( \
-		cd $(WEB_DIR) && npm run dev \
+		cd $(WEB_DIR) && npm run dev -- --host $(DESKTOP_RENDERER_HOST) --port $$renderer_port --strictPort \
 	) & \
 	web_pid=$$!; \
 	trap 'kill $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	cd $(DESKTOP_DIR) && \
-		YARD_PROJECT_DIR="$(CURDIR)" \
-		YARD_BINARY="$(CURDIR)/$(BIN_DIR)/yard" \
-		YARD_RENDERER_URL="http://localhost:5173" \
+		YARD_PROJECT_DIR="$(YARD_PROJECT_DIR)" \
+		YARD_BINARY="$(YARD_BINARY)" \
+		YARD_RENDERER_URL="$$renderer_url" \
 		npm run dev
 
 # -- Frontend ---------------------------------------------------------

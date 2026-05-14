@@ -10,7 +10,7 @@ make desktop-dev
 
 The dev command builds `bin/yard`, starts or attaches to a local `yard serve --dev`
 backend on `127.0.0.1:8090`, waits for the Vite renderer on
-`http://localhost:5173`, and exposes desktop runtime metadata to the renderer
+`http://127.0.0.1:5173`, and exposes desktop runtime metadata to the renderer
 through the preload bridge.
 
 The shell stores window bounds and the last selected project root in Electron's
@@ -23,11 +23,16 @@ Useful environment overrides:
 
 ```bash
 YARD_BACKEND_URL=http://127.0.0.1:8090  # attach instead of spawning
-YARD_RENDERER_URL=http://localhost:5173 # renderer dev server
+YARD_RENDERER_URL=http://127.0.0.1:5173 # renderer dev server
 YARD_BINARY=/path/to/yard               # sidecar binary
 YARD_PROJECT_DIR=/path/to/project       # backend working directory
 YARD_CONFIG=/path/to/yard.yaml          # backend config
 ```
+
+If `127.0.0.1:5173` is busy, `make desktop-dev` chooses the next free renderer
+port and passes that URL to Electron. Use
+`make desktop-dev DESKTOP_RENDERER_PORT=<port>` to choose a different starting
+port.
 
 Validation:
 

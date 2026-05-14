@@ -6,7 +6,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "npm run build && electron .",
+    "dev": "npm run build && electron --no-sandbox .",
     "package:unpacked": "npm run build && node scripts/package-unpacked.mjs",
     "test": "npm run build && node --test dist/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
