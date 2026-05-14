@@ -51,6 +51,10 @@ function receiptLabel(receipt: ReceiptSummary): string {
   return receipt.label || (receipt.step ? `step ${receipt.step}` : "orchestrator");
 }
 
+function anchorID(prefix: string, value: string | number): string {
+  return `${prefix}-${String(value).replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
+}
+
 export function ReceiptDetailPage() {
   const { chainId = "", step } = useParams();
   const platform = useMemo(() => getYardPlatform(), []);
@@ -172,8 +176,20 @@ export function ReceiptDetailPage() {
                   <div>
                     <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Step</dt>
                     <dd className="mt-0.5 text-foreground">
-                      {receipt.step || "orchestrator"}
-                      {currentStep?.role ? ` / ${currentStep.role}` : ""}
+                      {currentStep?.id ? (
+                        <Link
+                          to={`/chains/${encodeURIComponent(chainId)}#${anchorID("step", currentStep.id)}`}
+                          className="text-primary hover:underline"
+                        >
+                          {receipt.step || "orchestrator"}
+                          {currentStep.role ? ` / ${currentStep.role}` : ""}
+                        </Link>
+                      ) : (
+                        <>
+                          {receipt.step || "orchestrator"}
+                          {currentStep?.role ? ` / ${currentStep.role}` : ""}
+                        </>
+                      )}
                     </dd>
                   </div>
                   <div>

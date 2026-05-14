@@ -168,7 +168,7 @@ describe("ReceiptDetailPage", () => {
     expect(screen.getByText("changed files")).toBeInTheDocument();
     expect(screen.getAllByText("web/src/pages/receipt-detail.tsx").length).toBeGreaterThan(0);
     expect(screen.getByText("step_completed")).toBeInTheDocument();
-    expect(screen.getByText("1 / coder")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "1 / coder" })).toHaveAttribute("href", "/chains/chain-1#step-step-db-1");
     expect(screen.getByRole("link", { name: /step 1 coder.*receipts\/coder\/chain-1-step-001\.md/ })).toHaveAttribute(
       "href",
       "/receipts/chain-1/1",
