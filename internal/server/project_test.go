@@ -485,6 +485,51 @@ func TestProjectValidatePathsRejectsUnsupportedPurpose(t *testing.T) {
 	}
 }
 
+func TestProjectValidatePathsRejectsTrailingJSON(t *testing.T) {
+	base := startProjectValidationServer(t, t.TempDir())
+	resp, err := http.Post(
+		base+"/api/project/validate-paths",
+		"application/json",
+		bytes.NewBufferString(`{"purpose":"launch_attachment","paths":[]} {}`),
+	)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestProjectValidatePathsRejectsOversizedJSON(t *testing.T) {
+	base := startProjectValidationServer(t, t.TempDir())
+	oversized := `{"purpose":"launch_attachment","paths":["` + strings.Repeat("x", 5<<20) + `"]}`
+	resp, err := http.Post(
+		base+"/api/project/validate-paths",
+		"application/json",
+		bytes.NewBufferString(oversized),
+	)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", resp.StatusCode)
+	}
+}
+
+func startProjectValidationServer(t *testing.T, dir string) string {
+	t.Helper()
+	cfg := config.Default()
+	cfg.ProjectRoot = dir
+	cfg.Brain.Enabled = false
+
+	srv := server.New(server.Config{Host: "127.0.0.1", Port: 0}, newTestLogger())
+	server.NewProjectHandler(srv, cfg, newTestLogger())
+	_, base := startServer(t, srv)
+	return base
+}
+
 func postProjectValidation(t *testing.T, base string, payload string) struct {
 	Accepted []string `json:"accepted"`
 	Rejected []struct {

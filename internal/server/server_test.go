@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"testing"
 	"testing/fstest"
@@ -175,9 +176,79 @@ func TestCORSPreflightOptions(t *testing.T) {
 	}
 }
 
+func TestCORSDevModeEchoesAllowedLoopbackOrigin(t *testing.T) {
+	_, base := newTestServer(t, server.Config{DevMode: true})
+
+	req, _ := http.NewRequest(http.MethodGet, base+"/api/health", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:5173")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://127.0.0.1:5173" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want http://127.0.0.1:5173", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "X-Yard-Desktop-Session") {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want desktop session header", got)
+	}
+}
+
+func TestUnsafeMethodOriginGuard(t *testing.T) {
+	tests := []struct {
+		name       string
+		devMode    bool
+		origin     string
+		referer    string
+		wantStatus int
+		wantCalled bool
+	}{
+		{name: "rejects cross-origin origin", origin: "http://malicious.example", wantStatus: http.StatusForbidden},
+		{name: "allows same-origin origin", origin: "<same-origin>", wantStatus: http.StatusOK, wantCalled: true},
+		{name: "allows non-browser clients", wantStatus: http.StatusOK, wantCalled: true},
+		{name: "allows Vite dev origin", devMode: true, origin: "http://127.0.0.1:58999", wantStatus: http.StatusOK, wantCalled: true},
+		{name: "rejects cross-origin referer", referer: "http://malicious.example/page", wantStatus: http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var called bool
+			srv := server.New(server.Config{Host: "127.0.0.1", Port: 0, DevMode: tt.devMode}, newTestLogger())
+			srv.HandleFunc("POST /api/custom", func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+			})
+			_, base := startServer(t, srv)
+
+			req, _ := http.NewRequest(http.MethodPost, base+"/api/custom", strings.NewReader("{}"))
+			if tt.origin == "<same-origin>" {
+				req.Header.Set("Origin", base)
+			} else if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if tt.referer != "" {
+				req.Header.Set("Referer", tt.referer)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tt.wantStatus)
+			}
+			if called != tt.wantCalled {
+				t.Fatalf("handler called = %t, want %t", called, tt.wantCalled)
+			}
+		})
+	}
+}
+
 func TestStaticFileServing(t *testing.T) {
 	frontendFS := fstest.MapFS{
-		"index.html":  {Data: []byte("<html>app</html>")},
+		"index.html":       {Data: []byte("<html>app</html>")},
 		"assets/style.css": {Data: []byte("body{}")},
 	}
 
@@ -292,4 +363,3 @@ func startServer(t *testing.T, srv *server.Server) (*server.Server, string) {
 
 	return srv, "http://" + addr
 }
-

@@ -177,7 +177,7 @@ func TestWebSocketDevModeAcceptsViteOrigin(t *testing.T) {
 
 	wsURL := "ws" + base[4:] + "/api/ws"
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{"Origin": []string{"http://localhost:5173"}},
+		HTTPHeader: http.Header{"Origin": []string{"http://127.0.0.1:58999"}},
 	})
 	if err != nil {
 		t.Fatalf("websocket dial failed: %v", err)

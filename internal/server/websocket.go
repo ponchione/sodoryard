@@ -38,12 +38,6 @@ type WebSocketHandler struct {
 	activeTurn atomic.Bool
 }
 
-var devWebSocketOriginPatterns = []string{
-	"localhost:5173",
-	"127.0.0.1:5173",
-	"[::1]:5173",
-}
-
 // NewWebSocketHandler creates a handler and registers the WS route.
 func NewWebSocketHandler(s *Server, agentSvc AgentService, convSvc ConversationService, cfg *config.Config, defaults *RuntimeDefaults, logger *slog.Logger) *WebSocketHandler {
 	if defaults == nil {
@@ -81,8 +75,13 @@ type ServerMessage struct {
 func (h *WebSocketHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 	acceptOptions := &websocket.AcceptOptions{}
 	if h.devMode {
-		// In dev mode, Vite dev server connects from a different origin.
-		acceptOptions.OriginPatterns = devWebSocketOriginPatterns
+		// In dev mode, Vite may run on a free loopback port and connect from
+		// a different origin than the backend.
+		if origin := r.Header.Get("Origin"); origin != "" && !allowedRequestOrigin(r, origin, true) {
+			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+		acceptOptions.InsecureSkipVerify = true
 	}
 	conn, err := websocket.Accept(w, r, acceptOptions)
 	if err != nil {
