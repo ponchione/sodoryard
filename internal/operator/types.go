@@ -81,15 +81,17 @@ type StepSummary struct {
 }
 
 type ChainSummary struct {
-	ID          string
-	Status      string
-	SourceTask  string
-	SourceSpecs []string
-	TotalSteps  int
-	TotalTokens int
-	StartedAt   time.Time
-	UpdatedAt   time.Time
-	CurrentStep *StepSummary
+	ID                string
+	Status            string
+	SourceTask        string
+	SourceSpecs       []string
+	TotalSteps        int
+	TotalTokens       int
+	TotalDurationSecs int
+	ReceiptCount      int
+	StartedAt         time.Time
+	UpdatedAt         time.Time
+	CurrentStep       *StepSummary
 }
 
 type ChainDetail struct {

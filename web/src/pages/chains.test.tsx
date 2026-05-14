@@ -54,6 +54,8 @@ function chainSummary(): ChainSummary {
     source_specs: [],
     total_steps: 1,
     total_tokens: 42,
+    total_duration_secs: 65,
+    receipt_count: 0,
     started_at: "2026-01-02T03:04:05Z",
     updated_at: "2026-01-02T03:05:06Z",
     current_step: {
@@ -75,6 +77,9 @@ function completedChainSummary(): ChainSummary {
     status: "completed",
     source_task: "archive chain results",
     total_tokens: 84,
+    total_duration_secs: 9,
+    receipt_count: 1,
+    updated_at: "2026-01-02T03:06:06Z",
     current_step: undefined,
   };
 }
@@ -110,7 +115,7 @@ describe("ChainsPage", () => {
     refreshMock.mockReset();
     useApiResourceMock.mockReset().mockImplementation((path: string, initial: unknown) => {
       if (path === "/api/chains?limit=100") {
-        return { data: [chainSummary(), completedChainSummary()], loading: false, error: null, refresh: refreshMock };
+        return { data: [completedChainSummary(), chainSummary()], loading: false, error: null, refresh: refreshMock };
       }
       if (path === "/api/runtime/status") {
         return { data: runtimeStatus(), loading: false, error: null, refresh: vi.fn() };
@@ -131,7 +136,13 @@ describe("ChainsPage", () => {
     expect(screen.getByText("project memory: connected / 2 chain rows / 1 event rows")).toBeInTheDocument();
     expect(screen.getByText("approval_required")).toBeInTheDocument();
     expect(screen.getByText("{\"tool\":\"shell\"}")).toBeInTheDocument();
+    expect(screen.getByText("1m 5s")).toBeInTheDocument();
+    expect(screen.getByText("9s")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "chain-1" })[0]).toHaveAttribute("href", "/chains/chain-1");
+
+    const rows = screen.getAllByRole("row");
+    expect(rows[1].textContent).toContain("chain-1");
+    expect(rows[2].textContent).toContain("chain-2");
   });
 
   it("filters chain rows by status", () => {

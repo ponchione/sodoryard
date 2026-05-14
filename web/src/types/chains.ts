@@ -133,6 +133,8 @@ export interface ChainSummary {
   source_specs: string[];
   total_steps: number;
   total_tokens: number;
+  total_duration_secs: number;
+  receipt_count: number;
   started_at: string;
   updated_at: string;
   current_step?: StepSummary;

@@ -120,16 +120,28 @@ func normalizeLimit(limit int) int {
 
 func summarizeChain(ch chain.Chain, steps []chain.Step) ChainSummary {
 	return ChainSummary{
-		ID:          ch.ID,
-		Status:      ch.Status,
-		SourceTask:  ch.SourceTask,
-		SourceSpecs: append([]string(nil), ch.SourceSpecs...),
-		TotalSteps:  ch.TotalSteps,
-		TotalTokens: ch.TotalTokens,
-		StartedAt:   ch.StartedAt,
-		UpdatedAt:   ch.UpdatedAt,
-		CurrentStep: summarizeCurrentStep(steps),
+		ID:                ch.ID,
+		Status:            ch.Status,
+		SourceTask:        ch.SourceTask,
+		SourceSpecs:       append([]string(nil), ch.SourceSpecs...),
+		TotalSteps:        ch.TotalSteps,
+		TotalTokens:       ch.TotalTokens,
+		TotalDurationSecs: ch.TotalDurationSecs,
+		ReceiptCount:      countStepReceipts(steps),
+		StartedAt:         ch.StartedAt,
+		UpdatedAt:         ch.UpdatedAt,
+		CurrentStep:       summarizeCurrentStep(steps),
 	}
+}
+
+func countStepReceipts(steps []chain.Step) int {
+	count := 0
+	for _, step := range steps {
+		if strings.TrimSpace(step.ReceiptPath) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func findingLifecycleMetrics(entries []chain.FindingLifecycleEntry) []FindingLifecycleMetric {

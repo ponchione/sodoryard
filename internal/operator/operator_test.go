@@ -526,7 +526,7 @@ func TestListChainsAndDetail(t *testing.T) {
 	if err := store.StepRunning(ctx, stepTwo); err != nil {
 		t.Fatalf("StepRunning returned error: %v", err)
 	}
-	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 2, TotalTokens: 123}); err != nil {
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 2, TotalTokens: 123, TotalDurationSecs: 17}); err != nil {
 		t.Fatalf("UpdateChainMetrics returned error: %v", err)
 	}
 	if err := store.LogEvent(ctx, chainID, stepTwo, chain.EventStepStarted, map[string]any{"role": "coder"}); err != nil {
@@ -547,6 +547,9 @@ func TestListChainsAndDetail(t *testing.T) {
 	}
 	if summary.TotalSteps != 2 || summary.TotalTokens != 123 {
 		t.Fatalf("summary metrics = steps %d tokens %d, want 2/123", summary.TotalSteps, summary.TotalTokens)
+	}
+	if summary.TotalDurationSecs != 17 || summary.ReceiptCount != 1 {
+		t.Fatalf("summary indicators = duration %d receipts %d, want 17/1", summary.TotalDurationSecs, summary.ReceiptCount)
 	}
 	if summary.CurrentStep == nil || summary.CurrentStep.SequenceNum != 2 || summary.CurrentStep.Role != "coder" || summary.CurrentStep.Status != "running" {
 		t.Fatalf("CurrentStep = %+v, want running coder step 2", summary.CurrentStep)

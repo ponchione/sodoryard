@@ -103,8 +103,11 @@ func TestChainInspectorEndpoints(t *testing.T) {
 		t.Fatalf("StartStep returned error: %v", err)
 	}
 	receiptPath := "receipts/coder/chain-web-step-001.md"
-	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "accepted", ReceiptPath: receiptPath, TokensUsed: 42}); err != nil {
+	if err := store.CompleteStep(ctx, chain.CompleteStepParams{StepID: stepID, Status: "completed", Verdict: "accepted", ReceiptPath: receiptPath, TokensUsed: 42, DurationSecs: 5}); err != nil {
 		t.Fatalf("CompleteStep returned error: %v", err)
+	}
+	if err := store.UpdateChainMetrics(ctx, chainID, chain.ChainMetrics{TotalSteps: 1, TotalTokens: 42, TotalDurationSecs: 5}); err != nil {
+		t.Fatalf("UpdateChainMetrics returned error: %v", err)
 	}
 	if err := store.LogEvent(ctx, chainID, stepID, chain.EventFindingLifecycleFacts, map[string]any{
 		"role": "correctness-auditor",
@@ -201,12 +204,17 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	_, base := startServer(t, srv)
 
 	var chains []struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
+		ID                string `json:"id"`
+		Status            string `json:"status"`
+		TotalDurationSecs int    `json:"total_duration_secs"`
+		ReceiptCount      int    `json:"receipt_count"`
 	}
 	getJSON(t, base+"/api/chains", &chains)
 	if len(chains) != 1 || chains[0].ID != chainID || chains[0].Status != "completed" {
 		t.Fatalf("chains response = %+v, want completed chain-web", chains)
+	}
+	if chains[0].TotalDurationSecs != 5 || chains[0].ReceiptCount != 1 {
+		t.Fatalf("chains summary indicators = %+v, want duration 5 and one receipt", chains[0])
 	}
 
 	var templates []struct {
@@ -359,7 +367,7 @@ func TestChainInspectorEndpoints(t *testing.T) {
 	if len(facts.ChangedFiles) != 1 || facts.ChangedFiles[0] != "internal/example.go" {
 		t.Fatalf("guardrail changed files = %+v, want internal/example.go", facts.ChangedFiles)
 	}
-	if detail.Metrics.ChainID != chainID || detail.Metrics.Health != "attention" || detail.Metrics.TotalSteps != 0 || detail.Metrics.StepRows != 1 || detail.Metrics.TotalTokens != 0 || detail.Metrics.StepTokenTotal != 42 || detail.Metrics.EventTotal != 3 || detail.Metrics.StepGuardrailFactEvents != 1 || detail.Metrics.FindingLifecycleFactEvents != 1 {
+	if detail.Metrics.ChainID != chainID || detail.Metrics.Health != "attention" || detail.Metrics.TotalSteps != 1 || detail.Metrics.StepRows != 1 || detail.Metrics.TotalTokens != 42 || detail.Metrics.StepTokenTotal != 42 || detail.Metrics.EventTotal != 3 || detail.Metrics.StepGuardrailFactEvents != 1 || detail.Metrics.FindingLifecycleFactEvents != 1 {
 		t.Fatalf("metrics = %+v, want serialized chain metrics report", detail.Metrics)
 	}
 	if len(detail.Metrics.Steps) != 1 || detail.Metrics.Steps[0].SequenceNum != 1 || detail.Metrics.Steps[0].Role != "coder" || detail.Metrics.Steps[0].TokensUsed != 42 {

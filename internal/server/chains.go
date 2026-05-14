@@ -325,15 +325,17 @@ type runtimeWarningResponse struct {
 }
 
 type chainSummaryResponse struct {
-	ID          string               `json:"id"`
-	Status      string               `json:"status"`
-	SourceTask  string               `json:"source_task"`
-	SourceSpecs []string             `json:"source_specs"`
-	TotalSteps  int                  `json:"total_steps"`
-	TotalTokens int                  `json:"total_tokens"`
-	StartedAt   string               `json:"started_at"`
-	UpdatedAt   string               `json:"updated_at"`
-	CurrentStep *stepSummaryResponse `json:"current_step,omitempty"`
+	ID                string               `json:"id"`
+	Status            string               `json:"status"`
+	SourceTask        string               `json:"source_task"`
+	SourceSpecs       []string             `json:"source_specs"`
+	TotalSteps        int                  `json:"total_steps"`
+	TotalTokens       int                  `json:"total_tokens"`
+	TotalDurationSecs int                  `json:"total_duration_secs"`
+	ReceiptCount      int                  `json:"receipt_count"`
+	StartedAt         string               `json:"started_at"`
+	UpdatedAt         string               `json:"updated_at"`
+	CurrentStep       *stepSummaryResponse `json:"current_step,omitempty"`
 }
 
 type launchTemplateResponse struct {
@@ -661,15 +663,17 @@ type receiptViewResponse struct {
 
 func chainSummaryResponseFromOperator(summary operator.ChainSummary) chainSummaryResponse {
 	return chainSummaryResponse{
-		ID:          summary.ID,
-		Status:      summary.Status,
-		SourceTask:  summary.SourceTask,
-		SourceSpecs: append([]string(nil), summary.SourceSpecs...),
-		TotalSteps:  summary.TotalSteps,
-		TotalTokens: summary.TotalTokens,
-		StartedAt:   formatTime(summary.StartedAt),
-		UpdatedAt:   formatTime(summary.UpdatedAt),
-		CurrentStep: stepSummaryResponseFromOperator(summary.CurrentStep),
+		ID:                summary.ID,
+		Status:            summary.Status,
+		SourceTask:        summary.SourceTask,
+		SourceSpecs:       append([]string(nil), summary.SourceSpecs...),
+		TotalSteps:        summary.TotalSteps,
+		TotalTokens:       summary.TotalTokens,
+		TotalDurationSecs: summary.TotalDurationSecs,
+		ReceiptCount:      summary.ReceiptCount,
+		StartedAt:         formatTime(summary.StartedAt),
+		UpdatedAt:         formatTime(summary.UpdatedAt),
+		CurrentStep:       stepSummaryResponseFromOperator(summary.CurrentStep),
 	}
 }
 

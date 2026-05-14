@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { useProjectMemoryChains } from "@/hooks/use-project-memory-chains";
-import { chainStatusClass } from "@/lib/chain-status";
+import { chainStatusClass, chainStatusGroup } from "@/lib/chain-status";
 import { formatModelCapabilitySummary, formatTokenLimit } from "@/lib/model-capabilities";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
 
@@ -15,6 +15,32 @@ function formatDate(value?: string): string {
 
 function taskLabel(chain: ChainSummary): string {
   return chain.source_task || chain.source_specs.join(", ") || "No task recorded";
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds <= 0) return "0s";
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes === 0) return `${remainingSeconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours === 0) return `${minutes}m ${remainingSeconds}s`;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
+function activeFirstRank(status: string): number {
+  return chainStatusGroup(status) === "active" ? 0 : 1;
+}
+
+function compareChainRows(a: ChainSummary, b: ChainSummary): number {
+  const rankDiff = activeFirstRank(a.status) - activeFirstRank(b.status);
+  if (rankDiff !== 0) return rankDiff;
+  const aUpdated = new Date(a.updated_at).getTime();
+  const bUpdated = new Date(b.updated_at).getTime();
+  const safeAUpdated = Number.isNaN(aUpdated) ? 0 : aUpdated;
+  const safeBUpdated = Number.isNaN(bUpdated) ? 0 : bUpdated;
+  if (safeAUpdated !== safeBUpdated) return safeBUpdated - safeAUpdated;
+  return a.id.localeCompare(b.id);
 }
 
 function formatProjectMemoryStatus(status: string, rowCount: number | null, eventCount: number | null): string {
@@ -46,20 +72,22 @@ export function ChainsPage() {
     Array.from(new Set(chains.map((chain) => chain.status).filter(Boolean))).sort()
   ), [chains]);
   const visibleChains = useMemo(() => {
-    return chains.filter((chain) => {
-      if (statusFilter !== "all" && chain.status !== statusFilter) return false;
-      if (!normalizedQuery) return true;
-      const haystack = [
-        chain.id,
-        chain.status,
-        chain.source_task,
-        ...chain.source_specs,
-        chain.current_step?.role ?? "",
-        chain.current_step?.status ?? "",
-        chain.current_step?.verdict ?? "",
-      ].join(" ").toLowerCase();
-      return haystack.includes(normalizedQuery);
-    });
+    return chains
+      .filter((chain) => {
+        if (statusFilter !== "all" && chain.status !== statusFilter) return false;
+        if (!normalizedQuery) return true;
+        const haystack = [
+          chain.id,
+          chain.status,
+          chain.source_task,
+          ...chain.source_specs,
+          chain.current_step?.role ?? "",
+          chain.current_step?.status ?? "",
+          chain.current_step?.verdict ?? "",
+        ].join(" ").toLowerCase();
+        return haystack.includes(normalizedQuery);
+      })
+      .sort(compareChainRows);
   }, [chains, normalizedQuery, statusFilter]);
 
   return (
@@ -203,6 +231,8 @@ export function ChainsPage() {
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Current Step</th>
                 <th className="px-3 py-2 font-medium">Tokens</th>
+                <th className="px-3 py-2 font-medium">Duration</th>
+                <th className="px-3 py-2 font-medium">Receipts</th>
                 <th className="px-3 py-2 font-medium">Updated</th>
               </tr>
             </thead>
@@ -222,6 +252,10 @@ export function ChainsPage() {
                       : "none"}
                   </td>
                   <td className="px-3 py-2 tabular-nums">{chain.total_tokens}</td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                    {formatDuration(chain.total_duration_secs)}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">{chain.receipt_count}</td>
                   <td className="px-3 py-2 text-muted-foreground">{formatDate(chain.updated_at)}</td>
                 </tr>
               ))}

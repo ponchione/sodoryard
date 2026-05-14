@@ -79,6 +79,8 @@ function chainSummary(): ChainSummary {
     source_specs: [],
     total_steps: 2,
     total_tokens: 500,
+    total_duration_secs: 120,
+    receipt_count: 1,
     started_at: "2026-01-02T03:04:05Z",
     updated_at: "2026-01-02T03:05:06Z",
     current_step: {
