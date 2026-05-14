@@ -132,6 +132,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("connected / 3 chains / 7 events")).toBeInTheDocument();
     expect(screen.getByText("code index is stale")).toBeInTheDocument();
     expect(screen.getByText("build dashboard")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Launch" })[0]).toHaveAttribute("href", "/launch");
     expect(screen.getAllByRole("link", { name: /chain-1/ })[0]).toHaveAttribute("href", "/chains/chain-1");
     expect(screen.getByText("Runtime follow-up")).toBeInTheDocument();
     expect(screen.getByText("step_completed")).toBeInTheDocument();

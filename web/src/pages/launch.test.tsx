@@ -1,0 +1,141 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LaunchPreview, LaunchTemplate, RuntimeStatus } from "@/types/chains";
+
+const { useApiResourceMock, apiPostMock } = vi.hoisted(() => ({
+  useApiResourceMock: vi.fn(),
+  apiPostMock: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-api-resource", () => ({
+  useApiResource: useApiResourceMock,
+}));
+
+vi.mock("@/lib/api", () => ({
+  ApiError: class ApiError extends Error {
+    status = 400;
+    statusText = "Bad Request";
+    body = "";
+  },
+  api: {
+    post: apiPostMock,
+  },
+}));
+
+import { LaunchPage } from "./launch";
+
+function runtimeStatus(): RuntimeStatus {
+  return {
+    project_root: "/tmp/project",
+    project_name: "project",
+    provider: "codex",
+    model: "gpt-5.2",
+    context_window: 200000,
+    model_capabilities: {
+      supports_tools: true,
+      supports_thinking: true,
+      supports_reasoning_effort: true,
+      supports_structured_output: true,
+      supports_prompt_cache: true,
+      supports_images: false,
+      supports_tool_choice: true,
+      max_output_tokens: 100000,
+    },
+    auth_status: "ok",
+    code_index: { status: "ready" },
+    brain_index: { status: "ready" },
+    local_services_status: "ready",
+    active_chains: 0,
+    warnings: [],
+  };
+}
+
+function templates(): LaunchTemplate[] {
+  return [
+    {
+      id: "one_step",
+      mode: "one_step_chain",
+      label: "One Step",
+      description: "Run one selected role.",
+      receipt_schema: "yard.receipt.v1",
+      preflight_checks: ["task_or_specs", "role"],
+    },
+    {
+      id: "manual_roster",
+      mode: "manual_roster",
+      label: "Manual Roster",
+      description: "Run a fixed roster.",
+      receipt_schema: "yard.receipt.v1",
+      preflight_checks: ["task_or_specs", "roster_roles"],
+    },
+  ];
+}
+
+function preview(): LaunchPreview {
+  const [template] = templates();
+  return {
+    mode: "one_step_chain",
+    template,
+    role: "coder",
+    summary: "one-step coder launch",
+    compiled_task: "Launch task: Ship launch workbench preview",
+    work_packet_markdown: "Launch task: Ship launch workbench preview",
+    warnings: [{ message: "single-step coder launch has no per-step caps" }],
+  };
+}
+
+describe("LaunchPage", () => {
+  beforeEach(() => {
+    apiPostMock.mockReset().mockResolvedValue(preview());
+    useApiResourceMock.mockReset().mockImplementation((path: string, fallback: unknown) => {
+      if (path === "/api/runtime/status") {
+        return { data: runtimeStatus(), loading: false, error: null, refresh: vi.fn() };
+      }
+      if (path === "/api/roles") {
+        return {
+          data: [{ name: "coder" }, { name: "planner" }, { name: "correctness-auditor" }],
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        };
+      }
+      if (path === "/api/chains/templates") {
+        return { data: templates(), loading: false, error: null, refresh: vi.fn() };
+      }
+      if (path === "/api/launch/draft") {
+        return { data: { found: false }, loading: false, error: null, refresh: vi.fn() };
+      }
+      if (path === "/api/launch/presets") {
+        return { data: [], loading: false, error: null, refresh: vi.fn() };
+      }
+      return { data: fallback, loading: false, error: null, refresh: vi.fn() };
+    });
+  });
+
+  it("builds a one-step launch preview from the workbench form", async () => {
+    render(
+      <MemoryRouter>
+        <LaunchPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Task"), {
+      target: { value: "Ship launch workbench preview" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/launch/preview", expect.objectContaining({
+        template_id: "one_step",
+        mode: "one_step_chain",
+        role: "coder",
+        source_task: "Ship launch workbench preview",
+      }));
+    });
+
+    expect(await screen.findByText("one-step coder launch")).toBeInTheDocument();
+    expect(screen.getByText("Launch task: Ship launch workbench preview")).toBeInTheDocument();
+    expect(screen.getByText("single-step coder launch has no per-step caps")).toBeInTheDocument();
+  });
+});

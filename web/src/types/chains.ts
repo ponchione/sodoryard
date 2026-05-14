@@ -37,6 +37,77 @@ export interface RuntimeStatus {
   warnings: RuntimeWarning[];
 }
 
+export interface AgentRoleSummary {
+  name: string;
+}
+
+export type LaunchMode =
+  | "one_step_chain"
+  | "manual_roster"
+  | "sir_topham_decides"
+  | "constrained_orchestration";
+
+export interface LaunchRequest {
+  template_id?: string;
+  mode: LaunchMode;
+  role?: string;
+  allowed_roles?: string[];
+  roster?: string[];
+  source_task?: string;
+  source_specs?: string[];
+  max_steps?: number;
+  max_resolver_loops?: number;
+  max_duration?: string;
+  token_budget?: number;
+  step_max_turns?: number;
+  step_max_tokens?: number;
+  allow_approval_wait?: boolean;
+}
+
+export interface LaunchTemplate {
+  id: string;
+  mode: LaunchMode;
+  label: string;
+  description: string;
+  input_schema?: unknown;
+  default_roles?: string[];
+  receipt_schema?: string;
+  preflight_checks?: string[];
+}
+
+export interface LaunchPreview {
+  mode: LaunchMode;
+  template: LaunchTemplate;
+  role?: string;
+  allowed_roles?: string[];
+  roster?: string[];
+  summary: string;
+  compiled_task: string;
+  work_packet_markdown: string;
+  step_max_turns?: number;
+  step_max_tokens?: number;
+  allow_approval_wait?: boolean;
+  warnings: RuntimeWarning[];
+}
+
+export interface LaunchDraft {
+  id: string;
+  request: LaunchRequest;
+  updated_at?: string;
+}
+
+export interface LaunchDraftRead {
+  found: boolean;
+  draft?: LaunchDraft;
+}
+
+export interface LaunchPreset {
+  id: string;
+  name: string;
+  request: LaunchRequest;
+  updated_at?: string;
+}
+
 export interface StepSummary {
   id: string;
   sequence_num: number;

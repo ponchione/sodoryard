@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Activity, AlertTriangle, BarChart3, GitBranch, MessageSquare, Play, Settings } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, GitBranch, MessageSquare, Play, Rocket, Settings } from "lucide-react";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { useProjectMemoryChains } from "@/hooks/use-project-memory-chains";
 import { chainStatusClass } from "@/lib/chain-status";
@@ -73,6 +73,7 @@ export function DashboardPage() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            <ActionLink to="/launch" icon={<Rocket size={15} aria-hidden="true" />} label="Launch" />
             <ActionLink to="/" icon={<MessageSquare size={15} aria-hidden="true" />} label="Chat" />
             <ActionLink to="/chains" icon={<GitBranch size={15} aria-hidden="true" />} label="Chains" />
             <ActionLink to="/metrics" icon={<BarChart3 size={15} aria-hidden="true" />} label="Metrics" />
@@ -202,7 +203,8 @@ export function DashboardPage() {
           )}
         </section>
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <ActionBlock to="/launch" icon={<Rocket size={16} aria-hidden="true" />} title="Launch" />
           <ActionBlock to="/" icon={<MessageSquare size={16} aria-hidden="true" />} title="Chat" />
           <ActionBlock to="/chains" icon={<Play size={16} aria-hidden="true" />} title="Monitor Chains" />
           <ActionBlock to="/metrics" icon={<BarChart3 size={16} aria-hidden="true" />} title="Metrics" />

@@ -48,5 +48,6 @@ describe("Sidebar layout", () => {
     );
 
     expect(screen.getAllByRole("link", { name: "Dashboard" })[0]).toHaveAttribute("href", "/dashboard");
+    expect(screen.getAllByRole("link", { name: "Launch" })[0]).toHaveAttribute("href", "/launch");
   });
 });
