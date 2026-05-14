@@ -79,6 +79,8 @@ function approvalMeta(approval: ChainApproval): string {
 }
 
 type ChainControlAction = "pause" | "resume" | "cancel";
+type ChainEventSeverity = "normal" | "warning" | "error";
+type ChainEventSeverityFilter = "all" | "warning" | "error";
 
 function pendingApprovalCount(detail: ChainDetail): number {
   return detail.approvals.filter((approval) => approval.status === "pending").length;
@@ -172,6 +174,27 @@ function chainEventToTimelineItem(event: ChainEvent): ChainTimelineItem {
     event_type: event.event_type,
     event_data: event.event_data,
   };
+}
+
+function chainEventSeverity(event: ChainEvent): ChainEventSeverity {
+  const text = `${event.event_type} ${event.event_data}`.toLowerCase();
+  if (text.includes("failed") || text.includes("failure") || text.includes("error")) return "error";
+  if (
+    text.includes("warning") ||
+    text.includes("blocked") ||
+    text.includes("safety_limit") ||
+    text.includes("fix_required") ||
+    text.includes("waiting_approval")
+  ) {
+    return "warning";
+  }
+  return "normal";
+}
+
+function chainEventSeverityClass(severity: ChainEventSeverity): string {
+  if (severity === "error") return "text-destructive";
+  if (severity === "warning") return "text-warning";
+  return "text-primary";
 }
 
 function maxChainEventID(events: ChainEvent[]): number {
@@ -315,7 +338,14 @@ export function ChainDetailPage() {
   const [controlWarnings, setControlWarnings] = useState<string[]>([]);
   const [fileActionPath, setFileActionPath] = useState<string | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
+  const [eventSeverityFilter, setEventSeverityFilter] = useState<ChainEventSeverityFilter>("all");
+  const [eventTypeFilter, setEventTypeFilter] = useState("all");
   const lastEventIDRef = useRef(0);
+
+  useEffect(() => {
+    setEventSeverityFilter("all");
+    setEventTypeFilter("all");
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -496,6 +526,16 @@ export function ChainDetailPage() {
   const receiptFrontmatter = useMemo(() => Object.entries(parsedReceipt.frontmatter), [parsedReceipt]);
   const receiptChangedFiles = useMemo(() => receiptProjectPaths(parsedReceipt), [parsedReceipt]);
   const receiptFollowUps = useMemo(() => receiptFollowUpSections(parsedReceipt), [parsedReceipt]);
+  const recentEventTypes = useMemo(() => (
+    Array.from(new Set((detail?.recent_events ?? []).map((event) => event.event_type))).sort()
+  ), [detail?.recent_events]);
+  const filteredRecentEvents = useMemo(() => (
+    (detail?.recent_events ?? []).filter((event) => {
+      if (eventTypeFilter !== "all" && event.event_type !== eventTypeFilter) return false;
+      if (eventSeverityFilter !== "all" && chainEventSeverity(event) !== eventSeverityFilter) return false;
+      return true;
+    })
+  ), [detail?.recent_events, eventSeverityFilter, eventTypeFilter]);
   const hasFileActions = Boolean(platform.openProjectPath || platform.revealProjectPath);
 
   function selectTimelineReceipt(receiptTarget: ReceiptSummary) {
@@ -1175,23 +1215,72 @@ export function ChainDetailPage() {
               </div>
             </section>
 
-            <section id="recent-events" className="space-y-2">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Recent Events</h2>
-              <div className="space-y-1 border border-border p-3">
+            <section id="recent-events" aria-labelledby="recent-events-heading" className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id="recent-events-heading"
+                  className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                >
+                  Recent Events
+                </h2>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {filteredRecentEvents.length}/{detail.recent_events.length} events
+                </span>
+              </div>
+              {detail.recent_events.length > 0 && (
+                <div className="grid gap-2 border border-border bg-muted/30 p-2 text-[10px] uppercase tracking-widest text-muted-foreground sm:grid-cols-2">
+                  <label className="grid gap-1" htmlFor="recent-event-severity-filter">
+                    Event severity
+                    <select
+                      id="recent-event-severity-filter"
+                      value={eventSeverityFilter}
+                      onChange={(event) => setEventSeverityFilter(event.currentTarget.value as ChainEventSeverityFilter)}
+                      className="border border-border bg-background px-2 py-1 font-mono text-xs normal-case tracking-normal text-foreground"
+                    >
+                      <option value="all">All severities</option>
+                      <option value="warning">Warnings / attention</option>
+                      <option value="error">Errors</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-1" htmlFor="recent-event-type-filter">
+                    Event type
+                    <select
+                      id="recent-event-type-filter"
+                      value={eventTypeFilter}
+                      onChange={(event) => setEventTypeFilter(event.currentTarget.value)}
+                      className="border border-border bg-background px-2 py-1 font-mono text-xs normal-case tracking-normal text-foreground"
+                    >
+                      <option value="all">All event types</option>
+                      {recentEventTypes.map((eventType) => (
+                        <option key={eventType} value={eventType}>
+                          {eventType}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+              <div data-testid="recent-event-list" className="space-y-1 border border-border p-3">
                 {detail.recent_events.length === 0 && (
                   <p className="text-xs text-muted-foreground">No events recorded.</p>
                 )}
-                {detail.recent_events.map((event) => (
-                  <div
-                    id={anchorID("event", event.id)}
-                    key={event.id}
-                    className="grid gap-2 text-xs md:grid-cols-[10rem_12rem_1fr]"
-                  >
-                    <span className="text-muted-foreground">{formatDate(event.created_at)}</span>
-                    <span className="font-medium text-primary">{event.event_type}</span>
-                    <span className="truncate font-mono text-muted-foreground">{event.event_data}</span>
-                  </div>
-                ))}
+                {detail.recent_events.length > 0 && filteredRecentEvents.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No events match the current filters.</p>
+                )}
+                {filteredRecentEvents.map((event) => {
+                  const severity = chainEventSeverity(event);
+                  return (
+                    <div
+                      id={anchorID("event", event.id)}
+                      key={event.id}
+                      className="grid gap-2 text-xs md:grid-cols-[10rem_12rem_1fr]"
+                    >
+                      <span className="text-muted-foreground">{formatDate(event.created_at)}</span>
+                      <span className={`font-medium ${chainEventSeverityClass(severity)}`}>{event.event_type}</span>
+                      <span className="truncate font-mono text-muted-foreground">{event.event_data}</span>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           </>
