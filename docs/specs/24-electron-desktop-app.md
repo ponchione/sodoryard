@@ -1738,11 +1738,12 @@ Implementation progress as of 2026-05-14:
 - The Electron shell MVP has started in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
 - `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
 - The first desktop product route is `/dashboard`, which Electron opens by default. It combines runtime readiness, recent chains, recent conversations, and Shunter Project Memory activity using existing REST and SDK paths.
+- Dashboard readiness actions have started: it shows detailed local-service health from `/api/runtime/local-services` and can call local-service start, stop, and logs endpoints.
 - The launch workbench route is implemented at `/launch`. It loads roles, templates, the current draft, and custom presets, assembles launch requests, calls `/api/launch/preview`, starts chains through `/api/launch/start`, and routes to the started chain detail.
 - Chain detail includes desktop pause/resume/cancel controls, and receipts have a desktop detail route for frontmatter, body, and chain event review.
 - Launch attachments have started: `/launch` can browse project files from `/api/project/tree`, validate selected paths through `/api/project/validate-paths`, and include accepted paths in launch `source_specs`.
 - The project browser route is implemented at `/project`. It loads the backend-safe project tree, filters files, previews file contents through `/api/project/file`, validates selected launch attachments through `/api/project/validate-paths`, can add project-relative files selected from an Electron native file dialog, and hands those attachments to `/launch` through `source_spec` query parameters.
-- Remaining desktop work starts with readiness actions, settings, and any remaining chain/receipt polish.
+- Remaining desktop work starts with settings and any remaining chain/receipt polish.
 
 ### Phase 0: Spec And Alignment
 
