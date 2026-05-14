@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UseProjectMemoryChainEventsReturn } from "@/hooks/use-project-memory-chain-events";
 import type { ChainDetail } from "@/types/chains";
 
-const { apiGet, apiPost, useProjectMemoryChainEventsMock } = vi.hoisted(() => ({
+const { apiGet, apiPost, openProjectPath, revealProjectPath, useProjectMemoryChainEventsMock } = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  openProjectPath: vi.fn(),
+  revealProjectPath: vi.fn(),
   useProjectMemoryChainEventsMock: vi.fn(),
 }));
 
@@ -19,6 +21,16 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/hooks/use-project-memory-chain-events", () => ({
   useProjectMemoryChainEvents: useProjectMemoryChainEventsMock,
+}));
+
+vi.mock("@/platform", () => ({
+  getYardPlatform: () => ({
+    kind: "desktop",
+    backendBaseUrl: "",
+    openExternal: vi.fn(),
+    openProjectPath,
+    revealProjectPath,
+  }),
 }));
 
 import { ChainDetailPage } from "./chain-detail";
@@ -159,6 +171,8 @@ describe("ChainDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
     apiPost.mockReset();
+    openProjectPath.mockReset();
+    revealProjectPath.mockReset();
     useProjectMemoryChainEventsMock.mockReset().mockReturnValue(projectMemoryEventsState());
   });
 
@@ -399,6 +413,10 @@ describe("ChainDetailPage", () => {
       }
       return Promise.resolve(detail);
     });
+    apiPost.mockResolvedValue({
+      accepted: ["internal/example.go"],
+      rejected: [],
+    });
 
     render(
       <MemoryRouter initialEntries={["/chains/chain-1"]}>
@@ -456,6 +474,24 @@ describe("ChainDetailPage", () => {
     expect(await screen.findByRole("heading", { name: "Coder Receipt" })).toBeInTheDocument();
     expect(screen.getByText("changed files")).toBeInTheDocument();
     expect(screen.getByText("Raw Markdown")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open internal/example.go" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "open_editor",
+        paths: ["internal/example.go"],
+      });
+      expect(openProjectPath).toHaveBeenCalledWith("internal/example.go");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal internal/example.go" }));
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/project/validate-paths", {
+        purpose: "reveal",
+        paths: ["internal/example.go"],
+      });
+      expect(revealProjectPath).toHaveBeenCalledWith("internal/example.go");
+    });
   });
 
   it("merges SDK-decoded project memory events into the timeline without REST event polling", async () => {

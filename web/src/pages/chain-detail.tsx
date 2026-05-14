@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Ban, Check, Pause, Play, X } from "lucide-react";
+import { Ban, Check, ExternalLink, FolderOpen, Pause, Play, X } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Button } from "@/components/ui/button";
 import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
 import { chainStatusClass } from "@/lib/chain-status";
 import { parseReceiptDocument, receiptProjectPaths, receiptRouteForSummary } from "@/lib/receipts";
+import { getYardPlatform } from "@/platform";
 import type {
   ApprovalDecisionResult,
   ChainApproval,
@@ -19,6 +20,11 @@ import type {
 } from "@/types/chains";
 
 const chainEventPollIntervalMs = 5_000;
+
+interface ValidatePathsResponse {
+  accepted: string[];
+  rejected: Array<{ path: string; reason: string }>;
+}
 
 function anchorID(prefix: string, value: string | number): string {
   return `${prefix}-${String(value).replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
@@ -290,6 +296,7 @@ function timelineStatusClass(item: ChainTimelineItem): string {
 export function ChainDetailPage() {
   const { id = "" } = useParams();
   const [searchParams] = useSearchParams();
+  const platform = useMemo(() => getYardPlatform(), []);
   const requestedReceipt = searchParams.get("receipt") ?? "";
   const [detail, setDetail] = useState<ChainDetail | null>(null);
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
@@ -302,6 +309,8 @@ export function ChainDetailPage() {
   const [controlMessage, setControlMessage] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
   const [controlWarnings, setControlWarnings] = useState<string[]>([]);
+  const [fileActionPath, setFileActionPath] = useState<string | null>(null);
+  const [fileActionError, setFileActionError] = useState<string | null>(null);
   const lastEventIDRef = useRef(0);
 
   useEffect(() => {
@@ -367,6 +376,44 @@ export function ChainDetailPage() {
       setControlError(err instanceof Error ? err.message : `Failed to ${action} chain`);
     } finally {
       setControlAction(null);
+    }
+  }
+
+  async function validateProjectPath(path: string, purpose: "open_editor" | "reveal"): Promise<string> {
+    const result = await api.post<ValidatePathsResponse>("/api/project/validate-paths", {
+      purpose,
+      paths: [path],
+    });
+    if (result.accepted.length > 0) return result.accepted[0];
+    const rejection = result.rejected[0];
+    throw new Error(rejection ? `${rejection.path}: ${rejection.reason}` : "path was not accepted");
+  }
+
+  async function openProjectPath(path: string) {
+    if (!platform.openProjectPath) return;
+    setFileActionPath(`open:${path}`);
+    setFileActionError(null);
+    try {
+      const acceptedPath = await validateProjectPath(path, "open_editor");
+      await platform.openProjectPath(acceptedPath);
+    } catch (err) {
+      setFileActionError(err instanceof Error ? err.message : "Failed to open file");
+    } finally {
+      setFileActionPath(null);
+    }
+  }
+
+  async function revealProjectPath(path: string) {
+    if (!platform.revealProjectPath) return;
+    setFileActionPath(`reveal:${path}`);
+    setFileActionError(null);
+    try {
+      const acceptedPath = await validateProjectPath(path, "reveal");
+      await platform.revealProjectPath(acceptedPath);
+    } catch (err) {
+      setFileActionError(err instanceof Error ? err.message : "Failed to reveal file");
+    } finally {
+      setFileActionPath(null);
     }
   }
 
@@ -443,6 +490,7 @@ export function ChainDetailPage() {
   const parsedReceipt = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
   const receiptFrontmatter = useMemo(() => Object.entries(parsedReceipt.frontmatter), [parsedReceipt]);
   const receiptChangedFiles = useMemo(() => receiptProjectPaths(parsedReceipt), [parsedReceipt]);
+  const hasFileActions = Boolean(platform.openProjectPath || platform.revealProjectPath);
 
   function selectTimelineReceipt(receiptTarget: ReceiptSummary) {
     setSelectedReceipt(receiptTarget);
@@ -1043,15 +1091,46 @@ export function ChainDetailPage() {
                         </div>
                       )}
                       {receiptChangedFiles.length > 0 && (
-                        <div className="flex flex-wrap gap-2 text-[10px]">
-                          {receiptChangedFiles.map((path) => (
-                            <span
-                              key={path}
-                              className="break-all border border-border/70 px-2 py-1 font-mono text-muted-foreground"
-                            >
-                              {path}
-                            </span>
-                          ))}
+                        <div className="grid gap-2 text-[10px]">
+                          {fileActionError && <p className="text-warning">{fileActionError}</p>}
+                          <div className="flex flex-wrap gap-2">
+                            {receiptChangedFiles.map((path) => (
+                              <span
+                                key={path}
+                                className="inline-flex max-w-full flex-wrap items-center gap-2 border border-border/70 px-2 py-1 font-mono text-muted-foreground"
+                              >
+                                <span className="break-all">{path}</span>
+                                {hasFileActions && (
+                                  <span className="inline-flex gap-1">
+                                    {platform.openProjectPath && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void openProjectPath(path)}
+                                        disabled={fileActionPath !== null}
+                                        aria-label={`Open ${path}`}
+                                        className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-sans font-medium uppercase tracking-widest hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        <ExternalLink size={11} aria-hidden="true" />
+                                        {fileActionPath === `open:${path}` ? "Opening" : "Open"}
+                                      </button>
+                                    )}
+                                    {platform.revealProjectPath && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void revealProjectPath(path)}
+                                        disabled={fileActionPath !== null}
+                                        aria-label={`Reveal ${path}`}
+                                        className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-sans font-medium uppercase tracking-widest hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        <FolderOpen size={11} aria-hidden="true" />
+                                        {fileActionPath === `reveal:${path}` ? "Revealing" : "Reveal"}
+                                      </button>
+                                    )}
+                                  </span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       )}
                       <div className="text-sm leading-relaxed text-foreground">
