@@ -123,6 +123,38 @@ function projectMemoryEventsState(
   };
 }
 
+function chainDetailFixture(
+  overrides: Omit<Partial<ChainDetail>, "chain"> & { chain?: Partial<ChainDetail["chain"]> } = {},
+): ChainDetail {
+  const { chain: chainOverrides, ...detailOverrides } = overrides;
+  const chain = {
+    id: "chain-control",
+    source_specs: [],
+    source_task: "control chain",
+    status: "running",
+    summary: "",
+    total_steps: 1,
+    total_tokens: 0,
+    total_duration_secs: 0,
+    resolver_loops: 0,
+    started_at: "2026-05-10T12:00:00Z",
+    updated_at: "2026-05-10T12:00:00Z",
+    ...chainOverrides,
+  };
+  return {
+    health: "ok",
+    warnings: [],
+    steps: [],
+    receipts: [],
+    approvals: [],
+    recent_events: [],
+    timeline: [],
+    guardrails: emptyGuardrails(),
+    ...detailOverrides,
+    chain,
+  };
+}
+
 describe("ChainDetailPage", () => {
   beforeEach(() => {
     apiGet.mockReset();
@@ -620,6 +652,68 @@ describe("ChainDetailPage", () => {
     expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-2/events?after_id=1");
     expect(screen.getAllByText("step_completed")).toHaveLength(2);
     expect(screen.getAllByText("{\"verdict\":\"completed\"}")).toHaveLength(2);
+  });
+
+  it("runs chain controls from the detail header and refreshes the chain", async () => {
+    const runningDetail = chainDetailFixture();
+    const pauseRequestedDetail = chainDetailFixture({ chain: { status: "pause_requested" } });
+    apiGet.mockResolvedValueOnce(runningDetail).mockResolvedValueOnce(pauseRequestedDetail);
+    apiPost.mockResolvedValue({
+      chain_id: "chain-control",
+      previous_status: "running",
+      target_status: "paused",
+      status: "pause_requested",
+      event_type: "chain_paused",
+      message: "pause requested",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-control"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("running / ok")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Pause/ }));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/chains/chain-control/pause", {});
+    });
+    expect(await screen.findByText("pause requested (running -> pause_requested)")).toBeInTheDocument();
+    expect(screen.getByText("pause_requested / ok")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/api/chains/chain-control");
+  });
+
+  it("keeps resume disabled while waiting approval has pending decisions", async () => {
+    const waitingDetail = chainDetailFixture({
+      chain: { id: "chain-waiting", status: "waiting_approval" },
+      approvals: [
+        {
+          id: "approval-web-1",
+          chain_id: "chain-waiting",
+          tool_name: "shell",
+          status: "pending",
+        },
+      ],
+    });
+    apiGet.mockResolvedValue(waitingDetail);
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-waiting"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const resume = await screen.findByRole("button", { name: /Resume/ });
+    expect(screen.getByText("waiting_approval / ok")).toBeInTheDocument();
+    expect(resume).toBeDisabled();
+    expect(resume).toHaveAttribute("title", "Decide pending approvals before resuming");
+    expect(screen.getByRole("button", { name: /Cancel/ })).toBeEnabled();
   });
 
   it("renders approval controls and refreshes detail after approving", async () => {

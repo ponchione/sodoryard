@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Check, X } from "lucide-react";
+import { Ban, Check, Pause, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectMemoryChainEvents } from "@/hooks/use-project-memory-chain-events";
 import { api } from "@/lib/api";
@@ -8,6 +8,7 @@ import { chainStatusClass } from "@/lib/chain-status";
 import type {
   ApprovalDecisionResult,
   ChainApproval,
+  ChainControlResult,
   ChainDetail,
   ChainEvent,
   ChainTimelineItem,
@@ -67,6 +68,45 @@ function approvalMeta(approval: ChainApproval): string {
     approval.iteration ? `iter=${approval.iteration}` : "",
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "no linked runtime metadata";
+}
+
+type ChainControlAction = "pause" | "resume" | "cancel";
+
+function pendingApprovalCount(detail: ChainDetail): number {
+  return detail.approvals.filter((approval) => approval.status === "pending").length;
+}
+
+function canPauseChain(status: string): boolean {
+  return status === "running";
+}
+
+function canResumeChain(status: string, pendingApprovals: number): boolean {
+  return status === "paused" || (status === "waiting_approval" && pendingApprovals === 0);
+}
+
+function canCancelChain(status: string): boolean {
+  return status === "running" || status === "pause_requested" || status === "paused" || status === "waiting_approval";
+}
+
+function controlDisabledReason(action: ChainControlAction, status: string, pendingApprovals: number): string {
+  if (action === "pause") {
+    if (status === "pause_requested") return "Pause is already requested";
+    return "Only running chains can be paused";
+  }
+  if (action === "resume") {
+    if (status === "waiting_approval" && pendingApprovals > 0) return "Decide pending approvals before resuming";
+    if (status === "pause_requested") return "Wait for the chain to finish pausing before resuming";
+    return "Only paused chains can be resumed";
+  }
+  if (status === "cancel_requested") return "Cancel is already requested";
+  return "This chain cannot be cancelled";
+}
+
+function formatControlResult(result: ChainControlResult): string {
+  const transition = result.previous_status && result.status
+    ? ` (${result.previous_status} -> ${result.status})`
+    : "";
+  return `${result.message}${transition}`;
 }
 
 function formatApprovalInput(input: unknown): string {
@@ -241,6 +281,10 @@ export function ChainDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [approvalActionID, setApprovalActionID] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [controlAction, setControlAction] = useState<ChainControlAction | null>(null);
+  const [controlMessage, setControlMessage] = useState<string | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [controlWarnings, setControlWarnings] = useState<string[]>([]);
   const lastEventIDRef = useRef(0);
 
   useEffect(() => {
@@ -289,6 +333,23 @@ export function ChainDetailPage() {
       setApprovalError(err instanceof Error ? err.message : "Failed to record approval decision");
     } finally {
       setApprovalActionID(null);
+    }
+  }
+
+  async function controlChain(action: ChainControlAction) {
+    setControlAction(action);
+    setControlMessage(null);
+    setControlError(null);
+    setControlWarnings([]);
+    try {
+      const result = await api.post<ChainControlResult>(`/api/chains/${encodeURIComponent(id)}/${action}`, {});
+      setControlMessage(formatControlResult(result));
+      setControlWarnings((result.warnings ?? []).map((warning) => warning.message));
+      await reloadDetail();
+    } catch (err) {
+      setControlError(err instanceof Error ? err.message : `Failed to ${action} chain`);
+    } finally {
+      setControlAction(null);
     }
   }
 
@@ -356,6 +417,12 @@ export function ChainDetailPage() {
     if (!detail) return "";
     return detail.chain.source_task || detail.chain.source_specs.join(", ") || "No task recorded";
   }, [detail]);
+  const detailStatus = detail?.chain.status ?? "";
+  const pendingApprovals = detail ? pendingApprovalCount(detail) : 0;
+  const pauseEnabled = detail ? canPauseChain(detailStatus) : false;
+  const resumeEnabled = detail ? canResumeChain(detailStatus, pendingApprovals) : false;
+  const cancelEnabled = detail ? canCancelChain(detailStatus) : false;
+  const controlsBusy = controlAction !== null;
 
   function selectTimelineReceipt(receiptTarget: ReceiptSummary) {
     setSelectedReceipt(receiptTarget);
@@ -368,21 +435,69 @@ export function ChainDetailPage() {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="mx-auto max-w-6xl space-y-5">
-        <div className="border-b border-border pb-4">
-          <Link to="/chains" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-primary">
-            Chains
-          </Link>
-          <h1 className="mt-2 break-all font-mono text-xl font-bold text-primary text-glow-cyan">{id}</h1>
+        <div className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <Link to="/chains" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-primary">
+              Chains
+            </Link>
+            <h1 className="mt-2 break-all font-mono text-xl font-bold text-primary text-glow-cyan">{id}</h1>
+            {detail && (
+              <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>
+                {detail.chain.status} / {detail.health || "unknown"}
+              </p>
+            )}
+            {projectMemoryEvents.error && (
+              <p className="mt-1 text-xs text-warning">
+                project memory events: {projectMemoryEvents.error}; REST snapshot retained
+                {detail && shouldPollChainEvents(detail.chain.status) ? " with REST event polling fallback" : ""}
+              </p>
+            )}
+            {controlMessage && <p className="mt-1 text-xs text-accent">{controlMessage}</p>}
+            {controlError && <p className="mt-1 text-xs text-destructive">{controlError}</p>}
+            {controlWarnings.length > 0 && (
+              <div className="mt-1 space-y-1 text-xs text-warning">
+                {controlWarnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            )}
+          </div>
           {detail && (
-            <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>
-              {detail.chain.status} / {detail.health || "unknown"}
-            </p>
-          )}
-          {projectMemoryEvents.error && (
-            <p className="mt-1 text-xs text-warning">
-              project memory events: {projectMemoryEvents.error}; REST snapshot retained
-              {detail && shouldPollChainEvents(detail.chain.status) ? " with REST event polling fallback" : ""}
-            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => void controlChain("pause")}
+                disabled={controlsBusy || !pauseEnabled}
+                title={pauseEnabled ? "Request chain pause" : controlDisabledReason("pause", detailStatus, pendingApprovals)}
+              >
+                <Pause aria-hidden="true" />
+                Pause
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => void controlChain("resume")}
+                disabled={controlsBusy || !resumeEnabled}
+                title={resumeEnabled ? "Resume chain execution" : controlDisabledReason("resume", detailStatus, pendingApprovals)}
+              >
+                <Play aria-hidden="true" />
+                Resume
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="xs"
+                onClick={() => void controlChain("cancel")}
+                disabled={controlsBusy || !cancelEnabled}
+                title={cancelEnabled ? "Request chain cancel" : controlDisabledReason("cancel", detailStatus, pendingApprovals)}
+              >
+                <Ban aria-hidden="true" />
+                Cancel
+              </Button>
+            </div>
           )}
         </div>
 

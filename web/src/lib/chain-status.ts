@@ -1,7 +1,7 @@
 export type ChainStatusGroup = "active" | "success" | "failed" | "other";
 
 export function chainStatusGroup(status: string): ChainStatusGroup {
-  if (status === "running" || status === "paused" || status.endsWith("_requested")) return "active";
+  if (status === "running" || status === "paused" || status === "waiting_approval" || status.endsWith("_requested")) return "active";
   if (status === "completed" || status === "dry_run") return "success";
   if (status === "failed" || status === "cancelled") return "failed";
   return "other";

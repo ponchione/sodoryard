@@ -346,6 +346,18 @@ export interface ApprovalDecisionResult {
   message: string;
 }
 
+export interface ChainControlResult {
+  chain_id: string;
+  previous_status?: string;
+  target_status?: string;
+  status?: string;
+  event_type?: string;
+  message: string;
+  already?: boolean;
+  signaled_pids?: number[];
+  warnings?: RuntimeWarning[];
+}
+
 export interface ChainMetricsReport {
   chain_id: string;
   status: string;
