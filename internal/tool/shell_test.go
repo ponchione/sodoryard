@@ -119,6 +119,9 @@ func TestShellDenylist(t *testing.T) {
 		{"false || git push --force origin main", true},
 		{"false||git push --force origin main", true},
 		{"sh -c 'true;git push --force origin main'", true},
+		{"rm${IFS}-rf /", true},
+		{"git${IFS}push --force origin main", true},
+		{"sh -c 'git${IFS}push --force origin main'", true},
 		{"echo hello", false},
 		{"rm file.txt", false},
 		{"printf 'git push --force'", false},
@@ -148,6 +151,31 @@ func TestShellTokenize(t *testing.T) {
 	joined := strings.Join(tokens, "|")
 	if joined != "sh|-c|git push --force origin main" {
 		t.Fatalf("tokens = %q", joined)
+	}
+}
+
+func TestShellTokenizeTreatsUnquotedIFSAsBoundary(t *testing.T) {
+	tokens := shellTokenize(`rm${IFS}-rf /`)
+	joined := strings.Join(tokens, "|")
+	if joined != "rm|-rf|/" {
+		t.Fatalf("tokens = %q", joined)
+	}
+
+	quoted := shellTokenize(`printf '$IFS' "rm${IFS}-rf"`)
+	joined = strings.Join(quoted, "|")
+	if joined != "printf|$IFS|rm${IFS}-rf" {
+		t.Fatalf("quoted tokens = %q", joined)
+	}
+}
+
+func TestShellTimeoutCannotExceedConfiguredCap(t *testing.T) {
+	requested := 99
+	if got := shellTimeout(ShellConfig{TimeoutSeconds: 5}, &requested); got != 5*time.Second {
+		t.Fatalf("shellTimeout = %s, want 5s cap", got)
+	}
+	shorter := 2
+	if got := shellTimeout(ShellConfig{TimeoutSeconds: 5}, &shorter); got != 2*time.Second {
+		t.Fatalf("shellTimeout = %s, want shorter requested timeout", got)
 	}
 }
 

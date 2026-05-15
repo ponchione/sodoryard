@@ -38,6 +38,8 @@ type WebSocketHandler struct {
 	activeTurn atomic.Bool
 }
 
+const maxWebSocketMessageBytes = maxJSONRequestBodyBytes
+
 // NewWebSocketHandler creates a handler and registers the WS route.
 func NewWebSocketHandler(s *Server, agentSvc AgentService, convSvc ConversationService, cfg *config.Config, defaults *RuntimeDefaults, logger *slog.Logger) *WebSocketHandler {
 	if defaults == nil {
@@ -88,6 +90,7 @@ func (h *WebSocketHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("websocket accept failed", "error", err)
 		return
 	}
+	conn.SetReadLimit(maxWebSocketMessageBytes)
 	defer conn.CloseNow()
 
 	ctx, cancel := context.WithCancel(r.Context())

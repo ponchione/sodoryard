@@ -273,6 +273,49 @@ func TestWebSocketMessageTriggersRunTurn(t *testing.T) {
 	conn.Close(websocket.StatusNormalClosure, "test done")
 }
 
+func TestWebSocketAcceptsLargePromptWithinRESTBodyLimit(t *testing.T) {
+	turnStarted := make(chan agent.RunTurnRequest, 1)
+	agentMock := &mockAgentService{
+		runTurnFn: func(ctx context.Context, req agent.RunTurnRequest) (*agent.TurnResult, error) {
+			turnStarted <- req
+			return &agent.TurnResult{}, nil
+		},
+	}
+	base, _ := setupWSTest(t, agentMock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + base[4:] + "/api/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	content := strings.Repeat("x", 64<<10)
+	msg := map[string]string{
+		"type":            "message",
+		"conversation_id": "conv-123",
+		"content":         content,
+	}
+	data, _ := json.Marshal(msg)
+	if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	select {
+	case req := <-turnStarted:
+		if req.Message != content {
+			t.Fatalf("large prompt length = %d, want %d", len(req.Message), len(content))
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for RunTurn")
+	}
+
+	conn.Close(websocket.StatusNormalClosure, "test done")
+}
+
 func TestWebSocketMessageUsesNextTurnNumberForNewConversation(t *testing.T) {
 	turnStarted := make(chan agent.RunTurnRequest, 1)
 	agentMock := &mockAgentService{

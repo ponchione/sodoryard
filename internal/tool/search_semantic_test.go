@@ -149,6 +149,21 @@ func TestSearchSemanticFiltersPassthrough(t *testing.T) {
 	}
 }
 
+func TestSearchSemanticCapsMaxResults(t *testing.T) {
+	searcher := &mockSearcher{results: nil}
+	tool := NewSearchSemantic(searcher)
+	_, err := tool.Execute(context.Background(), "/tmp", json.RawMessage(`{"query":"auth","max_results":5000}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if searcher.lastOpts.MaxResults != maxSemanticSearchResults {
+		t.Fatalf("max_results = %d, want cap %d", searcher.lastOpts.MaxResults, maxSemanticSearchResults)
+	}
+	if searcher.lastOpts.TopK != maxSemanticSearchResults*3 {
+		t.Fatalf("top_k = %d, want capped overfetch", searcher.lastOpts.TopK)
+	}
+}
+
 func TestSearchSemanticEmptyQuery(t *testing.T) {
 	tool := NewSearchSemantic(&mockSearcher{})
 	result, err := tool.Execute(context.Background(), "/tmp",

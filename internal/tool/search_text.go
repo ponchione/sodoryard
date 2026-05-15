@@ -11,6 +11,11 @@ import (
 	"github.com/ponchione/sodoryard/internal/outputcap"
 )
 
+const (
+	maxSearchTextContextLines = 20
+	maxSearchTextResults      = 500
+)
+
 // SearchText implements the search_text tool — ripgrep-based text search
 // across the project with structured output.
 type SearchText struct{}
@@ -56,11 +61,11 @@ func (SearchText) Schema() json.RawMessage {
 				},
 				"context_lines": {
 					"type": "integer",
-					"description": "Number of surrounding context lines (default: 2)"
+					"description": "Number of surrounding context lines (default: 2, max: 20)"
 				},
 				"max_results": {
 					"type": "integer",
-					"description": "Maximum number of matching lines to return (default: 50)"
+					"description": "Maximum number of matching lines to return (default: 50, max: 500)"
 				}
 			},
 			"required": ["pattern"]
@@ -87,14 +92,8 @@ func (SearchText) Execute(ctx context.Context, projectRoot string, input json.Ra
 		}, nil
 	}
 
-	contextLines := 2
-	if params.ContextLines != nil {
-		contextLines = *params.ContextLines
-	}
-	maxResults := 50
-	if params.MaxResults != nil && *params.MaxResults > 0 {
-		maxResults = *params.MaxResults
-	}
+	contextLines := boundedNonNegativeInt(params.ContextLines, 2, maxSearchTextContextLines)
+	maxResults := boundedPositiveInt(params.MaxResults, 50, maxSearchTextResults)
 
 	args := []string{"--json"}
 	if contextLines > 0 {

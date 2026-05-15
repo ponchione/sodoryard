@@ -9,6 +9,8 @@ import (
 	"github.com/ponchione/sodoryard/internal/codeintel"
 )
 
+const maxSemanticSearchResults = 50
+
 // SemanticSearcher is the narrow interface the search_semantic tool needs
 // from the Layer 1 Searcher. The codeintel.Searcher satisfies this directly.
 type SemanticSearcher interface {
@@ -58,7 +60,7 @@ func (s *SearchSemantic) Schema() json.RawMessage {
 				},
 				"max_results": {
 					"type": "integer",
-					"description": "Maximum number of results (default: 15)"
+					"description": "Maximum number of results (default: 15, max: 50)"
 				}
 			},
 			"required": ["query"]
@@ -92,10 +94,7 @@ func (s *SearchSemantic) Execute(ctx context.Context, projectRoot string, input 
 		}, nil
 	}
 
-	maxResults := 15
-	if params.MaxResults != nil && *params.MaxResults > 0 {
-		maxResults = *params.MaxResults
-	}
+	maxResults := boundedPositiveInt(params.MaxResults, 15, maxSemanticSearchResults)
 
 	opts := codeintel.SearchOptions{
 		MaxResults: maxResults,

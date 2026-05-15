@@ -208,6 +208,35 @@ func TestSearchTextMaxResultsIsGlobalAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestSearchTextCapsLargeLimits(t *testing.T) {
+	requireRipgrep(t)
+	dir := t.TempDir()
+	lines := make([]string, 0, 61)
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, "far-before-cap")
+	}
+	lines = append(lines, "target")
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, "far-after-cap")
+	}
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+
+	result, err := SearchText{}.Execute(context.Background(), dir,
+		json.RawMessage(`{"pattern":"target","max_results":5000,"context_lines":5000}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "target") {
+		t.Fatalf("expected target result, got:\n%s", result.Content)
+	}
+	if strings.Contains(result.Content, "   1  far-before-cap") || strings.Contains(result.Content, "  61  far-after-cap") {
+		t.Fatalf("expected context_lines to be capped, got:\n%s", result.Content)
+	}
+}
+
 func TestSearchTextEmptyPattern(t *testing.T) {
 	dir := t.TempDir()
 	result, err := SearchText{}.Execute(context.Background(), dir,

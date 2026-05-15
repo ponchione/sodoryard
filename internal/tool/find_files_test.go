@@ -134,6 +134,26 @@ func TestFindFilesMaxResults(t *testing.T) {
 	}
 }
 
+func TestFindFilesCapsMaxResults(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 3; i++ {
+		name := filepath.Join(dir, strings.Repeat("a", i+1)+".go")
+		os.WriteFile(name, []byte("package x\n"), 0o644)
+	}
+
+	result, err := FindFiles{}.Execute(context.Background(), dir,
+		json.RawMessage(`{"pattern":"*.go","max_results":5000}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Content)
+	}
+	if count := strings.Count(result.Content, ".go"); count != 3 {
+		t.Fatalf("expected all 3 files below cap, got %d\n%s", count, result.Content)
+	}
+}
+
 func TestFindFilesExcludesNodeModules(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "node_modules", "lodash"), 0o755)

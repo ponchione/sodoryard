@@ -12,6 +12,8 @@ import (
 	appcontext "github.com/ponchione/sodoryard/internal/context"
 )
 
+const maxBrainSearchResults = 50
+
 // BrainSearch implements the brain_search tool — keyword search against the
 // project brain backend.
 type BrainRuntimeSearcher interface {
@@ -77,7 +79,7 @@ func (b *BrainSearch) Schema() json.RawMessage {
 				},
 				"max_results": {
 					"type": "integer",
-					"description": "Maximum number of results to return (default: 10)"
+					"description": "Maximum number of results to return (default: 10, max: 50)"
 				}
 			},
 			"required": ["query"]
@@ -118,10 +120,7 @@ func (b *BrainSearch) Execute(ctx context.Context, projectRoot string, input jso
 		mode = "keyword"
 	}
 
-	maxResults := 10
-	if params.MaxResults != nil && *params.MaxResults > 0 {
-		maxResults = *params.MaxResults
-	}
+	maxResults := boundedPositiveInt(params.MaxResults, 10, maxBrainSearchResults)
 
 	semanticNotice := ""
 	formatted, err := b.searchFormattedHits(ctx, params.Query, mode, normalizedTags, maxResults)

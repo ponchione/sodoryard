@@ -73,6 +73,20 @@ func shellQuoteArg(arg string) string {
 	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
 }
 
+func shellTimeout(config ShellConfig, requested *int) time.Duration {
+	timeout := defaultShellTimeout
+	if config.TimeoutSeconds > 0 {
+		timeout = time.Duration(config.TimeoutSeconds) * time.Second
+	}
+	if requested != nil && *requested > 0 {
+		requestedTimeout := time.Duration(*requested) * time.Second
+		if requestedTimeout < timeout {
+			timeout = requestedTimeout
+		}
+	}
+	return timeout
+}
+
 type shellInput struct {
 	Command        string `json:"command"`
 	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
@@ -96,7 +110,7 @@ func (s *Shell) Schema() json.RawMessage {
 				},
 				"timeout_seconds": {
 					"type": "integer",
-					"description": "Override timeout in seconds (default: 120)"
+					"description": "Shorter per-command timeout in seconds (capped by configured shell_timeout_seconds; default cap: 120)"
 				},
 				"working_dir": {
 					"type": "string",
@@ -140,13 +154,7 @@ func (s *Shell) Execute(ctx context.Context, projectRoot string, input json.RawM
 	}
 
 	// Determine timeout.
-	timeout := defaultShellTimeout
-	if s.config.TimeoutSeconds > 0 {
-		timeout = time.Duration(s.config.TimeoutSeconds) * time.Second
-	}
-	if params.TimeoutSeconds != nil && *params.TimeoutSeconds > 0 {
-		timeout = time.Duration(*params.TimeoutSeconds) * time.Second
-	}
+	timeout := shellTimeout(s.config, params.TimeoutSeconds)
 
 	execCommand := applyRTKPrefix(params.Command, s.rtkPath)
 	run, result := runShellProcess(ctx, execCommand, workDir, timeout)
@@ -373,6 +381,9 @@ func shellTokenize(command string) []string {
 			inDouble = !inDouble
 		case unicode.IsSpace(r) && !inSingle && !inDouble:
 			flush()
+		case !inSingle && !inDouble && shellIFSSpan(runes, i) > 0:
+			flush()
+			i += shellIFSSpan(runes, i) - 1
 		case !inSingle && !inDouble && r == ';':
 			appendOperator(";")
 		case !inSingle && !inDouble && r == '&':
@@ -398,4 +409,32 @@ func shellTokenize(command string) []string {
 	}
 	flush()
 	return tokens
+}
+
+func shellIFSSpan(runes []rune, start int) int {
+	if start < 0 || start >= len(runes) || runes[start] != '$' {
+		return 0
+	}
+	if start+5 < len(runes) &&
+		runes[start+1] == '{' &&
+		runes[start+2] == 'I' &&
+		runes[start+3] == 'F' &&
+		runes[start+4] == 'S' &&
+		runes[start+5] == '}' {
+		return 6
+	}
+	if start+3 >= len(runes) ||
+		runes[start+1] != 'I' ||
+		runes[start+2] != 'F' ||
+		runes[start+3] != 'S' {
+		return 0
+	}
+	if start+4 < len(runes) && isShellNameRune(runes[start+4]) {
+		return 0
+	}
+	return 4
+}
+
+func isShellNameRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }

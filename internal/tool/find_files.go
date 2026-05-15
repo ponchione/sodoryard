@@ -11,6 +11,8 @@ import (
 	"github.com/ponchione/sodoryard/internal/pathglob"
 )
 
+const maxFindFilesResults = 1000
+
 // FindFiles implements the find_files tool — glob-based file discovery with
 // recursive ** matching support.
 type FindFiles struct{}
@@ -42,7 +44,7 @@ func (FindFiles) Schema() json.RawMessage {
 				},
 				"max_results": {
 					"type": "integer",
-					"description": "Maximum number of results to return (default: 100)"
+					"description": "Maximum number of results to return (default: 100, max: 1000)"
 				}
 			},
 			"required": ["pattern"]
@@ -60,10 +62,7 @@ func (FindFiles) Execute(ctx context.Context, projectRoot string, input json.Raw
 		return requiredFieldResult("pattern"), nil
 	}
 
-	maxResults := 100
-	if params.MaxResults != nil && *params.MaxResults > 0 {
-		maxResults = *params.MaxResults
-	}
+	maxResults := boundedPositiveInt(params.MaxResults, 100, maxFindFilesResults)
 
 	// Determine the search root.
 	searchRoot := projectRoot
