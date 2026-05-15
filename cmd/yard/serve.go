@@ -155,8 +155,11 @@ func runYardServe(cmd *cobra.Command, configPath string, portOverride int, hostO
 		BrainBackend:        rt.BrainBackend,
 		MemoryBackend:       rt.MemoryBackend,
 		ConversationManager: rt.ConversationManager,
-		ChainStore:          rt.ChainStore,
+		ContextAssembler:    rt.ContextAssembler,
 		CompressionEngine:   rt.CompressionEngine,
+		ChainStore:          rt.ChainStore,
+		TraceRecorder:       rt.TraceRecorder,
+		MemoryEndpointEnv:   rt.MemoryEndpointEnv,
 		Cleanup:             func() {},
 	}
 	operatorSvc, err := operator.NewForRuntime(operatorRuntime, operator.Options{ProcessID: os.Getpid})

@@ -1,6 +1,7 @@
 import type { YardPlatform } from "./types";
 
 export function createDesktopPlatform(): YardPlatform | null {
+  if (typeof window === "undefined") return null;
   const bridge = window.yardDesktop;
   const info = bridge?.getPlatformInfo();
   if (!bridge || !info) return null;
@@ -8,6 +9,7 @@ export function createDesktopPlatform(): YardPlatform | null {
     kind: "desktop",
     backendBaseUrl: info.backendBaseUrl,
     desktopSessionToken: info.desktopSessionToken,
+    capabilities: info.capabilities,
     projectMemory: info.projectMemory,
     openExternal: (url) => bridge.openExternal(url),
     chooseProjectDirectory: bridge.chooseProjectDirectory ? () => bridge.chooseProjectDirectory!() : undefined,

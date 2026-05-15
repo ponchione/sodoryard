@@ -52,6 +52,9 @@ vi.mock("@/lib/project-memory/client", () => ({
   createProjectMemoryClient: mocks.createProjectMemoryClientMock,
   queryRecentChainEventsDecoded: mocks.queryRecentChainEventsDecodedMock,
   queryRecentChainsDecoded: mocks.queryRecentChainsDecodedMock,
+  projectMemoryConnectionErrorMessage: (error: unknown) => (
+    error instanceof Error ? error.message : "Project memory connection failed"
+  ),
   subscribeLiveRecentChainEvents: mocks.subscribeLiveRecentChainEventsMock,
   subscribeLiveRecentChains: mocks.subscribeLiveRecentChainsMock,
   verifyProjectMemoryRuntimeContract: mocks.verifyProjectMemoryRuntimeContractMock,

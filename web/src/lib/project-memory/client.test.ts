@@ -7,6 +7,8 @@ import {
   assertProjectMemoryRuntimeContractCompatible,
   createProjectMemoryClient,
   fetchProjectMemoryRuntimeContract,
+  projectMemoryConnectionErrorMessage,
+  projectMemorySubscriptionsUnavailableReason,
   projectMemoryContract,
   projectMemorySubscribeURL,
   queryChainEventsDecoded,
@@ -79,7 +81,7 @@ describe("project memory Shunter client", () => {
         appVersion: "0.0.0",
         backendBaseUrl: "http://localhost:5173",
         backendDirectUrl: "http://localhost:8090",
-        capabilities: ["project_memory_protocol"],
+        capabilities: ["project_memory_protocol", "project_memory_subscriptions"],
         projectMemory: {
           subscribeUrl: "ws://localhost:5173/api/project-memory/subscribe",
           token: "desktop-token",
@@ -91,6 +93,47 @@ describe("project memory Shunter client", () => {
     expect(projectMemorySubscribeURL()).toBe("ws://localhost:5173/api/project-memory/subscribe");
     const client = createProjectMemoryClient({ reconnect: false });
     expect(client).toBeTruthy();
+  });
+
+  it("explains unavailable desktop live subscriptions before opening a socket", () => {
+    installDesktopBridge({
+      getPlatformInfo: () => ({
+        kind: "desktop",
+        appVersion: "0.0.0",
+        backendBaseUrl: "http://localhost:5173",
+        capabilities: ["project_memory_contract"],
+        projectMemory: {
+          subscribeUrl: "ws://localhost:5173/api/project-memory/subscribe",
+        },
+      }),
+      openExternal: vi.fn(),
+    });
+
+    expect(projectMemorySubscriptionsUnavailableReason()).toBe(
+      "Project Memory live subscriptions are not advertised by this backend.",
+    );
+    expect(() => createProjectMemoryClient({ reconnect: false })).toThrow(
+      "Project Memory live subscriptions are not advertised by this backend.",
+    );
+  });
+
+  it("adds the websocket target to browser transport failures", () => {
+    installDesktopBridge({
+      getPlatformInfo: () => ({
+        kind: "desktop",
+        appVersion: "0.0.0",
+        backendBaseUrl: "http://localhost:5173",
+        capabilities: ["project_memory_protocol", "project_memory_subscriptions"],
+        projectMemory: {
+          subscribeUrl: "ws://localhost:5173/api/project-memory/subscribe",
+        },
+      }),
+      openExternal: vi.fn(),
+    });
+
+    expect(projectMemoryConnectionErrorMessage(new Error("WebSocket failed before opening."))).toBe(
+      "WebSocket failed before opening. Target: ws://localhost:5173/api/project-memory/subscribe.",
+    );
   });
 
   it("rejects stale backend contract metadata", () => {

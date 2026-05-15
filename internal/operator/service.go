@@ -147,7 +147,7 @@ func NewForRuntime(rt *rtpkg.OrchestratorRuntime, opts Options) (*Service, error
 	}
 	buildRuntime := opts.BuildRuntime
 	if buildRuntime == nil {
-		buildRuntime = rtpkg.BuildOrchestratorRuntime
+		buildRuntime = sharedRuntimeBuilder(rt)
 	}
 	return &Service{
 		cfg:                  cfg,
@@ -161,6 +161,20 @@ func NewForRuntime(rt *rtpkg.OrchestratorRuntime, opts Options) (*Service, error
 		authStatusFromConfig: opts.ReadOnly && len(opts.StartupWarnings) > 0,
 		activeStarts:         make(map[string]*activeStart),
 	}, nil
+}
+
+func sharedRuntimeBuilder(rt *rtpkg.OrchestratorRuntime) func(context.Context, *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+	return func(_ context.Context, cfg *appconfig.Config) (*rtpkg.OrchestratorRuntime, error) {
+		if rt == nil {
+			return nil, errors.New("operator: runtime is nil")
+		}
+		shared := *rt
+		if shared.Config == nil {
+			shared.Config = cfg
+		}
+		shared.Cleanup = func() {}
+		return &shared, nil
+	}
 }
 
 func optsConfig(opts Options, rt *rtpkg.OrchestratorRuntime) *appconfig.Config {

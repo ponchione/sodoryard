@@ -12,34 +12,49 @@
     "version": 12,
     "tables": [
       {
+        "id": 0,
         "name": "project_state",
         "columns": [
           {
+            "index": 0,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "schema_version",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "project_id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
@@ -51,75 +66,110 @@
         }
       },
       {
+        "id": 1,
         "name": "documents",
         "columns": [
           {
+            "index": 0,
             "name": "path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "kind",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "title",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "content_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "content_size",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "chunk_count",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "deleted",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "tags_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "path"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "documents_kind",
             "columns": [
               "kind"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "documents_updated",
             "columns": [
               "updated_at_us"
             ],
+            "column_ordinals": [
+              7
+            ],
             "unique": false,
             "primary": false
           }
@@ -130,43 +180,62 @@
         }
       },
       {
+        "id": 2,
         "name": "document_chunks",
         "columns": [
           {
+            "index": 0,
             "name": "chunk_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "chunk_index",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "body",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "body_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "chunk_id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "document_chunks_path",
             "columns": [
               "path"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -177,55 +246,80 @@
         }
       },
       {
+        "id": 3,
         "name": "document_revisions",
         "columns": [
           {
+            "index": 0,
             "name": "revision_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "revision",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "content_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "operation_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "summary",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "actor",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "revision_id"
             ],
+            "column_ordinals": [
+              0
+            ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "document_revisions_path",
             "columns": [
               "path"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -236,55 +330,80 @@
         }
       },
       {
+        "id": 4,
         "name": "memory_operations",
         "columns": [
           {
+            "index": 0,
             "name": "operation_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "operation_type",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "actor",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "before_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "after_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "payload_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "operation_id"
             ],
+            "column_ordinals": [
+              0
+            ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "memory_operations_path",
             "columns": [
               "path"
             ],
+            "column_ordinals": [
+              2
+            ],
             "unique": false,
             "primary": false
           }
@@ -295,38 +414,55 @@
         }
       },
       {
+        "id": 5,
         "name": "brain_index_state",
         "columns": [
           {
+            "index": 0,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "last_indexed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "dirty",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "dirty_since_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "dirty_reason",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "project_id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
@@ -338,38 +474,55 @@
         }
       },
       {
+        "id": 6,
         "name": "code_index_state",
         "columns": [
           {
+            "index": 0,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "last_indexed_commit",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "last_indexed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "dirty",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "dirty_reason",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "project_id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
@@ -381,47 +534,68 @@
         }
       },
       {
+        "id": 7,
         "name": "code_file_index_state",
         "columns": [
           {
+            "index": 0,
             "name": "file_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "file_path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "file_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "chunk_count",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "last_indexed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "file_id"
             ],
+            "column_ordinals": [
+              0
+            ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "code_file_index_state_project",
             "columns": [
               "project_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -432,59 +606,86 @@
         }
       },
       {
+        "id": 8,
         "name": "conversations",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "title",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "provider",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "model",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "settings_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "deleted",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "conversations_project",
             "columns": [
               "project_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -495,83 +696,122 @@
         }
       },
       {
+        "id": 9,
         "name": "messages",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "conversation_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "turn_number",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "iteration",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "sequence",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "role",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "content",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "tool_use_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "tool_name",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "visible",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "compressed",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 12,
             "name": "is_summary",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 13,
             "name": "summary_of_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 14,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "messages_conversation",
             "columns": [
               "conversation_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -582,111 +822,164 @@
         }
       },
       {
+        "id": 10,
         "name": "sub_calls",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "conversation_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "message_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "turn_number",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "iteration",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "provider",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "model",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "purpose",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "started_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "completed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "tokens_in",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 12,
             "name": "tokens_out",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 13,
             "name": "cache_read_tokens",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 14,
             "name": "cache_creation_tokens",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 15,
             "name": "latency_ms",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 16,
             "name": "error",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 17,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "sub_calls_conversation",
             "columns": [
               "conversation_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "sub_calls_created",
             "columns": [
               "completed_at_us"
             ],
+            "column_ordinals": [
+              10
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 3,
             "name": "sub_calls_purpose",
             "columns": [
               "purpose"
             ],
+            "column_ordinals": [
+              7
+            ],
             "unique": false,
             "primary": false
           }
@@ -697,91 +990,134 @@
         }
       },
       {
+        "id": 11,
         "name": "tool_executions",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "conversation_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "turn_number",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "iteration",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "tool_use_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "tool_name",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "started_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "completed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "duration_ms",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "input_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "output_size",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 12,
             "name": "normalized_size",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 13,
             "name": "error",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 14,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "tool_executions_conversation",
             "columns": [
               "conversation_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "tool_executions_tool_name",
             "columns": [
               "tool_name"
             ],
+            "column_ordinals": [
+              5
+            ],
             "unique": false,
             "primary": false
           }
@@ -792,55 +1128,80 @@
         }
       },
       {
+        "id": 12,
         "name": "context_reports",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "conversation_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "turn_number",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "request_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "report_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "quality_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "context_reports_conversation",
             "columns": [
               "conversation_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -851,71 +1212,104 @@
         }
       },
       {
+        "id": 13,
         "name": "chains",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "source_specs_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "source_task",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "summary",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "started_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "completed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "metrics_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "limits_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "control_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "chains_status",
             "columns": [
               "status"
             ],
+            "column_ordinals": [
+              3
+            ],
             "unique": false,
             "primary": false
           }
@@ -926,103 +1320,152 @@
         }
       },
       {
+        "id": 14,
         "name": "steps",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "chain_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "sequence",
-            "type": "uint32"
+            "type": "uint32",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "role",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "task",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "task_context",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "verdict",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "started_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "completed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "receipt_path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 12,
             "name": "tokens_used",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 13,
             "name": "turns_used",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 14,
             "name": "duration_secs",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 15,
             "name": "exit_code",
-            "type": "int64"
+            "type": "int64",
+            "auto_increment": false
           },
           {
+            "index": 16,
             "name": "has_exit_code",
-            "type": "bool"
+            "type": "bool",
+            "auto_increment": false
           },
           {
+            "index": 17,
             "name": "error",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "steps_chain",
             "columns": [
               "chain_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "steps_status",
             "columns": [
               "status"
             ],
+            "column_ordinals": [
+              6
+            ],
             "unique": false,
             "primary": false
           }
@@ -1033,59 +1476,86 @@
         }
       },
       {
+        "id": 15,
         "name": "events",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "chain_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "step_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "sequence",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "event_type",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "payload_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "events_chain",
             "columns": [
               "chain_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "events_type",
             "columns": [
               "event_type"
             ],
+            "column_ordinals": [
+              4
+            ],
             "unique": false,
             "primary": false
           }
@@ -1096,87 +1566,128 @@
         }
       },
       {
+        "id": 16,
         "name": "launches",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "launch_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "mode",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "role",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "allowed_roles_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "roster_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "source_task",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "source_specs_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "step_max_turns",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "step_max_tokens",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 12,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 13,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "launches_project",
             "columns": [
               "project_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "launches_status",
             "columns": [
               "status"
             ],
+            "column_ordinals": [
+              3
+            ],
             "unique": false,
             "primary": false
           }
@@ -1187,71 +1698,104 @@
         }
       },
       {
+        "id": 17,
         "name": "launch_presets",
         "columns": [
           {
+            "index": 0,
             "name": "id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "project_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "preset_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "name",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "mode",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "role",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "allowed_roles_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "roster_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 8,
             "name": "step_max_turns",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 9,
             "name": "step_max_tokens",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 10,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 11,
             "name": "updated_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "id"
             ],
+            "column_ordinals": [
+              0
+            ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "launch_presets_project",
             "columns": [
               "project_id"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           }
@@ -1262,51 +1806,74 @@
         }
       },
       {
+        "id": 18,
         "name": "document_links",
         "columns": [
           {
+            "index": 0,
             "name": "link_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "source_path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "target_path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "link_text",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "created_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "link_id"
             ],
+            "column_ordinals": [
+              0
+            ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "document_links_source",
             "columns": [
               "source_path"
             ],
+            "column_ordinals": [
+              1
+            ],
             "unique": false,
             "primary": false
           },
           {
+            "id": 2,
             "name": "document_links_target",
             "columns": [
               "target_path"
             ],
+            "column_ordinals": [
+              2
+            ],
             "unique": false,
             "primary": false
           }
@@ -1317,50 +1884,73 @@
         }
       },
       {
+        "id": 19,
         "name": "brain_index_chunks",
         "columns": [
           {
+            "index": 0,
             "name": "chunk_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "document_path",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "document_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "chunk_hash",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "indexed_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "embedding_model",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "chunk_id"
             ],
+            "column_ordinals": [
+              0
+            ],
             "unique": true,
             "primary": true
           },
           {
+            "id": 1,
             "name": "brain_index_chunks_document",
             "columns": [
               "document_path"
+            ],
+            "column_ordinals": [
+              1
             ],
             "unique": false,
             "primary": false
@@ -1372,77 +1962,67 @@
         }
       },
       {
+        "id": 20,
         "name": "project_locks",
         "columns": [
           {
+            "index": 0,
             "name": "lock_name",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 1,
             "name": "owner_chain_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 2,
             "name": "owner_step_id",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 3,
             "name": "owner_role",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           },
           {
+            "index": 4,
             "name": "acquired_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 5,
             "name": "heartbeat_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 6,
             "name": "expires_at_us",
-            "type": "uint64"
+            "type": "uint64",
+            "auto_increment": false
           },
           {
+            "index": 7,
             "name": "metadata_json",
-            "type": "string"
+            "type": "string",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
             "name": "pk",
             "columns": [
               "lock_name"
             ],
-            "unique": true,
-            "primary": true
-          }
-        ],
-        "read_policy": {
-          "access": "private",
-          "permissions": []
-        }
-      },
-      {
-        "name": "sys_clients",
-        "columns": [
-          {
-            "name": "connection_id",
-            "type": "bytes"
-          },
-          {
-            "name": "identity",
-            "type": "bytes"
-          },
-          {
-            "name": "connected_at",
-            "type": "int64"
-          }
-        ],
-        "indexes": [
-          {
-            "name": "pk",
-            "columns": [
-              "connection_id"
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true
@@ -1454,34 +2034,91 @@
         }
       },
       {
-        "name": "sys_scheduled",
+        "id": 21,
+        "name": "sys_clients",
         "columns": [
           {
-            "name": "schedule_id",
-            "type": "uint64"
+            "index": 0,
+            "name": "connection_id",
+            "type": "bytes",
+            "auto_increment": false
           },
           {
-            "name": "reducer_name",
-            "type": "string"
+            "index": 1,
+            "name": "identity",
+            "type": "bytes",
+            "auto_increment": false
           },
           {
-            "name": "args",
-            "type": "bytes"
-          },
-          {
-            "name": "next_run_at_ns",
-            "type": "int64"
-          },
-          {
-            "name": "repeat_ns",
-            "type": "int64"
+            "index": 2,
+            "name": "connected_at",
+            "type": "int64",
+            "auto_increment": false
           }
         ],
         "indexes": [
           {
+            "id": 0,
+            "name": "pk",
+            "columns": [
+              "connection_id"
+            ],
+            "column_ordinals": [
+              0
+            ],
+            "unique": true,
+            "primary": true
+          }
+        ],
+        "read_policy": {
+          "access": "private",
+          "permissions": []
+        }
+      },
+      {
+        "id": 22,
+        "name": "sys_scheduled",
+        "columns": [
+          {
+            "index": 0,
+            "name": "schedule_id",
+            "type": "uint64",
+            "auto_increment": true
+          },
+          {
+            "index": 1,
+            "name": "reducer_name",
+            "type": "string",
+            "auto_increment": false
+          },
+          {
+            "index": 2,
+            "name": "args",
+            "type": "bytes",
+            "auto_increment": false
+          },
+          {
+            "index": 3,
+            "name": "next_run_at_ns",
+            "type": "int64",
+            "auto_increment": false
+          },
+          {
+            "index": 4,
+            "name": "repeat_ns",
+            "type": "int64",
+            "auto_increment": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": 0,
             "name": "pk",
             "columns": [
               "schedule_id"
+            ],
+            "column_ordinals": [
+              0
             ],
             "unique": true,
             "primary": true

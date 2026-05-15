@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ponchione/shunter"
+
 	"github.com/ponchione/sodoryard/internal/config"
 	"github.com/ponchione/sodoryard/internal/projectmemory"
 	"github.com/ponchione/sodoryard/internal/server"
@@ -102,8 +104,9 @@ func TestDesktopCapabilitiesEndpointReportsProjectMemoryProtocol(t *testing.T) {
 	if body.ProjectMemory.ContractVersion != 1 {
 		t.Fatalf("project_memory.contract_version = %d, want 1", body.ProjectMemory.ContractVersion)
 	}
-	if body.ProjectMemory.ShunterVersion != "v1.1.0" {
-		t.Fatalf("project_memory.shunter_version = %q, want v1.1.0", body.ProjectMemory.ShunterVersion)
+	wantShunterVersion := shunter.CurrentBuildInfo().Version
+	if body.ProjectMemory.ShunterVersion != wantShunterVersion {
+		t.Fatalf("project_memory.shunter_version = %q, want %q", body.ProjectMemory.ShunterVersion, wantShunterVersion)
 	}
 	if body.ProjectMemory.DefaultSubprotocol != "v2.bsatn.shunter" {
 		t.Fatalf("project_memory.default_subprotocol = %q, want v2.bsatn.shunter", body.ProjectMemory.DefaultSubprotocol)

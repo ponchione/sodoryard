@@ -97,7 +97,7 @@ assert.throws(
 );
 
 assert.throws(
-  () => assertProtocolCompatible(shunterProtocol, "v1.bsatn.spacetimedb"),
+  () => assertProtocolCompatible(shunterProtocol, "v1.bsatn.foreign"),
   ShunterProtocolMismatchError,
 );
 
@@ -136,7 +136,7 @@ assert.equal(wrongProtocolContractResult.issue.code, "protocol_compatibility");
 assert.throws(
   () => assertGeneratedContractCompatible({
     ...compatibleContract,
-    contractFormat: "spacetimedb.module_contract",
+    contractFormat: "foreign.module_contract",
   }),
   ShunterContractMismatchError,
 );
@@ -451,6 +451,10 @@ assert.throws(
 assert.throws(
   () => decodeBsatnProduct(bytesFromHex("0b02"), [{ name: "topic", kind: "string", nullable: true }], (values) => values),
   ShunterValidationError,
+);
+assert.throws(
+  () => decodeBsatnProduct(bytesFromHex("120200000000000000"), [{ name: "tags", kind: "arrayString" }], (values) => values),
+  /array count exceeds remaining bytes/,
 );
 
 const encodedReducer = encodeReducerCallRequest("send", new Uint8Array([0xaa, 0xbb]), {
@@ -2452,7 +2456,7 @@ const mismatchClient = createShunterClient({
 const mismatchConnecting = mismatchClient.connect();
 await nextTurn();
 const mismatchSocket = sockets.at(-1);
-mismatchSocket.open("v1.bsatn.spacetimedb");
+mismatchSocket.open("v1.bsatn.foreign");
 await assert.rejects(mismatchConnecting, ShunterProtocolMismatchError);
 assert.equal(mismatchClient.state.status, "failed");
 assert.equal(mismatchSocket.closeCalls.length, 1);
@@ -4300,12 +4304,12 @@ assert.equal(reconnectProtocolClient.state.status, "reconnecting");
 await nextTurn();
 assert.equal(reconnectProtocolSockets.length, 2);
 const observedProtocolReconnect = reconnectProtocolClient.connect();
-reconnectProtocolSockets[1].open("v1.bsatn.spacetimedb");
+reconnectProtocolSockets[1].open("v1.bsatn.foreign");
 const reconnectProtocolError = await rejectByNextTurn(observedProtocolReconnect, (error) => {
   assert(error instanceof ShunterProtocolMismatchError);
   assert.equal(error.kind, "protocol_mismatch");
   assert.equal(error.code, "unsupported_selected_subprotocol");
-  assert.equal(error.receivedSubprotocol, "v1.bsatn.spacetimedb");
+  assert.equal(error.receivedSubprotocol, "v1.bsatn.foreign");
 });
 assert.equal(reconnectProtocolClient.state.status, "closed");
 assert.strictEqual(reconnectProtocolClient.state.error, reconnectProtocolError);

@@ -45,6 +45,7 @@ type EngineRuntime struct {
 	ToolRecorder        *tool.ToolExecutionRecorder
 	TraceRecorder       tracepkg.Recorder
 	ChainStore          *chain.Store
+	MemoryEndpointEnv   []string
 	Cleanup             func()
 }
 
@@ -88,6 +89,11 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		return closeOnError(err)
 	}
 	cleanup = ChainCleanup(cleanup, closeMemoryBackend)
+	memoryEndpointEnv, closeMemoryRPC, err := buildOrchestratorMemoryRPC(ctx, cfg, memoryBackend, logger)
+	if err != nil {
+		return closeOnError(fmt.Errorf("start project memory RPC: %w", err))
+	}
+	cleanup = ChainCleanup(cleanup, closeMemoryRPC)
 	traceRecorder, closeTraceRecorder, err := BuildTraceRecorder(ctx, cfg)
 	if err != nil {
 		return closeOnError(err)
@@ -163,6 +169,7 @@ func BuildEngineRuntime(ctx context.Context, cfg *appconfig.Config) (*EngineRunt
 		ToolRecorder:        toolRecorder,
 		TraceRecorder:       traceRecorder,
 		ChainStore:          chainStore,
+		MemoryEndpointEnv:   memoryEndpointEnv,
 		Cleanup:             cleanup,
 	}, nil
 }

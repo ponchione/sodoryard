@@ -36,6 +36,7 @@ export interface YardPlatform {
   kind: "browser" | "desktop";
   backendBaseUrl: string;
   desktopSessionToken?: string;
+  capabilities?: string[];
   projectMemory?: YardProjectMemoryPlatform;
   openExternal(url: string): Promise<void>;
   chooseProjectDirectory?(): Promise<string | null>;

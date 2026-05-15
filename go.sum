@@ -35,6 +35,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/ponchione/shunter v1.1.0 h1:vmNg2n8MJ84vbKcHsjbVdJqN5BRArQhC5mUXC9U1qPQ=
 github.com/ponchione/shunter v1.1.0/go.mod h1:PYmejKd7SGSCUEcKKr/oEXRFuNbaCXnqe0XqEkCvNCo=
+github.com/ponchione/shunter v1.1.1-0.20260515015919-4eb37174ada0 h1:xAS2qaGGdAGc/Wh4nQbY8uQzwpy5mIDkX4bpgC6U5Ow=
+github.com/ponchione/shunter v1.1.1-0.20260515015919-4eb37174ada0/go.mod h1:PYmejKd7SGSCUEcKKr/oEXRFuNbaCXnqe0XqEkCvNCo=
 github.com/ponchione/websocket v1.8.15-shunter.1 h1:tOaj/AKBTiiQwtkJ1f7W+p5u8RssWm8OpxFKu2S1nYY=
 github.com/ponchione/websocket v1.8.15-shunter.1/go.mod h1:+g9NnjSE0yU095pdiwWnx2IpLbS586LpsArs9oCBQ94=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=

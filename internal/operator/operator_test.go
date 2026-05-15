@@ -1690,6 +1690,60 @@ func TestStartChainMapsLaunchRequestToChainrun(t *testing.T) {
 	}
 }
 
+func TestNewForRuntimeStartChainUsesSharedRuntimeBuilder(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+	cfg, err := appconfig.Load(writeOperatorTestConfig(t, projectRoot))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	store := chain.NewStore(newOperatorTestDB(t))
+	backend := &fakeBrainBackend{}
+	endpointEnv := []string{projectmemory.EnvMemoryEndpoint + "=unix:/tmp/yard-memory.sock"}
+	cleanupCalled := false
+	var gotRuntime *rtpkg.OrchestratorRuntime
+	svc, err := NewForRuntime(&rtpkg.OrchestratorRuntime{
+		Config:            cfg,
+		ChainStore:        store,
+		BrainBackend:      backend,
+		MemoryEndpointEnv: endpointEnv,
+		Cleanup: func() {
+			cleanupCalled = true
+		},
+	}, Options{
+		ChainStarter: func(ctx context.Context, cfg *appconfig.Config, opts chainrun.Options, deps chainrun.Deps) (*chainrun.Result, error) {
+			rt, err := deps.BuildRuntime(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			gotRuntime = rt
+			rt.Cleanup()
+			return &chainrun.Result{ChainID: "shared-runtime-chain", Status: "completed"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewForRuntime returned error: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	result, err := svc.StartChain(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder", SourceTask: "ship it", StepMaxTurns: 1})
+	if err != nil {
+		t.Fatalf("StartChain returned error: %v", err)
+	}
+	if result.ChainID != "shared-runtime-chain" || result.Status != "running" {
+		t.Fatalf("result = %+v, want running shared-runtime-chain", result)
+	}
+	if gotRuntime == nil {
+		t.Fatal("ChainStarter did not receive a runtime builder")
+	}
+	if gotRuntime.ChainStore != store || gotRuntime.BrainBackend != backend || !reflect.DeepEqual(gotRuntime.MemoryEndpointEnv, endpointEnv) {
+		t.Fatalf("runtime = %+v, want shared chain store, brain backend, and memory endpoint env", gotRuntime)
+	}
+	if cleanupCalled {
+		t.Fatal("shared runtime cleanup was called by chain starter")
+	}
+}
+
 func TestStartChainMapsManualRosterLaunchRequestToChainrun(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := t.TempDir()

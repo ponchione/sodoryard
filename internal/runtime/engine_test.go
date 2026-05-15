@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,6 +137,10 @@ func TestBuildEngineRuntimeStartsShunterModeWithoutYardDB(t *testing.T) {
 	if rt.BrainBackend == nil || rt.MemoryBackend == nil || rt.ProviderRouter == nil || rt.ConversationManager == nil || rt.ContextAssembler == nil || rt.ToolRecorder == nil || rt.ChainStore == nil {
 		t.Fatalf("runtime missing Shunter-mode components: %+v", rt)
 	}
+	expectedEnv := []string{projectmemory.EnvMemoryEndpoint + "=unix:" + cfg.Memory.RPC.Path}
+	if strings.Join(rt.MemoryEndpointEnv, "\n") != strings.Join(expectedEnv, "\n") {
+		t.Fatalf("MemoryEndpointEnv = %v, want %v", rt.MemoryEndpointEnv, expectedEnv)
+	}
 	if _, err := os.Stat(cfg.DatabasePath()); !os.IsNotExist(err) {
 		t.Fatalf("database stat err = %v, want no yard.db created in Shunter mode", err)
 	}
@@ -170,6 +175,23 @@ func TestBuildEngineRuntimeStartsShunterModeWithoutYardDB(t *testing.T) {
 	}
 	if doc != "# Engine\n\nRuntime brain writes stay in Shunter." {
 		t.Fatalf("ReadDocument = %q, want Shunter brain content", doc)
+	}
+	client, err := projectmemory.DialBrainBackend("unix:" + cfg.Memory.RPC.Path)
+	if err != nil {
+		t.Fatalf("DialBrainBackend: %v", err)
+	}
+	if err := client.WriteDocument(ctx, "notes/engine-rpc.md", "# Engine RPC\n\nChild access uses the parent runtime."); err != nil {
+		t.Fatalf("client WriteDocument: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("client Close: %v", err)
+	}
+	rpcDoc, err := rt.BrainBackend.ReadDocument(ctx, "notes/engine-rpc.md")
+	if err != nil {
+		t.Fatalf("ReadDocument after RPC: %v", err)
+	}
+	if rpcDoc != "# Engine RPC\n\nChild access uses the parent runtime." {
+		t.Fatalf("RPC ReadDocument = %q, want parent-backed RPC content", rpcDoc)
 	}
 	if err := rt.ToolRecorder.Record(ctx,
 		tool.ToolCall{ID: "toolu-engine", Name: "brain_write"},
@@ -212,6 +234,9 @@ func TestBuildEngineRuntimeStartsShunterModeWithoutYardDB(t *testing.T) {
 
 	rt.Cleanup()
 	cleaned = true
+	if _, err := os.Stat(cfg.Memory.RPC.Path); !os.IsNotExist(err) {
+		t.Fatalf("RPC socket stat err = %v, want not-exist after cleanup", err)
+	}
 }
 
 func TestBuildConversationManagerUsesShunterMemoryBackend(t *testing.T) {

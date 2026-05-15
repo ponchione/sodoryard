@@ -3,6 +3,7 @@ import type { ConnectionStatus, SubscriptionUnsubscribe } from "@shunter/client"
 
 import {
   createProjectMemoryClient,
+  projectMemoryConnectionErrorMessage,
   queryChainEventsDecoded,
   subscribeLiveChainEvents,
   type EventsRow,
@@ -31,10 +32,6 @@ interface ProjectMemoryChainEventsSnapshot {
 }
 
 const approvalEventTypes = new Set(["approval_required", "approval_decision"]);
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Project memory chain events connection failed";
-}
 
 function projectMemoryTimeToISO(value: bigint): string {
   if (value === 0n) return "";
@@ -179,7 +176,7 @@ export function useProjectMemoryChainEvents(
         if (cancelled) return;
         cleanupResources();
         setStatus("failed");
-        setError(errorMessage(err));
+        setError(projectMemoryConnectionErrorMessage(err));
       }
     };
 

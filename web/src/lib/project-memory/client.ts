@@ -14,6 +14,8 @@ import {
 } from "@/generated/yard-project-memory";
 import { getYardPlatform, toBackendURL, toBackendWebSocketURL } from "@/platform";
 
+const projectMemorySubscriptionCapability = "project_memory_subscriptions";
+
 export {
   decodeEventsRow,
   queryChainEventsDecoded,
@@ -99,14 +101,45 @@ export async function verifyProjectMemoryRuntimeContract(fetcher?: typeof fetch)
 
 export function createProjectMemoryClient(options: ProjectMemoryClientOptions = {}): ProjectMemoryClient {
   assertProjectMemoryContractCompatible();
+  assertProjectMemorySubscriptionsAvailable();
+  const platform = getYardPlatform();
   return createShunterClient({
     url: options.url ?? projectMemorySubscribeURL(),
     protocol: shunterProtocol,
     contract: shunterContract,
-    token: options.token ?? getYardPlatform().projectMemory?.token,
+    token: options.token ?? platform.projectMemory?.token,
     reconnect: options.reconnect ?? { enabled: true, resubscribe: true },
     onStateChange: options.onStateChange,
   });
+}
+
+export function projectMemorySubscriptionsUnavailableReason(): string | null {
+  const platform = getYardPlatform();
+  if (platform.kind !== "desktop") return null;
+  if (!platform.capabilities?.includes(projectMemorySubscriptionCapability)) {
+    return "Project Memory live subscriptions are not advertised by this backend.";
+  }
+  if (!platform.projectMemory?.subscribeUrl) {
+    return "Project Memory live subscriptions are advertised without a subscribe URL.";
+  }
+  return null;
+}
+
+export function assertProjectMemorySubscriptionsAvailable() {
+  const reason = projectMemorySubscriptionsUnavailableReason();
+  if (reason) throw new Error(reason);
+}
+
+export function projectMemoryConnectionErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Project memory connection failed";
+  if (message !== "WebSocket failed before opening." && message !== "WebSocket closed before opening.") {
+    return message;
+  }
+  try {
+    return `${message} Target: ${projectMemorySubscribeURL()}.`;
+  } catch {
+    return message;
+  }
 }
 
 export function projectMemorySubscribeURL(origin?: string): string {

@@ -8,7 +8,7 @@ require (
 	github.com/lancedb/lancedb-go v0.1.2
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-sqlite3 v1.14.37
-	github.com/ponchione/shunter v1.1.0
+	github.com/ponchione/shunter v1.1.1-0.20260515015919-4eb37174ada0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	github.com/tree-sitter/go-tree-sitter v0.25.0

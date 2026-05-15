@@ -3,6 +3,7 @@ import type { ConnectionStatus, SubscriptionUnsubscribe } from "@shunter/client"
 
 import {
   createProjectMemoryClient,
+  projectMemoryConnectionErrorMessage,
   queryRecentChainEventsDecoded,
   queryRecentChainsDecoded,
   subscribeLiveRecentChainEvents,
@@ -48,10 +49,6 @@ interface ProjectMemorySnapshot {
 type ProjectMemoryEventRow = RecentChainEventsQueryRow | LiveRecentChainEventsViewRow;
 
 const recentEventLimit = 10;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Project memory connection failed";
-}
 
 function changedRowCount(current: number | null, inserts: number, deletes: number): number | null {
   if (current === null) return null;
@@ -219,7 +216,7 @@ export function useProjectMemoryChains(
         if (cancelled) return;
         cleanupResources();
         setStatus("failed");
-        setError(errorMessage(err));
+        setError(projectMemoryConnectionErrorMessage(err));
       }
     };
 
