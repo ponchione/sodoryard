@@ -19,7 +19,7 @@ Reviewed source context:
 - Genkit repository: <https://github.com/genkit-ai/genkit>
 - Go module: `github.com/firebase/genkit/go`, latest observed `v1.8.0` on 2026-05-08
 - Go SDK README, `go/go.mod`, `go/ai/generate.go`, `go/ai/tools.go`, `go/ai/middleware.go`, OpenAI-compatible, Anthropic, Ollama, and middleware plugin sources
-- Current Yard docs and runtime code: provider router, agent loop, tool executor, chain orchestrator, TUI/web inspector specs
+- Current Yard docs and runtime code: provider router, agent loop, tool executor, chain orchestrator, desktop/web inspector specs
 
 Out of scope for this document:
 
@@ -64,7 +64,7 @@ An idea is worth stealing only if it improves one of Yard's live differentiators
 - Less duplicated cross-cutting code around providers/tools/retry/tracking/policy
 - Better dogfooding and regression testing of agent quality
 - Cleaner preflight warnings before expensive or long-running chains
-- More robust reconnect/resume behavior for terminal and browser inspection
+- More robust reconnect/resume behavior for desktop and browser inspection
 
 An idea is not worth stealing if it requires Yard to surrender control of:
 
@@ -100,7 +100,7 @@ The order is intentionally biased toward observability and contracts first. Thos
 
 ### Problem
 
-Yard already records many useful facts: chain events, step receipts, sub-calls, tool executions, context reports, and TUI/web summaries. The missing piece is a unified timeline that explains the causal path of a turn or chain:
+Yard already records many useful facts: chain events, step receipts, sub-calls, tool executions, context reports, and desktop/web summaries. The missing piece is a unified timeline that explains the causal path of a turn or chain:
 
 - Context assembly started, queried these sources, and consumed this budget
 - Provider call started with this provider/model and these prompt/cache settings
@@ -170,7 +170,7 @@ High-volume span storage should start in SQLite because it is query-oriented and
 - `internal/spawn/spawn_agent.go`
 - `internal/chain`
 - `internal/server` chain and metrics endpoints
-- `internal/tui` chain health/detail rendering
+- desktop/web chain health/detail rendering
 - `web/src/pages/chain-detail.tsx`
 
 ### MVP
@@ -246,7 +246,7 @@ Structured finding fields should support:
 - Receipt writing in `cmd/tidmouth/run.go`
 - Receipt parsing in `internal/chain` and `internal/operator`
 - Chain metrics and flow analysis in `internal/chain/flow_analysis.go`
-- TUI chain health rendering
+- desktop/web chain health rendering
 - Web inspector chain detail types/rendering
 - Agent role prompts in `agents/` and embedded prompt assets
 
@@ -554,7 +554,7 @@ Use this for:
 
 - `yard config`
 - `yard doctor`
-- TUI `/status`
+- desktop runtime status
 - Launch preview warnings
 - Chain start preflight
 - Web inspector runtime status
@@ -566,7 +566,7 @@ Use this for:
 - `internal/runtime/provider.go`
 - Config validation in `internal/config`
 - Operator runtime/readiness reporting
-- TUI status and launch preview
+- desktop status and launch preview
 - Web runtime status endpoint/types
 
 ### MVP
@@ -582,7 +582,7 @@ Implemented on 2026-05-08:
 
 - extended provider model metadata with reasoning-effort, structured-output, prompt-cache, image, tool-choice, max-output-token, and known-quirk fields
 - added a config-derived capability resolver for the default provider/model
-- surfaced context window and capability labels in `yard config`, operator runtime status, runtime status API, and TUI `/model` / `/status`
+- surfaced context window and capability labels in `yard config`, operator runtime status, runtime status API, and desktop settings/status views
 - added launch-preview warnings when configured launch roles require tools but the selected model is configured as not supporting tools
 - added optional provider config overrides such as `supports_tools`, `supports_structured_output`, `max_output_tokens`, and `known_quirks`
 
@@ -614,7 +614,7 @@ Implemented on 2026-05-09:
 
 ### Problem
 
-Yard already has launch modes and presets in the TUI, plus chain start flags. The shape is useful but still partly UI-driven. Genkit's flow idea is worth stealing only as a concept: named, typed, inspectable workflow units.
+Yard already has launch modes and presets in the desktop/web launch flow, plus chain start flags. The shape is useful but still partly UI-driven. Genkit's flow idea is worth stealing only as a concept: named, typed, inspectable workflow units.
 
 ### Yard Adaptation
 
@@ -650,7 +650,7 @@ type ChainTemplate struct {
 
 - `internal/operator` launch compilation
 - `cmd/yard/chain.go`
-- `internal/tui` launch model
+- desktop/web launch model
 - `internal/server` launch endpoints if browser intake survives
 - Config/preset persistence
 - Chain start tests
@@ -658,7 +658,7 @@ type ChainTemplate struct {
 ### MVP
 
 1. Move existing launch modes into a shared template registry.
-2. Make CLI, TUI, and API compile launch requests through the same template path.
+2. Make CLI, desktop, web, and API compile launch requests through the same template path.
 3. Add launch preview output based on template metadata and model capabilities.
 4. Keep custom presets as saved parameter sets over templates.
 
@@ -669,7 +669,7 @@ Implemented on 2026-05-08:
 - typed `LaunchTemplate` metadata for current launch modes
 - shared template registry for one-step, manual-roster, constrained-orchestration, and Sir Topham-managed launches
 - launch previews now carry template metadata, including ID, label, receipt schema, default roles, and preflight checks
-- TUI launch preview and slash-command preview render the template label when available
+- Desktop/web launch preview render the template label when available
 
 Not implemented in this slice:
 
@@ -706,7 +706,7 @@ Implemented on 2026-05-09:
 - operator `LaunchRequest` can select launch behavior by `TemplateID`
 - template IDs resolve through the shared launch template registry
 - conflicting `TemplateID` and `Mode` values fail before launch validation proceeds
-- TUI slash `/preview` and `/start` accept `--template <id>` while preserving `--mode` compatibility
+- Desktop/web launch requests accept `template_id` while preserving mode compatibility
 
 Not implemented in this slice:
 
@@ -734,7 +734,7 @@ Implemented on 2026-05-09:
 ### Acceptance Criteria
 
 - One-step, manual-roster, constrained-orchestration, and full-orchestration launches use one shared compile path.
-- TUI launch preview and CLI dry-run agree.
+- Desktop/web launch preview and CLI dry-run agree.
 - Template metadata is visible in operator surfaces.
 - Invalid role/template combinations fail before chain creation.
 
@@ -746,7 +746,7 @@ Implemented on 2026-05-09:
 
 Today tools mostly either run or return a failure result. Some operations need a third state: "this is valid, but a human must approve it before it executes."
 
-Genkit's interrupt/resume pattern is a useful reference. Yard needs a version that fits long-running chains, TUI-first operation, and durable state.
+Genkit's interrupt/resume pattern is a useful reference. Yard needs a version that fits long-running chains, desktop-first operation, and durable state.
 
 ### Yard Adaptation
 
@@ -782,7 +782,7 @@ type PendingApproval struct {
 
 ### Execution Semantics
 
-For interactive TUI/web sessions:
+For interactive desktop/web sessions:
 
 1. Tool hook detects approval is required.
 2. Agent turn pauses and emits `approval_required`.
@@ -793,7 +793,7 @@ For headless chains:
 
 - Default should fail closed unless `--allow-approval-wait` or an equivalent chain mode is set.
 - In fail-closed mode, write a receipt or tool result that escalates to the human.
-- In wait mode, chain status becomes `waiting_approval`; TUI/web can resume it.
+- In wait mode, chain status becomes `waiting_approval`; desktop/web can resume it.
 
 ### Code Touchpoints
 
@@ -803,14 +803,14 @@ For headless chains:
 - `internal/tool/file_edit.go`
 - `internal/agent` turn state and events
 - `internal/chain` statuses/events
-- TUI chain controls
+- desktop/web chain controls
 - Web inspector chain controls
 
 ### MVP
 
 1. Implement approval as a hook for `shell` only.
 2. Add chain status/event support for `waiting_approval`.
-3. Add CLI/TUI approval path for pending approvals.
+3. Add CLI and desktop/web approval paths for pending approvals.
 4. Add tests that approval-required tools do not execute before approval.
 
 ### Implemented First Slice
@@ -827,7 +827,7 @@ Not implemented in this slice:
 
 - durable approval storage
 - `waiting_approval` chain status/events
-- CLI/TUI approve/deny/resume controls
+- CLI and desktop/web approve/deny/resume controls
 - approval support for file mutation tools or spawned agents
 
 ### Implemented Trace Context Slice
@@ -890,20 +890,19 @@ Not implemented in this slice:
 
 - automatic replay or continuation of the exact approved tool call after `yard chain resume`
 - denial surfaced back into the original paused agent turn as a tool result
-- TUI or browser approval controls
+- desktop or browser approval controls
 - approval support for file mutation tools beyond the existing shell hook
 
-### Implemented TUI Approval Control Slice
+### Implemented Operator Approval Control Slice
 
 Implemented on 2026-05-09:
 
-- TUI operator interface exposes approval list, approve, and deny methods through the shared operator service
-- `/approvals <chain-id>` lists pending and decided approvals in the console transcript
-- `/approve <chain-id> <approval-id> --reason <note>` and `/deny <chain-id> <approval-id> --reason <note>` record approval decisions and refresh chain state
-- TUI chain detail renders approval rows when a selected chain has pending or decided approvals
-- waiting-approval chains can be resumed or cancelled from the chain list controls
-- TUI `/start` and `/preview` accept `--allow-approval-wait` and propagate it into launch requests
-- tests cover slash parsing, TUI approval list/decision rendering, waiting-approval chain controls, operator detail approval hydration, and launch mapping to chainrun wait mode
+- Operator service exposes approval list, approve, and deny methods.
+- CLI `yard chain approvals`, `yard chain approve`, and `yard chain deny` record approval decisions and refresh chain state.
+- Browser/desktop chain detail renders approval rows when a selected chain has pending or decided approvals.
+- Waiting-approval chains can be resumed or cancelled from chain controls.
+- Launch requests accept `allow_approval_wait` and propagate it into chain runs.
+- Tests cover approval list/decision rendering, waiting-approval chain controls, operator detail approval hydration, and launch mapping to chainrun wait mode.
 
 Not implemented in this slice:
 
@@ -945,7 +944,7 @@ Not implemented in this slice:
 ### Acceptance Criteria
 
 - A risky shell command can be blocked before execution.
-- The operator can approve or deny from the TUI, CLI, or browser chain detail.
+- The operator can approve or deny from the CLI, desktop, or browser chain detail.
 - Denial is visible to the model as a tool result when the resumed agent issues the matching denied shell input.
 - Headless chain behavior is deterministic and documented.
 
@@ -1295,7 +1294,7 @@ Not implemented in this slice:
 
 - Web inspector can answer "what happened before this failure?" without reading raw logs.
 - Timeline survives missing optional data.
-- TUI remains the primary control surface; browser timeline is read-oriented unless approval controls are explicitly added.
+- Desktop remains the primary graphical control surface; browser timeline is read-oriented unless approval controls are explicitly added.
 
 ---
 
@@ -1314,7 +1313,7 @@ Make persisted events the source of truth for chain and turn streaming.
 For chains:
 
 - Every streamable event has a monotonic event sequence or cursor.
-- TUI/web can request events after cursor N.
+- Desktop/web can request events after cursor N.
 - Follow mode replays missing events before tailing live events.
 
 For interactive conversations:
@@ -1328,14 +1327,14 @@ For interactive conversations:
 - `internal/chain/events.go`
 - Chain store event queries
 - `yard chain logs --follow`
-- TUI follow mode
+- desktop follow mode
 - WebSocket handler and browser reconnect logic
 - Trace spans if item 1 lands first
 
 ### MVP
 
 1. Add cursor-based chain event follow if not already complete.
-2. Make TUI/web reconnect from last seen event ID.
+2. Make desktop/web reconnect from last seen event ID.
 3. Add tests for replay-then-tail behavior.
 4. Defer token-level durable streaming unless browser refresh loses important state.
 
@@ -1350,7 +1349,7 @@ Implemented on 2026-05-08:
 
 Not implemented in this slice:
 
-- TUI/web reconnect from the last seen event ID
+- desktop/web reconnect from the last seen event ID
 - interactive conversation replay
 - token-level durable streaming
 
@@ -1380,7 +1379,7 @@ Not implemented in this slice:
 
 ### Acceptance Criteria
 
-- Restarting the TUI or refreshing the browser does not lose chain progress context.
+- Restarting Desktop or refreshing the browser does not lose chain progress context.
 - Follow mode catches up from persisted events before streaming live events.
 - Duplicate events are suppressed by event ID/cursor.
 - Chain logs remain useful even if the orchestrator process exits unexpectedly.

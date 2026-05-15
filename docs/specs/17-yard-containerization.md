@@ -74,7 +74,7 @@ If an implementation still ships the binary temporarily during cleanup sequencin
 
 ### 3.5 Web inspector lives in `yard serve`
 
-This spec no longer reserves a placeholder service slot for `knapford`. Browser inspector work is active product scope in [[21-web-inspector]], but it is implemented inside the existing `yard serve` web/API server and embedded frontend. The primary interactive operator target is the TUI in [[20-operator-console-tui]], which should run inside the same `yard` binary.
+This spec no longer reserves a placeholder service slot for `knapford`. Browser inspector work is active product scope in [[21-web-inspector]], but it is implemented inside the existing `yard serve` web/API server and embedded frontend. The primary graphical operator target is Yard Desktop in [[24-electron-desktop-app]], which wraps the same `yard` backend instead of adding a container service.
 
 Why:
 - placeholder-only compose services are legacy surface area with no runtime value

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from "react";
 import {
   Activity,
   BarChart3,
-  FolderTree,
   LayoutDashboard,
   MessageSquare,
   Plus,
@@ -180,13 +179,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             active={location.pathname.startsWith("/launch")}
             icon={<Rocket size={16} aria-hidden="true" />}
             label="Launch"
-            onClick={onClose}
-          />
-          <NavLinkItem
-            to="/project"
-            active={location.pathname.startsWith("/project")}
-            icon={<FolderTree size={16} aria-hidden="true" />}
-            label="Project"
             onClick={onClose}
           />
           <NavLinkItem

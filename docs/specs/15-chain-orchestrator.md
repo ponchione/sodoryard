@@ -15,7 +15,7 @@ The orchestrator does not write code, read files, run shell commands, or interac
 This spec depends on:
 - [[13_Headless_Run_Command]] — the internal chain-step engine that the orchestrator spawns
 - [[14_Agent_Roles_and_Brain_Conventions]] — role definitions and brain directory structure
-- [[20-operator-console-tui]] — primary operator chain monitoring, controls, receipts, and event-log UI
+- [[24-electron-desktop-app]] — primary graphical operator chain monitoring, controls, receipts, and event-log UI
 - [[21-web-inspector]] — rich browser inspection for chain details, receipts, and metrics
 
 ---
@@ -376,7 +376,7 @@ The prompt should NOT hardcode the chain flow as a rigid sequence. The orchestra
 
 ### Shunter Project Memory
 
-All canonical chain state is in Shunter project memory. The event stream provides a complete audit trail. Operator surfaces read this state through shared internal services backed by `internal/chain.Store`; see [[20-operator-console-tui]] for the primary TUI contract and [[21-web-inspector]] for browser inspection routes.
+All canonical chain state is in Shunter project memory. The event stream provides a complete audit trail. Operator surfaces read this state through shared internal services backed by `internal/chain.Store`; see [[24-electron-desktop-app]] for the primary graphical contract and [[21-web-inspector]] for browser inspection routes.
 
 ### Brain
 

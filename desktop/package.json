@@ -1,12 +1,15 @@
 {
   "name": "@sodoryard/desktop",
+  "productName": "Yard Desktop",
   "private": true,
   "version": "0.0.0",
+  "desktopName": "yard-desktop.desktop",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "npm run build && electron --no-sandbox .",
+    "install:linux-launcher": "node scripts/install-linux-launcher.mjs",
     "package:unpacked": "npm run build && node scripts/package-unpacked.mjs",
     "test": "npm run build && node --test dist/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"

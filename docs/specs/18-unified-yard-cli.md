@@ -23,7 +23,7 @@ Consolidate all operator-facing commands under `yard`. One binary, one `--help`,
 ## 3. Command tree
 
 ```
-yard [--config yard.yaml]       # terminal operator console
+yard [--config yard.yaml]       # show CLI help
 ├── init                        # project bootstrap (exists)
 ├── serve                       # web UI + API server
 ├── index                       # code index build/rebuild
@@ -140,7 +140,7 @@ These need to be callable from `cmd/yard/`. After the cleanup, only `yard` and t
 
 1. It eliminates code duplication between `cmd/yard/` and the retained internal wrappers
 2. It makes the runtime constructors testable in isolation
-3. It provides the integration point for operator surfaces to start chains by calling the same runtime builder from the TUI or an HTTP handler
+3. It provides the integration point for operator surfaces to start chains by calling the same runtime builder from the desktop/browser backend APIs
 
 ### 4.3 Spawn subprocess path
 
@@ -150,13 +150,13 @@ The no-legacy contract keeps this as an internal implementation detail only. The
 
 ### 4.4 Shared operator chain entry points
 
-The chain start logic must remain in `internal/` packages (not in cobra wiring) so that the TUI and any browser handlers can invoke the same code path as `yard chain start`. The live implementation delegates `yard chain start` to `internal/chainrun.Start`, whose shape is:
+The chain start logic must remain in `internal/` packages (not in cobra wiring) so that desktop/browser handlers can invoke the same code path as `yard chain start`. The live implementation delegates `yard chain start` to `internal/chainrun.Start`, whose shape is:
 
 ```go
 func Start(ctx context.Context, cfg *config.Config, opts chainrun.Options, deps chainrun.Deps) (*chainrun.Result, error)
 ```
 
-The Cobra command owns CLI-only work: loading flags, printing the chain ID, and streaming watch output. Chain creation, resume handling, active-execution registration, orchestrator loop setup, control-state finalization, and chain exit-code mapping live in the internal chain runner. TUI behavior is specified in [[20-operator-console-tui]], and browser inspection behavior is specified in [[21-web-inspector]].
+The Cobra command owns CLI-only work: loading flags, printing the chain ID, and streaming watch output. Chain creation, resume handling, active-execution registration, orchestrator loop setup, control-state finalization, and chain exit-code mapping live in the internal chain runner. Desktop behavior is specified in [[24-electron-desktop-app]], and browser inspection behavior is specified in [[21-web-inspector]].
 
 ## 5. What changes
 
@@ -230,8 +230,8 @@ The no-legacy target state does not preserve duplicated public command trees in 
 
 - Renaming the retained internal `tidmouth` engine binary
 - Changing the spawn subprocess binary name in the same slice as public CLI cleanup
-- Adding unrelated new top-level commands beyond separately specified surfaces such as the bare `yard` TUI
-- Building the TUI or web-inspector surfaces themselves; this CLI spec only preserves the shared internal entry points used by [[20-operator-console-tui]] and [[21-web-inspector]]
+- Adding unrelated new top-level commands beyond separately specified surfaces
+- Building the desktop or web-inspector surfaces themselves; this CLI spec only preserves the shared internal entry points used by [[24-electron-desktop-app]] and [[21-web-inspector]]
 - Deprecation warnings or compatibility aliases for removed legacy surfaces
 - Changing retained operator-facing command behavior beyond the explicit chain-only run consolidation in this spec
 

@@ -8,7 +8,7 @@
 
 ## Overview
 
-The web inspector is the retained browser surface served by `yard serve`. It is not the primary operator console. Daily operation belongs in the terminal console specified by [[20-operator-console-tui]], while the browser exists for views that benefit from richer layout, rendering, navigation, or visual comparison.
+The web inspector is the retained browser surface served by `yard serve`. It is not a separate runtime. Daily graphical operation belongs in Yard Desktop, specified by [[24-electron-desktop-app]], while the browser exists for development, fallback access, and views that benefit from direct local HTTP access.
 
 The current React app already provides:
 
@@ -32,13 +32,11 @@ The split is intentional:
 
 | Surface | Primary responsibility |
 |---|---|
-| bare `yard` | Target TUI for starting, monitoring, and controlling work from the terminal |
-| `yard serve` | Inspect rich transcripts, context, tools, diffs, files, and metrics |
+| Yard Desktop | Start, monitor, control, and inspect work in the primary graphical shell |
+| `yard serve` | Browser fallback for transcripts, context, tools, diffs, files, and metrics |
 | `yard <subcommand>` CLI | Scriptable one-shot commands and automation |
 
-The browser can include chain views and convenience actions, but it should not be required for normal chain operation.
-
-Current TUI handoff status: bare `yard` can show the `yard serve` command and a target URL for the selected chain or receipt. It does not start or detect the web server.
+The browser can include chain views and convenience actions, but normal graphical operation should stay aligned with Desktop and must use the same backend APIs.
 
 ---
 
@@ -60,13 +58,13 @@ Current TUI handoff status: bare `yard` can show the `yard serve` command and a 
    Show token usage, latency, provider/model breakdowns, tool counts, context quality signals, and chain-level summaries where available.
 
 6. **Optional document intake**
-   Browser document drop can remain if it proves materially better than terminal/editor-based flows. It should feed the same launch/work-packet model used by the TUI, not create a separate execution path.
+   Browser document drop can remain if it proves materially better than editor-based flows. It should feed the same launch/work-packet model used by Desktop, not create a separate execution path.
 
 ---
 
 ## Non-Goals
 
-- No second full operator console competing with bare `yard`.
+- No second execution runtime competing with Desktop.
 - No browser-only chain execution path.
 - No mobile UI.
 - No hosted/multi-user/product onboarding assumptions.
@@ -90,7 +88,7 @@ Minimum useful routes:
 | `/metrics` | Conversation, chain, provider/model, tool, and context metrics |
 | `/settings` | Existing provider/model/project settings and diagnostics |
 
-Routes should favor inspection and drilldown. Launch and control actions may appear where useful, but the canonical primary path is the TUI/CLI.
+Routes should favor inspection and drilldown. Launch and control actions may appear where useful, but the canonical primary paths are Desktop and the CLI.
 
 ---
 
@@ -145,7 +143,7 @@ The browser chain detail route is useful for inspection:
 - token/model summaries
 - links back to conversations or source specs when available
 
-The TUI remains the preferred place to follow and control running chains.
+Desktop remains the preferred graphical place to follow and control running chains.
 
 ### Project Browser
 
@@ -171,7 +169,7 @@ Browser metrics should focus on views that are awkward in terminal tables:
 
 ## API Contract
 
-The web inspector reuses the existing HTTP/WebSocket contract in [[07-web-interface-and-streaming]] and should share internal services with the TUI where behavior overlaps.
+The web inspector reuses the existing HTTP/WebSocket contract in [[07-web-interface-and-streaming]] and should share internal services with Desktop where behavior overlaps.
 
 Current reused endpoints:
 
@@ -200,7 +198,7 @@ GET    /api/metrics/conversation/:id/context/:turn/signals
 WS     /api/ws
 ```
 
-Current chain/readiness endpoints mirror the service methods used by [[20-operator-console-tui]]:
+Current chain/readiness endpoints mirror the service methods used by Desktop:
 
 ```text
 GET    /api/runtime/status
@@ -221,7 +219,7 @@ Approval controls exist on chain detail because they are tied to inspecting an a
 
 - Keep React route work focused on inspection surfaces already hard or awkward in terminal panes.
 - Avoid browser-only launch state. Persistent current launch drafts and custom presets now live in shared operator storage; future browser launch work should use that backend path instead of React-owned state.
-- Do not introduce a second execution path. Browser actions that start or control work must call the same internal chain runner/service path as CLI and TUI.
+- Do not introduce a second execution path. Browser actions that start or control work must call the same internal chain runner/service path as CLI and Desktop.
 - Prefer read-only browser additions before write/control additions.
 - Preserve the embedded frontend production model through `web/dist` and `webfs/dist`.
 
@@ -233,9 +231,9 @@ The previous browser-first command-center spec has been superseded. Useful ideas
 
 | Former command-center idea | New owner |
 |---|---|
-| Runtime readiness dashboard | TUI primary, web optional summary |
-| Launch workbench | TUI primary |
-| Chain list/control | TUI primary, web inspector detail |
+| Runtime readiness dashboard | Desktop primary, web optional summary |
+| Launch workbench | Desktop primary |
+| Chain list/control | Desktop primary, web inspector detail |
 | Context inspector | Web inspector |
 | Tool details/diffs | Web inspector |
 | Metrics/charts | Web inspector |
@@ -250,16 +248,15 @@ The old route-heavy browser plan should not be implemented wholesale.
 
 1. `yard serve` continues to serve the embedded React app and HTTP/WebSocket API.
 2. Existing conversation, streaming, tool-call, settings, and context-inspector behavior remains intact.
-3. New browser work improves rich inspection rather than duplicating the full TUI operator console.
-4. Browser chain views, if added, read from the same chain store/service model as the TUI.
-5. Browser launch/control actions, if added, call the same internal chain runner path as `yard chain start` and the TUI.
+3. New browser work improves rich inspection rather than creating a divergent command center.
+4. Browser chain views, if added, read from the same chain store/service model as Desktop.
+5. Browser launch/control actions, if added, call the same internal chain runner path as `yard chain start` and Desktop.
 6. The browser is optional for normal chain launch and supervision.
 
 ---
 
 ## Open Questions
 
-- Which chain detail views are rich enough to justify browser work after the TUI lands?
-- Should document drag/drop survive as a first-class browser feature or move to file/editor-based TUI flows?
-- Should the TUI later detect an already-running `yard serve` and open deep links directly, or keep the current notice-only handoff?
+- Which chain detail views are rich enough to justify browser work beyond the desktop routes?
+- Should document drag/drop survive as a first-class browser feature or remain desktop/editor-centered?
 - How much browser metrics work is useful before chain execution is stable enough to generate meaningful data?

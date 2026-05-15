@@ -7,7 +7,6 @@ import "./index.css";
 const RootLayout = lazy(() => import("@/components/layout/root-layout").then((m) => ({ default: m.RootLayout })));
 const DashboardPage = lazy(() => import("@/pages/dashboard").then((m) => ({ default: m.DashboardPage })));
 const LaunchPage = lazy(() => import("@/pages/launch").then((m) => ({ default: m.LaunchPage })));
-const ProjectPage = lazy(() => import("@/pages/project").then((m) => ({ default: m.ProjectPage })));
 const ConversationListPage = lazy(() => import("@/pages/conversation-list").then((m) => ({ default: m.ConversationListPage })));
 const ConversationPage = lazy(() => import("@/pages/conversation").then((m) => ({ default: m.ConversationPage })));
 const ChainsPage = lazy(() => import("@/pages/chains").then((m) => ({ default: m.ChainsPage })));
@@ -51,14 +50,6 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<RouteFallback />}>
             <LaunchPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: "project",
-        element: (
-          <Suspense fallback={<RouteFallback />}>
-            <ProjectPage />
           </Suspense>
         ),
       },

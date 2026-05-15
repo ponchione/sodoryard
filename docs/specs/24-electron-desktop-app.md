@@ -10,19 +10,18 @@
 
 Yard should grow a native-feeling desktop operator interface built with Electron. The desktop app becomes the target graphical daily-driver surface for chat, project readiness, chain launch, chain monitoring, receipt review, project attachment, context inspection, tool details, metrics, and settings.
 
-This direction intentionally reuses the existing Go runtime and React frontend investment. Electron should not become a second Yard runtime. The desktop app is a native shell around the same local backend services that power `yard serve`, the current web inspector, the CLI, and the TUI.
+This direction intentionally reuses the existing Go runtime and React frontend investment. Electron should not become a second Yard runtime. The desktop app is a native shell around the same local backend services that power `yard serve`, the current web inspector, and the CLI.
 
-Target product split after the desktop app reaches parity:
+Target product split:
 
 | Surface | Target role |
 |---|---|
 | Yard Desktop | Primary graphical operator console and inspector |
 | `yard` CLI | Scriptable commands, automation, fallback operation, project bootstrap |
 | `yard serve` | Local browser/API server for development, remote inspection, and fallback browser use |
-| TUI | Transitional fallback and diagnostic surface until retirement is explicitly approved |
 | `tidmouth` | Internal engine subprocess contract only |
 
-The near-term goal is not to delete the TUI. The goal is to specify and build a desktop app that can replace the TUI over time without breaking the existing CLI, runtime, or browser inspection workflows.
+The terminal UI has been retired. Bare `yard` is a help entrypoint for the CLI command tree, and graphical operation belongs in Yard Desktop or the browser fallback served by `yard serve`.
 
 ---
 
@@ -207,7 +206,7 @@ Reconnect and resubscribe are useful, but desktop views should treat reconnect a
 | Alternative | Why not the first choice |
 |---|---|
 | Browser-only command center | Repeats the original browser-tab problem and misses native project/file/app lifecycle affordances |
-| Keep TUI as primary | The TUI works, but rich layout, attachment flows, diffs, metrics, and document intake are naturally GUI-shaped |
+| Terminal UI as primary | Rich layout, attachment flows, diffs, metrics, and document intake are naturally GUI-shaped |
 | Tauri | Smaller runtime, but adds Rust-side shell work while Yard already has a Go backend and React app; Electron is lower-friction for this repo |
 | Native toolkit | Higher platform-specific cost and would discard the existing React web inspector investment |
 | Go desktop toolkit | Keeps one language but gives up the frontend ecosystem already in use for markdown, diffs, trees, routing, and charts |
@@ -222,7 +221,7 @@ This is not a permanent rejection of Tauri or another shell. It is a choice to o
    Operators should be able to open a project, see readiness, chat, launch work, follow chains, inspect results, and adjust settings without managing browser tabs or terminal panes.
 
 2. **Unify operation and inspection**
-   The TUI split placed operation in the terminal and rich inspection in the browser. The desktop app should combine those into one coherent workspace: launch/control on the left side of the product, rich transcripts/context/diffs/metrics in the detail surfaces.
+   The previous terminal/browser split placed operation in one surface and rich inspection in another. The desktop app should combine those into one coherent workspace: launch/control on the left side of the product, rich transcripts/context/diffs/metrics in the detail surfaces.
 
 3. **Preserve local-first behavior**
    The app runs on the developer's machine, talks to local project state, and does not require a hosted service. Cloud providers remain optional provider backends, not Yard infrastructure.
@@ -231,7 +230,7 @@ This is not a permanent rejection of Tauri or another shell. It is a choice to o
    Electron should not duplicate Yard business logic. If a workflow changes chain state, provider config, auth state, launch drafts, brain docs, or project files, it goes through the Go backend.
 
 5. **Improve file and document intake**
-   The GUI should make it easy to attach project files, docs, brain notes, specs, and pasted context to launch packets. This is one of the areas where a desktop app can materially beat the TUI.
+   The GUI should make it easy to attach project files, docs, brain notes, specs, and pasted context to launch packets.
 
 6. **Expose runtime state clearly**
    Provider/model, auth, index freshness, local service health, chain status, active process state, warnings, and failure remediation should be visible without searching logs.
@@ -253,7 +252,6 @@ This is not a permanent rejection of Tauri or another shell. It is a choice to o
 - No hosted account system, tenancy, remote dashboard, or sync service.
 - No mobile UI target.
 - No forced removal of `yard serve` or the current React app.
-- No TUI deletion in the same slice as introducing Electron.
 - No exposure of `tidmouth` as a public desktop or CLI surface.
 
 ---
@@ -291,7 +289,7 @@ Electron does not own Yard runtime semantics.
 
 ### API First
 
-Every desktop workflow should use a documented REST/WebSocket, Shunter protocol, or local IPC contract. If the UI needs a command workflow that only exists in the TUI through direct Go calls, add the corresponding backend API by adapting `internal/operator`. If the UI needs live Shunter-backed state, prefer generated project-memory bindings and Shunter subscriptions over a one-off Yard WebSocket envelope.
+Every desktop workflow should use a documented REST/WebSocket, Shunter protocol, or local IPC contract. If the UI needs a command workflow that only exists in CLI code, add the corresponding backend API by adapting `internal/operator`. If the UI needs live Shunter-backed state, prefer generated project-memory bindings and Shunter subscriptions over a one-off Yard WebSocket envelope.
 
 ### One UI Codebase
 
@@ -662,15 +660,15 @@ No generic terminal panel in v1. Agent tool output can be displayed. Operator-tr
 
 ## Product Boundary
 
-The desktop app absorbs the useful parts of both current UI directions:
+The desktop app absorbs the useful parts of the previous UI directions:
 
 | Existing idea | Desktop owner |
 |---|---|
-| TUI dashboard readiness | Desktop dashboard |
-| TUI launch wizard | Desktop launch workbench |
-| TUI chain list/control | Desktop chain monitor |
-| TUI receipt browser | Desktop receipt/detail views |
-| TUI project file attachment | Desktop native file/project picker plus project browser |
+| Runtime readiness dashboard | Desktop dashboard |
+| Launch wizard | Desktop launch workbench |
+| Chain list/control | Desktop chain monitor |
+| Receipt browser | Desktop receipt/detail views |
+| Project file attachment | Desktop native file/project picker plus project browser |
 | Web conversation transcript | Desktop conversation view |
 | Web context inspector | Desktop context inspector |
 | Web tool details/diffs | Desktop tool and diff inspector |
@@ -878,11 +876,11 @@ The desktop chat view keeps the existing conversation model:
 - provider/model override when supported
 - cancellation
 
-The raw desktop chat should match the current TUI raw chat contract: it calls the configured provider/model without one of the 13 role prompts, chain tools, or orchestration unless the operator explicitly starts chain work.
+The raw desktop chat calls the configured provider/model without one of the 13 role prompts, chain tools, or orchestration unless the operator explicitly starts chain work.
 
 ### 4. Launch Workbench
 
-The launch workbench is the desktop replacement for the TUI launch screen.
+The launch workbench is the desktop surface for assembling and starting chain work.
 
 Fields:
 
@@ -910,7 +908,7 @@ Launch modes:
 | `sir_topham_decides` | Let the orchestrator choose the flow |
 | `constrained_orchestration` | Let the orchestrator choose within selected allowed roles |
 
-Desktop improvements over TUI:
+Desktop workflow strengths:
 
 - multi-select project tree
 - drag/drop file attachment
@@ -955,7 +953,7 @@ Controls call backend APIs that adapt `internal/operator` control methods.
 
 ### 6. Chain Detail
 
-The chain detail view should be richer than both TUI and current browser inspector:
+The chain detail view should be richer than the current browser inspector:
 
 - timeline of orchestrator and step events
 - step cards with role/persona/status/verdict
@@ -1632,32 +1630,39 @@ Packaged app contains:
 
 Initial target:
 
-- Linux x64 AppImage or unpacked directory for local development
+- Linux x64 unpacked directory built directly from the source checkout
+- user-local Linux `.desktop` launcher that points at the checkout's unpacked package
 
 Later targets:
 
 - macOS arm64/x64 `.dmg` or `.zip`
 - Windows x64 installer or portable build
 
-Cross-platform packaging should not block the Linux MVP.
+Cross-platform packaging should not block the Linux source-first workflow.
 
 ### Build Commands
 
 Target Makefile additions after implementation:
 
 ```bash
+make bootstrap
+make doctor-dev
 make desktop-dev
 make desktop-build
 make desktop-package
+make desktop-install-user
 ```
 
 Suggested behavior:
 
 | Command | Behavior |
 |---|---|
+| `make bootstrap` | checks source-build prerequisites, installs web/desktop npm dependencies, and verifies generated bindings |
+| `make doctor-dev` | reports source-development health without changing project-local runtime state |
 | `make desktop-dev` | runs Go backend and Vite/Electron dev loop |
 | `make desktop-build` | builds Go sidecar, React renderer, Electron bundles |
 | `make desktop-package` | creates a local unpacked package for current platform under `desktop/out/` |
+| `make desktop-install-user` | rebuilds the unpacked package and installs/refreshes the user-local Linux launcher and icon |
 
 The existing `make build` should not be changed to require Electron packaging unless explicitly decided later. Node/Electron packaging can be heavier than normal Go builds.
 
@@ -1695,6 +1700,7 @@ make dev-frontend
 Target flow:
 
 ```bash
+make bootstrap
 make desktop-dev
 ```
 
@@ -1714,8 +1720,8 @@ Under the hood:
 Target flow:
 
 ```bash
-make desktop-package
-./dist/Yard*.AppImage
+make desktop-install-user
+desktop/out/Yard-linux-x64/yard-desktop
 ```
 
 Smoke test should verify:
@@ -1737,7 +1743,8 @@ Implementation progress as of 2026-05-14:
 - Shunter v1.1.0 is pinned, the local `@shunter/client` package is vendored, generated project-memory bindings include protocol v2 metadata, and selected-chain events are exposed through generated `chain_events` / `live_chain_events` helpers.
 - Backend desktop API groundwork required by the MVP is implemented: capabilities, project-memory contract/token/protocol endpoints, runtime status, local-service controls, launch draft/preset/preview/start endpoints, chain snapshots/events/receipts/control endpoints, approvals, metrics, and roles are available through HTTP.
 - The Electron shell MVP lives in `desktop/`: `make desktop-dev` opens Electron against the existing React app, starts or attaches to a local Yard backend, shows startup/failure states, persists recent project/window state, and exposes a minimal preload bridge with backend and project-memory metadata.
-- `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries. AppImage/installer packaging remains future work.
+- The active desktop distribution model is source-first. `make bootstrap` prepares the checkout, `make doctor-dev` reports source-development readiness, and `make desktop-install-user` rebuilds the local unpacked package plus a user-local Linux app-menu/taskbar launcher.
+- `make desktop-package` creates a local unpacked package under `desktop/out/` containing Electron, the desktop main/preload build, the `yard` sidecar, embedded web assets through the sidecar, a copied web-dist provenance directory, and LanceDB libraries.
 - The first desktop product route is `/dashboard`, which Electron opens by default. It combines runtime readiness, recent chains, recent conversations, and Shunter Project Memory activity using existing REST and SDK paths.
 - Dashboard readiness actions show detailed local-service health from `/api/runtime/local-services` and can call local-service start, stop, and logs endpoints.
 - The chain monitor route at `/chains` lists recent chains active-first with Shunter Project Memory event activity, text/status/role filtering, last-event, duration, and receipt indicators.
@@ -1747,13 +1754,13 @@ Implementation progress as of 2026-05-14:
 - The project browser route is implemented at `/project`. It loads the backend-safe project tree, filters files, previews file contents through `/api/project/file`, validates selected launch attachments through `/api/project/validate-paths`, can add project-relative files selected from an Electron native file dialog, opens or reveals backend-validated files through native desktop actions, and hands attachments to `/launch` through `source_spec` query parameters.
 - The settings route now shows project status, desktop app/backend version and launch-mode metadata, backend-validated runtime routing controls for the default provider/model, read-only fallback and agent settings, provider model metadata, provider credential status/remediation with backend refresh for refresh-token providers plus source/store details, and diagnostics export through `/api/diagnostics/export`.
 - The 2026-05-14 MVP/polish stop point is reached. Do not keep inventing small polish slices unless they fix a concrete bug or regression in the implemented desktop workflows.
-- Installers/AppImage, native notifications, deep links, launch history or duplicate launch packets, standalone metrics workspace expansion, command palette/menu depth, tool/diff inspector expansion, and broad desktop parity remain future-phase work.
+- Native notifications, deep links, launch history or duplicate launch packets, standalone metrics workspace expansion, command palette/menu depth, tool/diff inspector expansion, and broad desktop parity remain future-phase work.
 
 ### Phase 0: Spec And Alignment
 
 - Add this spec.
-- Keep [[20-operator-console-tui]] and [[21-web-inspector]] as current implementation references.
-- Do not delete or rewrite TUI docs until the desktop implementation exists.
+- Keep [[21-web-inspector]] as the browser/API implementation reference.
+- Treat the retired terminal UI docs as historical only; active operator workflow belongs in this spec.
 
 Acceptance:
 
@@ -1815,7 +1822,7 @@ Scope:
 
 Acceptance:
 
-- Every TUI operator service method needed by desktop has an HTTP equivalent.
+- Every operator service method needed by desktop has an HTTP equivalent.
 - Shunter-backed state needed by the UI has either a generated binding subscription path or a REST snapshot path.
 - `web/package.json` resolves `@shunter/client` through the vendored package until npm publishing is available.
 - A verification check fails when the vendored SDK does not match pinned Shunter `v1.1.0`.
@@ -1861,7 +1868,7 @@ Scope:
 
 Acceptance:
 
-- The app can start every launch mode currently supported by TUI.
+- The app can start every supported launch mode.
 - The app can pause/cancel/resume where backend supports it.
 - The app can read receipts and follow live chain events through Shunter subscriptions or an explicitly documented fallback stream.
 - The app can attach project files/specs/docs to launch requests.
@@ -1908,20 +1915,9 @@ Suggested implementation order:
 6. Add notifications.
 7. Add diagnostics export.
 
-### Phase 5: TUI Retirement Decision
+### Phase 5: Terminal UI Retirement
 
-Only after desktop parity is real, decide the TUI's future.
-
-Options:
-
-| Option | Behavior |
-|---|---|
-| keep | TUI remains supported for terminal-first users |
-| freeze | TUI remains but receives only bug fixes |
-| demote | bare `yard` opens a launcher/help message and TUI moves to `yard tui` |
-| remove | TUI code and docs are removed after a compatibility window |
-
-This decision should be made in a separate spec/update after real desktop usage. It should not be bundled into the Electron MVP.
+The terminal UI has been removed. Bare `yard` now prints CLI help, and the supported operator surfaces are Yard Desktop, `yard serve`, and scriptable `yard` subcommands.
 
 ---
 
@@ -2042,7 +2038,7 @@ Architecture:
 4. Desktop-specific TypeScript is isolated to the Electron shell, preload bridge, platform adapter, and project-memory client wrapper.
 5. Existing `yard serve` browser mode remains functional.
 6. Existing CLI commands remain functional.
-7. TUI remains available until a separate retirement decision.
+7. Retired terminal UI code stays removed; active surfaces are Desktop, browser/API, and CLI.
 
 Validation:
 
@@ -2064,9 +2060,9 @@ Validation:
 4. How should provider credential refresh flows that currently assume terminal interaction be represented in desktop?
 5. Should the desktop app include a tray/status item for long-running chains after all windows close?
 6. Should `yard://` deep links be implemented in the MVP or deferred until chain notifications are useful?
-7. What is the first supported packaged platform: Linux AppImage, unpacked Linux directory, or something else?
+7. Should AppImage/installer work stay out of scope while the project is in active source-first development?
 8. Should `make build` eventually include desktop assets, or should Electron packaging stay behind explicit desktop commands?
-9. What is the right compatibility promise for the TUI once desktop reaches launch/control parity?
+9. Should any future lightweight terminal helper exist, or should the CLI remain strictly command-oriented?
 10. Should browser `yard serve` gain the same operator routes as desktop immediately, or should some routes be hidden behind capabilities until the product boundary is settled?
 11. Should the renderer ever call a whitelisted subset of Shunter reducers directly, or should all mutations stay behind Yard REST commands permanently?
 12. After `chain_events` and `live_chain_events`, which project-memory declared queries/views should be added next so desktop can keep moving from broad table subscriptions to narrow generated projections?
@@ -2077,7 +2073,6 @@ Validation:
 
 - [[07-web-interface-and-streaming]] - existing REST/WebSocket and React browser contract
 - [[18-unified-yard-cli]] - `yard` as the operator-facing CLI and `tidmouth` as internal engine
-- [[20-operator-console-tui]] - current operator feature set to reach or replace
 - [[21-web-inspector]] - current rich inspection route/API target
 - [[08-data-model]] - shared project persistence and operator state
 - [[15-chain-orchestrator]] - chain execution, control, event, and receipt model

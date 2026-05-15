@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from "electron";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +27,8 @@ import {
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
+const appDisplayName = "Yard Desktop";
+const linuxAppClass = "yard-desktop";
 let mainWindow: BrowserWindow | undefined;
 let runtime: BackendRuntime | undefined;
 let userDataDir = "";
@@ -33,6 +36,11 @@ let desktopState: DesktopState = {};
 let quitting = false;
 let trustedRendererBaseURL = "";
 let trustedStatusURL = "";
+
+app.setName(appDisplayName);
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("class", linuxAppClass);
+}
 
 interface ValidatePathsResponse {
   accepted: string[];
@@ -75,7 +83,8 @@ function createWindow(windowState?: DesktopWindowState, zoomFactor = defaultZoom
     height: windowState?.height ?? 900,
     minWidth: 980,
     minHeight: 680,
-    title: "Yard",
+    title: appDisplayName,
+    icon: resolveAppIconPath(),
     show: true,
     webPreferences: {
       preload: path.join(currentDir, "preload.js"),
@@ -87,6 +96,11 @@ function createWindow(windowState?: DesktopWindowState, zoomFactor = defaultZoom
   applyWindowZoom(win, zoomFactor);
   if (windowState?.maximized) win.maximize();
   return win;
+}
+
+function resolveAppIconPath(): string | undefined {
+  const iconPath = path.resolve(currentDir, "..", "assets", "yard-desktop.svg");
+  return fs.existsSync(iconPath) ? iconPath : undefined;
 }
 
 function bindWindowLifecycle(win: BrowserWindow) {

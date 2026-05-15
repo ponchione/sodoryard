@@ -26,7 +26,7 @@ All timestamp columns use `TEXT` with ISO8601 strings (`2026-03-28T14:30:00Z`). 
 
 IDs use the type that best fits each table's access pattern:
 
-- **UUIDv7 or deterministic external TEXT IDs:** For externally-referenced entities — `projects`, `conversations`, chains, launches, custom launch presets, and background operations. These IDs appear in REST URLs, WebSocket connections, event streams, TUI lists, and browser URLs. UUIDv7 is preferred where no human-readable chain ID is required because it is time-ordered.
+- **UUIDv7 or deterministic external TEXT IDs:** For externally-referenced entities — `projects`, `conversations`, chains, launches, custom launch presets, and background operations. These IDs appear in REST URLs, WebSocket connections, event streams, desktop lists, and browser URLs. UUIDv7 is preferred where no human-readable chain ID is required because it is time-ordered.
 - **INTEGER AUTOINCREMENT:** For high-frequency internal tables — `messages`, `sub_calls`, `tool_executions`, `context_reports`, `brain_documents`, `brain_links`, `index_state`. These are never exposed in URLs. Autoincrement is fast, compact, and provides natural insertion ordering.
 
 ### Migration Strategy
@@ -438,7 +438,7 @@ The chain orchestrator owns additional `chains`, `steps`, and `events` tables in
 
 ### Launch and Operation Tables
 
-Durable launch and operation state is shared operator-surface state, not browser-owned state. The implemented `launches` table currently stores the project-local current TUI launch draft. It preserves the operator-authored work packet and selected agent plan before TUI-started work becomes a chain, but started chains are not linked back to launch rows yet. The implemented `launch_presets` table stores durable custom role/mode shapes; built-in presets are generated in code. Background operations remain future tables. The product lifecycle is specified in [[20-operator-console-tui]], with browser inspection boundaries in [[21-web-inspector]]. CLI-started chains do not require launch records.
+Durable launch and operation state is shared operator-surface state, not browser-owned state. The implemented `launches` table stores the project-local current launch draft for desktop/web launch workflows. It preserves the operator-authored work packet and selected agent plan before launched work becomes a chain, but started chains are not linked back to launch rows yet. The implemented `launch_presets` table stores durable custom role/mode shapes; built-in presets are generated in code. Background operations remain future tables. The product lifecycle is specified in [[24-electron-desktop-app]], with browser inspection boundaries in [[21-web-inspector]]. CLI-started chains do not require launch records.
 
 ```sql
 CREATE TABLE IF NOT EXISTS launches (

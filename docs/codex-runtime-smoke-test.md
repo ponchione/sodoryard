@@ -195,9 +195,9 @@ Expected:
 - No encrypted `codex_reasoning` payload is shown in the UI transcript.
 - A follow-up message in the same conversation still works, proving replay did not break the next request.
 
-## 7. TUI And Chain Smoke
+## 7. CLI And Chain Smoke
 
-This verifies the daily-driver terminal path and the one-step chain contract.
+This verifies the scriptable chain path and the one-step chain contract.
 
 ```bash
 rtk ./bin/yard chain start \
@@ -224,16 +224,16 @@ Expected:
 - Step, token, turn, duration, resolver-loop, event, and child-process counts are visible without reading the database.
 - Completed steps show nonzero token and turn counts and a receipt path.
 
-Then open the terminal console:
+Then verify the root CLI help entrypoint:
 
 ```bash
 rtk ./bin/yard
 ```
 
 Expected:
-- The dashboard shows the configured provider/model, auth status, code index status, brain index status, local service mode, and active-chain count.
-- The Chains screen can follow, pause, resume, cancel where valid, and open receipts.
-- The Metrics browser route is optional; the TUI remains the daily-driver control surface.
+- The command prints Yard help without opening an interactive UI.
+- The help lists supported subcommands such as `serve`, `chain`, `auth`, `doctor`, `config`, `index`, `brain`, and `llm`.
+- Chain follow/control remains available through `yard chain ...` commands and the desktop/web chain routes.
 
 ## 8. API Sanity Checks While Server Is Running
 
@@ -289,5 +289,5 @@ Good to keep testing daily-driver use when all are true:
 - Browser chat completes at least one normal turn and one repository-context turn.
 - `rtk ./bin/yard chain start --role coder --max-steps 1 ...` completes or produces an inspectable receipt.
 - `rtk ./bin/yard chain metrics <chain-id>` reports a clean chain or explains concrete harness warnings.
-- Bare `rtk ./bin/yard` opens the TUI and shows actionable readiness.
+- Bare `rtk ./bin/yard` prints CLI help.
 - A follow-up turn in the same conversation works.

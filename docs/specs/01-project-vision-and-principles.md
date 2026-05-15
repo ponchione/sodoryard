@@ -8,7 +8,7 @@
 
 ## What sodoryard Is
 
-sodoryard is a self-hosted AI coding agent with RAG-powered codebase awareness, built in Go. Its operator surface is terminal-first: the public `yard` CLI remains the scriptable base, and the target daily-driver interface is an interactive terminal console for launching, supervising, and inspecting work without leaving the shell. A local browser app remains available for rich inspection tasks that benefit from web layout and rendering.
+sodoryard is a self-hosted AI coding agent with RAG-powered codebase awareness, built in Go. Its operator surface is desktop-first: the public `yard` CLI remains the scriptable base, and Yard Desktop is the target daily-driver interface for launching, supervising, and inspecting work. A local browser app remains available through `yard serve` for development, remote inspection, and fallback browser use.
 
 The core differentiator: every conversation turn is backed by programmatic, task-specific context assembly. Instead of relying on static context files (AGENTS.md, CLAUDE.md) — which research has shown to decrease agent success rates and increase costs — sodoryard dynamically assembles relevant code, conventions, and project structure via RAG and tree-sitter code intelligence.
 
@@ -18,7 +18,7 @@ The agent doesn't get a generic project overview dumped into its system prompt. 
 
 - **Not only a rigid pipeline tool.** Its predecessor (topham) was a batch pipeline (scope → build → verify → approve). sodoryard keeps interactive conversation as a primary mode while also exposing agent-judged chain orchestration for non-interactive work.
 - **Not a wrapper around Claude Code or Codex.** It is its own agent with its own tool system. It *borrows credentials* from those tools but runs its own agent loop.
-- **Not browser-first.** The browser is useful for rich inspection, but the primary operator workflow should fit the terminal where the developer already works.
+- **Not browser-only.** The browser is useful for rich inspection and development, but the primary operator workflow belongs in the desktop app with the CLI available for scripts and one-shot commands.
 - **Not a multi-user system.** Single developer, single machine. No auth, no tenancy, no sharing.
 - **Not built for mass adoption.** This is a personal tool, purpose-built for the developer who created it. Other users are welcome to run it, but they're self-selecting into a tool that requires conscious setup and has opinions.
 
@@ -38,17 +38,17 @@ Two papers inform the core architecture:
 
 1. **Programmatic context, never static files.** No AGENTS.md, no CLAUDE.md. Context is assembled per-turn from RAG, code intelligence, and project conventions.
 
-2. **Single binary.** The Go binary carries the CLI, target TUI, HTTP API, and embedded web inspector. One build artifact. The only external dependencies are Docker containers for local models/embeddings (optional if using only subscription-based cloud providers).
+2. **Small runtime surface.** The Go binary carries the CLI, HTTP API, and embedded web inspector. The desktop package wraps that binary as a sidecar instead of creating a second runtime. The only external dependencies are Docker containers for local models/embeddings (optional if using only subscription-based cloud providers).
 
 3. **Local-first.** No external services required for core functionality. SQLite, LanceDB (or alternative), and local models all run on the developer's machine. Cloud LLM providers are accessed via existing subscriptions, not per-token API costs.
 
-4. **Observable by default.** Every LLM call, tool execution, and RAG query is logged and metriced. The operator surfaces expose this: the TUI handles live status, logs, receipts, and control; the web inspector handles rich context, diff, metric, and transcript views.
+4. **Observable by default.** Every LLM call, tool execution, and RAG query is logged and metriced. The operator surfaces expose this: the desktop app handles live status, logs, receipts, launch, project browsing, and control; the web inspector handles rich context, diff, metric, and transcript views.
 
 5. **Model-agnostic.** The provider interface abstracts over Anthropic, OpenAI/Codex, local models, and others. Switching models is config, not code.
 
 6. **Tools are first-class.** The tool system is generic and extensible. Adding a new tool is: implement the interface, register it, done.
 
-7. **Terminal-first operator console with a web inspector.** The `yard` CLI is the stable public command surface. The target daily-driver interface is bare `yard`: project readiness, chain launch/control, role selection, event following, receipts, and operational status live there. `yard serve` remains the browser/API surface for rich inspection, not the default command center. Autonomous single-agent work is a one-step chain, not a separate run surface.
+7. **Desktop operator console with CLI and web fallbacks.** The `yard` CLI is the stable public command surface. The target daily-driver interface is Yard Desktop: project readiness, chain launch/control, role selection, event following, receipts, project attachments, and operational status live there. `yard serve` remains the browser/API surface for rich inspection and development. Autonomous single-agent work is a one-step chain, not a separate run surface.
 
 8. **Conversations and chains as the units of work.** Interactive chat is conversation-shaped. Autonomous harness work is chain-shaped, including one-step chains. Context assembly, metrics, persistence, receipts, and cost tracking attach to the appropriate unit instead of inventing a third execution model.
 
@@ -82,9 +82,9 @@ Go-based pipeline orchestrator. Components being carried forward:
 
 **v0.1 — Walking skeleton:** Index a Go project, run a multi-turn agent session where the agent reads files, runs commands, and edits code, with RAG-assembled context persisted and inspectable.
 
-**v0.5 — Daily driver:** Replace Hermes as the primary interactive coding agent. The terminal console is useful enough for everyday work: start chains, monitor agents, inspect receipts, and jump into richer browser views only when layout or visualization matters.
+**v0.5 — Daily driver:** Replace Hermes as the primary interactive coding agent. Yard Desktop is useful enough for everyday work: start chains, monitor agents, inspect receipts, attach project files, and jump into richer browser or editor views only when needed.
 
-**v1.0 — Resume piece:** A polished, self-contained AI coding agent with a compelling terminal operator console, a focused web inspector, demonstrably superior context assembly backed by research, and clean Go architecture.
+**v1.0 — Resume piece:** A polished, self-contained AI coding agent with a compelling desktop operator console, a focused web inspector/API fallback, demonstrably superior context assembly backed by research, and clean Go architecture.
 
 ## Open Questions
 
@@ -94,8 +94,8 @@ Tracked in individual architecture documents. High-level items still unresolved:
 
 Resolved since the original draft:
 - LanceDB is the selected vector store for current code and brain semantic indexes.
-- Bubble Tea/Bubbles/Lip Gloss is the selected target TUI stack.
-- React/Vite/TypeScript is retained for the browser inspector, not the primary operator interface.
+- Electron plus the existing React/Vite/TypeScript renderer is the selected target desktop stack.
+- React/Vite/TypeScript is retained for the browser inspector and desktop renderer.
 - Brain access uses the project brain MCP/vault-backed runtime path.
-- TUI-driven chain execution is active operator-console scope in [[20-operator-console-tui]] and uses the same internal chain start path as `yard chain start`.
-- Browser-first command-center scope has been superseded by the split between [[20-operator-console-tui]] and [[21-web-inspector]].
+- Desktop-driven chain execution is active operator-console scope in [[24-electron-desktop-app]] and uses the same internal chain start path as `yard chain start`.
+- Browser-first command-center scope has been superseded by the split between [[24-electron-desktop-app]] and [[21-web-inspector]].

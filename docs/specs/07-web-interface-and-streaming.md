@@ -8,9 +8,9 @@
 
 ## Overview
 
-sodoryard keeps a locally-served browser application, but the browser is no longer the primary operator interface. The target daily-driver surface is the terminal operator console specified in [[20-operator-console-tui]]. `yard serve` starts the supported HTTP server and embedded React app for rich inspection workflows that are genuinely better in a browser.
+sodoryard keeps a locally-served browser application, but the browser is no longer the only graphical operator interface. Yard Desktop, specified in [[24-electron-desktop-app]], is the primary graphical daily-driver surface. `yard serve` starts the supported HTTP server and embedded React app for browser fallback, development, and remote inspection workflows.
 
-This document covers the browser stack, the backend HTTP/WebSocket server, the streaming message protocol, and the current web UI component architecture. The browser product target is the web inspector specified in [[21-web-inspector]]: chat remains available, and the app emphasizes rich transcripts, context inspection, tool details, diffs, file browsing, and metrics instead of duplicating the full TUI command center.
+This document covers the browser stack, the backend HTTP/WebSocket server, the streaming message protocol, and the current web UI component architecture. The browser product target is the web inspector specified in [[21-web-inspector]]: chat remains available, and the app emphasizes rich transcripts, context inspection, tool details, diffs, file browsing, and metrics without creating a second runtime.
 
 ---
 
@@ -43,9 +43,9 @@ The browser app needs to handle WebSocket streaming, collapsible tool call block
 - shadcn/ui is React-native
 
 **Scope boundary:**
-- React is retained for rich inspection, not selected as the primary command center.
-- Operational workflows that are naturally terminal-native belong in [[20-operator-console-tui]].
-- The browser should avoid becoming a second full copy of the TUI.
+- React is retained for rich inspection and reused by the desktop renderer.
+- Operational workflows should use the same backend APIs whether they are invoked from Desktop, browser fallback routes, or CLI subcommands.
+- The browser should avoid diverging from the desktop operator workflows.
 
 ---
 
@@ -164,7 +164,7 @@ WS     /api/ws                         WebSocket for streaming
 
 Notes:
 - `/api/project/tree` and `/api/project/file` are exposed backend/operator endpoints today, but a dedicated file-browser/code-viewer route is not part of the current shipped UI.
-- Chain launch/control belongs primarily to the TUI and CLI. The browser may expose read-only or follow-along chain views where rich layout helps, but it should not become the main launch console.
+- Chain launch/control belongs primarily to Desktop and CLI. Browser fallback routes may expose the same backend-backed workflows where rich layout helps, but they must not create a browser-only execution path.
 
 ### Web Inspector Build Target
 
@@ -195,7 +195,7 @@ The web inspector is implemented inside `yard serve`; it is not a separate Knapf
 - [[05-agent-loop]] — drives all streaming events
 - [[08-data-model]] — conversations, messages, metrics
 - [[03-provider-architecture]] — model selection, provider status
-- [[20-operator-console-tui]] — primary operator console and chain launch/control target
+- [[24-electron-desktop-app]] — primary graphical operator console and chain launch/control target
 - [[21-web-inspector]] — browser inspector product and route/API target
 
 ---

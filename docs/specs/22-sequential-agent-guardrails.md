@@ -24,7 +24,7 @@ This spec depends on:
 - [[13_Headless_Run_Command]] - internal `tidmouth run` step execution
 - [[14_Agent_Roles_and_Brain_Conventions]] - role capabilities and receipt conventions
 - [[15-chain-orchestrator]] - chain state, `spawn_agent`, and `chain_complete`
-- [[20-operator-console-tui]] - operator launch, control, and inspection surface
+- [[24-electron-desktop-app]] - operator launch, control, and inspection surface
 - [[21-web-inspector]] - richer chain and receipt inspection
 
 ---
@@ -57,7 +57,7 @@ However, this is partly an emergent property of the current tool implementation.
 
 ## Implementation Status
 
-The mutating-step guardrails described in this spec are now implemented in the runtime and surfaced through metrics, operator detail, TUI, web inspector, and chain event logs.
+The mutating-step guardrails described in this spec are now implemented in the runtime and surfaced through metrics, operator detail, desktop/web inspector views, and chain event logs.
 
 Implemented:
 
@@ -74,7 +74,7 @@ Implemented:
 - Post-step guardrail fact events for receipt validity, verdict/finding consistency, changed files, source-writer lock release, validation commands, and index state.
 - Shunter/RPC code-index dirty marking after source-writing steps with changed files.
 - Metrics warnings for invalid receipts, missing manifests, claim mismatches, unresolved/reopened findings, resolver loops, lock failures, dirty-mark failures, and changed files with a clean code index.
-- CLI, TUI, web, and operator/API drilldowns for the durable guardrail facts above.
+- CLI, desktop, web, and operator/API drilldowns for the durable guardrail facts above.
 - Focused tests covering launch-mode flow analyzer edges and synthetic full guardrail event chains.
 
 Remaining future work:
@@ -220,7 +220,7 @@ The harness must release the lock on:
 ### Open Questions
 
 - Should lock timeout be role timeout plus grace period, or a fixed project setting?
-- Should manual operator force-release be exposed in CLI/TUI, or only in a repair command?
+- Should manual operator force-release be exposed in CLI/Desktop, or only in a repair command?
 
 ### Suggested First Slice
 
@@ -301,7 +301,7 @@ Add `MutationClass` to `AgentRoleConfig`, default builtin roles in config normal
 
 ### Goal
 
-Make receipts reliable enough for the orchestrator, TUI, web inspector, and future automation to reason over them.
+Make receipts reliable enough for the orchestrator, desktop/web inspector, CLI, and future automation to reason over them.
 
 ### Required Frontmatter
 
@@ -398,7 +398,7 @@ operator-declared ordered roles -> terminal chain closure
 The first implementation should be advisory:
 
 - generate warnings in chain metrics
-- show warnings in TUI/web inspector
+- show warnings in desktop/web inspector
 - inject warnings into pre-step briefings
 
 Hard rejection should be limited to clear safety violations:
@@ -722,7 +722,7 @@ Files likely involved:
 
 - `internal/receipt`
 - `internal/operator/chains.go`
-- `internal/tui/chain_health.go`
+- `web/src/pages/chain-detail.tsx`
 - `agents/percy.md`
 - `agents/james.md`
 - `agents/spencer.md`
@@ -745,7 +745,7 @@ Files likely involved:
 - `internal/spawn/subprocess.go`
 - `internal/chain/events.go`
 - `internal/operator/chains.go`
-- `internal/tui/chain_health.go`
+- `web/src/pages/chain-detail.tsx`
 
 Deliverables:
 
@@ -776,12 +776,12 @@ Files likely involved:
 - `internal/operator/chains.go`
 - `cmd/yard/chain_render.go`
 - `internal/server/chains.go`
-- `internal/tui/chain_health.go`
+- `web/src/pages/chain-detail.tsx`
 
 Deliverables:
 
 - Add health warnings for receipt validity, manifests, unresolved findings, and suspicious verdicts.
-- Surface warnings consistently in CLI, TUI, and web inspector.
+- Surface warnings consistently in CLI, desktop, and web inspector.
 
 ---
 

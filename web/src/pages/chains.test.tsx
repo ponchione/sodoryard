@@ -139,7 +139,8 @@ describe("ChainsPage", () => {
     );
 
     expect(screen.getByText("Recent Project Memory Events")).toBeInTheDocument();
-    expect(screen.getByText("project memory: connected / 2 chain rows / 1 event rows")).toBeInTheDocument();
+    expect(screen.queryByText(/capabilities:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/project memory: connected/)).not.toBeInTheDocument();
     expect(screen.getAllByText("approval_required").length).toBeGreaterThan(0);
     expect(screen.getByText("chain_completed")).toBeInTheDocument();
     expect(screen.getByText("{\"tool\":\"shell\"}")).toBeInTheDocument();
@@ -181,5 +182,28 @@ describe("ChainsPage", () => {
     expect(screen.queryAllByText("inspect project memory")).toHaveLength(0);
     expect(screen.getByText("archive chain results")).toBeInTheDocument();
     expect(screen.getByText((_content, element) => element?.textContent === "1/2")).toBeInTheDocument();
+  });
+
+  it("shows Project Memory connection failures only with the live events panel", () => {
+    useProjectMemoryChainsMock.mockReturnValue({
+      ...projectMemoryState(),
+      status: "failed",
+      error: "WebSocket failed before opening.",
+      rowCount: null,
+      eventCount: null,
+      recentEvents: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <ChainsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText(/project memory: failed/)).not.toBeInTheDocument();
+    expect(screen.getByText("Project Memory Events")).toBeInTheDocument();
+    expect(screen.getByText(/Live Project Memory events unavailable/)).toHaveTextContent(
+      "Live Project Memory events unavailable; chain rows are still loaded from REST. WebSocket failed before opening.",
+    );
   });
 });

@@ -17,11 +17,11 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:          "yard",
-		Short:        "Yard — terminal operator console and project CLI",
+		Short:        "Yard project CLI and local operator runtime",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runYardTUICommand(cmd, configPath)
+			return cmd.Help()
 		},
 	}
 
@@ -38,7 +38,6 @@ func newRootCmd() *cobra.Command {
 		newYardLLMCmd(&configPath),
 		newYardBrainCmd(&configPath),
 		newYardChainCmd(&configPath),
-		newYardTUICmd(&configPath),
 	)
 	return rootCmd
 }

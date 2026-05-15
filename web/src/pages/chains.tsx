@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { useProjectMemoryChains } from "@/hooks/use-project-memory-chains";
 import { chainStatusClass, chainStatusGroup } from "@/lib/chain-status";
-import { formatModelCapabilitySummary, formatTokenLimit } from "@/lib/model-capabilities";
 import type { ChainSummary, RuntimeStatus } from "@/types/chains";
 
 function formatDate(value?: string): string {
@@ -49,17 +48,6 @@ function compareChainRows(a: ChainSummary, b: ChainSummary): number {
   const safeBUpdated = Number.isNaN(bUpdated) ? 0 : bUpdated;
   if (safeAUpdated !== safeBUpdated) return safeBUpdated - safeAUpdated;
   return a.id.localeCompare(b.id);
-}
-
-function formatProjectMemoryStatus(status: string, rowCount: number | null, eventCount: number | null): string {
-  if (status === "connected") {
-    const parts = ["connected"];
-    if (rowCount !== null) parts.push(`${rowCount} chain rows`);
-    if (eventCount !== null) parts.push(`${eventCount} event rows`);
-    return parts.join(" / ");
-  }
-  if (status === "idle") return "idle";
-  return status;
 }
 
 function eventPayloadPreview(payloadJson: string): string {
@@ -113,26 +101,6 @@ export function ChainsPage() {
             <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
               Chains
             </h1>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {status
-                ? `${status.provider}:${status.model} / ${formatTokenLimit(status.context_window)} context / auth ${status.auth_status}`
-                : "Runtime status loading"}
-            </p>
-            {status && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                capabilities: {formatModelCapabilitySummary(status.model_capabilities)}
-              </p>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">
-              project memory: {formatProjectMemoryStatus(
-                projectMemory.status,
-                projectMemory.rowCount,
-                projectMemory.eventCount,
-              )}
-            </p>
-            {projectMemory.error && (
-              <p className="mt-1 text-xs text-warning">project memory: {projectMemory.error}</p>
-            )}
           </div>
           <div className="flex gap-2">
             <input
@@ -211,7 +179,7 @@ export function ChainsPage() {
           </section>
         )}
 
-        {projectMemory.status === "connected" && (
+        {projectMemory.status === "connected" ? (
           <section className="border border-border">
             <div className="flex items-center justify-between border-b border-border bg-muted px-3 py-2">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -253,7 +221,16 @@ export function ChainsPage() {
               </div>
             )}
           </section>
-        )}
+        ) : projectMemory.error ? (
+          <section className="border border-warning/50 bg-warning/5 p-3">
+            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-warning">
+              Project Memory Events
+            </h2>
+            <p className="mt-2 text-xs text-warning">
+              Live Project Memory events unavailable; chain rows are still loaded from REST. {projectMemory.error}
+            </p>
+          </section>
+        ) : null}
 
         {loading && <p className="text-xs text-muted-foreground">Loading chains...</p>}
         {error && <p className="text-xs text-destructive">{error}</p>}

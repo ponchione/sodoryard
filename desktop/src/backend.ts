@@ -95,7 +95,8 @@ function spawnBackend(
   const yardBinary = resolveYardBinary(appPath);
   const url = new URL(directBaseUrl);
   const args = yardArgs(url, options);
-  const projectDir = options.projectDir || process.env.YARD_PROJECT_DIR || resolveRepoRoot(appPath);
+  const requestedProjectDir = options.projectDir || process.env.YARD_PROJECT_DIR;
+  const projectDir = resolveBackendProjectDir(appPath, requestedProjectDir);
   const child = spawn(yardBinary, args, {
     cwd: projectDir,
     env: { ...process.env, NO_COLOR: "1" },
@@ -127,6 +128,36 @@ function resolveYardBinary(appPath: string): string {
     if (fs.existsSync(candidate)) return candidate;
   }
   return "yard";
+}
+
+export function resolveDefaultProjectDir(appPath: string): string {
+  return process.env.YARD_SOURCE_ROOT || resolvePackagedSourceRoot(appPath) || resolveRepoRoot(appPath);
+}
+
+export function resolveBackendProjectDir(appPath: string, requestedProjectDir?: string): string {
+  if (requestedProjectDir && !isPackagedResourcePath(appPath, requestedProjectDir)) {
+    return requestedProjectDir;
+  }
+  return resolveDefaultProjectDir(appPath);
+}
+
+function isPackagedResourcePath(appPath: string, candidate: string): boolean {
+  const resourcesDir = path.resolve(appPath, "..");
+  const resolvedCandidate = path.resolve(candidate);
+  const relative = path.relative(resourcesDir, resolvedCandidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function resolvePackagedSourceRoot(appPath: string): string | undefined {
+  const metadataPath = path.join(appPath, "yard-source.json");
+  if (!fs.existsSync(metadataPath)) return undefined;
+  try {
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as { sourceRoot?: unknown };
+    if (typeof metadata.sourceRoot !== "string" || metadata.sourceRoot.trim() === "") return undefined;
+    return path.resolve(metadata.sourceRoot);
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveRepoRoot(fromPath: string): string {

@@ -159,29 +159,25 @@ Each decision records what was chosen, what alternatives were considered, and wh
 
 ---
 
-## Operator Console TUI: Bubble Tea + Bubbles + Lip Gloss
+## Desktop Operator App: Electron + React
 
-**Decision:** Use the Charm stack for the target daily-driver terminal UI:
+**Decision:** Use Electron for the desktop shell and reuse the existing React/Vite/TypeScript renderer for the primary graphical operator interface.
 
-- Bubble Tea for the event loop and full-window terminal app architecture.
-- Bubbles for common components such as lists, tables, text inputs, text areas, spinners, progress bars, and viewports.
-- Lip Gloss for terminal styling and layout.
-
-**Status:** Selected target direction.
+**Status:** Selected and implemented as the desktop MVP direction.
 
 **Rationale:**
-- The operator works in the terminal with Codex and normal development tools, so the daily-driver interface should live there.
-- The app is local, single-user, keyboard-heavy, and operational. Those constraints fit a TUI better than a full browser command center.
-- The implementation stays in Go and can call the same internal runtime builders, chain store, and status services as Cobra commands and HTTP handlers.
-- Bubble Tea's message/update/view model is a good fit for live chain events, background refreshes, key-driven navigation, and deterministic rendering tests.
-- Bubbles avoids hand-rolling basic controls for lists, tables, text inputs, text areas, spinners, progress bars, and scrollable panes.
+- Yard already has a substantial React frontend, embedded web assets, and local Go HTTP/WebSocket APIs.
+- Electron lets the desktop app wrap the existing Go backend as a sidecar instead of creating a second execution runtime.
+- Native file dialogs, app lifecycle, recent projects, window state, and open/reveal handoffs are valuable for launch attachments and receipt review.
+- The same renderer can serve browser development/fallback mode through `yard serve` and packaged desktop mode through Electron.
 
 **Alternatives considered:**
-- *tview:* Provides a traditional widget toolkit and can build forms/tables quickly. Rejected for the target app because Yard needs a bespoke operational console with live event streams and composable state more than a conventional widget tree.
-- *tcell directly:* Powerful low-level terminal input/screen library. Rejected because it would force Yard to build too much framework code.
-- *Browser-only command center:* Richer visual layout, but adds frontend ceremony to workflows that are naturally terminal-native.
+- *Browser-only command center:* Repeats the browser-tab workflow problem and misses native project/file/app lifecycle affordances.
+- *Tauri:* Smaller runtime, but it adds Rust-side shell work while Yard already has a Go backend and React app.
+- *Native toolkit:* Higher platform-specific cost and discards the existing React web inspector investment.
+- *Go desktop toolkit:* Keeps one language but gives up the frontend ecosystem already in use for markdown, diffs, trees, routing, and charts.
 
-See [[20-operator-console-tui]] for the product and implementation target.
+See [[24-electron-desktop-app]] for the product and implementation target.
 
 ---
 
@@ -189,7 +185,7 @@ See [[20-operator-console-tui]] for the product and implementation target.
 
 **Decision:** Retain React + TypeScript + Vite for the browser inspector served by `yard serve`, compiled and embedded in the Go binary via `embed.FS`.
 
-**Status:** Retained for rich inspection, no longer the primary operator surface.
+**Status:** Retained for rich inspection, desktop renderer reuse, and fallback browser use.
 
 **Rationale:**
 - Rich component ecosystem for syntax highlighting, rendered markdown, diff viewers, file trees, and charts.
@@ -199,9 +195,9 @@ See [[20-operator-console-tui]] for the product and implementation target.
 - `embed.FS` in Go means the compiled frontend ships inside the binary. No separate frontend server in production.
 
 **Scope boundary:**
-- The web app should not duplicate the entire TUI as a second command center.
-- The web app owns views that are meaningfully better in a browser: rich context inspection, detailed tool-call rendering, side-by-side diffs, conversation transcript browsing, charts, and optional document intake.
-- The terminal console owns daily operations: readiness, launch, chain control, live event following, receipt browsing, and jump-to-editor workflows.
+- The browser mode should not become a separate execution runtime or a divergent command center.
+- The shared React app owns views that benefit from rich layout: desktop dashboard, launch workbench, chain monitor/detail, project browser, receipt rendering, context inspection, detailed tool-call rendering, side-by-side diffs, conversation transcript browsing, charts, and optional document intake.
+- CLI subcommands own scriptable operation; the desktop app owns the integrated daily-driver workflow.
 
 See [[07-web-interface-and-streaming]] and [[21-web-inspector]].
 
@@ -241,9 +237,9 @@ This is a single-machine, single-developer tool. The hardware is known and fixed
 | Embeddings | nomic-embed-code (Docker) | ✅ Decided |
 | Local LLM | Docker container, configurable model | ✅ Decided |
 | Frontier LLM | Credential reuse (Claude + Codex subs) | ✅ Decided |
-| Operator TUI | Bubble Tea + Bubbles + Lip Gloss | Selected target |
+| Desktop app | Electron + React/Vite/TypeScript | Implemented MVP |
 | Web inspector | React + TypeScript + Vite | Retained |
 | Web styling | Tailwind CSS + shadcn/ui | Retained |
 | Frontend embed | Go `embed.FS` | ✅ Decided |
 | Build | Makefile | ✅ Decided |
-| Streaming | WebSocket for web; internal event subscription/polling for TUI | Decided direction |
+| Streaming | WebSocket/REST for browser and desktop; Shunter subscriptions for project-memory state | Decided direction |

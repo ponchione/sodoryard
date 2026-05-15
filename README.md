@@ -1,6 +1,6 @@
 # Sodoryard
 
-A self-hosted AI coding harness with a unified operator CLI, headless agent runtime, multi-agent chain orchestration, RAG-powered context assembly, and a persistent project brain. Operators use one public CLI, `yard`, for project bootstrap, the web UI/API server, indexing, auth diagnostics, local LLM services, and autonomous agent chains, including one-step chains for single-agent work. The retained `tidmouth` binary is an internal engine subprocess used by chain execution.
+A self-hosted AI coding harness with a unified operator CLI, headless agent runtime, multi-agent chain orchestration, RAG-powered context assembly, and a persistent project brain. Operators use one public CLI, `yard`, for project bootstrap, the web UI/API server, indexing, auth diagnostics, local LLM services, and autonomous agent chains, including one-step chains for single-agent work. The Electron desktop app is the primary graphical operator surface. The retained `tidmouth` binary is an internal engine subprocess used by chain execution.
 
 ## Architecture
 
@@ -42,7 +42,7 @@ Both paths share `internal/runtime/` for provider construction, memory setup, br
 ## Command Reference
 
 ```
-yard [--config yard.yaml]             Terminal operator console
+yard [--config yard.yaml]             Show CLI help
  |-- init                          Project bootstrap
  |-- serve                         Web UI + API server
  |-- index                         Code index build/rebuild
@@ -221,6 +221,21 @@ make test
 make install-user-bin
 ```
 
+For active source-tree development, use the source-first bootstrap instead of an
+installer:
+
+```bash
+make bootstrap
+make doctor-dev
+make desktop-install-user
+```
+
+`make bootstrap` checks required toolchain pieces, installs `web/` and
+`desktop/` npm dependencies, and verifies generated Project Memory bindings.
+`make doctor-dev` reports source-development readiness: Go/Node/npm/CGO,
+LanceDB libraries, generated bindings, Yard config/auth, local model files, and
+the Linux desktop launcher state.
+
 ### Initialize a project
 
 ```bash
@@ -287,24 +302,26 @@ Useful overrides include `YARD_BACKEND_URL` to attach to an existing backend,
 `YARD_RENDERER_URL` for a non-default Vite URL, `YARD_BINARY` for the sidecar
 binary, and `YARD_PROJECT_DIR` for the backend working directory.
 
-Build a local unpacked desktop package with:
+For daily GUI use from a checkout, build the local unpacked desktop package and
+refresh the user-local taskbar/menu launcher with:
 
 ```bash
-make desktop-package
+make desktop-install-user
 # => desktop/out/Yard-linux-x64/yard-desktop
+# => ~/.local/share/applications/yard-desktop.desktop
 ```
 
 The unpacked package is a local development artifact. It includes Electron, the
-`yard` sidecar, embedded web assets, and LanceDB libraries; installer/AppImage
-packaging remains future work.
+`yard` sidecar, embedded web assets, and LanceDB libraries. The installed
+`.desktop` launcher points back to this checkout's `desktop/out/` package, so
+rerunning `make desktop-install-user` after source changes refreshes the app
+without a separate installer.
 
-### Run the terminal operator console
+When you only need the package artifact and not the user launcher, run:
 
 ```bash
-yard
+make desktop-package
 ```
-
-The TUI uses the shared operator runtime directly. It opens on a Codex-style command console: normal text sends raw chat to the configured provider/model without an agent role prompt, and slash commands run Yard operations inline. Useful commands include `/help`, `/new`, `/status`, `/model`, `/effort [low|medium|high|xhigh]`, `/chains`, `/chain <id>`, `/events <id>`, `/follow <id>`, `/receipt <id> [step]`, `/approvals <id>`, `/approve <id> <approval-id>`, `/deny <id> <approval-id>`, `/preview ...`, `/start ...`, `/pause <id>`, `/resume <id>`, `/cancel <id>`, and `/web <id>`. Command results, chain events, receipts, approval decisions, launch previews, and confirmations render back into the same transcript. Use PageUp/PageDown/Home/End to scroll the console transcript.
 
 ### Run a chain
 
@@ -377,7 +394,7 @@ For `yard index` or `yard brain index` inside the container, make sure the mount
 | Structured fallback stores | SQLite with FTS5 full-text search |
 | Vector store | LanceDB |
 | Code parsing | tree-sitter (Go, Python, TypeScript) |
-| TUI | Bubble Tea, Bubbles, Lip Gloss |
+| Desktop app | Electron, React, Vite, TypeScript, Tailwind CSS |
 | Web inspector | React, Vite, TypeScript, Tailwind CSS |
 | Brain interface | Shunter project memory |
 | Container | Debian Trixie, multi-stage Docker build |
@@ -390,15 +407,15 @@ Current repo state:
 - The unified `yard` CLI is the real operator-facing surface.
 - `tidmouth` remains only as the internal engine binary required by the current spawn contract.
 - Live packaging/install surfaces no longer ship unsupported `sodoryard` or placeholder `knapford` binaries.
-- The active UI direction is terminal-first: bare `yard` now starts the daily-driver operator console, while `yard serve` remains the browser/API surface for rich inspection. This direction is specified in `docs/specs/20-operator-console-tui.md` and `docs/specs/21-web-inspector.md`.
-- Implemented TUI/operator work includes a Codex-style slash-command console, `/new` session reset, `/effort` reasoning-effort switching for Codex providers, raw provider/model chat, readiness metadata, recent chain and detail output, receipt content, scrollable console history, event following, pause/resume/cancel controls, TUI approval list/approve/deny commands, web-inspector target handoffs, built-in and custom launch presets, persistent current launch drafts, launch role-list add/remove/clear controls, and launch preview/start for one-step, manual-roster, orchestrated, and constrained-orchestration chains.
-- Spec 23 approval work now surfaces approval-required tool results as `approval_required` chain events, derives durable approval state from the event log, records `approval_decision` events, supports `yard chain approvals|approve|deny`, TUI `/approvals|/approve|/deny`, and browser chain-detail approval controls, can opt into `waiting_approval` with `yard chain start --allow-approval-wait` or TUI `/start --allow-approval-wait`, and propagates decided approvals into resumed spawned agents so matching approved shell calls can run while denied calls return a denial tool result. Exact paused-turn replay of an approved tool call remains future work.
+- The active UI direction is desktop-first: Yard Desktop is the primary graphical operator and inspection surface, while `yard serve` remains the browser/API fallback and development server. Bare `yard` now shows CLI help.
+- The terminal UI has been removed. Chain launch, monitoring, approvals, receipts, runtime readiness, project browsing, launch attachments, settings, diagnostics, and rich inspection now live in the desktop/web surface or the scriptable `yard` subcommands.
+- Spec 23 approval work now surfaces approval-required tool results as `approval_required` chain events, derives durable approval state from the event log, records `approval_decision` events, supports `yard chain approvals|approve|deny`, and browser/desktop chain-detail approval controls, can opt into `waiting_approval` with `yard chain start --allow-approval-wait`, and propagates decided approvals into resumed spawned agents so matching approved shell calls can run while denied calls return a denial tool result. Exact paused-turn replay of an approved tool call remains future work.
 - Spec 23 prompt metadata work now keeps all checked-in built-in role prompts and embedded prompt assets synced with frontmatter for role key, persona, expected configured tools, receipt schema, recommended max turns, and structured-finding expectations. `yard config` warns on tool/schema/max-turn drift, but the metadata remains validation/documentation only; runtime tool registration and limits still come from `yard.yaml`.
 - Spec 23 eval work now supports saved baselines and append-only JSONL history entries via `yard eval run <suite> --append-history <path>`.
-- Daily-driver final touches now include actionable runtime readiness in the TUI, in-console pause/resume/cancel controls, and browser inspector routes for chains, approvals, and metrics. Browser chain detail and `/api/chains/{id}/metrics` now expose the same dogfooding metrics summary used by `yard chain metrics`. The TUI intentionally does not grow a project file browser; code review stays in the operator's IDE.
+- Daily-driver final touches now center on the desktop app and browser/API routes for chains, approvals, metrics, launch, project browsing, receipts, settings, and diagnostics. Browser chain detail and `/api/chains/{id}/metrics` expose the same dogfooding metrics summary used by `yard chain metrics`.
 - Spec 24 backend-enabling MVP work is implemented for the current desktop surface: the server exposes desktop capabilities, runtime status, local-service controls, launch draft/preset/preview/start APIs, chain snapshots/events/receipts/control APIs, project-memory contract/token endpoints, and Shunter protocol mounting. The generated project-memory binding includes parameterized `chain_events` and `live_chain_events`, and the web chain detail uses those generated helpers instead of renderer-built raw SQL.
-- Spec 24 desktop MVP now lives under `desktop/`. `make desktop-dev` builds `bin/yard`, starts the Vite renderer, opens Electron, starts or attaches to a local backend, shows startup/failure states, persists recent project/window state, and passes backend/project-memory metadata through a minimal preload bridge. `make desktop-package` creates a local unpacked package under `desktop/out/` with Electron, the `yard` sidecar, embedded web assets, and LanceDB libraries. Electron opens on `/dashboard`, which combines runtime readiness, recent chains, recent conversations, and Project Memory activity. The dashboard also exposes local-service readiness details plus start/stop/log actions through the backend runtime APIs. The `/chains` monitor lists REST chain rows active-first alongside Project Memory events with text/status/role filtering plus last-event, duration, and receipt indicators. The `/launch` workbench assembles launch requests, previews them, starts chains through the backend launch API, routes to the started chain detail, and can attach backend-validated project files from the project tree or from the `/project` browser handoff. Chain detail includes pause/resume/cancel controls with exact chain-id confirmation before cancellation, links timeline entries with conversation/turn metadata to a desktop context-report route, filters recent events by severity/type, links step receipt paths to receipt detail routes, opens or reveals guardrail changed-file manifests through backend validation, and renders receipt previews with frontmatter, follow-up sections, and backend-validated changed-file open/reveal actions. Receipts have a desktop detail route with receipt path copy, follow-up sections, linked event anchors, backend-validated source-spec and changed-file open/reveal actions, plus step links back to chain detail anchors. The `/project` route can browse the backend-safe project tree, filter files, preview file contents, validate selected launch attachments, choose project files through an Electron native file dialog, open or reveal backend-validated files through native desktop actions, and hand attachments to `/launch`. The `/settings` route shows project/runtime routing, desktop app/backend version and launch-mode metadata, provider model metadata, provider credential status/remediation with backend refresh for refresh-token providers plus source/store details, read-only fallback/agent settings, saves backend-validated default provider/model overrides through `/api/config`, and exports a desktop diagnostics JSON bundle through `/api/diagnostics/export`. This is the current Spec 24 MVP stop point; installers/AppImage, notifications/deep links, launch history or duplicate launch packets, standalone metrics workspace expansion, and broad desktop parity are future-phase work.
-- The remaining active docs are the README, current specs, and `TUI_IMPLEMENTATION_PLAN.md`; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance. If a future `NEXT_SESSION_HANDOFF.md` exists in a checkout, prefer it over historical planning artifacts.
+- Spec 24 desktop MVP now lives under `desktop/`. The supported active-development path is source-first: `make bootstrap` prepares dependencies, `make doctor-dev` reports checkout readiness, and `make desktop-install-user` rebuilds the local unpacked package plus Linux app-menu/taskbar launcher. `make desktop-dev` builds `bin/yard`, starts the Vite renderer, opens Electron, starts or attaches to a local backend, shows startup/failure states, persists recent project/window state, and passes backend/project-memory metadata through a minimal preload bridge. `make desktop-package` creates a local unpacked package under `desktop/out/` with Electron, the `yard` sidecar, embedded web assets, and LanceDB libraries. Electron opens on `/dashboard`, which combines runtime readiness, recent chains, recent conversations, and Project Memory activity. The dashboard also exposes local-service readiness details plus start/stop/log actions through the backend runtime APIs. The `/chains` monitor lists REST chain rows active-first alongside Project Memory events with text/status/role filtering plus last-event, duration, and receipt indicators. The `/launch` workbench assembles launch requests, previews them, starts chains through the backend launch API, routes to the started chain detail, and can attach backend-validated project files from the project tree or from the `/project` browser handoff. Chain detail includes pause/resume/cancel controls with exact chain-id confirmation before cancellation, links timeline entries with conversation/turn metadata to a desktop context-report route, filters recent events by severity/type, links step receipt paths to receipt detail routes, opens or reveals guardrail changed-file manifests through backend validation, and renders receipt previews with frontmatter, follow-up sections, and backend-validated changed-file open/reveal actions. Receipts have a desktop detail route with receipt path copy, follow-up sections, linked event anchors, backend-validated source-spec and changed-file open/reveal actions, plus step links back to chain detail anchors. The `/project` route can browse the backend-safe project tree, filter files, preview file contents, validate selected launch attachments, choose project files through an Electron native file dialog, open or reveal backend-validated files through native desktop actions, and hand attachments to `/launch`. The `/settings` route shows project/runtime routing, desktop app/backend version and launch-mode metadata, provider model metadata, provider credential status/remediation with backend refresh for refresh-token providers plus source/store details, read-only fallback/agent settings, saves backend-validated default provider/model overrides through `/api/config`, and exports a desktop diagnostics JSON bundle through `/api/diagnostics/export`. This is the current Spec 24 MVP stop point; notifications/deep links, launch history or duplicate launch packets, standalone metrics workspace expansion, and broad desktop parity are future-phase work.
+- The remaining active docs are the README and current specs; stale migration/implementation-plan markdown is being removed rather than treated as archival guidance. If a future `NEXT_SESSION_HANDOFF.md` exists in a checkout, prefer it over historical planning artifacts.
 
 If you are resuming work cold, read in this order:
 1. `AGENTS.md`
@@ -406,29 +423,29 @@ If you are resuming work cold, read in this order:
 3. `docs/specs/13_Headless_Run_Command.md`
 4. `docs/specs/17-yard-containerization.md`
 5. `docs/specs/18-unified-yard-cli.md`
-6. `docs/specs/20-operator-console-tui.md`
-7. `docs/specs/21-web-inspector.md`
-8. `docs/specs/23-genkit-patterns-for-yard.md`
-9. `docs/specs/24-electron-desktop-app.md`
-10. `TUI_IMPLEMENTATION_PLAN.md`
+6. `docs/specs/21-web-inspector.md`
+7. `docs/specs/23-genkit-patterns-for-yard.md`
+8. `docs/specs/24-electron-desktop-app.md`
 
 First thing to address next session:
 - prefer current-truth docs (`README.md`, specs, handoff) over historical planning artifacts
 - keep `tidmouth` limited to the internal engine contract (`run`, `index`) unless you explicitly redesign the spawn contract too
 - keep operator-facing docs aligned with the actual `yard` / container / runtime surface
-- keep TUI-first docs clear about target behavior versus already-implemented commands
 - for spec 24, treat the Electron desktop MVP as complete enough unless a concrete bug or regression appears; do not keep inventing tiny polish beyond the current stop point
-- use dogfooding runs and `yard chain metrics <chain-id>` to decide non-desktop runtime slices; likely candidates are exact paused-turn approval replay/resume semantics, performance/ergonomics tuning for small chains, or deeper TUI/web surfacing of the same chain health report
+- use dogfooding runs and `yard chain metrics <chain-id>` to decide non-desktop runtime slices; likely candidates are exact paused-turn approval replay/resume semantics, performance/ergonomics tuning for small chains, or deeper desktop/web surfacing of the same chain health report
 - rerun `make test` and `make build` after each narrow slice
 
 Useful commands:
 ```bash
 make test
 make build
+make bootstrap
+make doctor-dev
 make desktop-dev
 make desktop-build
 make desktop-test
 make desktop-package
+make desktop-install-user
 make install-user-bin
 yard index
 yard brain index

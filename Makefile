@@ -15,12 +15,18 @@ CGO_TEST_ENV        := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS)" LD_LIB
 CGO_BUILD_ENV       := CGO_ENABLED=1 CGO_LDFLAGS="$(LANCEDB_CGO_LDFLAGS) -Wl,-rpath,$(LANCEDB_LIB_DIR)"
 RETIRED_BINARIES    := $(BIN_DIR)/sirtopham $(BIN_DIR)/knapford
 
-.PHONY: all build cleanup-retired-binaries webfs-assets tidmouth yard yard-embedded install-user-bin test dev-backend dev-frontend dev desktop-deps desktop-build desktop-test desktop-package desktop-dev frontend-deps frontend-build frontend-test frontend-typecheck projectmemory-bindings projectmemory-bindings-check projectmemory-sdk-smoke clean
+.PHONY: all bootstrap doctor-dev build cleanup-retired-binaries webfs-assets tidmouth yard yard-embedded install-user-bin test dev-backend dev-frontend dev desktop-deps desktop-build desktop-test desktop-package desktop-install-user desktop-dev frontend-deps frontend-build frontend-test frontend-typecheck projectmemory-bindings projectmemory-bindings-check projectmemory-sdk-smoke clean
 
 # `make build` builds every retained binary needed for a runnable local tree:
 # the operator-facing yard CLI plus the internal tidmouth engine used by chain
 # spawning. `make all` is kept as an alias for the same supported artifact set.
 all: build
+
+bootstrap:
+	bash ./scripts/bootstrap-dev.sh
+
+doctor-dev:
+	bash ./scripts/doctor-dev.sh
 
 build: cleanup-retired-binaries tidmouth yard
 
@@ -82,6 +88,9 @@ desktop-test: desktop-deps
 
 desktop-package: desktop-build
 	cd $(DESKTOP_DIR) && npm run package:unpacked
+
+desktop-install-user: desktop-package
+	cd $(DESKTOP_DIR) && npm run install:linux-launcher
 
 desktop-dev: yard frontend-deps desktop-deps
 	set -e; \

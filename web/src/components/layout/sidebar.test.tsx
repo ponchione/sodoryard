@@ -49,7 +49,7 @@ describe("Sidebar layout", () => {
 
     expect(screen.getAllByRole("link", { name: "Dashboard" })[0]).toHaveAttribute("href", "/dashboard");
     expect(screen.getAllByRole("link", { name: "Launch" })[0]).toHaveAttribute("href", "/launch");
-    expect(screen.getAllByRole("link", { name: "Project" })[0]).toHaveAttribute("href", "/project");
+    expect(screen.queryByRole("link", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Settings" })[0]).toHaveAttribute("href", "/settings");
   });
 });
