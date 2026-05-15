@@ -17,7 +17,7 @@ export interface ConversationMetrics {
   last_turn?: LastTurnUsage;
 }
 
-export interface LastTurnUsage {
+interface LastTurnUsage {
   turn_number: number;
   iteration_count: number;
   tokens_in: number;
@@ -25,7 +25,7 @@ export interface LastTurnUsage {
   latency_ms: number;
 }
 
-export interface TokenUsageMetrics {
+interface TokenUsageMetrics {
   tokens_in: number;
   tokens_out: number;
   cache_read_tokens: number;
@@ -33,14 +33,14 @@ export interface TokenUsageMetrics {
   total_latency_ms: number;
 }
 
-export interface ToolUsageMetrics {
+interface ToolUsageMetrics {
   tool_name: string;
   call_count: number;
   avg_duration_ms: number;
   failure_count: number;
 }
 
-export interface ContextQualityMetrics {
+interface ContextQualityMetrics {
   total_turns: number;
   reactive_search_count: number;
   avg_hit_rate: number;
@@ -184,7 +184,7 @@ export interface BudgetCategory {
   percentage?: number;
 }
 
-export interface TokenBudgetReport {
+interface TokenBudgetReport {
   model_context_limit?: number;
   history_tokens?: number;
   reserved_system_prompt_tokens?: number;
@@ -270,7 +270,7 @@ export interface AppConfig {
 
 // ── GET /api/project ─────────────────────────────────────────────────
 
-export interface BrainIndexInfo {
+interface BrainIndexInfo {
   status: "never_indexed" | "clean" | "stale" | string;
   last_indexed_at?: string;
   stale_since?: string;

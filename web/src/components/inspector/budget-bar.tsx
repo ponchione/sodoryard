@@ -28,7 +28,7 @@ export function BudgetBar({ used, total, categories }: BudgetBarProps) {
       : "text-destructive";
 
   // Sort categories by tokens descending.
-  const sorted = [...categories].sort((a, b) => b.tokens - a.tokens);
+  const sorted = categories.toSorted((a, b) => b.tokens - a.tokens);
 
   return (
     <div className="space-y-2">
@@ -68,7 +68,7 @@ export function BudgetBar({ used, total, categories }: BudgetBarProps) {
           const dotBg = categoryColors[cat.category]?.bg ?? "bg-muted-foreground";
           return (
             <div key={cat.category} className="flex items-center gap-1.5 text-[10px]">
-              <span className={`inline-block h-2 w-2 ${dotBg}`} />
+              <span className={`inline-block size-2 ${dotBg}`} />
               <span className="flex-1 text-muted-foreground">{cat.category}</span>
               <span>{formatTokens(cat.tokens)}</span>
               <span className="w-8 text-right text-muted-foreground/60">{catPct.toFixed(0)}%</span>

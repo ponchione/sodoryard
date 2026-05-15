@@ -154,7 +154,7 @@ export function DashboardPage() {
       <div className="flex w-full flex-col gap-5">
         <header className="border-b border-border pb-4">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+            <h1 className="text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
               Dashboard
             </h1>
             <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -190,12 +190,12 @@ export function DashboardPage() {
         )}
 
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <RuntimeMetric label="Active Chains" value={runtime?.active_chains ?? (runtimeLoading ? "..." : "0")} />
-          <RuntimeMetric label="Code Index" value={runtime ? indexSummary(runtime.code_index) : "..."} />
-          <RuntimeMetric label="Brain Index" value={runtime ? indexSummary(runtime.brain_index) : "..."} />
+          <RuntimeMetric label="Active Chains" value={runtime?.active_chains ?? (runtimeLoading ? "…" : "0")} />
+          <RuntimeMetric label="Code Index" value={runtime ? indexSummary(runtime.code_index) : "…"} />
+          <RuntimeMetric label="Brain Index" value={runtime ? indexSummary(runtime.brain_index) : "…"} />
           <RuntimeMetric
             label="Local Services"
-            value={localServicesLoading ? "..." : `${runtime?.local_services_status ?? "..."} / ${localServicesSummary(localServices, runtime?.local_services_status)}`}
+            value={localServicesLoading ? "…" : `${runtime?.local_services_status ?? "…"} / ${localServicesSummary(localServices, runtime?.local_services_status)}`}
           />
           <RuntimeMetric
             label="Project Memory"
@@ -247,7 +247,7 @@ export function DashboardPage() {
             <div className="min-w-0">
               {localServicesActionError && <p className="mb-2 text-destructive">{localServicesActionError}</p>}
               {localServicesMessage && <p className="mb-2 text-accent">{localServicesMessage}</p>}
-              {localServicesLoading && <p>Loading local service status...</p>}
+              {localServicesLoading && <p>Loading local service status…</p>}
               {!localServicesLoading && localServices && (
                 <div className="grid gap-2">
                   <div className="grid gap-2 md:grid-cols-4">
@@ -304,7 +304,7 @@ export function DashboardPage() {
                 Model
               </h2>
             </div>
-            <div className="grid gap-2 px-3 py-3 text-xs text-muted-foreground md:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid gap-2 p-3 text-xs text-muted-foreground md:grid-cols-[minmax(0,1fr)_auto]">
               <p className="min-w-0">{formatModelCapabilitySummary(runtime.model_capabilities)}</p>
               {runtime.model_capabilities.max_output_tokens > 0 && (
                 <p>{formatTokenLimit(runtime.model_capabilities.max_output_tokens)} output</p>
@@ -316,14 +316,14 @@ export function DashboardPage() {
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.9fr)]">
           <section className="min-w-0 border border-border">
             <SectionHeader title="Recent Chains" link="/chains" linkLabel="View all" />
-            {chainsLoading && <EmptyLine text="Loading chains..." />}
+            {chainsLoading && <EmptyLine text="Loading chains…" />}
             {!chainsLoading && chains.length === 0 && <EmptyLine text="No chains recorded." />}
             <div className="divide-y divide-border/70">
               {chains.map((chain) => (
                 <Link
                   key={chain.id}
                   to={`/chains/${chain.id}`}
-                  className="grid gap-2 px-3 py-3 text-xs hover:bg-muted/40 md:grid-cols-[minmax(0,1fr)_120px_120px]"
+                  className="grid gap-2 p-3 text-xs hover:bg-muted/40 md:grid-cols-[minmax(0,1fr)_120px_120px]"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-mono text-primary">{chain.id}</div>
@@ -338,14 +338,14 @@ export function DashboardPage() {
 
           <section className="min-w-0 border border-border">
             <SectionHeader title="Recent Conversations" link="/" linkLabel="Chat" />
-            {conversationsLoading && <EmptyLine text="Loading conversations..." />}
+            {conversationsLoading && <EmptyLine text="Loading conversations…" />}
             {!conversationsLoading && conversations.length === 0 && <EmptyLine text="No conversations recorded." />}
             <div className="divide-y divide-border/70">
               {conversations.map((conversation) => (
                 <Link
                   key={conversation.id}
                   to={`/c/${conversation.id}`}
-                  className="block px-3 py-3 text-xs hover:bg-muted/40"
+                  className="block p-3 text-xs hover:bg-muted/40"
                 >
                   <div className="truncate text-foreground">{recentConversationTitle(conversation)}</div>
                   <div className="mt-1 text-muted-foreground">{formatDate(conversation.updated_at)}</div>
@@ -389,7 +389,7 @@ export function DashboardPage() {
 
 function RuntimeMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="min-w-0 border border-border px-3 py-3">
+    <div className="min-w-0 border border-border p-3">
       <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</div>
       <div className="mt-2 truncate text-sm font-medium text-foreground">{value}</div>
     </div>
@@ -398,7 +398,7 @@ function RuntimeMetric({ label, value }: { label: string; value: string | number
 
 function ReadinessFlag({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div className="border border-border px-2 py-2">
+    <div className="border border-border p-2">
       <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</div>
       <div className={`mt-1 font-medium ${ok ? "text-accent" : "text-destructive"}`}>{ok ? "ok" : "missing"}</div>
     </div>
@@ -417,7 +417,7 @@ function SectionHeader({ title, link, linkLabel }: { title: string; link: string
 }
 
 function EmptyLine({ text }: { text: string }) {
-  return <p className="px-3 py-3 text-xs text-muted-foreground">{text}</p>;
+  return <p className="p-3 text-xs text-muted-foreground">{text}</p>;
 }
 
 function StatusBanner({ text, tone }: { text: string; tone: "danger" | "warning" }) {

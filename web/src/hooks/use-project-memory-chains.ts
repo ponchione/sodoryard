@@ -20,7 +20,7 @@ export interface UseProjectMemoryChainsOptions {
   verifyContract?: boolean;
 }
 
-export interface ProjectMemoryRecentEvent {
+interface ProjectMemoryRecentEvent {
   id: string;
   chainId: string;
   stepId: string;

@@ -16,7 +16,7 @@ function PlainCodeBlock({ code }: { code: string }) {
   return (
     <pre
       data-code-block-renderer="plain"
-      className="my-2 overflow-x-auto rounded-md bg-[#282c34] p-3 text-xs text-slate-100"
+      className="my-2 overflow-x-auto rounded-md bg-[#282c34] p-3 text-xs text-zinc-100"
     >
       <code>{code}</code>
     </pre>
@@ -98,13 +98,16 @@ const components: Components = {
     return <td className="border border-border px-2 py-1" {...props} />;
   },
   h1(props) {
-    return <h1 className="mb-2 text-lg font-bold" {...props} />;
+    const { children, ...rest } = props;
+    return <h1 className="mb-2 text-lg font-semibold" {...rest}>{children}</h1>;
   },
   h2(props) {
-    return <h2 className="mb-2 text-base font-bold" {...props} />;
+    const { children, ...rest } = props;
+    return <h2 className="mb-2 text-base font-semibold" {...rest}>{children}</h2>;
   },
   h3(props) {
-    return <h3 className="mb-1.5 text-sm font-bold" {...props} />;
+    const { children, ...rest } = props;
+    return <h3 className="mb-1.5 text-sm font-semibold" {...rest}>{children}</h3>;
   },
   hr() {
     return <hr className="my-3 border-border" />;

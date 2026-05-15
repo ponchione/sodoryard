@@ -10,44 +10,29 @@ import {
 import {
   shunterContract,
   shunterProtocol,
-  type ShunterSubprotocol,
 } from "@/generated/yard-project-memory";
 import { getYardPlatform, toBackendURL, toBackendWebSocketURL } from "@/platform";
 
 const projectMemorySubscriptionCapability = "project_memory_subscriptions";
 
 export {
-  decodeEventsRow,
   queryChainEventsDecoded,
   queryRecentChainEventsDecoded,
   queryRecentChainsDecoded,
   subscribeLiveChainEvents,
-  subscribeLiveChainEventsHandle,
   subscribeLiveRecentChainEvents,
-  subscribeLiveRecentChainEventsHandle,
   subscribeLiveRecentChains,
-  subscribeLiveRecentChainsHandle,
 } from "@/generated/yard-project-memory";
 
 export type {
-  ChainEventsParams,
-  ChainEventsQueryRow,
-  ChainEventsQueryRows,
-  ChainsRow,
   EventsRow,
-  LiveChainEventsParams,
-  LiveChainEventsViewRow,
   LiveRecentChainEventsViewRow,
-  LiveRecentChainsViewRow,
   RecentChainEventsQueryRow,
-  RecentChainEventsQueryRows,
-  RecentChainsQueryRow,
-  RecentChainsQueryRows,
 } from "@/generated/yard-project-memory";
 
 export const projectMemoryContract = shunterContract;
-export const projectMemoryModuleName = "yard_project_memory";
-export const projectMemoryModuleVersion = "0.13.0";
+const projectMemoryModuleName = "yard_project_memory";
+const projectMemoryModuleVersion = "0.13.0";
 
 export interface ProjectMemoryClientOptions {
   url?: string;
@@ -125,7 +110,7 @@ export function projectMemorySubscriptionsUnavailableReason(): string | null {
   return null;
 }
 
-export function assertProjectMemorySubscriptionsAvailable() {
+function assertProjectMemorySubscriptionsAvailable() {
   const reason = projectMemorySubscriptionsUnavailableReason();
   if (reason) throw new Error(reason);
 }
@@ -154,5 +139,3 @@ export function projectMemorySubscribeURL(origin?: string): string {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
-
-export type ProjectMemorySubprotocol = ShunterSubprotocol;

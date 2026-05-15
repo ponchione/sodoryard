@@ -85,7 +85,7 @@ export function ConversationMessageList({
             messages[messages.length - 1].role !== "assistant" ||
             messages[messages.length - 1].blocks.length === 0) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="inline-block h-2 w-2 bg-primary pulse-glow" />
+              <span className="inline-block size-2 bg-primary pulse-glow" />
               {agentStateLabel(agentState)}
             </div>
           )}

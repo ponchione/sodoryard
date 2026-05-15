@@ -77,7 +77,12 @@ const emptyForm: LaunchFormState = {
 };
 
 function compactList(values: string[]): string[] {
-  return values.map((value) => value.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed) out.push(trimmed);
+  }
+  return out;
 }
 
 function splitList(value: string): string[] {
@@ -103,7 +108,11 @@ function optionalInt(value: string): number | undefined {
 }
 
 function roleNames(roles: AgentRoleSummary[]): string[] {
-  return roles.map((role) => role.name).filter(Boolean);
+  const out: string[] = [];
+  for (const role of roles) {
+    if (role.name) out.push(role.name);
+  }
+  return out;
 }
 
 function flattenProjectFiles(node: ProjectTreeNode | null, parent = ""): ProjectFileOption[] {
@@ -388,7 +397,7 @@ export function LaunchPage() {
       <div className="flex w-full flex-col gap-5">
         <header className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+            <h1 className="text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
               Launch Workbench
             </h1>
             <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -539,7 +548,7 @@ export function LaunchPage() {
                           type="checkbox"
                           checked={form.allowedRoles.includes(role)}
                           onChange={() => toggleAllowedRole(role)}
-                          className="h-4 w-4 accent-primary"
+                          className="size-4 accent-primary"
                         />
                         <span className="min-w-0 truncate font-mono">{role}</span>
                       </label>
@@ -581,7 +590,7 @@ export function LaunchPage() {
                     onChange={(event) => (
                       setForm((current) => ({ ...current, allowApprovalWait: event.target.checked }))
                     )}
-                    className="h-4 w-4 accent-primary"
+                    className="size-4 accent-primary"
                   />
                   <span className="font-medium uppercase tracking-widest text-muted-foreground">
                     Allow Approval Wait
@@ -628,7 +637,7 @@ export function LaunchPage() {
                     key={template.id}
                     type="button"
                     onClick={() => applyTemplate(template)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-xs hover:bg-muted/40"
+                    className="flex w-full items-center justify-between gap-3 p-3 text-left text-xs hover:bg-muted/40"
                   >
                     <span>
                       <span className="block font-medium text-foreground">{template.label}</span>
@@ -649,7 +658,7 @@ export function LaunchPage() {
                     key={preset.id}
                     type="button"
                     onClick={() => applyPreset(preset)}
-                    className="block w-full px-3 py-3 text-left text-xs hover:bg-muted/40"
+                    className="block w-full p-3 text-left text-xs hover:bg-muted/40"
                   >
                     <span className="block font-medium text-foreground">{preset.name}</span>
                     <span className="mt-1 block font-mono text-[11px] text-muted-foreground">
@@ -682,7 +691,7 @@ export function LaunchPage() {
                   </span>
                 </label>
                 {attachmentError && <p className="text-xs text-destructive">{attachmentError}</p>}
-                {projectTreeLoading && <p className="text-xs text-muted-foreground">Loading project files...</p>}
+                {projectTreeLoading && <p className="text-xs text-muted-foreground">Loading project files…</p>}
                 {!projectTreeLoading && visibleProjectFiles.length === 0 && (
                   <p className="text-xs text-muted-foreground">No project files match.</p>
                 )}
@@ -713,7 +722,7 @@ export function LaunchPage() {
 
             <section className="border border-border">
               <SectionHeader title="Request" />
-              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] text-muted-foreground">
                 {JSON.stringify(currentRequest, null, 2)}
               </pre>
             </section>
@@ -732,7 +741,7 @@ export function LaunchPage() {
               )}
               {!preview && !previewError && !startError && <EmptyLine text="No preview generated." />}
               {preview && (
-                <div className="grid gap-3 px-3 py-3 text-xs">
+                <div className="grid gap-3 p-3 text-xs">
                   <div>
                     <div className="font-medium text-foreground">{preview.summary}</div>
                     <div className="mt-1 font-mono text-[11px] text-muted-foreground">
@@ -769,7 +778,7 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 function EmptyLine({ text }: { text: string }) {
-  return <p className="px-3 py-3 text-xs text-muted-foreground">{text}</p>;
+  return <p className="p-3 text-xs text-muted-foreground">{text}</p>;
 }
 
 function StatusBanner({ children, tone }: { children: ReactNode; tone: "danger" | "warning" }) {

@@ -42,8 +42,8 @@ export function TurnUsageBadge({ usage }: TurnUsageBadgeProps) {
 
   return (
     <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground/60">
-      {parts.map((part, i) => (
-        <span key={i}>{part}</span>
+      {parts.map((part) => (
+        <span key={part}>{part}</span>
       ))}
     </div>
   );

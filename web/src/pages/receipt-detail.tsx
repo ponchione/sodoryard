@@ -95,9 +95,14 @@ export function ReceiptDetailPage() {
   const parsed = useMemo(() => parseReceiptDocument(receipt?.content ?? ""), [receipt]);
   const changedFiles = useMemo(() => receiptProjectPaths(parsed), [parsed]);
   const followUpSections = useMemo(() => receiptFollowUpSections(parsed), [parsed]);
-  const sourceSpecs = useMemo(() => (
-    Array.from(new Set((detail?.chain.source_specs ?? []).map((path) => path.trim()).filter(Boolean)))
-  ), [detail]);
+  const sourceSpecs = useMemo(() => {
+    const specs = new Set<string>();
+    for (const path of detail?.chain.source_specs ?? []) {
+      const trimmed = path.trim();
+      if (trimmed) specs.add(trimmed);
+    }
+    return Array.from(specs);
+  }, [detail]);
   const hasFileActions = Boolean(platform.openProjectPath || platform.revealProjectPath);
   const currentStep = selectedStep(detail, receipt);
   const events = linkedEvents(detail, receipt, currentStep);
@@ -164,7 +169,7 @@ export function ReceiptDetailPage() {
               Receipts
             </Link>
           </div>
-          <h1 className="mt-2 text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+          <h1 className="mt-2 text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
             Receipt
           </h1>
           <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{receipt?.path ?? "loading"}</p>
@@ -189,7 +194,7 @@ export function ReceiptDetailPage() {
           )}
         </div>
 
-        {loading && <p className="text-xs text-muted-foreground">Loading receipt...</p>}
+        {loading && <p className="text-xs text-muted-foreground">Loading receipt…</p>}
         {error && <p className="text-xs text-destructive">{error}</p>}
 
         {detail && receipt && (

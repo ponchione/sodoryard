@@ -64,7 +64,7 @@ function PlainCodeBlock({ code }: { code: string }) {
   return (
     <pre
       data-code-block-renderer="plain"
-      className="my-2 overflow-x-auto rounded-md bg-[#282c34] p-3 text-xs text-slate-100"
+      className="my-2 overflow-x-auto rounded-md bg-[#282c34] p-3 text-xs text-zinc-100"
     >
       <code>{code}</code>
     </pre>

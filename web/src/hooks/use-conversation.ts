@@ -66,7 +66,7 @@ export interface TurnUsage {
   duration?: number; // nanoseconds
 }
 
-export interface ConversationState {
+interface ConversationState {
   conversationId: string | null;
   messages: ChatMessage[];
   /** Non-empty once visible text has streamed for the current turn. */
@@ -359,10 +359,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
 /** Extract plain text from blocks (for content fallback). */
 function flattenText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b): b is TextBlock => b.kind === "text")
-    .map((b) => b.text)
-    .join("");
+  let text = "";
+  for (const block of blocks) {
+    if (block.kind === "text") text += block.text;
+  }
+  return text;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────

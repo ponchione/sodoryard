@@ -3,16 +3,6 @@
  * endpoints in internal/server/conversations.go.
  */
 
-export interface Conversation {
-  id: string;
-  project_id: string;
-  title?: string;
-  model?: string;
-  provider?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ConversationSummary {
   id: string;
   title?: string;
@@ -38,12 +28,4 @@ export interface SearchResult {
   title?: string;
   updated_at: string;
   snippet: string;
-}
-
-export interface HealthResponse {
-  status: "ok";
-}
-
-export interface ApiError {
-  error: string;
 }

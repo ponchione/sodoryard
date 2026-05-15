@@ -1,0 +1,51 @@
+{
+  "ignore": {
+    "files": [
+      "dist/**",
+      "public/augmented-ui.min.css",
+      "src/generated/**"
+    ],
+    "overrides": [
+      {
+        "files": ["src/pages/receipt-detail.tsx"],
+        "rules": [
+          "react-doctor/prefer-useReducer",
+          "react-doctor/no-giant-component",
+          "react-doctor/no-cascading-set-state"
+        ]
+      },
+      {
+        "files": ["src/pages/conversation.tsx"],
+        "rules": [
+          "react-doctor/prefer-useReducer",
+          "react-doctor/no-effect-event-handler",
+          "react-doctor/no-cascading-set-state"
+        ]
+      },
+      {
+        "files": ["src/pages/chain-detail.tsx"],
+        "rules": [
+          "react-doctor/prefer-useReducer",
+          "react-doctor/no-giant-component",
+          "react-doctor/no-derived-state-effect",
+          "react-doctor/no-cascading-set-state"
+        ]
+      },
+      {
+        "files": ["src/pages/settings.tsx"],
+        "rules": [
+          "react-doctor/prefer-useReducer",
+          "react-doctor/no-giant-component",
+          "react-doctor/no-cascading-set-state"
+        ]
+      },
+      {
+        "files": ["src/pages/launch.tsx"],
+        "rules": [
+          "react-doctor/prefer-useReducer",
+          "react-doctor/no-giant-component"
+        ]
+      }
+    ]
+  }
+}

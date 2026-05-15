@@ -190,7 +190,7 @@ export function ToolCallCard({ block }: ToolCallCardProps) {
           <span className="text-muted-foreground/60">{formatDuration(block.duration)}</span>
         )}
         {!block.done && (
-          <span className="ml-1 inline-block h-2 w-2 bg-[#ffab00] pulse-glow" />
+          <span className="ml-1 inline-block size-2 bg-[#ffab00] pulse-glow" />
         )}
       </button>
       {open && (

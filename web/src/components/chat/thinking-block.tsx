@@ -27,7 +27,7 @@ export function ThinkingBlock({ block }: ThinkingBlockProps) {
         <span className="italic">
           {block.done ? "Thought" : "Thinking"}
           {!block.done && (
-            <span className="ml-1 inline-block h-2 w-2 bg-muted-foreground pulse-glow" />
+            <span className="ml-1 inline-block size-2 bg-muted-foreground pulse-glow" />
           )}
         </span>
         {block.text.length > 0 && (

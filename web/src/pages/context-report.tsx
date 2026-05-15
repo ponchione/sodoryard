@@ -51,7 +51,7 @@ export function ContextReportPage() {
               Conversation
             </Link>
           </div>
-          <h1 className="mt-2 text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+          <h1 className="mt-2 text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
             Context Report
           </h1>
           <p className="mt-1 break-all font-mono text-xs text-muted-foreground">

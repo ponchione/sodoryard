@@ -1,25 +1,25 @@
-import { useState, type ReactNode } from "react";
+import { useReducer, type ReactNode } from "react";
 
 interface CollapsibleSectionProps {
   title: string;
-  defaultOpen?: boolean;
+  initialOpen?: boolean;
   sectionColor?: string;
   children: ReactNode;
 }
 
 export function CollapsibleSection({
   title,
-  defaultOpen = false,
+  initialOpen = false,
   sectionColor,
   children,
 }: CollapsibleSectionProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, toggleOpen] = useReducer((current: boolean) => !current, initialOpen);
 
   return (
     <div className="border border-border">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className="flex w-full items-center justify-between px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
         <span className="uppercase tracking-wider text-[10px]">{title}</span>

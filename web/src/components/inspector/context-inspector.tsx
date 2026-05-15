@@ -103,7 +103,7 @@ export function ContextInspector({ ctx, onClose, className = "" }: ContextInspec
 
         {report && (
           <>
-            <CollapsibleSection title="Token Budget" sectionColor="#00e5ff" defaultOpen>
+            <CollapsibleSection title="Token Budget" sectionColor="#00e5ff" initialOpen>
               <BudgetBar
                 used={report.budget_used ?? 0}
                 total={report.budget_total ?? 0}
@@ -111,7 +111,7 @@ export function ContextInspector({ ctx, onClose, className = "" }: ContextInspec
               />
             </CollapsibleSection>
 
-            <CollapsibleSection title="Quality" sectionColor="#00e676" defaultOpen>
+            <CollapsibleSection title="Quality" sectionColor="#00e676" initialOpen>
               <QualityMetrics report={report} />
             </CollapsibleSection>
 
@@ -123,17 +123,17 @@ export function ContextInspector({ ctx, onClose, className = "" }: ContextInspec
               />
             </CollapsibleSection>
 
-            <CollapsibleSection title="Signals" sectionColor="#b388ff" defaultOpen>
+            <CollapsibleSection title="Signals" sectionColor="#b388ff" initialOpen>
               <SignalsList signals={report.signals ?? report.needs?.signals ?? []} />
             </CollapsibleSection>
 
-            <CollapsibleSection title="Signal Flow" sectionColor="#7c4dff" defaultOpen>
+            <CollapsibleSection title="Signal Flow" sectionColor="#7c4dff" initialOpen>
               <SignalFlowList
                 stream={report.signal_stream ?? buildSignalFlowFallback(report.needs, report.signals)}
               />
             </CollapsibleSection>
 
-            <CollapsibleSection title="Queries" sectionColor="#00e5ff" defaultOpen>
+            <CollapsibleSection title="Queries" sectionColor="#00e5ff" initialOpen>
               <QueriesList needs={report.needs} />
             </CollapsibleSection>
 
@@ -141,7 +141,7 @@ export function ContextInspector({ ctx, onClose, className = "" }: ContextInspec
               <ExplicitFilesList results={report.explicit_files ?? []} />
             </CollapsibleSection>
 
-            <CollapsibleSection title={`Code Chunks (${report.rag_results?.length ?? 0})`} sectionColor="#00e676" defaultOpen>
+            <CollapsibleSection title={`Code Chunks (${report.rag_results?.length ?? 0})`} sectionColor="#00e676" initialOpen>
               <RAGResultsList results={report.rag_results ?? []} />
             </CollapsibleSection>
 
@@ -265,8 +265,8 @@ function SignalsList({ signals }: { signals: ContextSignal[] }) {
 
   return (
     <div className="space-y-1">
-      {signals.map((signal, index) => (
-        <div key={`${signal.type}-${signal.value}-${index}`} className="border border-border/50 bg-muted/30 px-2 py-1.5 text-[10px] space-y-1">
+      {signals.map((signal) => (
+        <div key={`${signal.type}-${signal.value}-${signal.source ?? ""}-${signal.confidence ?? ""}`} className="border border-border/50 bg-muted/30 px-2 py-1.5 text-[10px] space-y-1">
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium text-foreground">{signal.type}</span>
             {signal.confidence != null && (
@@ -323,17 +323,17 @@ function QueriesList({ needs }: { needs?: ContextNeeds }) {
 
   return (
     <div className="space-y-1">
-      {semanticQueries.map((query, index) => (
-        <QueryRow key={`semantic-${index}`} label="semantic" value={query} />
+      {semanticQueries.map((query) => (
+        <QueryRow key={`semantic-${query}`} label="semantic" value={query} />
       ))}
-      {explicitFiles.map((path, index) => (
-        <QueryRow key={`file-${index}`} label="explicit file" value={path} mono />
+      {explicitFiles.map((path) => (
+        <QueryRow key={`file-${path}`} label="explicit file" value={path} mono />
       ))}
-      {explicitSymbols.map((symbol, index) => (
-        <QueryRow key={`symbol-${index}`} label="explicit symbol" value={symbol} mono />
+      {explicitSymbols.map((symbol) => (
+        <QueryRow key={`symbol-${symbol}`} label="explicit symbol" value={symbol} mono />
       ))}
-      {momentumFiles.map((path, index) => (
-        <QueryRow key={`momentum-file-${index}`} label="momentum file" value={path} mono />
+      {momentumFiles.map((path) => (
+        <QueryRow key={`momentum-file-${path}`} label="momentum file" value={path} mono />
       ))}
       {needs?.momentum_module && (
         <QueryRow label="momentum module" value={needs.momentum_module} mono />
@@ -520,8 +520,8 @@ function IncludedCard({
       </div>
       {meta && meta.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {meta.map((item, index) => (
-            <span key={`${item}-${index}`} className="bg-background/60 px-1 py-0.5 text-muted-foreground">
+          {meta.map((item) => (
+            <span key={item} className="bg-background/60 px-1 py-0.5 text-muted-foreground">
               {item}
             </span>
           ))}
@@ -562,9 +562,9 @@ function MetricRow({
 function CodeList({ items, danger = false }: { items: string[]; danger?: boolean }) {
   return (
     <div className="space-y-0.5 max-h-24 overflow-y-auto">
-      {items.map((item, index) => (
+      {items.map((item) => (
         <div
-          key={`${item}-${index}`}
+          key={item}
           className={`break-all px-2 py-1 font-mono text-[10px] ${danger ? "bg-destructive/10 text-destructive" : "bg-muted/50 text-muted-foreground"}`}
         >
           {item}

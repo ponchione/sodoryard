@@ -1,4 +1,4 @@
-export interface YardNotification {
+interface YardNotification {
   title: string;
   body?: string;
 }

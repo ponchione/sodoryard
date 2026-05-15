@@ -381,7 +381,7 @@ export function SettingsPage() {
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="w-full space-y-6">
         <header className="border-b border-border pb-4">
-          <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+          <h1 className="text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
             Settings
           </h1>
           {config && (
@@ -396,7 +396,7 @@ export function SettingsPage() {
             Project
           </h2>
           {projLoading ? (
-            <p className="text-xs text-muted-foreground">Loading...</p>
+            <p className="text-xs text-muted-foreground">Loading…</p>
           ) : project ? (
             <div
               data-augmented-ui="tl-clip br-clip border"
@@ -465,7 +465,7 @@ export function SettingsPage() {
             Runtime Routing
           </h2>
           {configLoading ? (
-            <p className="text-xs text-muted-foreground">Loading...</p>
+            <p className="text-xs text-muted-foreground">Loading…</p>
           ) : config ? (
             <div
               data-augmented-ui="tl-clip br-clip border"
@@ -587,7 +587,7 @@ export function SettingsPage() {
           {credentialRefreshMessage && <StatusMessage tone="success" text={credentialRefreshMessage} />}
           {credentialRefreshError && <StatusMessage tone="danger" text={credentialRefreshError} />}
           {provLoading && providerOptions.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Loading...</p>
+            <p className="text-xs text-muted-foreground">Loading…</p>
           ) : providerOptions.length === 0 ? (
             <p className="text-xs text-muted-foreground">No providers configured</p>
           ) : (

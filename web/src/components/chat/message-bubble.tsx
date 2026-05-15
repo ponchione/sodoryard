@@ -23,6 +23,17 @@ function BlockRenderer({ block, streaming }: { block: ContentBlock; streaming: b
   }
 }
 
+function blockKey(block: ContentBlock): string {
+  switch (block.kind) {
+    case "thinking":
+      return `thinking:${block.done}:${block.text}`;
+    case "tool_call":
+      return `tool:${block.toolCallId}`;
+    case "text":
+      return `text:${block.text}`;
+  }
+}
+
 export function MessageBubble({
   message,
   streaming = false,
@@ -100,7 +111,7 @@ export function MessageBubble({
         {displayBlocks.map((block, i) => {
           const isLastBlock = i === displayBlocks.length - 1;
           return (
-            <div key={i} data-augmented-ui-reset>
+            <div key={blockKey(block)} data-augmented-ui-reset>
               <BlockRenderer block={block} streaming={streaming && isLastBlock} />
             </div>
           );

@@ -1,4 +1,4 @@
-export interface RuntimeWarning {
+interface RuntimeWarning {
   message: string;
 }
 
@@ -96,7 +96,7 @@ export interface LaunchStartResponse {
   preview: LaunchPreview;
 }
 
-export interface LaunchDraft {
+interface LaunchDraft {
   id: string;
   request: LaunchRequest;
   updated_at?: string;
@@ -114,7 +114,7 @@ export interface LaunchPreset {
   updated_at?: string;
 }
 
-export interface StepSummary {
+interface StepSummary {
   id: string;
   sequence_num: number;
   role: string;
@@ -143,7 +143,7 @@ export interface ChainSummary {
   current_step?: StepSummary;
 }
 
-export interface ChainRecord {
+interface ChainRecord {
   id: string;
   source_specs: string[];
   source_task: string;
@@ -207,7 +207,7 @@ export interface ChainTimelineItem {
   event_data?: string;
 }
 
-export interface ChainGuardrails {
+interface ChainGuardrails {
   open_finding_ids: string[];
   closed_finding_ids: string[];
   addressed_finding_ids: string[];
@@ -219,7 +219,7 @@ export interface ChainGuardrails {
   step_facts: StepGuardrailFact[];
 }
 
-export interface GuardrailFinding {
+interface GuardrailFinding {
   id: string;
   source_role: string;
   status: string;
@@ -237,7 +237,7 @@ export interface GuardrailFinding {
   last_updated_step: number;
 }
 
-export interface GuardrailLockHealth {
+interface GuardrailLockHealth {
   acquired: number;
   released: number;
   blocked: number;
@@ -248,7 +248,7 @@ export interface GuardrailLockHealth {
   unreleased_writers: number;
 }
 
-export interface ChangedFileManifest {
+interface ChangedFileManifest {
   step_id: string;
   sequence_num: number;
   role: string;
@@ -256,7 +256,7 @@ export interface ChangedFileManifest {
   error?: string;
 }
 
-export interface StepGuardrailFact {
+interface StepGuardrailFact {
   step_id: string;
   sequence_num: number;
   role: string;
@@ -363,7 +363,7 @@ export interface ChainControlResult {
   warnings?: RuntimeWarning[];
 }
 
-export interface ChainMetricsReport {
+interface ChainMetricsReport {
   chain_id: string;
   status: string;
   health: string;
@@ -425,7 +425,7 @@ export interface ChainMetricsReport {
   steps: ChainStepMetric[];
 }
 
-export interface ChainStepMetric {
+interface ChainStepMetric {
   sequence_num: number;
   role: string;
   status: string;

@@ -296,10 +296,13 @@ function timelineTraceDetails(item: ChainTimelineItem): string {
     conversation_id: item.conversation_id,
     ...item.attributes,
   };
-  return Object.entries(details)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([key, value]) => `${key}=${formatTimelineValue(value)}`)
-    .join("\n");
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(details)) {
+    if (value !== undefined && value !== null && value !== "") {
+      lines.push(`${key}=${formatTimelineValue(value)}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 function isWarningTimelineItem(item: ChainTimelineItem): boolean {
@@ -554,7 +557,7 @@ export function ChainDetailPage() {
             <Link to="/chains" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-primary">
               Chains
             </Link>
-            <h1 className="mt-2 break-all font-mono text-xl font-bold text-primary text-glow-cyan">{id}</h1>
+            <h1 className="mt-2 break-all font-mono text-xl font-semibold text-primary text-glow-cyan">{id}</h1>
             {detail && (
               <p className={`mt-1 text-xs font-medium ${chainStatusClass(detail.chain.status)}`}>
                 {detail.chain.status} / {detail.health || "unknown"}
@@ -615,7 +618,7 @@ export function ChainDetailPage() {
           )}
         </div>
 
-        {loading && <p className="text-xs text-muted-foreground">Loading chain...</p>}
+        {loading && <p className="text-xs text-muted-foreground">Loading chain…</p>}
         {error && <p className="text-xs text-destructive">{error}</p>}
 
         {detail && (
@@ -717,8 +720,8 @@ export function ChainDetailPage() {
                   Guardrail Warnings
                 </h2>
                 <ul className="space-y-1 border border-border p-3 text-xs text-warning">
-                  {(detail.warnings ?? []).map((warning, index) => (
-                    <li key={`${warning.message}-${index}`}>- {warning.message}</li>
+                  {(detail.warnings ?? []).map((warning) => (
+                    <li key={warning.message}>- {warning.message}</li>
                   ))}
                 </ul>
               </section>
@@ -1051,7 +1054,7 @@ export function ChainDetailPage() {
                   <tbody>
                     {(detail.timeline ?? []).length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-3 py-3 text-muted-foreground">
+                        <td colSpan={5} className="p-3 text-muted-foreground">
                           No timeline entries recorded.
                         </td>
                       </tr>

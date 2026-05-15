@@ -13,7 +13,7 @@ export interface ServerMessage<T = unknown> {
   data: T;
 }
 
-export type ServerEventType =
+type ServerEventType =
   | "token"
   | "thinking_start"
   | "thinking_delta"
@@ -36,7 +36,7 @@ export interface TokenEvent {
 }
 
 /** Beginning of a streamed thinking block. */
-export interface ThinkingStartEvent {
+interface ThinkingStartEvent {
   type: "thinking_start";
   time: string;
 }
@@ -49,7 +49,7 @@ export interface ThinkingDeltaEvent {
 }
 
 /** End of a streamed thinking block. */
-export interface ThinkingEndEvent {
+interface ThinkingEndEvent {
   type: "thinking_end";
   time: string;
 }
@@ -94,7 +94,7 @@ export interface TurnCompleteEvent {
 }
 
 /** Turn was cancelled or interrupted before completion. */
-export interface TurnCancelledEvent {
+interface TurnCancelledEvent {
   type: "turn_cancelled";
   turn_number: number;
   completed_iterations?: number;
@@ -155,7 +155,7 @@ export type ServerEventData =
 
 // ── Client → Server messages ────────────────────────────────────────
 
-export type ClientMessageType = "message" | "cancel";
+type ClientMessageType = "message" | "cancel";
 
 /** A message sent from the client to the server via WebSocket. */
 export interface ClientMessage {

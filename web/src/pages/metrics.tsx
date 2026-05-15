@@ -23,7 +23,7 @@ export function MetricsPage() {
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="w-full space-y-5">
         <div className="border-b border-border pb-4">
-          <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+          <h1 className="text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
             Metrics
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -70,7 +70,7 @@ export function MetricsPage() {
           </section>
         )}
 
-        {loading && <p className="text-xs text-muted-foreground">Loading metrics...</p>}
+        {loading && <p className="text-xs text-muted-foreground">Loading metrics…</p>}
         {error && <p className="text-xs text-destructive">{error}</p>}
 
         <section className="grid gap-3 md:grid-cols-4">

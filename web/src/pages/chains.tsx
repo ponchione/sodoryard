@@ -54,7 +54,7 @@ function eventPayloadPreview(payloadJson: string): string {
   const text = payloadJson.trim();
   if (!text || text === "{}") return "no payload";
   if (text.length <= 140) return text;
-  return `${text.slice(0, 137)}...`;
+  return `${text.slice(0, 137)}…`;
 }
 
 export function ChainsPage() {
@@ -65,12 +65,22 @@ export function ChainsPage() {
   const { data: status } = useApiResource<RuntimeStatus | null>("/api/runtime/status", null);
   const projectMemory = useProjectMemoryChains({ onChanged: refresh });
   const normalizedQuery = query.trim().toLowerCase();
-  const statusFilters = useMemo(() => (
-    Array.from(new Set(chains.map((chain) => chain.status).filter(Boolean))).sort()
-  ), [chains]);
-  const roleFilters = useMemo(() => (
-    Array.from(new Set(chains.flatMap((chain) => chain.roles ?? []).filter(Boolean))).sort()
-  ), [chains]);
+  const statusFilters = useMemo(() => {
+    const statuses = new Set<string>();
+    for (const chain of chains) {
+      if (chain.status) statuses.add(chain.status);
+    }
+    return Array.from(statuses).toSorted();
+  }, [chains]);
+  const roleFilters = useMemo(() => {
+    const roles = new Set<string>();
+    for (const chain of chains) {
+      for (const role of chain.roles ?? []) {
+        if (role) roles.add(role);
+      }
+    }
+    return Array.from(roles).toSorted();
+  }, [chains]);
   const visibleChains = useMemo(() => {
     return chains
       .filter((chain) => {
@@ -98,7 +108,7 @@ export function ChainsPage() {
       <div className="w-full space-y-5">
         <div className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-xl font-bold uppercase tracking-widest text-primary text-glow-cyan">
+            <h1 className="text-xl font-semibold uppercase tracking-widest text-primary text-glow-cyan">
               Chains
             </h1>
           </div>
@@ -190,7 +200,7 @@ export function ChainsPage() {
               </span>
             </div>
             {projectMemory.recentEvents.length === 0 ? (
-              <p className="px-3 py-3 text-xs text-muted-foreground">No recent project memory events.</p>
+              <p className="p-3 text-xs text-muted-foreground">No recent project memory events.</p>
             ) : (
               <div className="divide-y divide-border/70">
                 {projectMemory.recentEvents.map((event) => (
@@ -232,7 +242,7 @@ export function ChainsPage() {
           </section>
         ) : null}
 
-        {loading && <p className="text-xs text-muted-foreground">Loading chains...</p>}
+        {loading && <p className="text-xs text-muted-foreground">Loading chains…</p>}
         {error && <p className="text-xs text-destructive">{error}</p>}
         {!loading && !error && visibleChains.length === 0 && (
           <p className="text-xs text-muted-foreground">No chains match.</p>

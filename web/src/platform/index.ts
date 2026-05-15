@@ -49,7 +49,6 @@ function withTrailingSlash(baseURL: string): string {
 export type {
   YardDesktopBridge,
   YardDesktopPlatformInfo,
-  YardNotification,
   YardPlatform,
   YardProjectMemoryPlatform,
 } from "./types";

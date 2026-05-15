@@ -39,7 +39,6 @@ export function ConversationComposer({
             className="flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
             rows={1}
             disabled={isStreaming}
-            autoFocus
           />
         </div>
         {isStreaming ? (
