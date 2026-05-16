@@ -1619,36 +1619,42 @@
           },
           {
             "index": 8,
-            "name": "source_task",
+            "name": "steps_json",
             "type": "string",
             "auto_increment": false
           },
           {
             "index": 9,
-            "name": "source_specs_json",
+            "name": "source_task",
             "type": "string",
             "auto_increment": false
           },
           {
             "index": 10,
+            "name": "source_specs_json",
+            "type": "string",
+            "auto_increment": false
+          },
+          {
+            "index": 11,
             "name": "step_max_turns",
             "type": "uint64",
             "auto_increment": false
           },
           {
-            "index": 11,
+            "index": 12,
             "name": "step_max_tokens",
             "type": "uint64",
             "auto_increment": false
           },
           {
-            "index": 12,
+            "index": 13,
             "name": "created_at_us",
             "type": "uint64",
             "auto_increment": false
           },
           {
-            "index": 13,
+            "index": 14,
             "name": "updated_at_us",
             "type": "uint64",
             "auto_increment": false
@@ -1751,24 +1757,30 @@
           },
           {
             "index": 8,
+            "name": "steps_json",
+            "type": "string",
+            "auto_increment": false
+          },
+          {
+            "index": 9,
             "name": "step_max_turns",
             "type": "uint64",
             "auto_increment": false
           },
           {
-            "index": 9,
+            "index": 10,
             "name": "step_max_tokens",
             "type": "uint64",
             "auto_increment": false
           },
           {
-            "index": 10,
+            "index": 11,
             "name": "created_at_us",
             "type": "uint64",
             "auto_increment": false
           },
           {
-            "index": 11,
+            "index": 12,
             "name": "updated_at_us",
             "type": "uint64",
             "auto_increment": false

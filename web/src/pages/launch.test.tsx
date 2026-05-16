@@ -87,10 +87,12 @@ function preview(): LaunchPreview {
     mode: "one_step_chain",
     template,
     role: "coder",
+    source_specs: [],
     summary: "one-step coder launch",
     compiled_task: "Launch task: Ship launch workbench preview",
     work_packet_markdown: "Launch task: Ship launch workbench preview",
-    warnings: [{ message: "single-step coder launch has no per-step caps" }],
+    run_sheet_markdown: "Run sheet\n\n1. coder\n   Produces: coder receipt",
+    warnings: [{ message: "no source specs selected" }],
   };
 }
 
@@ -166,6 +168,7 @@ describe("LaunchPage", () => {
       </MemoryRouter>,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.change(screen.getByLabelText("Task"), {
       target: { value: "Ship launch workbench preview" },
     });
@@ -176,13 +179,14 @@ describe("LaunchPage", () => {
         template_id: "one_step",
         mode: "one_step_chain",
         role: "coder",
+        steps: [{ role: "coder" }],
         source_task: "Ship launch workbench preview",
       }));
     });
 
     expect(await screen.findByText("one-step coder launch")).toBeInTheDocument();
-    expect(screen.getByText("Launch task: Ship launch workbench preview")).toBeInTheDocument();
-    expect(screen.getByText("single-step coder launch has no per-step caps")).toBeInTheDocument();
+    expect(screen.getByText(/Run sheet/)).toBeInTheDocument();
+    expect(screen.getByText("no source specs selected")).toBeInTheDocument();
   });
 
   it("attaches validated project files to source specs before previewing", async () => {
@@ -192,7 +196,7 @@ describe("LaunchPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
 
     await waitFor(() => {
       expect(apiPostMock).toHaveBeenCalledWith("/api/project/validate-paths", {
@@ -200,8 +204,9 @@ describe("LaunchPage", () => {
         paths: ["docs/specs/24-electron-desktop-app.md"],
       });
     });
-    expect(screen.getByLabelText("Source Specs")).toHaveValue("docs/specs/24-electron-desktop-app.md");
+    expect(screen.getByLabelText("Project Sources")).toHaveValue("docs/specs/24-electron-desktop-app.md");
 
+    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     await waitFor(() => {
@@ -213,13 +218,13 @@ describe("LaunchPage", () => {
 
   it("loads source spec query attachments from the project browser", async () => {
     render(
-      <MemoryRouter initialEntries={["/launch?source_spec=docs%2Fspec.md&source_spec=README.md"]}>
+      <MemoryRouter initialEntries={["/?source_spec=docs%2Fspec.md&source_spec=README.md"]}>
         <LaunchPage />
       </MemoryRouter>,
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Source Specs")).toHaveValue("docs/spec.md\nREADME.md");
+      expect(screen.getByLabelText("Project Sources")).toHaveValue("docs/spec.md\nREADME.md");
     });
   });
 
@@ -230,6 +235,7 @@ describe("LaunchPage", () => {
       </MemoryRouter>,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.change(screen.getByLabelText("Task"), {
       target: { value: "Start launch workbench chain" },
     });
@@ -240,6 +246,7 @@ describe("LaunchPage", () => {
         template_id: "one_step",
         mode: "one_step_chain",
         role: "coder",
+        steps: [{ role: "coder" }],
         source_task: "Start launch workbench chain",
       }));
     });

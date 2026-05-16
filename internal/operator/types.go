@@ -404,6 +404,7 @@ type LaunchRequest struct {
 	Role              string
 	AllowedRoles      []string
 	Roster            []string
+	Steps             []LaunchRosterStep
 	SourceTask        string
 	SourceSpecs       []string
 	MaxSteps          int
@@ -415,18 +416,42 @@ type LaunchRequest struct {
 	AllowApprovalWait bool
 }
 
+type LaunchRosterStep struct {
+	Role    string
+	Note    string
+	Sources []string
+}
+
 type LaunchPreview struct {
-	Mode              LaunchMode
-	Template          LaunchTemplate
+	Mode               LaunchMode
+	Template           LaunchTemplate
+	Role               string
+	AllowedRoles       []string
+	Roster             []string
+	SourceTask         string
+	SourceSpecs        []string
+	Steps              []LaunchPreviewStep
+	Summary            string
+	CompiledTask       string
+	WorkPacketMarkdown string
+	RunSheetMarkdown   string
+	StepMaxTurns       int
+	StepMaxTokens      int
+	AllowApprovalWait  bool
+	Warnings           []RuntimeWarning
+}
+
+type LaunchPreviewStep struct {
+	Sequence          int
 	Role              string
-	AllowedRoles      []string
-	Roster            []string
-	Summary           string
-	CompiledTask      string
-	StepMaxTurns      int
-	StepMaxTokens     int
-	AllowApprovalWait bool
-	Warnings          []RuntimeWarning
+	Note              string
+	GlobalSources     []string
+	DossierSources    []string
+	EffectiveSources  []string
+	PriorReceiptCount int
+	Receives          []string
+	Produces          string
+	BriefMarkdown     string
 }
 
 type LaunchTemplate struct {

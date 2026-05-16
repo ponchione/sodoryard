@@ -283,7 +283,7 @@ func TestBuildTaskIncludesConstrainedRoleInstruction(t *testing.T) {
 
 func TestBuildOneStepTaskIncludesSpecsWhenProvided(t *testing.T) {
 	msg := buildOneStepTask(Options{SourceTask: "fix auth", SourceSpecs: []string{"specs/auth.md"}})
-	if !containsAll(msg, "fix auth", "Source specs: specs/auth.md") {
+	if !containsAll(msg, "fix auth", "Global sources:", "specs/auth.md", "This step's dossier") {
 		t.Fatalf("message = %q, want task and source specs", msg)
 	}
 }
@@ -300,7 +300,7 @@ func TestBuildTaskIncludesOnlyExistingReceiptPaths(t *testing.T) {
 
 func TestPopulateOptionsFromExistingUsesStoredResumeInputs(t *testing.T) {
 	t.Run("hydrates missing task and specs from stored chain", func(t *testing.T) {
-		opts, err := populateOptionsFromExisting(Options{ChainID: "chain-1"}, &chain.Chain{
+		opts, err := populateOptionsFromExisting(context.Background(), nil, Options{ChainID: "chain-1"}, &chain.Chain{
 			ID:          "chain-1",
 			SourceSpecs: []string{"specs/a.md", "specs/b.md"},
 			SourceTask:  "stored task",
@@ -317,7 +317,7 @@ func TestPopulateOptionsFromExistingUsesStoredResumeInputs(t *testing.T) {
 	})
 
 	t.Run("keeps explicit user inputs over stored values", func(t *testing.T) {
-		opts, err := populateOptionsFromExisting(Options{
+		opts, err := populateOptionsFromExisting(context.Background(), nil, Options{
 			ChainID:     "chain-1",
 			SourceSpecs: []string{"specs/override.md"},
 			SourceTask:  "explicit task",
@@ -537,7 +537,7 @@ func TestStartOneStepRunsSelectedRoleAndCompletesChain(t *testing.T) {
 	if result.Status != "completed" {
 		t.Fatalf("result status = %q, want completed", result.Status)
 	}
-	if gotInput.Role != "coder" || gotInput.Task != "implement one thing" {
+	if gotInput.Role != "coder" || !containsAll(gotInput.Task, "Original work packet:", "implement one thing", "This step's dossier") {
 		t.Fatalf("step input = %+v, want coder task", gotInput)
 	}
 	if gotInput.MaxTurns != 4 || gotInput.MaxTokens != 50000 {
@@ -693,8 +693,8 @@ func TestStartOneStepMapsFixRequiredReceiptToPartialExit(t *testing.T) {
 }
 
 func TestBuildManualRosterTaskIncludesOriginalWorkPacketAndPreviousReceipts(t *testing.T) {
-	msg := buildManualRosterTask(Options{SourceTask: "fix auth", SourceSpecs: []string{"specs/auth.md"}}, "chain-1", 2, "coder", []string{"receipts/planner/chain-1-step-001.md"})
-	if !containsAll(msg, "manual roster step 2", "role coder", "chain chain-1", "fix auth", "Source specs: specs/auth.md", "receipts/planner/chain-1-step-001.md") {
+	msg := buildManualRosterTask(Options{SourceTask: "fix auth", SourceSpecs: []string{"specs/auth.md"}}, "chain-1", 2, StepRequest{Role: "coder"}, []string{"receipts/planner/chain-1-step-001.md"})
+	if !containsAll(msg, "manual roster step 2", "role coder", "chain chain-1", "fix auth", "Global sources:", "specs/auth.md", "receipts/planner/chain-1-step-001.md") {
 		t.Fatalf("message = %q, want roster context, original work packet, and previous receipt", msg)
 	}
 }

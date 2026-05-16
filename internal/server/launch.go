@@ -13,22 +13,29 @@ type agentRoleResponse struct {
 }
 
 type launchRequestPayload struct {
-	TemplateID        string   `json:"template_id"`
-	Mode              string   `json:"mode"`
-	Role              string   `json:"role"`
-	AllowedRoles      []string `json:"allowed_roles"`
-	Roster            []string `json:"roster"`
-	SourceTask        string   `json:"source_task"`
-	SourceSpecs       []string `json:"source_specs"`
-	Task              string   `json:"task"`
-	Specs             []string `json:"specs"`
-	MaxSteps          int      `json:"max_steps"`
-	MaxResolverLoops  int      `json:"max_resolver_loops"`
-	MaxDuration       string   `json:"max_duration"`
-	TokenBudget       int      `json:"token_budget"`
-	StepMaxTurns      int      `json:"step_max_turns"`
-	StepMaxTokens     int      `json:"step_max_tokens"`
-	AllowApprovalWait bool     `json:"allow_approval_wait"`
+	TemplateID        string                    `json:"template_id"`
+	Mode              string                    `json:"mode"`
+	Role              string                    `json:"role"`
+	AllowedRoles      []string                  `json:"allowed_roles"`
+	Roster            []string                  `json:"roster"`
+	Steps             []launchRosterStepPayload `json:"steps"`
+	SourceTask        string                    `json:"source_task"`
+	SourceSpecs       []string                  `json:"source_specs"`
+	Task              string                    `json:"task"`
+	Specs             []string                  `json:"specs"`
+	MaxSteps          int                       `json:"max_steps"`
+	MaxResolverLoops  int                       `json:"max_resolver_loops"`
+	MaxDuration       string                    `json:"max_duration"`
+	TokenBudget       int                       `json:"token_budget"`
+	StepMaxTurns      int                       `json:"step_max_turns"`
+	StepMaxTokens     int                       `json:"step_max_tokens"`
+	AllowApprovalWait bool                      `json:"allow_approval_wait"`
+}
+
+type launchRosterStepPayload struct {
+	Role    string   `json:"role"`
+	Note    string   `json:"note,omitempty"`
+	Sources []string `json:"sources,omitempty"`
 }
 
 type launchRequestEnvelope struct {
@@ -43,20 +50,21 @@ type saveLaunchPresetRequest struct {
 }
 
 type launchRequestResponse struct {
-	TemplateID        string   `json:"template_id,omitempty"`
-	Mode              string   `json:"mode"`
-	Role              string   `json:"role,omitempty"`
-	AllowedRoles      []string `json:"allowed_roles,omitempty"`
-	Roster            []string `json:"roster,omitempty"`
-	SourceTask        string   `json:"source_task,omitempty"`
-	SourceSpecs       []string `json:"source_specs,omitempty"`
-	MaxSteps          int      `json:"max_steps,omitempty"`
-	MaxResolverLoops  int      `json:"max_resolver_loops,omitempty"`
-	MaxDuration       string   `json:"max_duration,omitempty"`
-	TokenBudget       int      `json:"token_budget,omitempty"`
-	StepMaxTurns      int      `json:"step_max_turns,omitempty"`
-	StepMaxTokens     int      `json:"step_max_tokens,omitempty"`
-	AllowApprovalWait bool     `json:"allow_approval_wait,omitempty"`
+	TemplateID        string                    `json:"template_id,omitempty"`
+	Mode              string                    `json:"mode"`
+	Role              string                    `json:"role,omitempty"`
+	AllowedRoles      []string                  `json:"allowed_roles,omitempty"`
+	Roster            []string                  `json:"roster,omitempty"`
+	Steps             []launchRosterStepPayload `json:"steps,omitempty"`
+	SourceTask        string                    `json:"source_task,omitempty"`
+	SourceSpecs       []string                  `json:"source_specs,omitempty"`
+	MaxSteps          int                       `json:"max_steps,omitempty"`
+	MaxResolverLoops  int                       `json:"max_resolver_loops,omitempty"`
+	MaxDuration       string                    `json:"max_duration,omitempty"`
+	TokenBudget       int                       `json:"token_budget,omitempty"`
+	StepMaxTurns      int                       `json:"step_max_turns,omitempty"`
+	StepMaxTokens     int                       `json:"step_max_tokens,omitempty"`
+	AllowApprovalWait bool                      `json:"allow_approval_wait,omitempty"`
 }
 
 type launchPreviewResponse struct {
@@ -65,13 +73,30 @@ type launchPreviewResponse struct {
 	Role               string                   `json:"role,omitempty"`
 	AllowedRoles       []string                 `json:"allowed_roles,omitempty"`
 	Roster             []string                 `json:"roster,omitempty"`
+	SourceTask         string                   `json:"source_task,omitempty"`
+	SourceSpecs        []string                 `json:"source_specs"`
+	Steps              []launchPreviewStepResponse `json:"steps,omitempty"`
 	Summary            string                   `json:"summary"`
 	CompiledTask       string                   `json:"compiled_task"`
 	WorkPacketMarkdown string                   `json:"work_packet_markdown"`
+	RunSheetMarkdown   string                   `json:"run_sheet_markdown"`
 	StepMaxTurns       int                      `json:"step_max_turns,omitempty"`
 	StepMaxTokens      int                      `json:"step_max_tokens,omitempty"`
 	AllowApprovalWait  bool                     `json:"allow_approval_wait,omitempty"`
 	Warnings           []runtimeWarningResponse `json:"warnings"`
+}
+
+type launchPreviewStepResponse struct {
+	Sequence          int      `json:"sequence"`
+	Role              string   `json:"role"`
+	Note              string   `json:"note,omitempty"`
+	GlobalSources     []string `json:"global_sources"`
+	DossierSources    []string `json:"dossier_sources"`
+	EffectiveSources  []string `json:"effective_sources"`
+	PriorReceiptCount int      `json:"prior_receipt_count"`
+	Receives          []string `json:"receives"`
+	Produces          string   `json:"produces"`
+	BriefMarkdown     string   `json:"brief_markdown"`
 }
 
 type launchDraftReadResponse struct {
@@ -307,6 +332,7 @@ func (p launchRequestPayload) request() (operator.LaunchRequest, error) {
 		Role:              p.Role,
 		AllowedRoles:      append([]string(nil), p.AllowedRoles...),
 		Roster:            append([]string(nil), p.Roster...),
+		Steps:             launchRosterStepsFromPayload(p.Steps),
 		SourceTask:        sourceTask,
 		SourceSpecs:       append([]string(nil), sourceSpecs...),
 		MaxSteps:          p.MaxSteps,
@@ -326,6 +352,7 @@ func launchRequestResponseFromOperator(req operator.LaunchRequest) launchRequest
 		Role:              req.Role,
 		AllowedRoles:      append([]string(nil), req.AllowedRoles...),
 		Roster:            append([]string(nil), req.Roster...),
+		Steps:             launchRosterStepsToPayload(req.Steps),
 		SourceTask:        req.SourceTask,
 		SourceSpecs:       append([]string(nil), req.SourceSpecs...),
 		MaxSteps:          req.MaxSteps,
@@ -352,14 +379,61 @@ func launchPreviewResponseFromOperator(preview operator.LaunchPreview) launchPre
 		Role:               preview.Role,
 		AllowedRoles:       append([]string(nil), preview.AllowedRoles...),
 		Roster:             append([]string(nil), preview.Roster...),
+		SourceTask:         preview.SourceTask,
+		SourceSpecs:        append([]string(nil), preview.SourceSpecs...),
+		Steps:              launchPreviewStepsFromOperator(preview.Steps),
 		Summary:            preview.Summary,
 		CompiledTask:       preview.CompiledTask,
-		WorkPacketMarkdown: preview.CompiledTask,
+		WorkPacketMarkdown: preview.WorkPacketMarkdown,
+		RunSheetMarkdown:   preview.RunSheetMarkdown,
 		StepMaxTurns:       preview.StepMaxTurns,
 		StepMaxTokens:      preview.StepMaxTokens,
 		AllowApprovalWait:  preview.AllowApprovalWait,
 		Warnings:           warnings,
 	}
+}
+
+func launchRosterStepsFromPayload(steps []launchRosterStepPayload) []operator.LaunchRosterStep {
+	out := make([]operator.LaunchRosterStep, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, operator.LaunchRosterStep{
+			Role:    step.Role,
+			Note:    step.Note,
+			Sources: append([]string(nil), step.Sources...),
+		})
+	}
+	return out
+}
+
+func launchRosterStepsToPayload(steps []operator.LaunchRosterStep) []launchRosterStepPayload {
+	out := make([]launchRosterStepPayload, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, launchRosterStepPayload{
+			Role:    step.Role,
+			Note:    step.Note,
+			Sources: append([]string(nil), step.Sources...),
+		})
+	}
+	return out
+}
+
+func launchPreviewStepsFromOperator(steps []operator.LaunchPreviewStep) []launchPreviewStepResponse {
+	out := make([]launchPreviewStepResponse, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, launchPreviewStepResponse{
+			Sequence:          step.Sequence,
+			Role:              step.Role,
+			Note:              step.Note,
+			GlobalSources:     append([]string(nil), step.GlobalSources...),
+			DossierSources:    append([]string(nil), step.DossierSources...),
+			EffectiveSources:  append([]string(nil), step.EffectiveSources...),
+			PriorReceiptCount: step.PriorReceiptCount,
+			Receives:          append([]string(nil), step.Receives...),
+			Produces:          step.Produces,
+			BriefMarkdown:     step.BriefMarkdown,
+		})
+	}
+	return out
 }
 
 func launchDraftResponseFromOperator(draft operator.LaunchDraft) launchDraftResponse {

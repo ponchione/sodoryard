@@ -16,6 +16,7 @@ type SaveLaunchArgs struct {
 	Role             string `json:"role"`
 	AllowedRolesJSON string `json:"allowed_roles_json"`
 	RosterJSON       string `json:"roster_json"`
+	StepsJSON        string `json:"steps_json"`
 	SourceTask       string `json:"source_task"`
 	SourceSpecsJSON  string `json:"source_specs_json"`
 	StepMaxTurns     uint64 `json:"step_max_turns"`
@@ -30,6 +31,7 @@ type SaveLaunchPresetArgs struct {
 	Role             string `json:"role"`
 	AllowedRolesJSON string `json:"allowed_roles_json"`
 	RosterJSON       string `json:"roster_json"`
+	StepsJSON        string `json:"steps_json"`
 	StepMaxTurns     uint64 `json:"step_max_turns"`
 	StepMaxTokens    uint64 `json:"step_max_tokens"`
 	UpdatedAtUS      uint64 `json:"updated_at_us"`
@@ -74,6 +76,7 @@ func saveLaunchReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, error) {
 		Role:             args.Role,
 		AllowedRolesJSON: defaultString(args.AllowedRolesJSON, emptyJSONArray),
 		RosterJSON:       defaultString(args.RosterJSON, emptyJSONArray),
+		StepsJSON:        defaultString(args.StepsJSON, emptyJSONArray),
 		SourceTask:       args.SourceTask,
 		SourceSpecsJSON:  defaultString(args.SourceSpecsJSON, emptyJSONArray),
 		StepMaxTurns:     args.StepMaxTurns,
@@ -125,6 +128,7 @@ func saveLaunchPresetReducer(ctx *schema.ReducerContext, raw []byte) ([]byte, er
 		Role:             args.Role,
 		AllowedRolesJSON: defaultString(args.AllowedRolesJSON, emptyJSONArray),
 		RosterJSON:       defaultString(args.RosterJSON, emptyJSONArray),
+		StepsJSON:        defaultString(args.StepsJSON, emptyJSONArray),
 		StepMaxTurns:     args.StepMaxTurns,
 		StepMaxTokens:    args.StepMaxTokens,
 		CreatedAtUS:      createdAtUS,

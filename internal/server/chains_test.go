@@ -601,8 +601,8 @@ func TestLaunchOperatorEndpoints(t *testing.T) {
 		} `json:"request"`
 	}
 	postJSON(t, base+"/api/launch/presets", `{"name":"audit pair","request":{"mode":"manual_roster","roster":["coder","orchestrator"],"step_max_tokens":4000}}`, &preset)
-	if preset.ID != "custom:audit pair" || preset.Name != "audit pair" || preset.Request.Mode != string(operator.LaunchModeManualRoster) || len(preset.Request.Roster) != 2 || preset.Request.StepMaxTokens != 4000 {
-		t.Fatalf("preset = %+v, want saved manual roster preset", preset)
+	if preset.ID != "custom:audit pair" || preset.Name != "audit pair" || preset.Request.Mode != string(operator.LaunchModeManualRoster) || len(preset.Request.Roster) != 2 || preset.Request.StepMaxTokens != 0 {
+		t.Fatalf("preset = %+v, want saved manual roster preset with template limits dropped", preset)
 	}
 
 	var presets []struct {
@@ -628,8 +628,33 @@ func TestLaunchOperatorEndpoints(t *testing.T) {
 	if preview.Mode != string(operator.LaunchModeConstrained) || preview.Role != "orchestrator" || len(preview.AllowedRoles) != 1 || preview.AllowedRoles[0] != "coder" || preview.Template.ID != "constrained_orchestration" {
 		t.Fatalf("preview = %+v, want normalized constrained launch preview", preview)
 	}
-	if !strings.Contains(preview.CompiledTask, "Allowed roles: coder") || preview.WorkPacketMarkdown != preview.CompiledTask {
-		t.Fatalf("preview packet = %+v, want compiled task exposed under both names", preview)
+	if !strings.Contains(preview.CompiledTask, "Allowed roles: coder") || !strings.Contains(preview.WorkPacketMarkdown, "Work packet") || !strings.Contains(preview.WorkPacketMarkdown, "Allowed roles:") {
+		t.Fatalf("preview packet = %+v, want compiled task and work packet markdown", preview)
+	}
+
+	var structuredPreview struct {
+		Mode             string   `json:"mode"`
+		Roster           []string `json:"roster"`
+		SourceTask       string   `json:"source_task"`
+		SourceSpecs      []string `json:"source_specs"`
+		RunSheetMarkdown string   `json:"run_sheet_markdown"`
+		Steps            []struct {
+			Sequence         int      `json:"sequence"`
+			Role             string   `json:"role"`
+			Note             string   `json:"note"`
+			DossierSources   []string `json:"dossier_sources"`
+			EffectiveSources []string `json:"effective_sources"`
+		} `json:"steps"`
+	}
+	postJSON(t, base+"/api/launch/preview", `{"mode":"manual_roster","source_task":" ship composer ","source_specs":["README.md","README.md"],"roster":["coder","orchestrator","coder"],"steps":[{"role":" coder ","note":" plan ","sources":["docs/a.md","docs/a.md"]},{"role":"orchestrator"},{"role":"coder"}]}`, &structuredPreview)
+	if structuredPreview.Mode != string(operator.LaunchModeManualRoster) || structuredPreview.SourceTask != "ship composer" || len(structuredPreview.Steps) != 3 || len(structuredPreview.Roster) != 3 {
+		t.Fatalf("structured preview = %+v, want normalized manual roster response", structuredPreview)
+	}
+	if structuredPreview.Steps[0].Role != "coder" || structuredPreview.Steps[0].Note != "plan" || len(structuredPreview.Steps[0].DossierSources) != 1 || structuredPreview.Steps[2].Role != "coder" {
+		t.Fatalf("structured preview steps = %+v, want trimmed dossier and duplicate coder preserved", structuredPreview.Steps)
+	}
+	if !strings.Contains(structuredPreview.RunSheetMarkdown, "Run sheet") || !strings.Contains(structuredPreview.RunSheetMarkdown, "prior receipts: 2") {
+		t.Fatalf("structured run sheet = %q, want prior receipt summary", structuredPreview.RunSheetMarkdown)
 	}
 
 	var started struct {

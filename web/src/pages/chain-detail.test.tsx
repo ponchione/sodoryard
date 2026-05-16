@@ -546,6 +546,59 @@ describe("ChainDetailPage", () => {
     });
   });
 
+  it("renders chain detail responses that contain null list fields", async () => {
+    const base = chainDetailFixture({ chain: { id: "chain-null", source_task: "" } });
+    const detail = {
+      ...base,
+      chain: {
+        ...base.chain,
+        source_specs: null,
+      },
+      steps: null,
+      receipts: null,
+      approvals: null,
+      recent_events: null,
+      timeline: null,
+      warnings: null,
+      guardrails: {
+        ...base.guardrails,
+        open_finding_ids: null,
+        closed_finding_ids: null,
+        addressed_finding_ids: null,
+        reopened_finding_ids: null,
+        repeated_resolver_finding_ids: null,
+        findings: null,
+        changed_files: null,
+        step_facts: null,
+      },
+      metrics: {
+        ...chainMetrics(),
+        open_finding_ids: null,
+        closed_finding_ids: null,
+        addressed_finding_ids: null,
+        reopened_finding_ids: null,
+        repeated_resolver_finding_ids: null,
+        finding_lifecycle: null,
+        warnings: null,
+        steps: null,
+      },
+    } as unknown as ChainDetail;
+    apiGet.mockResolvedValue(detail);
+
+    render(
+      <MemoryRouter initialEntries={["/chains/chain-null"]}>
+        <Routes>
+          <Route path="/chains/:id" element={<ChainDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("running / ok")).toBeInTheDocument();
+    expect(screen.getByText("No task recorded")).toBeInTheDocument();
+    expect(screen.getByText("Open: none")).toBeInTheDocument();
+    expect(screen.getByText("0/0 events")).toBeInTheDocument();
+  });
+
   it("merges SDK-decoded project memory events into the timeline without REST event polling", async () => {
     const detail: ChainDetail = {
       health: "ok",

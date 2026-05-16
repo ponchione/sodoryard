@@ -2,7 +2,7 @@
 
 **Project:** sodoryard
 **Version:** current
-**Last Updated:** 2026-05-12
+**Last Updated:** 2026-05-16
 
 ---
 
@@ -34,12 +34,14 @@
 | 22  | [[22-sequential-agent-guardrails]]   | ✅ Implemented | Sequential mutating agents, hard role guardrails, typed receipts, and auditability |
 | 23  | [[23-genkit-patterns-for-yard]]      | ⚠️ Working plan | Genkit-inspired tracing, typed contracts, hooks, evals, capabilities, and streaming ideas for Yard |
 | 24  | [[24-electron-desktop-app]]          | ✅ Draft | Electron desktop GUI for operator console and rich inspection workflows  |
+| 25  | [[25-launch-chain-composer]]         | ✅ Draft | Implementation-ready visual chain-composer spec for the Launch workbench |
 
 ## Status Legend
 
 - ✅ **Draft** — Substantive content based on completed discussions. Ready for review and refinement.
 - ✅ **Implemented** — Required mechanics have landed; the document may still list optional future work.
 - ⚠️ **Skeleton** — Structure and key questions defined. Needs dedicated deep-dive conversation to fill in.
+- ⚠️ **Working plan / brainstorm** — Active planning notes that may change as design discussion continues.
 - 🔴 **Blocked** — Cannot proceed without resolving a dependency.
 
 ## Next Actions

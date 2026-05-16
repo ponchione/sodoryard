@@ -53,6 +53,7 @@ export interface LaunchRequest {
   role?: string;
   allowed_roles?: string[];
   roster?: string[];
+  steps?: LaunchRosterStep[];
   source_task?: string;
   source_specs?: string[];
   max_steps?: number;
@@ -62,6 +63,12 @@ export interface LaunchRequest {
   step_max_turns?: number;
   step_max_tokens?: number;
   allow_approval_wait?: boolean;
+}
+
+export interface LaunchRosterStep {
+  role: string;
+  note?: string;
+  sources?: string[];
 }
 
 export interface LaunchTemplate {
@@ -81,13 +88,30 @@ export interface LaunchPreview {
   role?: string;
   allowed_roles?: string[];
   roster?: string[];
+  source_task?: string;
+  source_specs: string[];
+  steps?: LaunchPreviewStep[];
   summary: string;
   compiled_task: string;
   work_packet_markdown: string;
+  run_sheet_markdown: string;
   step_max_turns?: number;
   step_max_tokens?: number;
   allow_approval_wait?: boolean;
   warnings: RuntimeWarning[];
+}
+
+export interface LaunchPreviewStep {
+  sequence: number;
+  role: string;
+  note?: string;
+  global_sources: string[];
+  dossier_sources: string[];
+  effective_sources: string[];
+  prior_receipt_count: number;
+  receives: string[];
+  produces: string;
+  brief_markdown: string;
 }
 
 export interface LaunchStartResponse {

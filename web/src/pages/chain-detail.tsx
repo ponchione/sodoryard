@@ -81,6 +81,106 @@ function approvalMeta(approval: ChainApproval): string {
 type ChainControlAction = "pause" | "resume" | "cancel";
 type ChainEventSeverity = "normal" | "warning" | "error";
 type ChainEventSeverityFilter = "all" | "warning" | "error";
+type ChainGuardrails = ChainDetail["guardrails"];
+type ChainMetricsReport = NonNullable<ChainDetail["metrics"]>;
+
+const emptyGuardrailLockHealth: ChainGuardrails["lock_health"] = {
+  acquired: 0,
+  released: 0,
+  blocked: 0,
+  force_released: 0,
+  release_failed: 0,
+  heartbeat_failed: 0,
+  stale_replaced: 0,
+  unreleased_writers: 0,
+};
+
+const emptyGuardrails: ChainGuardrails = {
+  open_finding_ids: [],
+  closed_finding_ids: [],
+  addressed_finding_ids: [],
+  reopened_finding_ids: [],
+  repeated_resolver_finding_ids: [],
+  findings: [],
+  lock_health: emptyGuardrailLockHealth,
+  changed_files: [],
+  step_facts: [],
+};
+
+function listOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeGuardrails(guardrails: ChainGuardrails | null | undefined): ChainGuardrails {
+  const source = guardrails ?? emptyGuardrails;
+  return {
+    ...source,
+    open_finding_ids: listOrEmpty(source.open_finding_ids),
+    closed_finding_ids: listOrEmpty(source.closed_finding_ids),
+    addressed_finding_ids: listOrEmpty(source.addressed_finding_ids),
+    reopened_finding_ids: listOrEmpty(source.reopened_finding_ids),
+    repeated_resolver_finding_ids: listOrEmpty(source.repeated_resolver_finding_ids),
+    findings: listOrEmpty(source.findings).map((finding) => ({
+      ...finding,
+      files_changed: listOrEmpty(finding.files_changed),
+      validation: listOrEmpty(finding.validation),
+    })),
+    lock_health: source.lock_health ?? emptyGuardrailLockHealth,
+    changed_files: listOrEmpty(source.changed_files).map((manifest) => ({
+      ...manifest,
+      paths: listOrEmpty(manifest.paths),
+    })),
+    step_facts: listOrEmpty(source.step_facts).map((fact) => ({
+      ...fact,
+      claimed_validation_commands: listOrEmpty(fact.claimed_validation_commands),
+      claimed_changed_files: listOrEmpty(fact.claimed_changed_files),
+      changed_file_claim_extra: listOrEmpty(fact.changed_file_claim_extra),
+      changed_file_manifest_unclaimed: listOrEmpty(fact.changed_file_manifest_unclaimed),
+      changed_files: listOrEmpty(fact.changed_files),
+      finding_ids: listOrEmpty(fact.finding_ids),
+      open_finding_ids: listOrEmpty(fact.open_finding_ids),
+      closed_finding_ids: listOrEmpty(fact.closed_finding_ids),
+      addressed_ids: listOrEmpty(fact.addressed_ids),
+    })),
+  };
+}
+
+function normalizeMetrics(metrics: ChainMetricsReport | null | undefined): ChainMetricsReport | undefined {
+  if (!metrics) return undefined;
+  return {
+    ...metrics,
+    open_finding_ids: listOrEmpty(metrics.open_finding_ids),
+    closed_finding_ids: listOrEmpty(metrics.closed_finding_ids),
+    addressed_finding_ids: listOrEmpty(metrics.addressed_finding_ids),
+    reopened_finding_ids: listOrEmpty(metrics.reopened_finding_ids),
+    repeated_resolver_finding_ids: listOrEmpty(metrics.repeated_resolver_finding_ids),
+    finding_lifecycle: listOrEmpty(metrics.finding_lifecycle).map((finding) => ({
+      ...finding,
+      files_changed: listOrEmpty(finding.files_changed),
+      validation: listOrEmpty(finding.validation),
+    })),
+    warnings: listOrEmpty(metrics.warnings),
+    steps: listOrEmpty(metrics.steps),
+  };
+}
+
+function normalizeChainDetail(detail: ChainDetail): ChainDetail {
+  return {
+    ...detail,
+    chain: {
+      ...detail.chain,
+      source_specs: listOrEmpty(detail.chain.source_specs),
+    },
+    steps: listOrEmpty(detail.steps),
+    receipts: listOrEmpty(detail.receipts),
+    approvals: listOrEmpty(detail.approvals),
+    recent_events: listOrEmpty(detail.recent_events),
+    timeline: listOrEmpty(detail.timeline),
+    warnings: listOrEmpty(detail.warnings),
+    guardrails: normalizeGuardrails(detail.guardrails),
+    metrics: normalizeMetrics(detail.metrics),
+  };
+}
 
 function pendingApprovalCount(detail: ChainDetail): number {
   return detail.approvals.filter((approval) => approval.status === "pending").length;
@@ -359,7 +459,7 @@ export function ChainDetailPage() {
         setDetail(null);
         setReceipt(null);
         setSelectedReceipt(null);
-        const chain = await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`);
+        const chain = normalizeChainDetail(await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`));
         if (cancelled) return;
         lastEventIDRef.current = maxChainEventID(chain.recent_events);
         setDetail(chain);
@@ -377,7 +477,7 @@ export function ChainDetailPage() {
   }, [id, requestedReceipt]);
 
   const reloadDetail = useCallback(async () => {
-    const chain = await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`);
+    const chain = normalizeChainDetail(await api.get<ChainDetail>(`/api/chains/${encodeURIComponent(id)}`));
     lastEventIDRef.current = maxChainEventID(chain.recent_events);
     setDetail(chain);
     setSelectedReceipt((current) => selectReceiptForDetail(chain, requestedReceipt, current));
@@ -474,9 +574,9 @@ export function ChainDetailPage() {
     const pollEvents = async () => {
       try {
         const afterID = lastEventIDRef.current;
-        const events = await api.get<ChainEvent[]>(
+        const events = listOrEmpty(await api.get<ChainEvent[]>(
           `/api/chains/${encodeURIComponent(id)}/events?after_id=${afterID}`,
-        );
+        ));
         if (cancelled || events.length === 0) return;
         lastEventIDRef.current = Math.max(lastEventIDRef.current, maxChainEventID(events));
         setDetail((current) => (current ? mergeChainEvents(current, events) : current));

@@ -15,6 +15,7 @@ type Launch struct {
 	Role             string
 	AllowedRolesJSON string
 	RosterJSON       string
+	StepsJSON        string
 	SourceTask       string
 	SourceSpecsJSON  string
 	StepMaxTurns     uint64
@@ -32,6 +33,7 @@ type LaunchPreset struct {
 	Role             string
 	AllowedRolesJSON string
 	RosterJSON       string
+	StepsJSON        string
 	StepMaxTurns     uint64
 	StepMaxTokens    uint64
 	CreatedAtUS      uint64
@@ -48,6 +50,7 @@ func launchRow(launch Launch) types.ProductValue {
 		types.NewString(launch.Role),
 		types.NewString(defaultString(launch.AllowedRolesJSON, emptyJSONArray)),
 		types.NewString(defaultString(launch.RosterJSON, emptyJSONArray)),
+		types.NewString(defaultString(launch.StepsJSON, emptyJSONArray)),
 		types.NewString(launch.SourceTask),
 		types.NewString(defaultString(launch.SourceSpecsJSON, emptyJSONArray)),
 		types.NewUint64(launch.StepMaxTurns),
@@ -67,12 +70,13 @@ func decodeLaunchRow(row types.ProductValue) Launch {
 		Role:             row[5].AsString(),
 		AllowedRolesJSON: row[6].AsString(),
 		RosterJSON:       row[7].AsString(),
-		SourceTask:       row[8].AsString(),
-		SourceSpecsJSON:  row[9].AsString(),
-		StepMaxTurns:     row[10].AsUint64(),
-		StepMaxTokens:    row[11].AsUint64(),
-		CreatedAtUS:      row[12].AsUint64(),
-		UpdatedAtUS:      row[13].AsUint64(),
+		StepsJSON:        row[8].AsString(),
+		SourceTask:       row[9].AsString(),
+		SourceSpecsJSON:  row[10].AsString(),
+		StepMaxTurns:     row[11].AsUint64(),
+		StepMaxTokens:    row[12].AsUint64(),
+		CreatedAtUS:      row[13].AsUint64(),
+		UpdatedAtUS:      row[14].AsUint64(),
 	}
 }
 
@@ -86,6 +90,7 @@ func launchPresetRow(preset LaunchPreset) types.ProductValue {
 		types.NewString(preset.Role),
 		types.NewString(defaultString(preset.AllowedRolesJSON, emptyJSONArray)),
 		types.NewString(defaultString(preset.RosterJSON, emptyJSONArray)),
+		types.NewString(defaultString(preset.StepsJSON, emptyJSONArray)),
 		types.NewUint64(preset.StepMaxTurns),
 		types.NewUint64(preset.StepMaxTokens),
 		types.NewUint64(preset.CreatedAtUS),
@@ -103,10 +108,11 @@ func decodeLaunchPresetRow(row types.ProductValue) LaunchPreset {
 		Role:             row[5].AsString(),
 		AllowedRolesJSON: row[6].AsString(),
 		RosterJSON:       row[7].AsString(),
-		StepMaxTurns:     row[8].AsUint64(),
-		StepMaxTokens:    row[9].AsUint64(),
-		CreatedAtUS:      row[10].AsUint64(),
-		UpdatedAtUS:      row[11].AsUint64(),
+		StepsJSON:        row[8].AsString(),
+		StepMaxTurns:     row[9].AsUint64(),
+		StepMaxTokens:    row[10].AsUint64(),
+		CreatedAtUS:      row[11].AsUint64(),
+		UpdatedAtUS:      row[12].AsUint64(),
 	}
 }
 

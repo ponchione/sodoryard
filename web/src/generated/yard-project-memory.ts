@@ -295,6 +295,7 @@ export interface LaunchesRow {
   role: string;
   allowedRolesJson: string;
   rosterJson: string;
+  stepsJson: string;
   sourceTask: string;
   sourceSpecsJson: string;
   stepMaxTurns: bigint;
@@ -312,6 +313,7 @@ export interface LaunchPresetsRow {
   role: string;
   allowedRolesJson: string;
   rosterJson: string;
+  stepsJson: string;
   stepMaxTurns: bigint;
   stepMaxTokens: bigint;
   createdAtUs: bigint;
@@ -866,6 +868,7 @@ const launchesColumns = [
   { name: "role", kind: "string" },
   { name: "allowed_roles_json", kind: "string" },
   { name: "roster_json", kind: "string" },
+  { name: "steps_json", kind: "string" },
   { name: "source_task", kind: "string" },
   { name: "source_specs_json", kind: "string" },
   { name: "step_max_turns", kind: "uint64" },
@@ -884,12 +887,13 @@ export function decodeLaunchesRow(row: Uint8Array): LaunchesRow {
     role: values[5] as string,
     allowedRolesJson: values[6] as string,
     rosterJson: values[7] as string,
-    sourceTask: values[8] as string,
-    sourceSpecsJson: values[9] as string,
-    stepMaxTurns: values[10] as bigint,
-    stepMaxTokens: values[11] as bigint,
-    createdAtUs: values[12] as bigint,
-    updatedAtUs: values[13] as bigint,
+    stepsJson: values[8] as string,
+    sourceTask: values[9] as string,
+    sourceSpecsJson: values[10] as string,
+    stepMaxTurns: values[11] as bigint,
+    stepMaxTokens: values[12] as bigint,
+    createdAtUs: values[13] as bigint,
+    updatedAtUs: values[14] as bigint,
   }));
 }
 
@@ -902,6 +906,7 @@ const launchPresetsColumns = [
   { name: "role", kind: "string" },
   { name: "allowed_roles_json", kind: "string" },
   { name: "roster_json", kind: "string" },
+  { name: "steps_json", kind: "string" },
   { name: "step_max_turns", kind: "uint64" },
   { name: "step_max_tokens", kind: "uint64" },
   { name: "created_at_us", kind: "uint64" },
@@ -918,10 +923,11 @@ export function decodeLaunchPresetsRow(row: Uint8Array): LaunchPresetsRow {
     role: values[5] as string,
     allowedRolesJson: values[6] as string,
     rosterJson: values[7] as string,
-    stepMaxTurns: values[8] as bigint,
-    stepMaxTokens: values[9] as bigint,
-    createdAtUs: values[10] as bigint,
-    updatedAtUs: values[11] as bigint,
+    stepsJson: values[8] as string,
+    stepMaxTurns: values[9] as bigint,
+    stepMaxTokens: values[10] as bigint,
+    createdAtUs: values[11] as bigint,
+    updatedAtUs: values[12] as bigint,
   }));
 }
 

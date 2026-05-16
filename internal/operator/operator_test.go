@@ -102,6 +102,7 @@ func (f *fakeBrainBackend) SaveLaunch(ctx context.Context, args projectmemory.Sa
 		Role:             args.Role,
 		AllowedRolesJSON: args.AllowedRolesJSON,
 		RosterJSON:       args.RosterJSON,
+		StepsJSON:        args.StepsJSON,
 		SourceTask:       args.SourceTask,
 		SourceSpecsJSON:  args.SourceSpecsJSON,
 		StepMaxTurns:     args.StepMaxTurns,
@@ -136,6 +137,7 @@ func (f *fakeBrainBackend) SaveLaunchPreset(ctx context.Context, args projectmem
 		Role:             args.Role,
 		AllowedRolesJSON: args.AllowedRolesJSON,
 		RosterJSON:       args.RosterJSON,
+		StepsJSON:        args.StepsJSON,
 		StepMaxTurns:     args.StepMaxTurns,
 		StepMaxTokens:    args.StepMaxTokens,
 		CreatedAtUS:      createdAtUS,
@@ -1484,8 +1486,8 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	if preview.Mode != LaunchModeOneStep || preview.Template.ID != "one_step" || preview.Role != "coder" || preview.Summary != "Run one coder step" || preview.CompiledTask != "fix tests" {
 		t.Fatalf("one-step preview = %+v, want coder preview", preview)
 	}
-	if !hasRuntimeWarning(preview.Warnings, "no source specs selected") || !hasRuntimeWarning(preview.Warnings, "single-step coder launch has no per-step turn/token caps") {
-		t.Fatalf("warnings = %+v, want no source specs and uncapped single-step warnings", preview.Warnings)
+	if !hasRuntimeWarning(preview.Warnings, "no source specs selected") || hasRuntimeWarning(preview.Warnings, "single-step coder launch has no per-step turn/token caps") {
+		t.Fatalf("warnings = %+v, want no source specs warning without uncapped single-step warning", preview.Warnings)
 	}
 	byTemplate, err := svc.ValidateLaunch(ctx, LaunchRequest{TemplateID: "one_step", Role: "coder", SourceTask: "fix by template"})
 	if err != nil {
@@ -1527,6 +1529,62 @@ func TestListAgentRolesAndValidateLaunch(t *testing.T) {
 	}
 }
 
+func TestValidateLaunchStructuredStepsNormalizesRunSheetAndConflicts(t *testing.T) {
+	ctx := context.Background()
+	svc := openOperatorTestService(t, t.TempDir(), chain.NewStore(newOperatorTestDB(t)), &fakeBrainBackend{}, nil)
+
+	preview, err := svc.ValidateLaunch(ctx, LaunchRequest{
+		Mode:        LaunchModeManualRoster,
+		Roster:      []string{" coder ", "orchestrator", "coder"},
+		SourceTask:  " ship composer ",
+		SourceSpecs: []string{"docs/global.md", "docs/global.md", " README.md "},
+		Steps: []LaunchRosterStep{
+			{Role: " coder ", Note: " plan it ", Sources: []string{" README.md ", "README.md", "docs/a.md"}},
+			{Role: "orchestrator"},
+			{Role: "coder", Note: " finish "},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ValidateLaunch returned error: %v", err)
+	}
+	if preview.Mode != LaunchModeManualRoster || preview.Role != "coder,orchestrator,coder" || !reflect.DeepEqual(preview.Roster, []string{"coder", "orchestrator", "coder"}) {
+		t.Fatalf("preview = %+v, want normalized manual roster with duplicate coder preserved", preview)
+	}
+	if preview.SourceTask != "ship composer" || !reflect.DeepEqual(preview.SourceSpecs, []string{"docs/global.md", "README.md"}) {
+		t.Fatalf("preview sources = task %q specs %+v, want trimmed task and deduped global sources", preview.SourceTask, preview.SourceSpecs)
+	}
+	if len(preview.Steps) != 3 {
+		t.Fatalf("preview steps = %+v, want 3 steps", preview.Steps)
+	}
+	first := preview.Steps[0]
+	if first.Sequence != 1 || first.Role != "coder" || first.Note != "plan it" || !reflect.DeepEqual(first.DossierSources, []string{"README.md", "docs/a.md"}) || !reflect.DeepEqual(first.EffectiveSources, []string{"docs/global.md", "README.md", "docs/a.md"}) {
+		t.Fatalf("first preview step = %+v, want normalized dossier and effective sources", first)
+	}
+	if preview.Steps[2].PriorReceiptCount != 2 || preview.Steps[2].Role != "coder" {
+		t.Fatalf("third preview step = %+v, want duplicate coder with two prior receipts", preview.Steps[2])
+	}
+	if !strings.Contains(preview.RunSheetMarkdown, "Run sheet") || !strings.Contains(preview.RunSheetMarkdown, "prior receipts: 2") || !strings.Contains(preview.RunSheetMarkdown, "coder receipt") {
+		t.Fatalf("run sheet = %q, want structured step summary", preview.RunSheetMarkdown)
+	}
+
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{
+		Mode:       LaunchModeManualRoster,
+		Roster:     []string{"orchestrator"},
+		SourceTask: "ship",
+		Steps:      []LaunchRosterStep{{Role: "coder"}},
+	}); err == nil || !strings.Contains(err.Error(), "launch roster does not match structured steps") {
+		t.Fatalf("ValidateLaunch mismatch error = %v, want roster/steps mismatch", err)
+	}
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{
+		Mode:       LaunchModeOneStep,
+		Role:       "orchestrator",
+		SourceTask: "ship",
+		Steps:      []LaunchRosterStep{{Role: "coder"}},
+	}); err == nil || !strings.Contains(err.Error(), "one-step launch role does not match structured step") {
+		t.Fatalf("ValidateLaunch role mismatch error = %v, want role/step mismatch", err)
+	}
+}
+
 func TestListLaunchTemplatesReturnsTypedMetadata(t *testing.T) {
 	ctx := context.Background()
 	svc := openOperatorTestService(t, t.TempDir(), chain.NewStore(newOperatorTestDB(t)), &fakeBrainBackend{}, nil)
@@ -1562,14 +1620,14 @@ func TestValidateLaunchRejectsMissingInputsAndUnknownRole(t *testing.T) {
 	ctx := context.Background()
 	svc := openOperatorTestService(t, t.TempDir(), chain.NewStore(newOperatorTestDB(t)), &fakeBrainBackend{}, nil)
 
-	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder"}); err == nil || !strings.Contains(err.Error(), "one of task or specs is required") {
-		t.Fatalf("ValidateLaunch missing inputs error = %v, want missing task/specs", err)
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "coder"}); err == nil || !strings.Contains(err.Error(), "one of task or global sources is required") {
+		t.Fatalf("ValidateLaunch missing inputs error = %v, want missing task/global sources", err)
 	}
-	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "missing", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "resolve launch role") {
-		t.Fatalf("ValidateLaunch unknown role error = %v, want role resolution error", err)
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeOneStep, Role: "missing", SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "resolve launch step 1 role") {
+		t.Fatalf("ValidateLaunch unknown role error = %v, want step role resolution error", err)
 	}
-	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeManualRoster, SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "manual roster requires at least one role") {
-		t.Fatalf("ValidateLaunch missing roster error = %v, want missing roster error", err)
+	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeManualRoster, SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "manual roster requires at least one step") {
+		t.Fatalf("ValidateLaunch missing roster error = %v, want missing structured step error", err)
 	}
 	if _, err := svc.ValidateLaunch(ctx, LaunchRequest{Mode: LaunchModeConstrained, SourceTask: "fix"}); err == nil || !strings.Contains(err.Error(), "constrained orchestration requires at least one allowed role") {
 		t.Fatalf("ValidateLaunch missing constrained roles error = %v, want missing allowed roles error", err)
@@ -1840,7 +1898,7 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	saved, err := svc.SaveLaunchDraft(ctx, LaunchRequest{
 		Mode:          LaunchModeConstrained,
 		Role:          "coder",
-		AllowedRoles:  []string{"coder", "planner"},
+		AllowedRoles:  []string{"coder", "orchestrator"},
 		SourceTask:    "persist launch",
 		SourceSpecs:   []string{"docs/specs/a.md", "docs/specs/b.md"},
 		StepMaxTurns:  6,
@@ -1860,10 +1918,10 @@ func TestLaunchDraftSaveLoadRoundTripsCurrentDraft(t *testing.T) {
 	if !found {
 		t.Fatal("LoadLaunchDraft found=false, want saved draft")
 	}
-	if loaded.Request.Mode != LaunchModeConstrained || loaded.Request.Role != "coder" || loaded.Request.SourceTask != "persist launch" {
-		t.Fatalf("loaded draft request = %+v, want constrained coder task", loaded.Request)
+	if loaded.Request.Mode != LaunchModeConstrained || loaded.Request.Role != "orchestrator" || loaded.Request.SourceTask != "persist launch" {
+		t.Fatalf("loaded draft request = %+v, want constrained orchestrator task", loaded.Request)
 	}
-	if !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "planner"}) || !reflect.DeepEqual(loaded.Request.SourceSpecs, []string{"docs/specs/a.md", "docs/specs/b.md"}) {
+	if !reflect.DeepEqual(loaded.Request.AllowedRoles, []string{"coder", "orchestrator"}) || !reflect.DeepEqual(loaded.Request.SourceSpecs, []string{"docs/specs/a.md", "docs/specs/b.md"}) {
 		t.Fatalf("loaded draft slices = allowed %v specs %v", loaded.Request.AllowedRoles, loaded.Request.SourceSpecs)
 	}
 	if loaded.Request.StepMaxTurns != 6 || loaded.Request.StepMaxTokens != 70000 {
@@ -1931,15 +1989,15 @@ func TestLaunchPresetSaveListRoundTripsCustomPreset(t *testing.T) {
 	if saved.Request.Mode != LaunchModeManualRoster || saved.Request.Role != "coder,orchestrator" || !reflect.DeepEqual(saved.Request.Roster, []string{"coder", "orchestrator"}) {
 		t.Fatalf("saved preset request = %+v, want manual roster", saved.Request)
 	}
-	if saved.Request.StepMaxTurns != 4 || saved.Request.StepMaxTokens != 50000 {
-		t.Fatalf("saved preset caps = turns %d tokens %d, want 4/50000", saved.Request.StepMaxTurns, saved.Request.StepMaxTokens)
+	if saved.Request.StepMaxTurns != 0 || saved.Request.StepMaxTokens != 0 {
+		t.Fatalf("saved preset caps = turns %d tokens %d, want template caps dropped", saved.Request.StepMaxTurns, saved.Request.StepMaxTokens)
 	}
 
 	presets, err := svc.ListLaunchPresets(ctx)
 	if err != nil {
 		t.Fatalf("ListLaunchPresets returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Name != "audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 4 || presets[0].Request.StepMaxTokens != 50000 {
+	if len(presets) != 1 || presets[0].Name != "audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 0 || presets[0].Request.StepMaxTokens != 0 {
 		t.Fatalf("presets = %+v, want saved audit pair", presets)
 	}
 
@@ -2007,14 +2065,14 @@ func TestLaunchDraftAndPresetsUseProjectMemoryInShunterMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveLaunchPreset returned error: %v", err)
 	}
-	if preset.ID != "custom:shunter audit pair" || preset.Request.SourceTask != "" || preset.Request.StepMaxTurns != 4 || preset.Request.StepMaxTokens != 50000 {
-		t.Fatalf("preset = %+v, want custom preset without source task and with caps", preset)
+	if preset.ID != "custom:shunter audit pair" || preset.Request.SourceTask != "" || preset.Request.StepMaxTurns != 0 || preset.Request.StepMaxTokens != 0 {
+		t.Fatalf("preset = %+v, want custom preset without source task or caps", preset)
 	}
 	presets, err := svc.ListLaunchPresets(ctx)
 	if err != nil {
 		t.Fatalf("ListLaunchPresets returned error: %v", err)
 	}
-	if len(presets) != 1 || presets[0].Name != "shunter audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 4 || presets[0].Request.StepMaxTokens != 50000 {
+	if len(presets) != 1 || presets[0].Name != "shunter audit pair" || !reflect.DeepEqual(presets[0].Request.Roster, []string{"coder", "orchestrator"}) || presets[0].Request.StepMaxTurns != 0 || presets[0].Request.StepMaxTokens != 0 {
 		t.Fatalf("presets = %+v, want Shunter custom preset", presets)
 	}
 	if _, statErr := os.Stat(cfg.DatabasePath()); !os.IsNotExist(statErr) {

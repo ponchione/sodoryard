@@ -3,6 +3,7 @@ package chainrun
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -53,6 +54,8 @@ type StepRunner interface {
 type StepRequest struct {
 	Role          string
 	TaskContext   string
+	Note          string
+	Sources       []string
 	ReindexBefore bool
 }
 
@@ -61,6 +64,7 @@ type Options struct {
 	Mode              Mode
 	Role              string
 	AllowedRoles      []string
+	Step              StepRequest
 	Roster            []StepRequest
 	SourceSpecs       []string
 	SourceTask        string
@@ -113,6 +117,33 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 	if cfg == nil {
 		return nil, fmt.Errorf("chain start: config is required")
 	}
+	rt, err := deps.BuildRuntime(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer rt.Cleanup()
+
+	chainID := strings.TrimSpace(opts.ChainID)
+	if chainID == "" {
+		chainID = deps.NewChainID()
+	}
+
+	existing, err := resolveExistingChain(ctx, rt.ChainStore, chainID)
+	if err != nil {
+		return nil, err
+	}
+	isNew := existing == nil
+	resumed := false
+	if existing != nil {
+		opts, err = populateOptionsFromExisting(ctx, rt.ChainStore, opts, existing)
+		if err != nil {
+			return nil, err
+		}
+		resumed = existing.Status == "paused"
+		if existing.Status == chain.StatusWaitingApproval {
+			opts.AllowApprovalWait = true
+		}
+	}
 	mode, err := resolveMode(opts)
 	if err != nil {
 		return nil, err
@@ -143,20 +174,22 @@ func Start(ctx context.Context, cfg *appconfig.Config, opts Options, deps Deps) 
 			return nil, err
 		}
 	}
-	rt, err := deps.BuildRuntime(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer rt.Cleanup()
-
-	chainID := strings.TrimSpace(opts.ChainID)
-	if chainID == "" {
-		chainID = deps.NewChainID()
-	}
-
-	opts, isNew, resumed, err := prepareChainForExecution(ctx, rt.ChainStore, chainID, opts)
-	if err != nil {
-		return nil, err
+	if isNew {
+		if _, err := rt.ChainStore.StartChain(ctx, chainSpecFromOptions(chainID, opts)); err != nil {
+			return nil, err
+		}
+		payload := chainLaunchEventPayload(opts)
+		if opts.DryRun {
+			payload["dry_run"] = true
+		}
+		if len(opts.AllowedRoles) > 0 {
+			payload["allowed_roles"] = opts.AllowedRoles
+		}
+		_ = rt.ChainStore.LogEvent(ctx, chainID, "", chain.EventChainStarted, payload)
+	} else if !opts.DryRun {
+		if err := prepareExistingChainForExecution(ctx, rt.ChainStore, existing); err != nil {
+			return nil, err
+		}
 	}
 
 	if opts.OnChainID != nil {
@@ -277,7 +310,7 @@ func runOrchestratorMode(ctx context.Context, cfg *appconfig.Config, rt *rtpkg.O
 func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
 	configureStepRunnerApprovalWait(runner, opts.AllowApprovalWait)
-	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: false, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
+	stepResult, _, err := runner.RunStep(ctx, spawnpkg.AgentStepInput{Role: opts.Role, Task: buildOneStepTask(opts), ReindexBefore: opts.Step.ReindexBefore, MaxTurns: opts.StepMaxTurns, MaxTokens: opts.StepMaxTokens})
 	if err != nil {
 		if errors.Is(err, tool.ErrChainComplete) {
 			cleanupCtx := context.WithoutCancel(ctx)
@@ -328,13 +361,18 @@ func runOneStepMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Opt
 func runManualRosterMode(ctx context.Context, rt *rtpkg.OrchestratorRuntime, opts Options, deps Deps, chainID string, watch WatchHandle) (*Result, error) {
 	runner := deps.NewStepRunner(rt, chainID)
 	configureStepRunnerApprovalWait(runner, opts.AllowApprovalWait)
-	receiptPaths := existingReceiptPaths(mustListSteps(ctx, rt.ChainStore, chainID))
+	existingSteps := mustListSteps(ctx, rt.ChainStore, chainID)
+	receiptPaths := existingReceiptPaths(existingSteps)
+	startIndex := len(existingSteps)
 	results := make([]spawnpkg.AgentStepResult, 0, len(opts.Roster))
 	for i, step := range opts.Roster {
+		if i < startIndex {
+			continue
+		}
 		if controlled, result, err := stopIfRequested(ctx, rt.ChainStore, chainID, watch, opts.WatchFlushTimeout); controlled || err != nil {
 			return result, err
 		}
-		task := buildManualRosterTask(opts, chainID, i+1, step.Role, receiptPaths)
+		task := buildManualRosterTask(opts, chainID, i+1, step, receiptPaths)
 		taskContext := strings.TrimSpace(step.TaskContext)
 		if taskContext == "" {
 			taskContext = manualRosterTaskContext(chainID, i+1, step.Role)
@@ -455,6 +493,20 @@ func resolveStepRoles(cfg *appconfig.Config, opts Options, mode Mode) (Options, 
 			return opts, fmt.Errorf("chain start: %w", err)
 		}
 		opts.Role = roleName
+		if strings.TrimSpace(opts.Step.Role) == "" {
+			opts.Step.Role = roleName
+		} else {
+			stepRole, _, err := cfg.ResolveAgentRole(opts.Step.Role)
+			if err != nil {
+				return opts, fmt.Errorf("chain start: step role: %w", err)
+			}
+			opts.Step.Role = stepRole
+			if opts.Step.Role != roleName {
+				return opts, fmt.Errorf("chain start: one-step role does not match structured step")
+			}
+		}
+		opts.Step.Sources = chaininput.NormalizeSpecs(opts.Step.Sources)
+		opts.Step.Note = strings.TrimSpace(opts.Step.Note)
 		return opts, nil
 	case ModeManualRoster:
 		if len(opts.Roster) == 0 {
@@ -466,6 +518,8 @@ func resolveStepRoles(cfg *appconfig.Config, opts Options, mode Mode) (Options, 
 				return opts, fmt.Errorf("chain start: roster role %d: %w", i+1, err)
 			}
 			opts.Roster[i].Role = roleName
+			opts.Roster[i].Note = strings.TrimSpace(opts.Roster[i].Note)
+			opts.Roster[i].Sources = chaininput.NormalizeSpecs(opts.Roster[i].Sources)
 		}
 		return opts, nil
 	default:
@@ -491,44 +545,6 @@ func resolveAllowedRoles(cfg *appconfig.Config, opts Options) (Options, error) {
 	opts.AllowedRoles = roles
 	opts.Role = "orchestrator"
 	return opts, nil
-}
-
-func prepareChainForExecution(ctx context.Context, store *chain.Store, chainID string, opts Options) (Options, bool, bool, error) {
-	existing, err := resolveExistingChain(ctx, store, chainID)
-	if err != nil {
-		return opts, false, false, err
-	}
-	isNew := existing == nil
-	resumed := false
-	if existing != nil {
-		opts, err = populateOptionsFromExisting(opts, existing)
-		if err != nil {
-			return opts, false, false, err
-		}
-		resumed = existing.Status == "paused"
-		if opts.DryRun {
-			return opts, isNew, false, nil
-		}
-		if existing.Status == chain.StatusWaitingApproval {
-			opts.AllowApprovalWait = true
-		}
-		if err := prepareExistingChainForExecution(ctx, store, existing); err != nil {
-			return opts, false, false, err
-		}
-		return opts, isNew, resumed, nil
-	}
-	if _, err := store.StartChain(ctx, chainSpecFromOptions(chainID, opts)); err != nil {
-		return opts, false, false, err
-	}
-	payload := chainLaunchEventPayload(opts)
-	if opts.DryRun {
-		payload["dry_run"] = true
-	}
-	if len(opts.AllowedRoles) > 0 {
-		payload["allowed_roles"] = opts.AllowedRoles
-	}
-	_ = store.LogEvent(ctx, chainID, "", chain.EventChainStarted, payload)
-	return opts, isNew, resumed, nil
 }
 
 func markDryRunChain(ctx context.Context, store *chain.Store, chainID string) error {
@@ -558,9 +574,16 @@ func resolveExistingChain(ctx context.Context, store *chain.Store, chainID strin
 	return existing, nil
 }
 
-func populateOptionsFromExisting(opts Options, existing *chain.Chain) (Options, error) {
+func populateOptionsFromExisting(ctx context.Context, store *chain.Store, opts Options, existing *chain.Chain) (Options, error) {
 	if existing == nil {
 		return opts, nil
+	}
+	if store != nil {
+		if events, err := store.ListEvents(ctx, existing.ID); err == nil {
+			opts = hydrateLaunchOptionsFromEvents(opts, events)
+		} else {
+			return opts, err
+		}
 	}
 	if len(opts.SourceSpecs) == 0 && len(existing.SourceSpecs) > 0 {
 		opts.SourceSpecs = append([]string(nil), existing.SourceSpecs...)
@@ -572,6 +595,64 @@ func populateOptionsFromExisting(opts Options, existing *chain.Chain) (Options, 
 		return opts, fmt.Errorf("chain %s has no stored task/specs to resume from", existing.ID)
 	}
 	return opts, nil
+}
+
+func hydrateLaunchOptionsFromEvents(opts Options, events []chain.Event) Options {
+	for _, event := range events {
+		if event.EventType != chain.EventChainStarted {
+			continue
+		}
+		var payload struct {
+			Mode              string        `json:"mode"`
+			Role              string        `json:"role"`
+			Roster            []string      `json:"roster"`
+			AllowedRoles      []string      `json:"allowed_roles"`
+			Steps             []StepRequest `json:"steps"`
+			Task              string        `json:"task"`
+			Specs             []string      `json:"specs"`
+			StepMaxTurns      int           `json:"step_max_turns"`
+			StepMaxTokens     int           `json:"step_max_tokens"`
+			AllowApprovalWait bool          `json:"allow_approval_wait"`
+		}
+		if err := json.Unmarshal([]byte(event.EventData), &payload); err != nil || strings.TrimSpace(payload.Mode) == "" {
+			continue
+		}
+		if opts.Mode == "" {
+			opts.Mode = Mode(payload.Mode)
+		}
+		if strings.TrimSpace(opts.Role) == "" {
+			opts.Role = strings.TrimSpace(payload.Role)
+		}
+		if len(opts.Roster) == 0 {
+			if len(payload.Steps) > 0 {
+				opts.Roster = cloneStepRequests(payload.Steps)
+			} else if len(payload.Roster) > 0 {
+				opts.Roster = stepRequestsFromRoles(payload.Roster)
+			}
+		}
+		if len(opts.AllowedRoles) == 0 && len(payload.AllowedRoles) > 0 {
+			opts.AllowedRoles = append([]string(nil), payload.AllowedRoles...)
+		}
+		if len(opts.SourceSpecs) == 0 && len(payload.Specs) > 0 {
+			opts.SourceSpecs = append([]string(nil), payload.Specs...)
+		}
+		if strings.TrimSpace(opts.SourceTask) == "" {
+			opts.SourceTask = strings.TrimSpace(payload.Task)
+		}
+		if opts.StepMaxTurns == 0 {
+			opts.StepMaxTurns = payload.StepMaxTurns
+		}
+		if opts.StepMaxTokens == 0 {
+			opts.StepMaxTokens = payload.StepMaxTokens
+		}
+		if payload.AllowApprovalWait {
+			opts.AllowApprovalWait = true
+		}
+		if opts.Mode == ModeOneStep && strings.TrimSpace(opts.Step.Role) == "" && len(payload.Steps) == 1 {
+			opts.Step = cloneStepRequests(payload.Steps)[0]
+		}
+	}
+	return opts
 }
 
 func prepareExistingChainForExecution(ctx context.Context, store *chain.Store, existing *chain.Chain) error {
@@ -722,13 +803,29 @@ func chainSpecFromOptions(chainID string, opts Options) chain.ChainSpec {
 }
 
 func chainLaunchEventPayload(opts Options) map[string]any {
-	return map[string]any{
+	payload := map[string]any{
 		"specs":           opts.SourceSpecs,
 		"task":            opts.SourceTask,
 		"mode":            string(opts.Mode),
+		"role":            opts.Role,
 		"step_max_turns":  opts.StepMaxTurns,
 		"step_max_tokens": opts.StepMaxTokens,
 	}
+	if opts.AllowApprovalWait {
+		payload["allow_approval_wait"] = true
+	}
+	switch opts.Mode {
+	case ModeOneStep:
+		step := opts.Step
+		if strings.TrimSpace(step.Role) == "" {
+			step.Role = opts.Role
+		}
+		payload["steps"] = []map[string]any{stepPayload(step)}
+	case ModeManualRoster:
+		payload["roster"] = stepRequestRoles(opts.Roster)
+		payload["steps"] = stepPayloads(opts.Roster)
+	}
+	return payload
 }
 
 func chainCompletionEventPayload(opts Options, extra map[string]any) map[string]any {
@@ -763,34 +860,46 @@ func constrainedRoleInstruction(opts Options) string {
 }
 
 func buildOneStepTask(opts Options) string {
-	task := strings.TrimSpace(opts.SourceTask)
-	if len(opts.SourceSpecs) == 0 {
-		return task
+	step := opts.Step
+	if strings.TrimSpace(step.Role) == "" {
+		step.Role = opts.Role
 	}
-	specs := strings.Join(opts.SourceSpecs, ", ")
-	if task == "" {
-		return fmt.Sprintf("Read these source specs from the brain and complete the requested work: %s.", specs)
-	}
-	return fmt.Sprintf("%s\n\nSource specs: %s", task, specs)
+	return strings.TrimSpace(fmt.Sprintf(`Original work packet:
+%s
+Global sources:
+%s
+
+This step's dossier:
+Note:
+%s
+Assigned sources:
+%s
+
+Complete the requested work and produce the required receipt.`, taskTextOrFallback(opts.SourceTask), lineListOrNone(opts.SourceSpecs), textOrNone(step.Note), lineListOrNone(step.Sources)))
 }
 
-func buildManualRosterTask(opts Options, chainID string, sequence int, role string, receiptPaths []string) string {
-	workPacket := buildOneStepTask(opts)
-	if strings.TrimSpace(workPacket) == "" {
-		workPacket = "No task text was provided. Use the selected source specs as the work packet."
-	}
+func buildManualRosterTask(opts Options, chainID string, sequence int, step StepRequest, receiptPaths []string) string {
 	receiptHistory := "No previous receipt paths are available yet."
 	if len(receiptPaths) > 0 {
-		receiptHistory = "Previous receipt paths to read before working: " + strings.Join(receiptPaths, ", ") + "."
+		receiptHistory = strings.Join(receiptPaths, "\n")
 	}
 	return fmt.Sprintf(`You are running manual roster step %d for role %s in chain %s.
 
 Original work packet:
 %s
-
+Global sources:
 %s
 
-Complete only the work appropriate for this roster step and produce the required receipt.`, sequence, role, chainID, workPacket, receiptHistory)
+This step's dossier:
+Note:
+%s
+Assigned sources:
+%s
+
+Receipt history:
+%s
+
+Complete only the work appropriate for this roster step and produce the required receipt.`, sequence, step.Role, chainID, taskTextOrFallback(opts.SourceTask), lineListOrNone(opts.SourceSpecs), textOrNone(step.Note), lineListOrNone(step.Sources), receiptHistory)
 }
 
 func manualRosterTaskContext(chainID string, sequence int, role string) string {
@@ -886,6 +995,81 @@ func manualRosterSummary(chainID string, status string, results []spawnpkg.Agent
 	}
 	last := results[len(results)-1]
 	return fmt.Sprintf("manual roster chain %s finished with status %s after %d step(s); last verdict %s", chainID, status, len(results), last.Verdict)
+}
+
+func cloneStepRequests(steps []StepRequest) []StepRequest {
+	out := make([]StepRequest, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, StepRequest{
+			Role:          step.Role,
+			TaskContext:   step.TaskContext,
+			Note:          step.Note,
+			Sources:       append([]string(nil), step.Sources...),
+			ReindexBefore: step.ReindexBefore,
+		})
+	}
+	return out
+}
+
+func stepRequestsFromRoles(roles []string) []StepRequest {
+	out := make([]StepRequest, 0, len(roles))
+	for _, role := range roles {
+		if role = strings.TrimSpace(role); role != "" {
+			out = append(out, StepRequest{Role: role})
+		}
+	}
+	return out
+}
+
+func stepRequestRoles(steps []StepRequest) []string {
+	roles := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if role := strings.TrimSpace(step.Role); role != "" {
+			roles = append(roles, role)
+		}
+	}
+	return roles
+}
+
+func stepPayloads(steps []StepRequest) []map[string]any {
+	payloads := make([]map[string]any, 0, len(steps))
+	for _, step := range steps {
+		payloads = append(payloads, stepPayload(step))
+	}
+	return payloads
+}
+
+func stepPayload(step StepRequest) map[string]any {
+	payload := map[string]any{"role": strings.TrimSpace(step.Role)}
+	if note := strings.TrimSpace(step.Note); note != "" {
+		payload["note"] = note
+	}
+	payload["sources"] = append([]string(nil), chaininput.NormalizeSpecs(step.Sources)...)
+	return payload
+}
+
+func taskTextOrFallback(task string) string {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return "No task text was provided."
+	}
+	return task
+}
+
+func textOrNone(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "None."
+	}
+	return value
+}
+
+func lineListOrNone(values []string) string {
+	values = chaininput.NormalizeSpecs(values)
+	if len(values) == 0 {
+		return "None."
+	}
+	return strings.Join(values, "\n")
 }
 
 func existingReceiptPaths(steps []chain.Step) []string {

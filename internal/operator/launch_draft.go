@@ -39,11 +39,8 @@ func (s *Service) SaveLaunchDraft(ctx context.Context, req LaunchRequest) (Launc
 	if err := rtpkg.EnsureProjectRecord(ctx, database, cfg); err != nil {
 		return LaunchDraft{}, fmt.Errorf("ensure project record: %w", err)
 	}
-	req, err = resolveLaunchTemplateRequest(req)
+	req, err = normalizeLaunchForExecution(cfg, req, false)
 	if err != nil {
-		return LaunchDraft{}, err
-	}
-	if err := validateLaunchStepCaps(req); err != nil {
 		return LaunchDraft{}, err
 	}
 	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
@@ -54,26 +51,31 @@ func (s *Service) SaveLaunchDraft(ctx context.Context, req LaunchRequest) (Launc
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal roster: %w", err)
 	}
+	steps, err := marshalLaunchSteps(req.Steps)
+	if err != nil {
+		return LaunchDraft{}, fmt.Errorf("marshal steps: %w", err)
+	}
 	sourceSpecs, err := marshalStringSlice(req.SourceSpecs)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal source specs: %w", err)
 	}
 	updatedAt := time.Now().UTC().Format(time.RFC3339)
 	_, err = database.ExecContext(ctx, `
-INSERT INTO launches(id, project_id, status, mode, role, allowed_roles, roster, source_task, source_specs, step_max_turns, step_max_tokens, created_at, updated_at)
-VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO launches(id, project_id, status, mode, role, allowed_roles, roster, steps, source_task, source_specs, step_max_turns, step_max_tokens, created_at, updated_at)
+VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, id) DO UPDATE SET
 	status = 'draft',
 	mode = excluded.mode,
 	role = excluded.role,
 	allowed_roles = excluded.allowed_roles,
 	roster = excluded.roster,
+	steps = excluded.steps,
 	source_task = excluded.source_task,
 	source_specs = excluded.source_specs,
 	step_max_turns = excluded.step_max_turns,
 	step_max_tokens = excluded.step_max_tokens,
 	updated_at = excluded.updated_at
-`, currentLaunchDraftID, cfg.ProjectRoot, req.Mode, req.Role, allowedRoles, roster, req.SourceTask, sourceSpecs, req.StepMaxTurns, req.StepMaxTokens, updatedAt, updatedAt)
+`, currentLaunchDraftID, cfg.ProjectRoot, req.Mode, req.Role, allowedRoles, roster, steps, req.SourceTask, sourceSpecs, req.StepMaxTurns, req.StepMaxTokens, updatedAt, updatedAt)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("save launch draft: %w", err)
 	}
@@ -103,7 +105,7 @@ func (s *Service) LoadLaunchDraft(ctx context.Context) (LaunchDraft, bool, error
 
 	var row launchDraftRow
 	err = database.QueryRowContext(ctx, `
-SELECT id, mode, role, allowed_roles, roster, source_task, source_specs, step_max_turns, step_max_tokens, updated_at
+SELECT id, mode, role, allowed_roles, roster, steps, source_task, source_specs, step_max_turns, step_max_tokens, updated_at
 FROM launches
 WHERE project_id = ? AND id = ? AND status = 'draft'
 `, cfg.ProjectRoot, currentLaunchDraftID).Scan(
@@ -112,6 +114,7 @@ WHERE project_id = ? AND id = ? AND status = 'draft'
 		&row.Role,
 		&row.AllowedRoles,
 		&row.Roster,
+		&row.Steps,
 		&row.SourceTask,
 		&row.SourceSpecs,
 		&row.StepMaxTurns,
@@ -170,20 +173,25 @@ func (s *Service) SaveLaunchPreset(ctx context.Context, name string, req LaunchR
 	if err != nil {
 		return LaunchPreset{}, fmt.Errorf("marshal roster: %w", err)
 	}
+	steps, err := marshalLaunchSteps(req.Steps)
+	if err != nil {
+		return LaunchPreset{}, fmt.Errorf("marshal steps: %w", err)
+	}
 	updatedAt := time.Now().UTC().Format(time.RFC3339)
 	presetID := "custom:" + name
 	_, err = database.ExecContext(ctx, `
-INSERT INTO launch_presets(id, project_id, name, mode, role, allowed_roles, roster, step_max_turns, step_max_tokens, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO launch_presets(id, project_id, name, mode, role, allowed_roles, roster, steps, step_max_turns, step_max_tokens, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, name) DO UPDATE SET
 	mode = excluded.mode,
 	role = excluded.role,
 	allowed_roles = excluded.allowed_roles,
 	roster = excluded.roster,
+	steps = excluded.steps,
 	step_max_turns = excluded.step_max_turns,
 	step_max_tokens = excluded.step_max_tokens,
 	updated_at = excluded.updated_at
-`, presetID, cfg.ProjectRoot, name, req.Mode, req.Role, allowedRoles, roster, req.StepMaxTurns, req.StepMaxTokens, updatedAt, updatedAt)
+`, presetID, cfg.ProjectRoot, name, req.Mode, req.Role, allowedRoles, roster, steps, req.StepMaxTurns, req.StepMaxTokens, updatedAt, updatedAt)
 	if err != nil {
 		return LaunchPreset{}, fmt.Errorf("save launch preset: %w", err)
 	}
@@ -211,7 +219,7 @@ func (s *Service) ListLaunchPresets(ctx context.Context) ([]LaunchPreset, error)
 		return nil, err
 	}
 	rows, err := database.QueryContext(ctx, `
-SELECT id, name, mode, role, allowed_roles, roster, step_max_turns, step_max_tokens, updated_at
+SELECT id, name, mode, role, allowed_roles, roster, steps, step_max_turns, step_max_tokens, updated_at
 FROM launch_presets
 WHERE project_id = ?
 ORDER BY updated_at DESC, name ASC
@@ -224,7 +232,7 @@ ORDER BY updated_at DESC, name ASC
 	var presets []LaunchPreset
 	for rows.Next() {
 		var row launchPresetRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Mode, &row.Role, &row.AllowedRoles, &row.Roster, &row.StepMaxTurns, &row.StepMaxTokens, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Mode, &row.Role, &row.AllowedRoles, &row.Roster, &row.Steps, &row.StepMaxTurns, &row.StepMaxTokens, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan launch preset: %w", err)
 		}
 		req, err := row.request()
@@ -254,11 +262,8 @@ func (s *Service) projectMemoryLaunchStore(cfg *appconfig.Config) (projectmemory
 
 func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projectmemory.LaunchStore, cfg *appconfig.Config, req LaunchRequest) (LaunchDraft, error) {
 	var err error
-	req, err = resolveLaunchTemplateRequest(req)
+	req, err = normalizeLaunchForExecution(cfg, req, false)
 	if err != nil {
-		return LaunchDraft{}, err
-	}
-	if err := validateLaunchStepCaps(req); err != nil {
 		return LaunchDraft{}, err
 	}
 	allowedRoles, err := marshalStringSlice(req.AllowedRoles)
@@ -268,6 +273,10 @@ func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projec
 	roster, err := marshalStringSlice(req.Roster)
 	if err != nil {
 		return LaunchDraft{}, fmt.Errorf("marshal roster: %w", err)
+	}
+	steps, err := marshalLaunchSteps(req.Steps)
+	if err != nil {
+		return LaunchDraft{}, fmt.Errorf("marshal steps: %w", err)
 	}
 	sourceSpecs, err := marshalStringSlice(req.SourceSpecs)
 	if err != nil {
@@ -282,6 +291,7 @@ func (s *Service) saveProjectMemoryLaunchDraft(ctx context.Context, store projec
 		Role:             req.Role,
 		AllowedRolesJSON: allowedRoles,
 		RosterJSON:       roster,
+		StepsJSON:        steps,
 		SourceTask:       req.SourceTask,
 		SourceSpecsJSON:  sourceSpecs,
 		StepMaxTurns:     uint64(req.StepMaxTurns),
@@ -321,6 +331,10 @@ func (s *Service) saveProjectMemoryLaunchPreset(ctx context.Context, store proje
 	if err != nil {
 		return LaunchPreset{}, fmt.Errorf("marshal roster: %w", err)
 	}
+	steps, err := marshalLaunchSteps(req.Steps)
+	if err != nil {
+		return LaunchPreset{}, fmt.Errorf("marshal steps: %w", err)
+	}
 	updatedAt := time.Now().UTC()
 	if err := store.SaveLaunchPreset(ctx, projectmemory.SaveLaunchPresetArgs{
 		ProjectID:        cfg.ProjectRoot,
@@ -329,6 +343,7 @@ func (s *Service) saveProjectMemoryLaunchPreset(ctx context.Context, store proje
 		Role:             req.Role,
 		AllowedRolesJSON: allowedRoles,
 		RosterJSON:       roster,
+		StepsJSON:        steps,
 		StepMaxTurns:     uint64(req.StepMaxTurns),
 		StepMaxTokens:    uint64(req.StepMaxTokens),
 		UpdatedAtUS:      uint64(updatedAt.UnixMicro()),
@@ -360,6 +375,7 @@ type launchDraftRow struct {
 	Role          sql.NullString
 	AllowedRoles  sql.NullString
 	Roster        sql.NullString
+	Steps         sql.NullString
 	SourceTask    sql.NullString
 	SourceSpecs   sql.NullString
 	StepMaxTurns  sql.NullInt64
@@ -374,6 +390,7 @@ type launchPresetRow struct {
 	Role          sql.NullString
 	AllowedRoles  sql.NullString
 	Roster        sql.NullString
+	Steps         sql.NullString
 	StepMaxTurns  sql.NullInt64
 	StepMaxTokens sql.NullInt64
 	UpdatedAt     sql.NullString
@@ -386,6 +403,7 @@ func launchFromProjectMemory(row projectmemory.Launch) launchDraftRow {
 		Role:          sql.NullString{String: row.Role, Valid: row.Role != ""},
 		AllowedRoles:  sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
 		Roster:        sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
+		Steps:         sql.NullString{String: row.StepsJSON, Valid: row.StepsJSON != ""},
 		SourceTask:    sql.NullString{String: row.SourceTask, Valid: row.SourceTask != ""},
 		SourceSpecs:   sql.NullString{String: row.SourceSpecsJSON, Valid: row.SourceSpecsJSON != ""},
 		StepMaxTurns:  sql.NullInt64{Int64: int64(row.StepMaxTurns), Valid: row.StepMaxTurns != 0},
@@ -402,6 +420,7 @@ func presetFromProjectMemory(row projectmemory.LaunchPreset) launchPresetRow {
 		Role:          sql.NullString{String: row.Role, Valid: row.Role != ""},
 		AllowedRoles:  sql.NullString{String: row.AllowedRolesJSON, Valid: row.AllowedRolesJSON != ""},
 		Roster:        sql.NullString{String: row.RosterJSON, Valid: row.RosterJSON != ""},
+		Steps:         sql.NullString{String: row.StepsJSON, Valid: row.StepsJSON != ""},
 		StepMaxTurns:  sql.NullInt64{Int64: int64(row.StepMaxTurns), Valid: row.StepMaxTurns != 0},
 		StepMaxTokens: sql.NullInt64{Int64: int64(row.StepMaxTokens), Valid: row.StepMaxTokens != 0},
 		UpdatedAt:     sql.NullString{String: unixUSString(row.UpdatedAtUS), Valid: row.UpdatedAtUS != 0},
@@ -417,6 +436,10 @@ func (r launchDraftRow) request() (LaunchRequest, error) {
 	if err != nil {
 		return LaunchRequest{}, fmt.Errorf("unmarshal roster: %w", err)
 	}
+	steps, err := unmarshalLaunchSteps(r.Steps)
+	if err != nil {
+		return LaunchRequest{}, fmt.Errorf("unmarshal steps: %w", err)
+	}
 	sourceSpecs, err := unmarshalStringSlice(r.SourceSpecs)
 	if err != nil {
 		return LaunchRequest{}, fmt.Errorf("unmarshal source specs: %w", err)
@@ -426,6 +449,7 @@ func (r launchDraftRow) request() (LaunchRequest, error) {
 		Role:          r.Role.String,
 		AllowedRoles:  allowedRoles,
 		Roster:        roster,
+		Steps:         steps,
 		SourceTask:    r.SourceTask.String,
 		SourceSpecs:   sourceSpecs,
 		StepMaxTurns:  intFromNullInt64(r.StepMaxTurns),
@@ -442,11 +466,16 @@ func (r launchPresetRow) request() (LaunchRequest, error) {
 	if err != nil {
 		return LaunchRequest{}, fmt.Errorf("unmarshal preset roster: %w", err)
 	}
+	steps, err := unmarshalLaunchSteps(r.Steps)
+	if err != nil {
+		return LaunchRequest{}, fmt.Errorf("unmarshal preset steps: %w", err)
+	}
 	return normalizeLaunchRequest(LaunchRequest{
 		Mode:          LaunchMode(r.Mode),
 		Role:          r.Role.String,
 		AllowedRoles:  allowedRoles,
 		Roster:        roster,
+		Steps:         steps,
 		StepMaxTurns:  intFromNullInt64(r.StepMaxTurns),
 		StepMaxTokens: intFromNullInt64(r.StepMaxTokens),
 	}), nil
@@ -460,11 +489,8 @@ func intFromNullInt64(value sql.NullInt64) int {
 }
 
 func normalizeLaunchPresetRequest(cfg *appconfig.Config, req LaunchRequest) (LaunchRequest, error) {
-	req, err := resolveLaunchTemplateRequest(req)
+	req, err := normalizeLaunchForExecution(cfg, req, false)
 	if err != nil {
-		return LaunchRequest{}, err
-	}
-	if err := validateLaunchStepCaps(req); err != nil {
 		return LaunchRequest{}, err
 	}
 	req.SourceTask = ""
@@ -473,41 +499,28 @@ func normalizeLaunchPresetRequest(cfg *appconfig.Config, req LaunchRequest) (Lau
 	req.MaxResolverLoops = 0
 	req.MaxDuration = 0
 	req.TokenBudget = 0
+	req.StepMaxTurns = 0
+	req.StepMaxTokens = 0
+	req.AllowApprovalWait = false
+	for i := range req.Steps {
+		req.Steps[i].Sources = nil
+	}
 	switch req.Mode {
 	case LaunchModeOneStep:
-		if req.Role == "" {
+		if req.Role == "" || len(req.Steps) != 1 {
 			return LaunchRequest{}, fmt.Errorf("role is required for one-step preset")
 		}
-		roleName, _, err := cfg.ResolveAgentRole(req.Role)
-		if err != nil {
-			return LaunchRequest{}, fmt.Errorf("resolve preset role: %w", err)
-		}
-		req.Role = roleName
 		req.AllowedRoles = nil
 		req.Roster = nil
 	case LaunchModeOrchestrator:
-		roleName, _, err := cfg.ResolveAgentRole("orchestrator")
-		if err != nil {
-			return LaunchRequest{}, fmt.Errorf("resolve preset orchestrator role: %w", err)
-		}
-		req.Role = roleName
 		req.AllowedRoles = nil
 		req.Roster = nil
+		req.Steps = nil
 	case LaunchModeConstrained:
-		allowedRoles, err := resolveLaunchAllowedRoles(cfg, req)
-		if err != nil {
-			return LaunchRequest{}, err
-		}
 		req.Role = "orchestrator"
-		req.AllowedRoles = allowedRoles
 		req.Roster = nil
+		req.Steps = nil
 	case LaunchModeManualRoster:
-		roster, err := resolveLaunchRoster(cfg, req)
-		if err != nil {
-			return LaunchRequest{}, err
-		}
-		req.Role = strings.Join(roster, ",")
-		req.Roster = roster
 		req.AllowedRoles = nil
 	default:
 		return LaunchRequest{}, fmt.Errorf("unsupported launch preset mode %s", req.Mode)
@@ -535,6 +548,28 @@ func unmarshalStringSlice(value sql.NullString) ([]string, error) {
 		return nil, err
 	}
 	return values, nil
+}
+
+func marshalLaunchSteps(steps []LaunchRosterStep) (string, error) {
+	if steps == nil {
+		steps = []LaunchRosterStep{}
+	}
+	data, err := json.Marshal(steps)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func unmarshalLaunchSteps(value sql.NullString) ([]LaunchRosterStep, error) {
+	if !value.Valid || value.String == "" {
+		return nil, nil
+	}
+	var steps []LaunchRosterStep
+	if err := json.Unmarshal([]byte(value.String), &steps); err != nil {
+		return nil, err
+	}
+	return steps, nil
 }
 
 func unixUSString(value uint64) string {

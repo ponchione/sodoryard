@@ -88,11 +88,11 @@ func cloneLaunchTemplate(template LaunchTemplate) LaunchTemplate {
 	return template
 }
 
-var commonLaunchInputProperties = `"task":{"type":"string","description":"Free-form task description."},"specs":{"type":"array","items":{"type":"string"},"description":"Brain-relative spec document paths."},"max_steps":{"type":"integer","minimum":1},"max_resolver_loops":{"type":"integer","minimum":0},"max_duration":{"type":"string","description":"Go duration string such as 10m."},"token_budget":{"type":"integer","minimum":1}`
+var commonLaunchInputProperties = `"task":{"type":"string","description":"Free-form task description."},"specs":{"type":"array","items":{"type":"string"},"description":"Brain-relative spec document paths."},"steps":{"type":"array","items":{"type":"object","properties":{"role":{"type":"string"},"note":{"type":"string"},"sources":{"type":"array","items":{"type":"string"}}},"required":["role"],"additionalProperties":false},"description":"Ordered structured agent steps."},"max_steps":{"type":"integer","minimum":1},"max_resolver_loops":{"type":"integer","minimum":0},"max_duration":{"type":"string","description":"Go duration string such as 10m."},"token_budget":{"type":"integer","minimum":1}`
 
-var oneStepLaunchInputSchema = json.RawMessage(`{"type":"object","properties":{` + commonLaunchInputProperties + `,"role":{"type":"string","description":"Single agent role to run."}},"required":["role"],"anyOf":[{"required":["task"]},{"required":["specs"]}],"additionalProperties":false}`)
+var oneStepLaunchInputSchema = json.RawMessage(`{"type":"object","properties":{` + commonLaunchInputProperties + `,"role":{"type":"string","description":"Single agent role to run."}},"anyOf":[{"required":["role"]},{"required":["steps"]}],"additionalProperties":false}`)
 
-var manualRosterLaunchInputSchema = json.RawMessage(`{"type":"object","properties":{` + commonLaunchInputProperties + `,"roster":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Ordered agent roles to run."}},"required":["roster"],"anyOf":[{"required":["task"]},{"required":["specs"]}],"additionalProperties":false}`)
+var manualRosterLaunchInputSchema = json.RawMessage(`{"type":"object","properties":{` + commonLaunchInputProperties + `,"roster":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Ordered agent roles to run."}},"anyOf":[{"required":["roster"]},{"required":["steps"]}],"additionalProperties":false}`)
 
 var constrainedLaunchInputSchema = json.RawMessage(`{"type":"object","properties":{` + commonLaunchInputProperties + `,"allowed_roles":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Allowed roles for orchestrator-spawned steps."}},"required":["allowed_roles"],"anyOf":[{"required":["task"]},{"required":["specs"]}],"additionalProperties":false}`)
 
