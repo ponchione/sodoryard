@@ -597,92 +597,134 @@ export function LaunchPage() {
           </aside>
 
           <main className="space-y-5">
-            <section
-              className="border border-border"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => handleDropSource(event, "work-packet")}
-            >
-              <SectionHeader title="Work Packet" />
-              <div className="grid gap-3 p-3">
-                <label className="grid gap-1 text-xs">
-                  <span className="font-medium uppercase tracking-widest text-muted-foreground">Task</span>
-                  <textarea
-                    value={composer.sourceTask}
-                    onChange={(event) => updateComposer((current) => ({ ...current, sourceTask: event.target.value }))}
-                    className="min-h-28 resize-y border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs">
-                  <span className="font-medium uppercase tracking-widest text-muted-foreground">Project Sources</span>
-                  <textarea
-                    value={composer.sourceSpecs.join("\n")}
-                    onChange={(event) => (
-                      updateComposer((current) => ({ ...current, sourceSpecs: unique(splitList(event.target.value)) }))
-                    )}
-                    className="min-h-20 resize-y border border-border bg-background px-3 py-2 font-mono text-xs text-foreground outline-none focus:border-primary"
-                  />
-                </label>
-                <AttachmentPills paths={composer.sourceSpecs} target="work-packet" onRemove={removeSource} />
-              </div>
-            </section>
-
             <section className="border border-border">
               <SectionHeader title="Composer Canvas" />
-              <div className="grid gap-3 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    aria-pressed={selectedID === "work-packet"}
-                    onClick={() => setSelectedID("work-packet")}
-                    className={`border px-3 py-2 text-left text-xs font-medium uppercase tracking-widest ${
-                      selectedID === "work-packet" ? "border-primary text-primary" : "border-border text-foreground"
-                    }`}
-                  >
-                    Work Packet
-                  </button>
-                  {composer.nodes.map((node, index) => (
-                    <div key={node.id} className="flex items-center gap-2">
-                      <ArrowRight size={14} className="text-muted-foreground" aria-hidden="true" />
-                      <button
-                        type="button"
-                        aria-pressed={selectedID === node.id}
-                        onClick={() => setSelectedID(node.id)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => handleDropSource(event, node.id)}
-                        className={`min-w-40 border px-3 py-2 text-left text-xs ${
-                          selectedID === node.id
-                            ? "border-primary text-primary"
-                            : "border-border text-foreground hover:border-primary"
-                        }`}
-                      >
-                        <span className="block truncate font-mono">{node.role}</span>
-                        <span className="mt-1 block text-[10px] uppercase tracking-widest text-muted-foreground">
-                          {sourceCountLabel(node.sources.length)}
-                          {node.note.trim() ? " / note" : ""}
+              <div className="grid min-h-[24rem] content-start gap-5 p-4">
+                <div className="overflow-x-auto pb-2">
+                  <div className="flex min-w-max items-stretch gap-3">
+                    <button
+                      type="button"
+                      aria-pressed={selectedID === "work-packet"}
+                      onClick={() => setSelectedID("work-packet")}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => handleDropSource(event, "work-packet")}
+                      className={`grid min-h-36 w-56 content-between border p-4 text-left ${
+                        selectedID === "work-packet"
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-border text-foreground hover:border-primary"
+                      }`}
+                    >
+                      <span>
+                        <span className="block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                          Source
                         </span>
-                      </button>
-                      {index < composer.nodes.length - 1 && null}
-                    </div>
-                  ))}
+                        <span className="mt-2 block text-lg font-semibold uppercase tracking-widest">
+                          Work Packet
+                        </span>
+                      </span>
+                      <span className="grid gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                        <span>{composer.sourceTask.trim() ? "Task ready" : "No task text"}</span>
+                        <span>{sourceCountLabel(composer.sourceSpecs.length)}</span>
+                      </span>
+                    </button>
+                    {composer.nodes.length > 0 && (
+                      <div className="flex items-center text-muted-foreground">
+                        <ArrowRight size={18} aria-hidden="true" />
+                      </div>
+                    )}
+                    {composer.nodes.map((node, index) => (
+                      <div key={node.id} className="flex items-stretch gap-3">
+                        <button
+                          type="button"
+                          aria-pressed={selectedID === node.id}
+                          onClick={() => setSelectedID(node.id)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => handleDropSource(event, node.id)}
+                          className={`grid min-h-36 w-48 content-between border p-4 text-left ${
+                            selectedID === node.id
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border text-foreground hover:border-primary"
+                          }`}
+                        >
+                          <span>
+                            <span className="block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                              Step {index + 1}
+                            </span>
+                            <span className="mt-2 block truncate font-mono text-base">{node.role}</span>
+                          </span>
+                          <span className="grid gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                            <span>{sourceCountLabel(node.sources.length)}</span>
+                            <span>{node.note.trim() ? "Dossier note" : "No dossier note"}</span>
+                          </span>
+                        </button>
+                        {index < composer.nodes.length - 1 && (
+                          <div className="flex items-center text-muted-foreground">
+                            <ArrowRight size={18} aria-hidden="true" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {composer.nodes.length === 0 && composer.dispatchMode === "none" && (
+                      <div className="grid min-h-36 w-44 place-items-center border border-dashed border-border px-4 text-center text-xs uppercase tracking-widest text-muted-foreground">
+                        Add roles from the palette
+                      </div>
+                    )}
+                    {composer.dispatchMode !== "none" && (
+                      <>
+                        <div className="flex items-center text-muted-foreground">
+                          <ArrowRight size={18} aria-hidden="true" />
+                        </div>
+                        <button
+                          type="button"
+                          aria-pressed
+                          onClick={() => setSelectedID("work-packet")}
+                          className="grid min-h-36 w-56 content-between border border-primary bg-primary/5 p-4 text-left text-primary"
+                        >
+                          <span>
+                            <span className="block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                              Dispatcher
+                            </span>
+                            <span className="mt-2 block text-base font-semibold uppercase tracking-widest">
+                              {composer.dispatchMode === "constrained" ? "Constrained" : "Sir Topham Decides"}
+                            </span>
+                          </span>
+                          <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                            {composer.dispatchMode === "constrained"
+                              ? `${composer.allowedRoles.length} allowed roles`
+                              : "Runtime chooses steps"}
+                          </span>
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                {composer.nodes.length === 0 && <p className="text-xs text-muted-foreground">No agent nodes.</p>}
-                <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+
+                <div className="grid gap-3 border-t border-border pt-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                  <div className="text-xs text-muted-foreground">
+                    {selectedNode
+                      ? `Selected step ${composer.nodes.findIndex((node) => node.id === selectedNode.id) + 1}: ${selectedNode.role}`
+                      : "Selected: Work Packet"}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                   <button
-                    type="button"
-                    aria-pressed={composer.dispatchMode === "free"}
-                    onClick={() => updateComposer((current) => ({ ...current, dispatchMode: current.dispatchMode === "free" ? "none" : "free" }))}
-                    className="border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
-                  >
-                    Dispatcher
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={composer.dispatchMode === "constrained"}
-                    onClick={() => updateComposer((current) => ({ ...current, dispatchMode: current.dispatchMode === "constrained" ? "none" : "constrained" }))}
-                    className="border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
-                  >
-                    Constrained
-                  </button>
+                      type="button"
+                      aria-pressed={composer.dispatchMode === "free"}
+                      disabled={composer.nodes.length > 0}
+                      onClick={() => updateComposer((current) => ({ ...current, dispatchMode: current.dispatchMode === "free" ? "none" : "free" }))}
+                      className="border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Dispatcher
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={composer.dispatchMode === "constrained"}
+                      disabled={composer.nodes.length > 0}
+                      onClick={() => updateComposer((current) => ({ ...current, dispatchMode: current.dispatchMode === "constrained" ? "none" : "constrained" }))}
+                      className="border border-border px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Constrained
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -797,13 +839,13 @@ export function LaunchPage() {
                   onRemoveSource={removeSource}
                 />
               ) : (
-                <div className="grid gap-3 p-3 text-xs">
-                  <div>
-                    <div className="font-medium uppercase tracking-widest text-muted-foreground">Work Packet</div>
-                    <div className="mt-1 text-foreground">{composer.sourceTask.trim() || "No task recorded"}</div>
-                  </div>
-                  <AttachmentPills paths={composer.sourceSpecs} target="work-packet" onRemove={removeSource} />
-                </div>
+                <WorkPacketInspector
+                  sourceTask={composer.sourceTask}
+                  sourceSpecs={composer.sourceSpecs}
+                  onTaskChange={(sourceTask) => updateComposer((current) => ({ ...current, sourceTask }))}
+                  onSourcesChange={(sourceSpecs) => updateComposer((current) => ({ ...current, sourceSpecs }))}
+                  onRemoveSource={removeSource}
+                />
               )}
             </section>
 
@@ -958,6 +1000,45 @@ function NodeInspector({
           {effectiveSources.length === 0 && <p>None.</p>}
           {effectiveSources.map((source) => <p key={source}>{source}</p>)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkPacketInspector({
+  sourceTask,
+  sourceSpecs,
+  onTaskChange,
+  onSourcesChange,
+  onRemoveSource,
+}: {
+  sourceTask: string;
+  sourceSpecs: string[];
+  onTaskChange: (value: string) => void;
+  onSourcesChange: (value: string[]) => void;
+  onRemoveSource: (path: string, target: "work-packet" | string) => void;
+}) {
+  return (
+    <div className="grid gap-3 p-3 text-xs">
+      <label className="grid gap-1">
+        <span className="font-medium uppercase tracking-widest text-muted-foreground">Task</span>
+        <textarea
+          value={sourceTask}
+          onChange={(event) => onTaskChange(event.target.value)}
+          className="min-h-36 resize-y border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+        />
+      </label>
+      <label className="grid gap-1">
+        <span className="font-medium uppercase tracking-widest text-muted-foreground">Project Sources</span>
+        <textarea
+          value={sourceSpecs.join("\n")}
+          onChange={(event) => onSourcesChange(unique(splitList(event.target.value)))}
+          className="min-h-24 resize-y border border-border bg-background px-3 py-2 font-mono text-xs text-foreground outline-none focus:border-primary"
+        />
+      </label>
+      <div>
+        <div className="mb-2 font-medium uppercase tracking-widest text-muted-foreground">Attached Sources</div>
+        <AttachmentPills paths={sourceSpecs} target="work-packet" onRemove={onRemoveSource} />
       </div>
     </div>
   );

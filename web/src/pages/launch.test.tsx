@@ -161,17 +161,17 @@ describe("LaunchPage", () => {
     });
   });
 
-  it("builds a one-step launch preview from the workbench form", async () => {
+  it("builds a one-step launch preview from the composer", async () => {
     render(
       <MemoryRouter>
         <LaunchPage />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.change(screen.getByLabelText("Task"), {
       target: { value: "Ship launch workbench preview" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     await waitFor(() => {
@@ -235,10 +235,10 @@ describe("LaunchPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.change(screen.getByLabelText("Task"), {
       target: { value: "Start launch workbench chain" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "coder" }));
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
 
     await waitFor(() => {

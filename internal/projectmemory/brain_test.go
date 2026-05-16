@@ -1386,6 +1386,8 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 		Mode:             "constrained_orchestration",
 		Role:             "coder",
 		AllowedRolesJSON: `["coder","planner"]`,
+		RosterJSON:       `["coder"]`,
+		StepsJSON:        `[{"role":"coder","note":"draft note","sources":["README.md"]}]`,
 		SourceTask:       "persist launch draft",
 		SourceSpecsJSON:  `["docs/specs/a.md"]`,
 		StepMaxTurns:     6,
@@ -1400,6 +1402,7 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 		Mode:             "manual_roster",
 		Role:             "coder,orchestrator",
 		RosterJSON:       `["coder","orchestrator"]`,
+		StepsJSON:        `[{"role":"coder","note":"review"},{"role":"orchestrator"}]`,
 		AllowedRolesJSON: `[]`,
 		StepMaxTurns:     4,
 		StepMaxTokens:    50000,
@@ -1420,14 +1423,14 @@ func TestLaunchDraftsAndPresetsStoreAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLaunch: %v", err)
 	}
-	if !found || launch.Status != "draft" || launch.Mode != "constrained_orchestration" || launch.SourceTask != "persist launch draft" || !strings.Contains(launch.AllowedRolesJSON, "planner") || launch.StepMaxTurns != 6 || launch.StepMaxTokens != 70000 {
+	if !found || launch.Status != "draft" || launch.Mode != "constrained_orchestration" || launch.SourceTask != "persist launch draft" || !strings.Contains(launch.AllowedRolesJSON, "planner") || !strings.Contains(launch.StepsJSON, "draft note") || launch.StepMaxTurns != 6 || launch.StepMaxTokens != 70000 {
 		t.Fatalf("launch = %+v found=%t, want saved draft", launch, found)
 	}
 	presets, err := reopened.ListLaunchPresets(ctx, "project-launch")
 	if err != nil {
 		t.Fatalf("ListLaunchPresets: %v", err)
 	}
-	if len(presets) != 1 || presets[0].PresetID != "custom:audit pair" || presets[0].Name != "audit pair" || !strings.Contains(presets[0].RosterJSON, "orchestrator") || presets[0].StepMaxTurns != 4 || presets[0].StepMaxTokens != 50000 {
+	if len(presets) != 1 || presets[0].PresetID != "custom:audit pair" || presets[0].Name != "audit pair" || !strings.Contains(presets[0].RosterJSON, "orchestrator") || !strings.Contains(presets[0].StepsJSON, "review") || presets[0].StepMaxTurns != 4 || presets[0].StepMaxTokens != 50000 {
 		t.Fatalf("presets = %+v, want saved audit pair", presets)
 	}
 	if err := reopened.DeleteLaunch(ctx, DeleteLaunchArgs{ProjectID: "project-launch", LaunchID: "current"}); err != nil {

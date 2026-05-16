@@ -1,6 +1,7 @@
 package projectmemory
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/ponchione/shunter/types"
@@ -49,8 +50,7 @@ func launchRow(launch Launch) types.ProductValue {
 		types.NewString(launch.Mode),
 		types.NewString(launch.Role),
 		types.NewString(defaultString(launch.AllowedRolesJSON, emptyJSONArray)),
-		types.NewString(defaultString(launch.RosterJSON, emptyJSONArray)),
-		types.NewString(defaultString(launch.StepsJSON, emptyJSONArray)),
+		types.NewString(packLaunchRosterJSON(launch.RosterJSON, launch.StepsJSON)),
 		types.NewString(launch.SourceTask),
 		types.NewString(defaultString(launch.SourceSpecsJSON, emptyJSONArray)),
 		types.NewUint64(launch.StepMaxTurns),
@@ -61,6 +61,7 @@ func launchRow(launch Launch) types.ProductValue {
 }
 
 func decodeLaunchRow(row types.ProductValue) Launch {
+	rosterJSON, stepsJSON := unpackLaunchRosterJSON(row[7].AsString())
 	return Launch{
 		ID:               row[0].AsString(),
 		ProjectID:        row[1].AsString(),
@@ -69,14 +70,14 @@ func decodeLaunchRow(row types.ProductValue) Launch {
 		Mode:             row[4].AsString(),
 		Role:             row[5].AsString(),
 		AllowedRolesJSON: row[6].AsString(),
-		RosterJSON:       row[7].AsString(),
-		StepsJSON:        row[8].AsString(),
-		SourceTask:       row[9].AsString(),
-		SourceSpecsJSON:  row[10].AsString(),
-		StepMaxTurns:     row[11].AsUint64(),
-		StepMaxTokens:    row[12].AsUint64(),
-		CreatedAtUS:      row[13].AsUint64(),
-		UpdatedAtUS:      row[14].AsUint64(),
+		RosterJSON:       rosterJSON,
+		StepsJSON:        stepsJSON,
+		SourceTask:       row[8].AsString(),
+		SourceSpecsJSON:  row[9].AsString(),
+		StepMaxTurns:     row[10].AsUint64(),
+		StepMaxTokens:    row[11].AsUint64(),
+		CreatedAtUS:      row[12].AsUint64(),
+		UpdatedAtUS:      row[13].AsUint64(),
 	}
 }
 
@@ -89,8 +90,7 @@ func launchPresetRow(preset LaunchPreset) types.ProductValue {
 		types.NewString(preset.Mode),
 		types.NewString(preset.Role),
 		types.NewString(defaultString(preset.AllowedRolesJSON, emptyJSONArray)),
-		types.NewString(defaultString(preset.RosterJSON, emptyJSONArray)),
-		types.NewString(defaultString(preset.StepsJSON, emptyJSONArray)),
+		types.NewString(packLaunchRosterJSON(preset.RosterJSON, preset.StepsJSON)),
 		types.NewUint64(preset.StepMaxTurns),
 		types.NewUint64(preset.StepMaxTokens),
 		types.NewUint64(preset.CreatedAtUS),
@@ -99,6 +99,7 @@ func launchPresetRow(preset LaunchPreset) types.ProductValue {
 }
 
 func decodeLaunchPresetRow(row types.ProductValue) LaunchPreset {
+	rosterJSON, stepsJSON := unpackLaunchRosterJSON(row[7].AsString())
 	return LaunchPreset{
 		ID:               row[0].AsString(),
 		ProjectID:        row[1].AsString(),
@@ -107,13 +108,54 @@ func decodeLaunchPresetRow(row types.ProductValue) LaunchPreset {
 		Mode:             row[4].AsString(),
 		Role:             row[5].AsString(),
 		AllowedRolesJSON: row[6].AsString(),
-		RosterJSON:       row[7].AsString(),
-		StepsJSON:        row[8].AsString(),
-		StepMaxTurns:     row[9].AsUint64(),
-		StepMaxTokens:    row[10].AsUint64(),
-		CreatedAtUS:      row[11].AsUint64(),
-		UpdatedAtUS:      row[12].AsUint64(),
+		RosterJSON:       rosterJSON,
+		StepsJSON:        stepsJSON,
+		StepMaxTurns:     row[8].AsUint64(),
+		StepMaxTokens:    row[9].AsUint64(),
+		CreatedAtUS:      row[10].AsUint64(),
+		UpdatedAtUS:      row[11].AsUint64(),
 	}
+}
+
+type launchRosterEnvelope struct {
+	Roles json.RawMessage `json:"roles"`
+	Steps json.RawMessage `json:"steps"`
+}
+
+func packLaunchRosterJSON(rosterJSON string, stepsJSON string) string {
+	rosterRaw := jsonArrayRaw(rosterJSON)
+	stepsRaw := jsonArrayRaw(stepsJSON)
+	if string(stepsRaw) == emptyJSONArray {
+		return string(rosterRaw)
+	}
+	payload, err := json.Marshal(launchRosterEnvelope{Roles: rosterRaw, Steps: stepsRaw})
+	if err != nil {
+		return string(rosterRaw)
+	}
+	return string(payload)
+}
+
+func unpackLaunchRosterJSON(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return emptyJSONArray, emptyJSONArray
+	}
+	if strings.HasPrefix(value, "[") {
+		return string(jsonArrayRaw(value)), emptyJSONArray
+	}
+	var envelope launchRosterEnvelope
+	if err := json.Unmarshal([]byte(value), &envelope); err != nil {
+		return string(jsonArrayRaw(value)), emptyJSONArray
+	}
+	return string(jsonArrayRaw(string(envelope.Roles))), string(jsonArrayRaw(string(envelope.Steps)))
+}
+
+func jsonArrayRaw(value string) json.RawMessage {
+	value = strings.TrimSpace(value)
+	if value == "" || !json.Valid([]byte(value)) || !strings.HasPrefix(value, "[") {
+		return json.RawMessage(emptyJSONArray)
+	}
+	return json.RawMessage(value)
 }
 
 func ProjectLaunchID(projectID string, launchID string) string {
