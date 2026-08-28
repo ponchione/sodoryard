@@ -22,7 +22,7 @@ RUN npm run build
 # with sqlite_fts5 + lancedb cgo wiring. Rebuilds rpath to point at
 # the runtime image's library location (/usr/local/lib) so the
 # binaries find liblancedb_go.so without env var gymnastics.
-FROM golang:1.25-trixie AS go-builder
+FROM golang:1.27-trixie AS go-builder
 
 WORKDIR /workspace
 

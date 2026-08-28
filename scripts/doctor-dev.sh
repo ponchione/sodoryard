@@ -3,7 +3,7 @@ set -uo pipefail
 
 REPO_ROOT=${REPO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}
 MODE=${1:-full}
-MIN_GO=${MIN_GO:-1.25.5}
+MIN_GO=${MIN_GO:-1.27.0}
 MIN_NODE_MAJOR=${MIN_NODE_MAJOR:-22}
 LANCEDB_LIB_DIR=${LANCEDB_LIB_DIR:-"$REPO_ROOT/lib/linux_amd64"}
 

@@ -1,6 +1,6 @@
 module github.com/ponchione/sodoryard
 
-go 1.25.5
+go 1.27.0
 
 require (
 	github.com/apache/arrow/go/v17 v17.0.0

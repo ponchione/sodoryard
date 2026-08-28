@@ -204,7 +204,7 @@ The retained internal binary name (`tidmouth`) follows a naming convention from 
 ### Build from source
 
 ```bash
-# Prerequisites: Go 1.25.5+, Node 22+/npm, Make, GCC (for CGO/SQLite),
+# Prerequisites: Go 1.27+, Node 22+/npm, Make, GCC (for CGO/SQLite),
 # and the checked-in LanceDB library under lib/linux_amd64/.
 
 # Build the retained runnable artifact set
@@ -388,7 +388,7 @@ For `yard index` or `yard brain index` inside the container, make sure the mount
 
 | Component | Technology |
 |-----------|-----------|
-| Language | Go 1.25.5 |
+| Language | Go 1.27.0 |
 | CLI | Cobra |
 | Project memory | Shunter |
 | Structured fallback stores | SQLite with FTS5 full-text search |
